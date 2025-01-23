@@ -5,7 +5,8 @@
     "license": "Apache",
     "autoload": {
         "psr-4": {
-            "Jimbo2150\\PhpCssTypedOm\\": "src/"
+            "Jimbo2150\\PhpCssTypedOm\\": "src/",
+			"Jimbo2150\\PhpCssTypedOm\\Tests\\": "tests/"
         }
     },
     "authors": [
@@ -15,5 +16,16 @@
         }
     ],
     "minimum-stability": "stable",
-    "require": {}
+    "require": {
+		"php": ">=8.3"
+	},
+	"post-install-cmd": [
+		"curl https://raw.githubusercontent.com/WebKit/WebKit/main/Source/WebCore/css/CSSProperties.json -o vendor/WebKit/WebKit/main/Source/WebCore/css/CSSProperties.json --create-dirs"
+	],
+	"post-update-cmd": [
+		"curl https://raw.githubusercontent.com/WebKit/WebKit/main/Source/WebCore/css/CSSProperties.json -o vendor/WebKit/WebKit/main/Source/WebCore/css/CSSProperties.json --create-dirs"
+	],
+    "require-dev": {
+        "phpunit/phpunit": "^11.5"
+    }
 }
