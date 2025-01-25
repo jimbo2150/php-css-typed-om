@@ -16,4 +16,10 @@ final class CSSPropertyTest extends TestCase
 		$this->assertTrue($propertiesObj instanceof \stdClass);
 		$this->assertNotEmpty($objProperties, 'No CSS properties.');
 	}
+
+	public function testCSSPropertyShorthandStatic(): void
+	{
+		$this->assertFalse(CSSProperty::isShorthand('x'));
+		$this->assertTrue(CSSProperty::isShorthand('background'));
+	}
 }

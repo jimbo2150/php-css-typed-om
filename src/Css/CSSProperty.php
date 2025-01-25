@@ -1,23 +1,23 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\Css;
 
-use stdClass;
-
-abstract class CSSProperty {
-
-	protected static stdClass $properties;
+abstract class CSSProperty
+{
+	protected static \stdClass $properties;
 
 	protected static $initialized = false;
-	protected string $property;
 
-	public static function getProperties(): stdClass {
+	public static function getProperties(): \stdClass
+	{
 		return static::$properties;
 	}
 
-	public static function initialize(): void {
-		if(static::$initialized) {
+	public static function initialize(): void
+	{
+		if (static::$initialized) {
 			return;
 		}
 		static::$initialized = true;
@@ -28,13 +28,12 @@ abstract class CSSProperty {
 		)->properties;
 	}
 
-	public static function isPropertyShorthand(string|self $property): bool {
-		return $property instanceof self ?
-			$property->_isShorthand() : static::__isShorthand($property);
-	}
+	public static function isShorthand(string $property): bool
+	{
+		$longhands = (array) static::getProperties()?->{$property}?->
+			{'codegen-properties'}?->longhands ?? [];
 
-	public function isShorthand(): bool {
-		return static::isShorthand($this->property);
+		return count($longhands) > 0;
 	}
 }
 
