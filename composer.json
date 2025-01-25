@@ -19,12 +19,14 @@
     "require": {
 		"php": ">=8.3"
 	},
-	"post-install-cmd": [
-		"curl https://raw.githubusercontent.com/WebKit/WebKit/main/Source/WebCore/css/CSSProperties.json -o vendor/WebKit/WebKit/main/Source/WebCore/css/CSSProperties.json --create-dirs"
-	],
-	"post-update-cmd": [
-		"curl https://raw.githubusercontent.com/WebKit/WebKit/main/Source/WebCore/css/CSSProperties.json -o vendor/WebKit/WebKit/main/Source/WebCore/css/CSSProperties.json --create-dirs"
-	],
+	"scripts": {
+		"post-install-cmd": [
+			"curl https://raw.githubusercontent.com/WebKit/WebKit/main/Source/WebCore/css/CSSProperties.json -o vendor/WebKit/WebKit/main/Source/WebCore/css/CSSProperties.json --create-dirs"
+		],
+		"post-update-cmd": [
+			"curl https://raw.githubusercontent.com/WebKit/WebKit/main/Source/WebCore/css/CSSProperties.json -o vendor/WebKit/WebKit/main/Source/WebCore/css/CSSProperties.json --create-dirs"
+		]
+	},
     "require-dev": {
         "phpunit/phpunit": "^11.5"
     }
