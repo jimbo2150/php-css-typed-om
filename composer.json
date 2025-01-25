@@ -17,14 +17,18 @@
     ],
     "minimum-stability": "stable",
     "require": {
-		"php": ">=8.3"
+		"php": ">=8.3",
+        "guzzlehttp/guzzle": "^7.9"
 	},
 	"scripts": {
 		"post-install-cmd": [
-			"curl https://raw.githubusercontent.com/WebKit/WebKit/main/Source/WebCore/css/CSSProperties.json -o vendor/WebKit/WebKit/main/Source/WebCore/css/CSSProperties.json --create-dirs"
+			"@processCssProperties"
 		],
 		"post-update-cmd": [
-			"curl https://raw.githubusercontent.com/WebKit/WebKit/main/Source/WebCore/css/CSSProperties.json -o vendor/WebKit/WebKit/main/Source/WebCore/css/CSSProperties.json --create-dirs"
+			"@processCssProperties"
+		],
+		"processCssProperties": [
+			"Jimbo2150\\PhpCssTypedOm\\Process\\CSSPropertiesProcessor::run"
 		]
 	},
     "require-dev": {
