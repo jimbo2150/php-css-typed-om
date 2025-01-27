@@ -63,7 +63,7 @@ final class CSSPropertiesProcessor
 
 		$headers = [
 			'Accept' => ['text/plain'],
-			'User-Agent' => ['PHP'],
+			'User-Agent' => ['PHP Typed OM Package'],
 		];
 
 		if (!empty($etag)) {
@@ -80,6 +80,8 @@ final class CSSPropertiesProcessor
 				'on_headers' => function (ResponseInterface $response) {
 					if (304 == $response->getStatusCode()) {
 						throw new DontWriteException('File was not modified, nothing to do: '.$response->getStatusCode());
+					} elseif ($response->getStatusCode() >= 300 || $response->getStatusCode() < 200) {
+						throw new \Exception('HTTP Error: '.$response->getStatusCode());
 					} elseif (
 						count(array_filter(
 							$response->getHeader('Content-Length'),
@@ -106,6 +108,6 @@ final class CSSPropertiesProcessor
 			file_put_contents($etag_file, $response->getHeader('ETag'));
 		}
 
-		echo 'Success.';
+		echo 'Success.'.PHP_EOL;
 	}
 }
