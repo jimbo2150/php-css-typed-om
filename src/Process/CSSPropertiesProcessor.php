@@ -32,17 +32,17 @@ final class CSSPropertiesProcessor
 	{
 		static $rootPath = realpath('.');
 
-		return $rootPath.'/'.self::PROPERTIES_DIR;
+		return $rootPath.DIRECTORY_SEPARATOR.self::PROPERTIES_DIR;
 	}
 
 	public static function getJsonFilePath(): string
 	{
-		return self::getPropertiesPath().'/'.self::JSON_FILE;
+		return self::getPropertiesPath().DIRECTORY_SEPARATOR.self::JSON_FILE;
 	}
 
 	public static function getDbPath(): string
 	{
-		return self::getPropertiesPath().self::DB_FILE;
+		return self::getPropertiesPath().DIRECTORY_SEPARATOR.self::DB_FILE;
 	}
 
 	private static function acquireJsonFile()
@@ -109,5 +109,9 @@ final class CSSPropertiesProcessor
 		}
 
 		echo 'Success.'.PHP_EOL;
+	}
+
+	private static function needToGenerateDatabase(): bool
+	{
 	}
 }
