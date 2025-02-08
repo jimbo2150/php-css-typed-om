@@ -25,7 +25,12 @@ final class CSSPropertiesProcessor
 
 	public static function run()
 	{
-		self::acquireJsonFile();
+		if (static::needToAcquireJsonFile()) {
+			static::acquireJsonFile();
+		}
+		if (static::needToGenerateDatabase()) {
+			static::generateDatabase();
+		}
 	}
 
 	public static function getPropertiesPath(): string
@@ -45,9 +50,31 @@ final class CSSPropertiesProcessor
 		return self::getPropertiesPath().DIRECTORY_SEPARATOR.self::DB_FILE;
 	}
 
-	private static function acquireJsonFile()
+	private static function needToAcquireJsonFile(): bool
 	{
-		$file = self::getJsonFilePath();
+		$propFile = static::getJsonFilePath();
+		if (!file_exists($propFile)) {
+			if (!touch($propFile)) {
+				throw new \Exception('Could not create CSS properties file.');
+			}
+
+			return true;
+		}
+		$propMtime = new \DateTimeImmutable('@'.filemtime($propFile));
+		$now = new \DateTimeImmutable();
+		if (
+			$now > $propMtime->modify('+5 minutes') ||
+			filesize($propFile) < 1
+		) {
+			return true;
+		}
+
+		return false;
+	}
+
+	private static function acquireJsonFile(): void
+	{
+		$file = static::getJsonFilePath();
 		$etag_file = $file.'.etag';
 		$dir = dirname($file);
 
@@ -77,10 +104,13 @@ final class CSSPropertiesProcessor
 			$response = $client->request('GET', self::JSON_FILE_URL, [
 				'headers' => $headers,
 				'sink' => $file,
-				'on_headers' => function (ResponseInterface $response) {
+				'on_headers' => function (ResponseInterface $response) use ($file): void {
 					if (304 == $response->getStatusCode()) {
+						touch($file);
 						throw new DontWriteException('File was not modified, nothing to do: '.$response->getStatusCode());
-					} elseif ($response->getStatusCode() >= 300 || $response->getStatusCode() < 200) {
+					} elseif (
+						$response->getStatusCode() >= 300 || $response->getStatusCode() < 200
+					) {
 						throw new \Exception('HTTP Error: '.$response->getStatusCode());
 					} elseif (
 						count(array_filter(
@@ -113,5 +143,38 @@ final class CSSPropertiesProcessor
 
 	private static function needToGenerateDatabase(): bool
 	{
+		$dbFile = static::getDbPath();
+		$propFile = static::getJsonFilePath();
+		if (!file_exists($dbFile)) {
+			if (!touch($dbFile)) {
+				throw new \Exception('Could not create database file.');
+			}
+
+			return true;
+		}
+		if (
+			filemtime($propFile) > filemtime($dbFile) ||
+			filesize($dbFile) < 1
+		) {
+			return true;
+		}
+
+		return false;
+	}
+
+	private static function generateDatabase(): void
+	{
+		$propFile = json_decode(file_get_contents(static::getJsonFilePath()));
+		$dbFile = static::getDbPath();
+		echo 'Creating CSS Properties database... ';
+		$db = new \PDO('sqlite:'.$dbFile);
+		if (!$db || $db->errorCode()) {
+			throw new \Exception('Could not initialized CSS properties database.');
+		}
+		foreach ($propFile->properties as $property => $propEntry) {
+			return;
+		}
+		// echo 'Success.';
+		echo PHP_EOL;
 	}
 }
