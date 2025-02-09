@@ -25,11 +25,13 @@ final class CSSPropertiesProcessor
 
 	public static function run()
 	{
+		$forceRegenerate = false;
 		if (static::needToAcquireJsonFile()) {
 			static::acquireJsonFile();
+			$forceRegenerate = true;
 		}
-		if (static::needToGenerateDatabase()) {
-			static::generateDatabase();
+		if ($forceRegenerate = $forceRegenerate || static::needToGenerateDatabase()) {
+			static::generateDatabase($forceRegenerate);
 		}
 	}
 
@@ -37,17 +39,17 @@ final class CSSPropertiesProcessor
 	{
 		static $rootPath = realpath('.');
 
-		return $rootPath.DIRECTORY_SEPARATOR.self::PROPERTIES_DIR;
+		return $rootPath.DIRECTORY_SEPARATOR.static::PROPERTIES_DIR;
 	}
 
 	public static function getJsonFilePath(): string
 	{
-		return self::getPropertiesPath().DIRECTORY_SEPARATOR.self::JSON_FILE;
+		return static::getPropertiesPath().DIRECTORY_SEPARATOR.static::JSON_FILE;
 	}
 
 	public static function getDbPath(): string
 	{
-		return self::getPropertiesPath().DIRECTORY_SEPARATOR.self::DB_FILE;
+		return static::getPropertiesPath().DIRECTORY_SEPARATOR.static::DB_FILE;
 	}
 
 	private static function needToAcquireJsonFile(): bool
@@ -101,7 +103,7 @@ final class CSSPropertiesProcessor
 		echo 'Acquiring CSS Properties file... ';
 
 		try {
-			$response = $client->request('GET', self::JSON_FILE_URL, [
+			$response = $client->request('GET', static::JSON_FILE_URL, [
 				'headers' => $headers,
 				'sink' => $file,
 				'on_headers' => function (ResponseInterface $response) use ($file): void {
@@ -145,6 +147,7 @@ final class CSSPropertiesProcessor
 	{
 		$dbFile = static::getDbPath();
 		$propFile = static::getJsonFilePath();
+		$isDevEnvironment = 'dev' === getenv('APP_ENV');
 		if (!file_exists($dbFile)) {
 			if (!touch($dbFile)) {
 				throw new \Exception('Could not create database file.');
@@ -153,6 +156,7 @@ final class CSSPropertiesProcessor
 			return true;
 		}
 		if (
+			$isDevEnvironment ||
 			filemtime($propFile) > filemtime($dbFile) ||
 			filesize($dbFile) < 1
 		) {
@@ -162,19 +166,82 @@ final class CSSPropertiesProcessor
 		return false;
 	}
 
-	private static function generateDatabase(): void
+	private static function generateDatabase(bool $regenerate = false): void
 	{
 		$propFile = json_decode(file_get_contents(static::getJsonFilePath()));
 		$dbFile = static::getDbPath();
 		echo 'Creating CSS Properties database... ';
+		if ($regenerate) {
+			echo 'Regenerating database... ';
+			unlink($dbFile);
+			touch($dbFile);
+		}
 		$db = new \PDO('sqlite:'.$dbFile);
 		if (!$db || $db->errorCode()) {
 			throw new \Exception('Could not initialized CSS properties database.');
 		}
+
+		// Create tables
+		$db->exec('
+			CREATE TABLE IF NOT EXISTS Property (
+				name TEXT PRIMARY KEY
+			)
+		');
+
+		// Create Metadata table
+		$db->exec('
+			CREATE TABLE IF NOT EXISTS Metadata (
+				property TEXT,
+				key TEXT,
+				value TEXT,
+				PRIMARY KEY (property, key),
+				FOREIGN KEY (property) REFERENCES Property(name)
+			)
+		');
+
+		$db->exec(
+			'CREATE INDEX metadata_propery_key_value_idx ON '.
+				'Metadata(property, key, value COLLATE NOCASE)'
+		);
+
+		$db->exec(
+			'CREATE INDEX metadata_key_value_idx ON '.
+				'Metadata(key, value COLLATE NOCASE)'
+		);
+
+		// Insert properties into the Property table
+		$insertPropertyStmt = $db->prepare('INSERT INTO Property (name) VALUES (:name)');
+		$insertMetadataStmt = $db->prepare('INSERT INTO Metadata (property, key, value) VALUES (:property, :key, :value)');
 		foreach ($propFile->properties as $property => $propEntry) {
-			return;
+			$insertPropertyStmt->execute([':name' => $property]);
+			static::insertMetadata(
+				$insertMetadataStmt,
+				$property,
+				$propEntry
+			);
 		}
-		// echo 'Success.';
+		echo 'Success.';
 		echo PHP_EOL;
+	}
+
+	private static function insertMetadata($stmt, $property, $propEntry, $prefix = ''): void
+	{
+		foreach ($propEntry as $key => $value) {
+			$fullKey = $prefix ? $prefix.'.'.$key : $key;
+			if (is_string($value)) {
+				$stmt->execute([
+					':property' => $property,
+					':key' => $fullKey,
+					':value' => $value,
+				]);
+			} elseif (is_object($value)) {
+				static::insertMetadata(
+					$stmt,
+					$property,
+					$value,
+					$fullKey
+				);
+			}
+		}
 	}
 }
