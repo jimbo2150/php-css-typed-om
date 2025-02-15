@@ -106,9 +106,8 @@ final class CSSPropertiesProcessor
 			$response = $client->request('GET', static::JSON_FILE_URL, [
 				'headers' => $headers,
 				'sink' => $file,
-				'on_headers' => function (ResponseInterface $response) use ($file): void {
+				'on_headers' => function (ResponseInterface $response): void {
 					if (304 == $response->getStatusCode()) {
-						touch($file);
 						throw new DontWriteException('File was not modified, nothing to do: '.$response->getStatusCode());
 					} elseif (
 						$response->getStatusCode() >= 300 || $response->getStatusCode() < 200
