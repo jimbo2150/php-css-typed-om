@@ -23,7 +23,7 @@ abstract class CSSProperty
 		static::$initialized = true;
 		static::$properties = json_decode(
 			file_get_contents(realpath(
-				'./vendor/WebKit/WebKit/main/Source/WebCore/css/CSSProperties.json'
+				'./dist/CSSProperties/CSSProperties.json'
 			))
 		)->properties;
 	}
