@@ -5,10 +5,14 @@
     "license": "Apache",
     "autoload": {
         "psr-4": {
-            "Jimbo2150\\PhpCssTypedOm\\": "src/",
-			"Jimbo2150\\PhpCssTypedOm\\Tests\\": "tests/"
+            "Jimbo2150\\PhpCssTypedOm\\": "src/"
         }
     },
+	"autoload-dev": {
+		"psr-4": {
+			"Jimbo2150\\PhpCssTypedOm\\Tests\\": "tests/"
+        }
+	},
     "authors": [
         {
             "name": "Jim Robinson",
