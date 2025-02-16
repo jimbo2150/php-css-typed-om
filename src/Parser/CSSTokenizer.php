@@ -7,6 +7,10 @@ namespace Jimbo2150\PhpCssTypedOm\Parser;
 use Jimbo2150\PhpCssTypedOm\WTF\icu\unicode\UChar;
 
 use function Jimbo2150\PhpCssTypedOm\WTF\wtf\ASCIICType\isASCII;
+use function Jimbo2150\PhpCssTypedOm\WTF\wtf\ASCIICType\isASCIIDigit;
+use function Jimbo2150\PhpCssTypedOm\WTF\wtf\ASCIICType\isASCIIHexDigit;
+
+use const Jimbo2150\PhpCssTypedOm\WTF\icu\unicode\CharacterNames\REPLACEMENT_CHARACTER;
 
 final class CSSTokenizer
 {
@@ -194,6 +198,287 @@ final class CSSTokenizer
 		}
 	}
 
+	public function tokenRange(): CSSParserTokenTrange
+	{
+		return $this->m_tokens;
+	}
+
+	public function tokenCount(): int
+	{
+		return $this->m_tokens->size();
+	}
+
+	public static function isWhitespace(CSSParserTokenType $type): bool
+	{
+		return NonNewlineWhitespaceToken == $type || NewlineToken == $type;
+	}
+
+	public static function isNewline(UChar $cc): bool
+	{
+		// We check \r and \f here, since we have no preprocessing stage
+		return '\r' == $cc || '\n' == $cc || '\f' == $cc;
+	}
+
+	public static function newline(): CSSParserToken
+	{
+		return new CSSParserToken(NewlineToken);
+	}
+
+	public static function twoCharsAreValidEscape(UChar $first, UChar $second): bool
+	{
+		return '\\' == $first && !self::isNewline($second);
+	}
+
+	public function whitespace(): CSSParserToken
+	{
+		$startOffset = $this->m_input->offset();
+		$this->m_input->advanceUntilNewlineOrNonWhitespace();
+		$whitespaceCount = 1 + ($this->m_input->offset() - $startOffset);
+
+		return new CSSParserToken($whitespaceCount);
+	}
+
+	public function blockStart(
+		CSSParserTokenType $type,
+		?CSSParserTokenType $blockType = null,
+		?StringView $name = null,
+	): CSSParserToken {
+		$this->m_blockStack->append($type);
+
+		return new CSSParserToken($type, $blockType ?? self::BlockStart, $name);
+	}
+
+	public function blockEnd(
+		CSSParserTokenType $type,
+		CSSParserTokenType $startType,
+	): CSSParserToken {
+		if (!$this->m_blockStack->isEmpty() && $this->m_blockStack->last() == $startType) {
+			$this->m_blockStack->removeLast();
+
+			return CSSParserToken($type, self::BlockEnd);
+		}
+
+		return new CSSParserToken($type);
+	}
+
+	public function leftParenthesis(): CSSParserToken
+	{
+		return blockStart(LeftParenthesisToken);
+	}
+
+	public function rightParenthesis(): CSSParserToken
+	{
+		return blockEnd(RightParenthesisToken, LeftParenthesisToken);
+	}
+
+	public function leftBracket(): CSSParserToken
+	{
+		return blockStart(LeftBracketToken);
+	}
+
+	public function rightBracket(): CSSParserToken
+	{
+		return blockEnd(RightBracketToken, LeftBracketToken);
+	}
+
+	public function leftBrace(): CSSParserToken
+	{
+		return blockStart(LeftBraceToken);
+	}
+
+	public function rightBrace(): CSSParserToken
+	{
+		return blockEnd(RightBraceToken, LeftBraceToken);
+	}
+
+	public function plusOrFullStop(UChar $cc): CSSParserToken
+	{
+		if ($this->nextCharsAreNumber(cc)) {
+			$this->reconsume($cc);
+
+			return $this->consumeNumericToken();
+		}
+
+		return new CSSParserToken(DelimiterToken, $cc);
+	}
+
+	public function asterisk(UChar $cc): CSSParserToken
+	{
+		assert('*' == $cc);
+		if ($this->consumeIfNext('=')) {
+			return new CSSParserToken(SubstringMatchToken);
+		}
+
+		return new CSSParserToken(DelimiterToken, '*');
+	}
+
+	public function lessThan(UChar $cc): CSSParserToken
+	{
+		assert($cc, '<' == $cc);
+		if (
+			'!' == $this->m_input->peek(0) &&
+			'-' == $this->m_input->peek(1) &&
+			'-' == $this->m_input->peek(2)
+		) {
+			$this->m_input->advance(3);
+
+			return new CSSParserToken(CDOToken);
+		}
+
+		return new CSSParserToken(DelimiterToken, '<');
+	}
+
+	public function comma(): CSSParserToken
+	{
+		return new CSSParserToken(CommaToken);
+	}
+
+	public function hyphenMinus(UChar $cc): CSSParserToken
+	{
+		if ($this->nextCharsAreNumber($cc)) {
+			$this->reconsume($cc);
+
+			return $this->consumeNumericToken();
+		}
+		if ('-' == $this->m_input->peek(0) && '>' == $this->m_input->peek(1)) {
+			$this->m_input->advance(2);
+
+			return CSSParserToken(CDCToken);
+		}
+		if ($this->nextCharsAreIdentifier(cc)) {
+			$this->reconsume(cc);
+
+			return $this->consumeIdentLikeToken();
+		}
+
+		return new CSSParserToken(DelimiterToken, $cc);
+	}
+
+	public function solidus(UChar $cc): CSSParserToken
+	{
+		if ($this->consumeIfNext('*')) {
+			// These get ignored, but we need a value to return.
+			$this->consumeUntilCommentEndFound();
+
+			return new CSSParserToken(CommentToken);
+		}
+
+		return new CSSParserToken(DelimiterToken, $cc);
+	}
+
+	public function colon(): CSSParserToken
+	{
+		return new CSSParserToken(ColonToken);
+	}
+
+	public function semiColon(): CSSParserToken
+	{
+		return new CSSParserToken(SemicolonToken);
+	}
+
+	public function hash(UChar $cc): CSSParserToken
+	{
+		$nextChar = $this->m_input->peek(0);
+		if (
+			$this->isNameCodePoint($nextChar) ||
+			$this->twoCharsAreValidEscape($nextChar, $this->m_input->peek(1))
+		) {
+			$type = $this->nextCharsAreIdentifier() ? HashTokenId : HashTokenUnrestricted;
+
+			return new CSSParserToken($type, $this->consumeName());
+		}
+
+		return new CSSParserToken(DelimiterToken, $cc);
+	}
+
+	public function circumflexAccent(UChar $cc): CSSParserToken
+	{
+		assert('^' == $cc);
+		if ($this->consumeIfNext('=')) {
+			return new CSSParserToken(PrefixMatchToken);
+		}
+
+		return new CSSParserToken(DelimiterToken, '^');
+	}
+
+	public function dollarSign(UChar $cc): CSSParserToken
+	{
+		assert('$' == $cc);
+		if ($this->consumeIfNext('=')) {
+			return new CSSParserToken(SuffixMatchToken);
+		}
+
+		return new CSSParserToken(DelimiterToken, '$');
+	}
+
+	public function verticalLine(UChar $cc): CSSParserToken
+	{
+		assert('|' == $cc);
+		if ($this->consumeIfNext('=')) {
+			return new CSSParserToken(DashMatchToken);
+		}
+		if ($this->consumeIfNext('|')) {
+			return new CSSParserToken(ColumnToken);
+		}
+
+		return new CSSParserToken(DelimiterToken, '|');
+	}
+
+	public function tilde(UChar $cc): CSSParserToken
+	{
+		assert('~' == $cc);
+		if ($this->consumeIfNext('=')) {
+			return new CSSParserToken(IncludeMatchToken);
+		}
+
+		return new CSSParserToken(DelimiterToken, '~');
+	}
+
+	public function commercialAt(UChar $cc): CSSParserToken
+	{
+		assert('@' == $cc);
+		if ($this->nextCharsAreIdentifier()) {
+			return new CSSParserToken(AtKeywordToken, $this->consumeName());
+		}
+
+		return new CSSParserToken(DelimiterToken, '@');
+	}
+
+	public function reverseSolidus(UChar $cc): CSSParserToken
+	{
+		if ($this->twoCharsAreValidEscape($cc, $this->m_input->peek(0))) {
+			$this->reconsume($cc);
+
+			return $this->consumeIdentLikeToken();
+		}
+
+		return new CSSParserToken(DelimiterToken, $cc);
+	}
+
+	public function asciiDigit(UChar $cc): CSSParserToken
+	{
+		$this->reconsume($cc);
+
+		return $this->consumeNumericToken();
+	}
+
+	public function nameStart(UChar $cc): CSSParserToken
+	{
+		$this->reconsume($cc);
+
+		return $this->consumeIdentLikeToken();
+	}
+
+	public function stringStart(UChar $cc): CSSParserToken
+	{
+		return $this->consumeStringTokenUntil($cc);
+	}
+
+	public function endOfFile(): CSSParserToken
+	{
+		return new CSSParserToken(EOFToken);
+	}
+
 	/**
 	 * Replace null bytes and unpaired surrogates with the Unicode replacement
 	 * 		character (U+FFFD).
@@ -242,31 +527,75 @@ final class CSSTokenizer
 		return CSSParserToken(DelimiterToken, $cc);
 	}
 
-	protected function consume(): UChar
+	public function consumeNumber(): CSSParserToken
 	{
-		$current = $this->m_input->nextInputChar();
-		$this->m_input->advance();
+		assert($this->nextCharsAreNumber());
 
-		return $current;
+		$startOffset = $this->m_input->offset();
+
+		$type = IntegerValueType;
+		$sign = NoSign;
+		$numberLength = 0;
+
+		$next = $this->m_input->peek(0);
+		if ('+' == $next) {
+			++$numberLength;
+			$sign = PlusSign;
+		} elseif ('-' == $next) {
+			++$numberLength;
+			$sign = MinusSign;
+		}
+
+		$numberLength = $this->m_input->skipWhilePredicate($numberLength);
+		$next = $this->m_input->peek($numberLength);
+		if ('.' == $next && isASCIIDigit($this->m_input->peek($numberLength + 1))) {
+			$type = NumberValueType;
+			$numberLength = $this->m_input->skipWhilePredicate($numberLength + 2);
+			$next = $this->m_input->peek($numberLength);
+		}
+
+		if ('E' == $next || 'e' == $next) {
+			$next = $this->m_input->peek($numberLength + 1);
+			if (isASCIIDigit($next)) {
+				$type = NumberValueType;
+				$numberLength = $this->m_input->skipWhilePredicate($numberLength + 1);
+			} elseif (
+				('+' == $next || '-' == $next) &&
+				isASCIIDigit($this->m_input->peek($numberLength + 2))
+			) {
+				$type = NumberValueType;
+				$numberLength = $this->m_input->skipWhilePredicate($numberLength + 3);
+			}
+		}
+
+		$value = $this->m_input->getDouble(0, $numberLength);
+		$this->m_input->advance($numberLength);
+
+		return new CSSParserToken(
+			$value,
+			$type,
+			$sign,
+			$this->m_input->rangeAt($startOffset, $this->m_input->offset() - $startOffset)
+		);
 	}
 
-	protected function nameStart(UChar $cc): CSSParserToken
+	public function consumeNumericToken(): CSSParserToken
 	{
-		$this->reconsume($cc);
+		$token = $this->consumeNumber();
+		if ($this->nextCharsAreIdentifier()) {
+			$token->convertToDimensionWithUnit($this->consumeName());
+		} elseif (consumeIfNext('%')) {
+			$token->convertToPercentage();
+		}
 
-		return $this->consumeIdentLikeToken();
+		return $token;
 	}
 
-	protected function reconsume(UChar $c): void
-	{
-		$this->m_input->pushBack($c);
-	}
-
-	protected function consumeIdentLikeToken(): CSSParserToken
+	public function consumeIdentLikeToken(): CSSParserToken
 	{
 		$name = $this->consumeName();
 		if ($this->consumeIfNext('(')) {
-			if ($this->equalLettersIgnoringASCIICase($name, 'url')) {
+			if (equalLettersIgnoringASCIICase($name, 'url')) {
 				// The spec is slightly different so as to avoid dropping whitespace
 				// tokens, but they wouldn't be used and this is easier.
 				$this->m_input->advanceUntilNonWhitespace();
@@ -276,9 +605,338 @@ final class CSSTokenizer
 				}
 			}
 
-			return $this->blockStart(LeftParenthesisToken, FunctionToken, $name);
+			return $this->blockStart(
+				LeftParenthesisToken,
+				FunctionToken,
+				$name
+			);
 		}
 
 		return new CSSParserToken(IdentToken, $name);
+	}
+
+	public function consumeStringTokenUntil(UChar $endingCodePoint): CSSParserToken
+	{
+		// Strings without escapes get handled without allocations
+		for ($size = 0;; ++$size) {
+			$cc = $this->m_input->peek($size);
+			if ($cc == $endingCodePoint) {
+				$startOffset = $this->m_input->offset();
+				$this->m_input->advance($size + 1);
+
+				return new CSSParserToken(
+					StringToken,
+					$this->m_input->rangeAt($startOffset, $size)
+				);
+			}
+			if (isNewline(cc)) {
+				$this->m_input->advance($size);
+
+				return CSSParserToken(BadStringToken);
+			}
+			if (kEndOfFileMarker == $cc || '\\' == $cc) {
+				break;
+			}
+		}
+
+		$output = '';
+		while (true) {
+			$cc = $this->consume();
+			if ($cc == $endingCodePoint || kEndOfFileMarker == $cc) {
+				return new CSSParserToken(StringToken, $this->registerString((string) $output));
+			}
+			if (isNewline($cc)) {
+				$this->reconsume($cc);
+
+				return new CSSParserToken(BadStringToken);
+			}
+			if ('\\' == $cc) {
+				if (kEndOfFileMarker == $this->m_input->nextInputChar()) {
+					continue;
+				}
+				if (isNewline($this->m_input->peek(0))) {
+					$this->consumeSingleWhitespaceIfNext();
+				} // This handles \r\n for us
+				else {
+					$output .= $this->consumeEscape();
+				}
+			} else {
+				$output .= $cc;
+			}
+		}
+	}
+
+	public static function isNonPrintableCodePoint(UChar $cc): bool
+	{
+		return $cc <= "\x8" || "\xb" == $cc || ($cc >= "\xe" && $cc <= "\x1f") || "\x7f" == $cc;
+	}
+
+	public function consumeURLToken(): CSSParserToken
+	{
+		$this->m_input->advanceUntilNonWhitespace();
+
+		// URL tokens without escapes get handled without allocations
+		for ($size = 0;; ++$size) {
+			$cc = $this->m_input->peek($size);
+			if (')' == $cc) {
+				$startOffset = $this->m_input->offset();
+				$this->m_input->advance($size + 1);
+
+				return new CSSParserToken(UrlToken, $this->m_input->rangeAt($startOffset, $size));
+			}
+			if (
+				$cc <= ' ' ||
+				'\\' == $cc ||
+				'"' == $cc ||
+				'\'' == $cc ||
+				'(' == $cc ||
+				'\x7f' == $cc
+			) {
+				break;
+			}
+		}
+
+		$result = '';
+		while (true) {
+			$cc = $this->consume();
+			if (')' == $cc || kEndOfFileMarker == $cc) {
+				return new CSSParserToken(UrlToken, $this->registerString($result));
+			}
+
+			if (isASCIIWhitespace(cc)) {
+				$this->m_input->advanceUntilNonWhitespace();
+				if (
+					$this->consumeIfNext(')') ||
+					kEndOfFileMarker == $this->m_input->nextInputChar()
+				) {
+					return new CSSParserToken(UrlToken, $this->registerString($result));
+				}
+				break;
+			}
+
+			if ('"' == $cc || '\'' == $cc || '(' == $cc || isNonPrintableCodePoint($cc)) {
+				break;
+			}
+
+			if ('\\' == $cc) {
+				if (twoCharsAreValidEscape($cc, $this->m_input->peek(0))) {
+					$result .= $this->consumeEscape();
+					continue;
+				}
+				break;
+			}
+
+			$result .= $cc;
+		}
+
+		$this->consumeBadUrlRemnants();
+
+		return new CSSParserToken(BadUrlToken);
+	}
+
+	public function consumeBadUrlRemnants(): void
+	{
+		while (true) {
+			$cc = $this->consume();
+			if (')' == $cc || kEndOfFileMarker == $cc) {
+				return;
+			}
+			if (twoCharsAreValidEscape($cc, $this->m_input->peek(0))) {
+				$this->consumeEscape();
+			}
+		}
+	}
+
+	public function consumeSingleWhitespaceIfNext(): void
+	{
+		// We check for \r\n and ASCII whitespace since we don't do preprocessing
+		$next = $this->m_input->peek(0);
+		if ('\r' == $next && '\n' == $this->m_input->peek(1)) {
+			$this->m_input->advance(2);
+		} elseif (isASCIIWhitespace($next)) {
+			$this->m_input->advance();
+		}
+	}
+
+	public function consumeUntilCommentEndFound(): void
+	{
+		$c = $this->consume();
+		while (true) {
+			if (kEndOfFileMarker == $c) {
+				return;
+			}
+			if ('*' != $c) {
+				$c = $this->consume();
+				continue;
+			}
+			$c = $this->consume();
+			if ('/' == $c) {
+				return;
+			}
+		}
+	}
+
+	public function consumeIfNext(UChar $character): bool
+	{
+		assert(null !== $character);
+		if ($this->m_input->peek(0) == $character) {
+			$this->m_input->advance();
+
+			return true;
+		}
+
+		return false;
+	}
+
+	public function consumeName(): string
+	{
+		// Names without escapes get handled without allocations
+		for ($size = 0;; ++$size) {
+			$cc = $this->m_input->peek($size);
+			if (isNameCodePoint($cc)) {
+				continue;
+			}
+			// peek will return NUL when we hit the end of the
+			// input. In that case we want to still use the rangeAt() fast path
+			// below.
+			if (
+				kEndOfFileMarker == $cc &&
+				$this->m_input->offset() + $size < $this->m_input->length()
+			) {
+				break;
+			}
+			if ('\\' == $cc) {
+				break;
+			}
+			$startOffset = $this->m_input->offset();
+			$this->m_input->advance($size);
+
+			return $this->m_input->rangeAt($startOffset, $size);
+		}
+
+		$result = '';
+		while (true) {
+			$cc = $this->consume();
+			if (isNameCodePoint($cc)) {
+				$result .= $cc;
+				continue;
+			}
+			if (twoCharsAreValidEscape($cc, $this->m_input->peek(0))) {
+				$result .= $this->consumeEscape();
+				continue;
+			}
+			$this->reconsume($cc);
+
+			// '�'
+			return registerString($result);
+		}
+	}
+
+	// http://dev.w3.org/csswg/css-syntax/#consume-an-escaped-code-point
+	public function consumeEscape(): string
+	{
+		$cc = $this->consume();
+		assert(!$this->isNewline($cc));
+		if (isASCIIHexDigit($cc)) {
+			$consumedHexDigits = 1;
+			$hexChars = '';
+			$hexChars .= $cc;
+			while ($consumedHexDigits < 6 && isASCIIHexDigit($this->m_input->peek(0))) {
+				$cc = $this->consume();
+				$hexChars .= $cc;
+				++$consumedHexDigits;
+			}
+			$this->consumeSingleWhitespaceIfNext();
+			$codePoint = intval($hexChars, 16);
+			if (
+				!$codePoint ||
+				\IntlChar::CHAR_CATEGORY_SURROGATE == \IntlChar::charType($codePoint) ||
+				$codePoint > \IntlChar::CODEPOINT_MAX
+			) {
+				return REPLACEMENT_CHARACTER;
+			}
+
+			return \IntlChar::chr($codePoint);
+		}
+
+		return $cc;
+	}
+
+	public function nextTwoCharsAreValidEscape(): bool
+	{
+		return $this->twoCharsAreValidEscape($this->m_input->peek(0), $this->m_input->peek(1));
+	}
+
+	// http://www.w3.org/TR/css3-syntax/#starts-with-a-number
+	public function nextCharsAreNumber(?UChar $first = null): bool
+	{
+		if (null === $first) {
+			$first = $this->consume();
+			$areNumber = $this->nextCharsAreNumber($first);
+			$this->reconsume($first);
+
+			return $areNumber;
+		}
+
+		$second = $this->m_input->peek(0);
+		if (isASCIIDigit($first)) {
+			return true;
+		}
+		if ('+' == $first || '-' == $first) {
+			return
+				isASCIIDigit($second) ||
+				('.' == $second && isASCIIDigit($this->m_input->peek(1)))
+			;
+		}
+		if ('.' == $first) {
+			return isASCIIDigit($second);
+		}
+
+		return false;
+	}
+
+	// http://dev.w3.org/csswg/css-syntax/#would-start-an-identifier
+	public function nextCharsAreIdentifier(?UChar $first = null): bool
+	{
+		if (null === $first) {
+			$first = $this->consume();
+			$areIdentifier = $this->nextCharsAreIdentifier($first);
+			$this->reconsume($first);
+
+			return $areIdentifier;
+		}
+
+		$second = $this->m_input->peek(0);
+		if (isNameStartCodePoint($first) || $this->twoCharsAreValidEscape($first, $second)) {
+			return true;
+		}
+
+		if ('-' == $first) {
+			return isNameStartCodePoint($second) ||
+				'-' == $second ||
+				$this->nextTwoCharsAreValidEscape();
+		}
+
+		return false;
+	}
+
+	public function registerString(string $string): string
+	{
+		$this->m_stringPool[] = $string;
+
+		return $string;
+	}
+
+	protected function consume(): UChar
+	{
+		$current = $this->m_input->nextInputChar();
+		$this->m_input->advance();
+
+		return $current;
+	}
+
+	protected function reconsume(UChar $c): void
+	{
+		$this->m_input->pushBack($c);
 	}
 }
