@@ -2,7 +2,7 @@
     "name": "jimbo2150/php-css-typed-om",
     "description": "PHP implementation of the CSS Typed Object Model (OM).",
     "type": "library",
-    "license": "Apache",
+    "license": "Apache-2.0",
     "autoload": {
         "psr-4": {
             "Jimbo2150\\PhpCssTypedOm\\": "src/"
