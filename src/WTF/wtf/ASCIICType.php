@@ -5,8 +5,9 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\WTF\wtf\ASCIICType;
 
 use Jimbo2150\PhpCssTypedOm\Parser\CharacterType;
-use Jimbo2150\PhpCssTypedOm\Parser\CharacterTypeEnum;
-use Jimbo2150\PhpCssTypedOm\WTF\wtf\text\CharacterParsingBuffer;
+use Jimbo2150\PhpCssTypedOm\WTF\wtf\text\LChar;
+
+use function Jimbo2150\PhpCssTypedOm\Utility\recursive_class_has_use;
 
 $asciiCaseFoldTable = \SplFixedArray::fromArray(
 	[
@@ -39,17 +40,12 @@ function isASCII(string $character): bool
 
 function isASCIILower(CharacterType $character): bool
 {
-	return $character >= 'a' && $character <= 'z';
+	return ctype_alpha($character);
 }
 
-function toASCIILowerUnchecked(CharacterType $character): CharacterTypeEnum
+function toASCIILowerUnchecked(CharacterType $character): CharacterType
 {
-	// This function can be used for comparing any input character
-	// to a lowercase English character. The isASCIIAlphaCaselessEqual
-	// below should be used for regular comparison of ASCII alpha
-	// characters, but switch statements in CSS tokenizer instead make
-	// direct use of this function.
-	return CharacterTypeEnum::tryFrom($character | 0x20);
+	return $character->toASCIILower();
 }
 
 function isASCIIAlpha(CharacterType $character): bool
@@ -59,7 +55,7 @@ function isASCIIAlpha(CharacterType $character): bool
 
 function isASCIIDigit(CharacterType $character): bool
 {
-	return $character >= '0' && $character <= '9';
+	return ctype_digit($character);
 }
 
 function isASCIIAlphanumeric(CharacterType $character): bool
@@ -102,16 +98,6 @@ function isASCIIWhitespace(CharacterType $character): bool
 
 function isASCIIWhitespaceWithoutFF(CharacterType $character): bool
 {
-	// This is different from isASCIIWhitespace: JSON/HTTP/XML do not accept \f as a whitespace.
-	// ECMA-404 specifies the following:
-	// > Whitespace is any sequence of one or more of the following code points:
-	// > character tabulation (U+0009), line feed (U+000A), carriage return (U+000D), and space (U+0020).
-	//
-	// This matches HTTP whitespace:
-	// https://fetch.spec.whatwg.org/#http-whitespace-byte
-	//
-	// And XML whitespace:
-	// https://www.w3.org/TR/2008/REC-xml-20081126/#NT-S
 	return ' ' == $character || "\n" == $character || "\t" == $character || "\r" == $character;
 }
 
@@ -133,10 +119,8 @@ function isNotASCIIWhitespace(CharacterType $character): bool
 function toASCIILower(CharacterType|LChar $character): CharacterType|LChar
 {
 	global $asciiCaseFoldTable;
-	if ($character instanceof CharacterType) {
-		return new CharacterParsingBuffer(
-			$character | (isASCIIUpper($character) << 5)
-		);
+	if (recursive_class_has_use($character, CharacterType::class)) {
+		return $character->toASCIILower();
 	}
 
 	return $asciiCaseFoldTable[$character];
@@ -144,9 +128,7 @@ function toASCIILower(CharacterType|LChar $character): CharacterType|LChar
 
 function toASCIIUpper(CharacterType $character): CharacterType
 {
-	return new CharacterParsingBuffer(
-		$character & ~(isASCIILower($character) << 5)
-	);
+	return $character->toASCIIUpper();
 }
 
 function toASCIIHexValue(
