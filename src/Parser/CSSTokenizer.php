@@ -4,11 +4,20 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\Parser;
 
+use Jimbo2150\PhpCssTypedOm\WebCore\css\parser\BlockType;
+use Jimbo2150\PhpCssTypedOm\WebCore\css\parser\CSSParserObserverWrapper;
+use Jimbo2150\PhpCssTypedOm\WebCore\css\parser\CSSParserToken;
+use Jimbo2150\PhpCssTypedOm\WebCore\css\parser\CSSParserTokenRange;
+use Jimbo2150\PhpCssTypedOm\WebCore\css\parser\CSSParserTokenType;
+use Jimbo2150\PhpCssTypedOm\WebCore\css\parser\HashTokenType;
+use Jimbo2150\PhpCssTypedOm\WebCore\css\parser\NumericSign;
+use Jimbo2150\PhpCssTypedOm\WebCore\css\parser\NumericValueType;
 use Jimbo2150\PhpCssTypedOm\WTF\icu\unicode\UChar;
 
 use function Jimbo2150\PhpCssTypedOm\WTF\wtf\ASCIICType\isASCII;
 use function Jimbo2150\PhpCssTypedOm\WTF\wtf\ASCIICType\isASCIIDigit;
 use function Jimbo2150\PhpCssTypedOm\WTF\wtf\ASCIICType\isASCIIHexDigit;
+use function Jimbo2150\PhpCssTypedOm\WTF\wtf\text\equalLettersIgnoringASCIICase;
 
 use const Jimbo2150\PhpCssTypedOm\WTF\icu\unicode\CharacterNames\REPLACEMENT_CHARACTER;
 
@@ -170,10 +179,10 @@ final class CSSTokenizer
 		$offset = 0;
 		while (true) {
 			$token = $this->nextToken();
-			if (EOFToken == $token->type()) {
+			if (CSSParserTokenType::EOFToken == $token->type()) {
 				break;
 			}
-			if (CommentToken == $token->type()) {
+			if (CSSParserTokenType::CommentToken == $token->type()) {
 				if ($wrapper) {
 					$wrapper->addComment(
 						$offset,
@@ -198,7 +207,7 @@ final class CSSTokenizer
 		}
 	}
 
-	public function tokenRange(): CSSParserTokenTrange
+	public function tokenRange(): CSSParserTokenRange
 	{
 		return $this->m_tokens;
 	}
@@ -210,7 +219,8 @@ final class CSSTokenizer
 
 	public static function isWhitespace(CSSParserTokenType $type): bool
 	{
-		return NonNewlineWhitespaceToken == $type || NewlineToken == $type;
+		return CSSParserTokenType::NonNewlineWhitespaceToken == $type ||
+			CSSParserTokenType::NewlineToken == $type;
 	}
 
 	public static function isNewline(UChar $cc): bool
@@ -221,7 +231,7 @@ final class CSSTokenizer
 
 	public static function newline(): CSSParserToken
 	{
-		return new CSSParserToken(NewlineToken);
+		return new CSSParserToken(CSSParserTokenType::NewlineToken);
 	}
 
 	public static function twoCharsAreValidEscape(UChar $first, UChar $second): bool
@@ -245,7 +255,7 @@ final class CSSTokenizer
 	): CSSParserToken {
 		$this->m_blockStack->append($type);
 
-		return new CSSParserToken($type, $blockType ?? self::BlockStart, $name);
+		return new CSSParserToken($type, $blockType ?? BlockType::BlockStart, $name);
 	}
 
 	public function blockEnd(
@@ -255,7 +265,7 @@ final class CSSTokenizer
 		if (!$this->m_blockStack->isEmpty() && $this->m_blockStack->last() == $startType) {
 			$this->m_blockStack->removeLast();
 
-			return CSSParserToken($type, self::BlockEnd);
+			return CSSParserToken($type, BlockType::BlockEnd);
 		}
 
 		return new CSSParserToken($type);
@@ -263,53 +273,62 @@ final class CSSTokenizer
 
 	public function leftParenthesis(): CSSParserToken
 	{
-		return blockStart(LeftParenthesisToken);
+		return $this->blockStart(CSSParserTokenType::LeftParenthesisToken);
 	}
 
 	public function rightParenthesis(): CSSParserToken
 	{
-		return blockEnd(RightParenthesisToken, LeftParenthesisToken);
+		return $this->blockEnd(
+			CSSParserTokenType::RightParenthesisToken,
+			CSSParserTokenType::LeftParenthesisToken
+		);
 	}
 
 	public function leftBracket(): CSSParserToken
 	{
-		return blockStart(LeftBracketToken);
+		return $this->blockStart(CSSParserTokenType::LeftBracketToken);
 	}
 
 	public function rightBracket(): CSSParserToken
 	{
-		return blockEnd(RightBracketToken, LeftBracketToken);
+		return $this->blockEnd(
+			CSSParserTokenType::RightBracketToken,
+			CSSParserTokenType::LeftBracketToken
+		);
 	}
 
 	public function leftBrace(): CSSParserToken
 	{
-		return blockStart(LeftBraceToken);
+		return $this->blockStart(CSSParserTokenType::LeftBraceToken);
 	}
 
 	public function rightBrace(): CSSParserToken
 	{
-		return blockEnd(RightBraceToken, LeftBraceToken);
+		return $this->blockEnd(
+			CSSParserTokenType::RightBraceToken,
+			CSSParserTokenType::LeftBraceToken
+		);
 	}
 
 	public function plusOrFullStop(UChar $cc): CSSParserToken
 	{
-		if ($this->nextCharsAreNumber(cc)) {
+		if ($this->nextCharsAreNumber($cc)) {
 			$this->reconsume($cc);
 
 			return $this->consumeNumericToken();
 		}
 
-		return new CSSParserToken(DelimiterToken, $cc);
+		return new CSSParserToken(CSSParserTokenType::DelimiterToken, $cc);
 	}
 
 	public function asterisk(UChar $cc): CSSParserToken
 	{
 		assert('*' == $cc);
 		if ($this->consumeIfNext('=')) {
-			return new CSSParserToken(SubstringMatchToken);
+			return new CSSParserToken(CSSParserTokenType::SubstringMatchToken);
 		}
 
-		return new CSSParserToken(DelimiterToken, '*');
+		return new CSSParserToken(CSSParserTokenType::DelimiterToken, '*');
 	}
 
 	public function lessThan(UChar $cc): CSSParserToken
@@ -322,15 +341,15 @@ final class CSSTokenizer
 		) {
 			$this->m_input->advance(3);
 
-			return new CSSParserToken(CDOToken);
+			return new CSSParserToken(CSSParserTokenType::CDOToken);
 		}
 
-		return new CSSParserToken(DelimiterToken, '<');
+		return new CSSParserToken(CSSParserTokenType::DelimiterToken, '<');
 	}
 
 	public function comma(): CSSParserToken
 	{
-		return new CSSParserToken(CommaToken);
+		return new CSSParserToken(CSSParserTokenType::CommaToken);
 	}
 
 	public function hyphenMinus(UChar $cc): CSSParserToken
@@ -343,82 +362,84 @@ final class CSSTokenizer
 		if ('-' == $this->m_input->peek(0) && '>' == $this->m_input->peek(1)) {
 			$this->m_input->advance(2);
 
-			return CSSParserToken(CDCToken);
+			return CSSParserToken(CSSParserTokenType::CDCToken);
 		}
-		if ($this->nextCharsAreIdentifier(cc)) {
-			$this->reconsume(cc);
+		if ($this->nextCharsAreIdentifier($cc)) {
+			$this->reconsume($cc);
 
 			return $this->consumeIdentLikeToken();
 		}
 
-		return new CSSParserToken(DelimiterToken, $cc);
+		return new CSSParserToken(CSSParserTokenType::DelimiterToken, $cc);
 	}
 
 	public function solidus(UChar $cc): CSSParserToken
 	{
-		if ($this->consumeIfNext('*')) {
+		if ($this->consumeIfNext(new UChar('*'))) {
 			// These get ignored, but we need a value to return.
 			$this->consumeUntilCommentEndFound();
 
-			return new CSSParserToken(CommentToken);
+			return new CSSParserToken(CSSParserTokenType::CommentToken);
 		}
 
-		return new CSSParserToken(DelimiterToken, $cc);
+		return new CSSParserToken(CSSParserTokenType::DelimiterToken, $cc);
 	}
 
 	public function colon(): CSSParserToken
 	{
-		return new CSSParserToken(ColonToken);
+		return new CSSParserToken(CSSParserTokenType::ColonToken);
 	}
 
 	public function semiColon(): CSSParserToken
 	{
-		return new CSSParserToken(SemicolonToken);
+		return new CSSParserToken(CSSParserTokenType::SemicolonToken);
 	}
 
 	public function hash(UChar $cc): CSSParserToken
 	{
 		$nextChar = $this->m_input->peek(0);
 		if (
-			$this->isNameCodePoint($nextChar) ||
+			isNameCodePoint($nextChar) ||
 			$this->twoCharsAreValidEscape($nextChar, $this->m_input->peek(1))
 		) {
-			$type = $this->nextCharsAreIdentifier() ? HashTokenId : HashTokenUnrestricted;
+			$type = $this->nextCharsAreIdentifier() ?
+				HashTokenType::HashTokenId :
+				HashTokenType::HashTokenUnrestricted;
 
 			return new CSSParserToken($type, $this->consumeName());
 		}
 
-		return new CSSParserToken(DelimiterToken, $cc);
+		return new CSSParserToken(CSSParserTokenType::DelimiterToken, $cc);
 	}
 
 	public function circumflexAccent(UChar $cc): CSSParserToken
 	{
 		assert('^' == $cc);
-		if ($this->consumeIfNext('=')) {
-			return new CSSParserToken(PrefixMatchToken);
+		if ($this->consumeIfNext(new UChar('='))) {
+			return new CSSParserToken(CSSParserTokenType::PrefixMatchToken);
 		}
 
-		return new CSSParserToken(DelimiterToken, '^');
+		return new CSSParserToken(CSSParserTokenType::DelimiterToken, '^');
 	}
 
 	public function dollarSign(UChar $cc): CSSParserToken
 	{
 		assert('$' == $cc);
 		if ($this->consumeIfNext('=')) {
-			return new CSSParserToken(SuffixMatchToken);
+			return new CSSParserToken(CSSParserTokenType::SuffixMatchToken);
 		}
 
-		return new CSSParserToken(DelimiterToken, '$');
+		return new CSSParserToken(CSSParserTokenType::DelimiterToken, '$');
 	}
 
 	public function verticalLine(UChar $cc): CSSParserToken
 	{
 		assert('|' == $cc);
 		if ($this->consumeIfNext('=')) {
-			return new CSSParserToken(DashMatchToken);
+			return new CSSParserToken(CSSParserTokenType::DashMatchToken);
 		}
 		if ($this->consumeIfNext('|')) {
-			return new CSSParserToken(ColumnToken);
+			return new CSSParserToken(CSSParserTokenType::ColumnToken);
 		}
 
 		return new CSSParserToken(DelimiterToken, '|');
@@ -428,20 +449,20 @@ final class CSSTokenizer
 	{
 		assert('~' == $cc);
 		if ($this->consumeIfNext('=')) {
-			return new CSSParserToken(IncludeMatchToken);
+			return new CSSParserToken(CSSParserTokenType::IncludeMatchToken);
 		}
 
-		return new CSSParserToken(DelimiterToken, '~');
+		return new CSSParserToken(CSSParserTokenType::DelimiterToken, '~');
 	}
 
 	public function commercialAt(UChar $cc): CSSParserToken
 	{
 		assert('@' == $cc);
 		if ($this->nextCharsAreIdentifier()) {
-			return new CSSParserToken(AtKeywordToken, $this->consumeName());
+			return new CSSParserToken(CSSParserTokenType::AtKeywordToken, $this->consumeName());
 		}
 
-		return new CSSParserToken(DelimiterToken, '@');
+		return new CSSParserToken(CSSParserTokenType::DelimiterToken, '@');
 	}
 
 	public function reverseSolidus(UChar $cc): CSSParserToken
@@ -452,7 +473,7 @@ final class CSSTokenizer
 			return $this->consumeIdentLikeToken();
 		}
 
-		return new CSSParserToken(DelimiterToken, $cc);
+		return new CSSParserToken(CSSParserTokenType::DelimiterToken, $cc);
 	}
 
 	public function asciiDigit(UChar $cc): CSSParserToken
@@ -476,7 +497,7 @@ final class CSSTokenizer
 
 	public function endOfFile(): CSSParserToken
 	{
-		return new CSSParserToken(EOFToken);
+		return new CSSParserToken(CSSParserTokenType::EOFToken);
 	}
 
 	/**
@@ -524,7 +545,7 @@ final class CSSTokenizer
 			return self::{$codePointFunc}($cc);
 		}
 
-		return CSSParserToken(DelimiterToken, $cc);
+		return CSSParserToken(CSSParserTokenType::DelimiterToken, $cc);
 	}
 
 	public function consumeNumber(): CSSParserToken
@@ -533,23 +554,23 @@ final class CSSTokenizer
 
 		$startOffset = $this->m_input->offset();
 
-		$type = IntegerValueType;
-		$sign = NoSign;
+		$type = NumericValueType::IntegerValueType;
+		$sign = NumericSign::NoSign;
 		$numberLength = 0;
 
 		$next = $this->m_input->peek(0);
 		if ('+' == $next) {
 			++$numberLength;
-			$sign = PlusSign;
+			$sign = NumericSign::PlusSign;
 		} elseif ('-' == $next) {
 			++$numberLength;
-			$sign = MinusSign;
+			$sign = NumericSign::MinusSign;
 		}
 
 		$numberLength = $this->m_input->skipWhilePredicate($numberLength);
 		$next = $this->m_input->peek($numberLength);
 		if ('.' == $next && isASCIIDigit($this->m_input->peek($numberLength + 1))) {
-			$type = NumberValueType;
+			$type = NumericValueType::NumberValueType;
 			$numberLength = $this->m_input->skipWhilePredicate($numberLength + 2);
 			$next = $this->m_input->peek($numberLength);
 		}
@@ -557,13 +578,13 @@ final class CSSTokenizer
 		if ('E' == $next || 'e' == $next) {
 			$next = $this->m_input->peek($numberLength + 1);
 			if (isASCIIDigit($next)) {
-				$type = NumberValueType;
+				$type = NumericValueType::NumberValueType;
 				$numberLength = $this->m_input->skipWhilePredicate($numberLength + 1);
 			} elseif (
 				('+' == $next || '-' == $next) &&
 				isASCIIDigit($this->m_input->peek($numberLength + 2))
 			) {
-				$type = NumberValueType;
+				$type = NumericValueType::NumberValueType;
 				$numberLength = $this->m_input->skipWhilePredicate($numberLength + 3);
 			}
 		}
@@ -606,8 +627,8 @@ final class CSSTokenizer
 			}
 
 			return $this->blockStart(
-				LeftParenthesisToken,
-				FunctionToken,
+				CSSParserTokenType::LeftParenthesisToken,
+				CSSParserTokenType::FunctionToken,
 				$name
 			);
 		}
