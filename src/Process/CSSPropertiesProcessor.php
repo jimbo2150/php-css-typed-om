@@ -28,7 +28,6 @@ final class CSSPropertiesProcessor
 		$forceRegenerate = false;
 		if (static::needToAcquireJsonFile()) {
 			static::acquireJsonFile();
-			$forceRegenerate = true;
 		}
 		if ($forceRegenerate = $forceRegenerate || static::needToGenerateDatabase()) {
 			static::generateDatabase($forceRegenerate);
@@ -74,7 +73,7 @@ final class CSSPropertiesProcessor
 		return false;
 	}
 
-	private static function acquireJsonFile(): void
+	private static function acquireJsonFile(): int|bool
 	{
 		$file = static::getJsonFilePath();
 		$etag_file = $file.'.etag';
@@ -125,14 +124,14 @@ final class CSSPropertiesProcessor
 			]);
 		} catch (\Exception $e) {
 			if (!($e->getPrevious() instanceof DontWriteException)) {
-				throw $e;
+				echo $e->getMessage();
 			} else {
 				echo $e->getPrevious()->getMessage().PHP_EOL;
 			}
 		}
 
 		if (!isset($response)) {
-			return;
+			return filemtime($etag_file);
 		}
 
 		if ($response->getStatusCode() >= 200 && $response->getStatusCode() < 300) {
@@ -140,6 +139,8 @@ final class CSSPropertiesProcessor
 		}
 
 		echo 'Success.'.PHP_EOL;
+
+		return filemtime($etag_file);
 	}
 
 	private static function needToGenerateDatabase(): bool
@@ -156,8 +157,8 @@ final class CSSPropertiesProcessor
 		}
 		if (
 			$isDevEnvironment ||
-			filemtime($propFile) > filemtime($dbFile) ||
-			filesize($dbFile) < 1
+			filesize($dbFile) < 1 ||
+			filemtime($propFile) > filemtime($dbFile)
 		) {
 			return true;
 		}
