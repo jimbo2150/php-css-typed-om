@@ -5,13 +5,18 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\WTF\wtf\text\StringToIntegerConversion;
 
 use Jimbo2150\PhpCssTypedOm\Parser\CharacterType;
+use Jimbo2150\PhpCssTypedOm\WTF\wtf\CheckedArithmetic\Checked;
+use Jimbo2150\PhpCssTypedOm\WTF\wtf\CheckedArithmetic\RecordOverflow;
+use Jimbo2150\PhpCssTypedOm\WTF\wtf\SingleThreadIntegralWrapper\IntegralType;
 use Jimbo2150\PhpCssTypedOm\WTF\wtf\text\ParseIntegerWhitespacePolicy;
 use Jimbo2150\PhpCssTypedOm\WTF\wtf\text\TrailingJunkPolicy;
 
 use function Jimbo2150\PhpCssTypedOm\WTF\wtf\ASCIICType\isASCIIDigit;
 use function Jimbo2150\PhpCssTypedOm\WTF\wtf\ASCIICType\toASCIILowerUnchecked;
 
-// $data: std::span<const CharacterType>
+/**
+ * @param array<CharacterType> $data
+ */
 function parseInteger(
 	array $data,
 	int $base,
@@ -29,7 +34,7 @@ function parseInteger(
 
 	$isNegative = false;
 	// std::is_signed_v<IntegralType>
-	if (is_signed_v() && skipExactly($data, '-')) {
+	if (skipExactly($data, '-')) {
 		$isNegative = true;
 	} else {
 		skipExactly($data, '+');
