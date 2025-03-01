@@ -13,6 +13,7 @@ use Jimbo2150\PhpCssTypedOm\WebCore\css\parser\HashTokenType;
 use Jimbo2150\PhpCssTypedOm\WebCore\css\parser\NumericSign;
 use Jimbo2150\PhpCssTypedOm\WebCore\css\parser\NumericValueType;
 use Jimbo2150\PhpCssTypedOm\WTF\icu\unicode\UChar;
+use Jimbo2150\PhpCssTypedOm\WTF\wtf\text\LChar;
 
 use function Jimbo2150\PhpCssTypedOm\WTF\wtf\ASCIICType\isASCII;
 use function Jimbo2150\PhpCssTypedOm\WTF\wtf\ASCIICType\isASCIIDigit;
@@ -20,6 +21,10 @@ use function Jimbo2150\PhpCssTypedOm\WTF\wtf\ASCIICType\isASCIIHexDigit;
 use function Jimbo2150\PhpCssTypedOm\WTF\wtf\text\equalLettersIgnoringASCIICase;
 
 use const Jimbo2150\PhpCssTypedOm\WTF\icu\unicode\CharacterNames\REPLACEMENT_CHARACTER;
+
+if (!defined('kEndOfFileMarker')) {
+	define('kEndOfFileMarker', new LChar('0'));
+}
 
 final class CSSTokenizer
 {
