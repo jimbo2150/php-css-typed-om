@@ -4,15 +4,19 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\Css;
 
+use Jimbo2150\PhpCssTypedOm\WebCore\css\ComputedStyleDependencies;
+use Jimbo2150\PhpCssTypedOm\WTF\wtf\IterationStatus;
+
 class CSSValue
 {
 	protected const int ClassTypeBits = 7;
+	protected const int ValueSeparatorBits = 2;
 	protected int $m_primitiveUnitType = 7; // CSSUnitType
 	protected int $m_hasCachedCSSText = 1;
 	protected int $m_isImplicitInitialValue = 1;
 
 	// CSSValueList and CSSValuePair:
-	protected int $m_valueSeparator = ValueSeparatorBits;
+	protected int $m_valueSeparator = 0;
 	private int $m_refCount;
 	private ClassType $m_classType;
 
@@ -31,7 +35,10 @@ class CSSValue
 		return $visitor($this);
 	}
 
-	public function customTraverseSubresources(): bool
+	/**
+	 * @param callable<bool(CachedResource&)>|null $cached
+	 */
+	public function customTraverseSubresources(?callable &$cached = null): bool
 	{
 		return false;
 	}
@@ -47,13 +54,21 @@ class CSSValue
 	}
 
 	/**
-	 * @param callable<IterationStatus<&self>> $func
+	 * @param callable<IterationStatus(self)> $func
 	 */
 	public function visitChildren(callable &$func): IterationStatus
 	{
 		return $this->visitDerived(function (self $value) use (&$func) {
-			return $value.customVisitChildren($func);
+			return $value->customVisitChildren($func);
 		});
+	}
+
+	/**
+	 * @param callable<IterationStatus(CSSValue)> $callable
+	 */
+	public function customVisitChildren(callable &$callable): IterationStatus
+	{
+		return IterationStatus::Continue;
 	}
 
 	public function mayDependOnBaseURL(): bool
@@ -61,6 +76,11 @@ class CSSValue
 		return $this->visitDerived(function (self $value) {
 			return $value->customMayDependOnBaseURL();
 		});
+	}
+
+	public function customMayDependOnBaseURL(): bool
+	{
+		return false;
 	}
 
 	public function computedStyleDependencies(): ComputedStyleDependencies
