@@ -50,14 +50,10 @@ abstract class CSSStyleValue
             // Not a numeric value, try next
         }
 
-        try {
-            return CSSKeywordValue::parse($cssText);
-        } catch (\InvalidArgumentException $e) {
-            // Not a keyword, try next
-        }
-
-        // If none of the above, it's an unparsed value
-        return new CSSUnparsedValue([$cssText]);
+        // If it's not a color or a numeric value, it's a keyword
+        // This assumes that any remaining string is a keyword.
+        // More robust parsing would involve checking for valid keyword characters.
+        return new CSSKeywordValue($cssText);
     }
 
     public static function parse(string $cssText): CSSStyleValue
@@ -90,11 +86,6 @@ abstract class CSSStyleValue
         return $values;
     }
 
-    /**
-     * Check if this value is valid
-     */
-    abstract public function isValid(): bool;
-    
     /**
      * Clone this value
      */

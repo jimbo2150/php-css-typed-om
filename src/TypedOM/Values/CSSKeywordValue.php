@@ -6,39 +6,26 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 class CSSKeywordValue extends CSSStyleValue
 {
-    private string $keywordString;
+    private string $value;
 
-    public function __construct(string $keywordString)
+    public function __construct(string $value)
     {
-        $this->keywordString = $keywordString;
+        $this->value = $value;
         parent::__construct('keyword');
-    }
-
-    public static function parse(string $cssText): self
-    {
-        $cssText = trim($cssText);
-
-        if ($cssText !== '') {
-            return new self($cssText);
-        }
-
-        throw new \InvalidArgumentException('Invalid CSS keyword value: ' . $cssText);
     }
 
     public function toString(): string
     {
-        return $this->keywordString;
-    }
-
-    public function isValid(): bool
-    {
-        // A keyword should not be empty.
-        // Further validation would depend on the CSS property it's used for.
-        return trim($this->value) !== '';
+        return $this->value;
     }
 
     public function clone(): CSSStyleValue
     {
         return new self($this->value);
+    }
+
+    public function isValid(): bool
+    {
+        return trim($this->value) !== '';
     }
 }
