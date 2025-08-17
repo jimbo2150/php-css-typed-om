@@ -116,6 +116,14 @@ class CSS3Token
     }
 
     /**
+     * Create a property token
+     */
+    public static function property(string $value, int $line = 1, int $column = 1): self
+    {
+        return new self(CSS3TokenType::PROPERTY, $value, null, $value, $line, $column);
+    }
+
+    /**
      * Create a number token
      */
     public static function number(float $value, string $representation, int $line = 1, int $column = 1): self

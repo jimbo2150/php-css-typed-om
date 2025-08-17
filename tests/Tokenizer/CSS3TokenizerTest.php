@@ -6,6 +6,7 @@ namespace Tests\Tokenizer;
 
 use Jimbo2150\PhpCssTypedOm\Tokenizer\CSS3Tokenizer;
 use Jimbo2150\PhpCssTypedOm\Tokenizer\CSS3TokenType;
+
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -13,15 +14,21 @@ use PHPUnit\Framework\TestCase;
  */
 class CSS3TokenizerTest extends TestCase
 {
+    private function createTokenizer(string $css): CSS3Tokenizer
+    {
+        return new CSS3Tokenizer($css);
+    }
+
     public function testBasicTokenization()
     {
         $css = 'color: red; font-size: 16px;';
-        $tokenizer = new CSS3Tokenizer($css);
+        $tokenizer = $this->createTokenizer($css);
         $tokens = $tokenizer->tokenize();
 
-        $this->assertCount(9, $tokens); // ident, delim, whitespace, ident, semicolon, whitespace, ident, semicolon, eof
+    // tokenizer now emits whitespace tokens per CSS Syntax Level 3
+    $this->assertCount(12, $tokens);
 
-        $this->assertEquals(CSS3TokenType::IDENT, $tokens[0]->type);
+        $this->assertEquals(CSS3TokenType::PROPERTY, $tokens[0]->type);
         $this->assertEquals('color', $tokens[0]->value);
 
         $this->assertEquals(CSS3TokenType::DELIM, $tokens[1]->type);
@@ -31,7 +38,7 @@ class CSS3TokenizerTest extends TestCase
     public function testNumbers()
     {
         $css = 'width: 100px; height: 50%;';
-        $tokenizer = new CSS3Tokenizer($css);
+        $tokenizer = $this->createTokenizer($css);
         $tokens = $tokenizer->tokenize();
 
         // Find dimension token
@@ -51,7 +58,7 @@ class CSS3TokenizerTest extends TestCase
     public function testStrings()
     {
         $css = 'content: "Hello World";';
-        $tokenizer = new CSS3Tokenizer($css);
+        $tokenizer = $this->createTokenizer($css);
         $tokens = $tokenizer->tokenize();
 
         // Find string token
@@ -70,17 +77,17 @@ class CSS3TokenizerTest extends TestCase
     public function testComments()
     {
         $css = '/* This is a comment */ color: blue;';
-        $tokenizer = new CSS3Tokenizer($css);
+        $tokenizer = $this->createTokenizer($css);
         $tokens = $tokenizer->tokenize();
 
-        // Comments are skipped in tokenization
-        $this->assertCount(6, $tokens); // ident, colon, whitespace, ident, semicolon, eof
+    // Comments are skipped; whitespace tokens are emitted
+    $this->assertCount(7, $tokens);
     }
 
     public function testComplexCSS()
     {
         $css = '.class { margin: 10px 20px; color: #ff0000; height: min(calc(100% - 5px), 1000px); }';
-        $tokenizer = new CSS3Tokenizer($css);
+        $tokenizer = $this->createTokenizer($css);
         $tokens = $tokenizer->tokenize();
 
         $this->assertGreaterThan(5, count($tokens));
@@ -96,5 +103,22 @@ class CSS3TokenizerTest extends TestCase
 
         $this->assertNotNull($hashToken);
         $this->assertEquals('ff0000', $hashToken->value);
+    }
+
+	public function testInvalidCssProperty()
+    {
+        $css = '.class { margin: 10px; invalidProperty: "test"; }';
+        $tokenizer = $this->createTokenizer($css);
+        $tokens = $tokenizer->tokenize();
+
+        $propertyToken = null;
+        foreach ($tokens as $token) {
+            if ($token->type === CSS3TokenType::PROPERTY && $token->value === 'invalidProperty') {
+                $propertyToken = $token;
+                break;
+            }
+        }
+
+        $this->assertNotNull($propertyToken);
     }
 }

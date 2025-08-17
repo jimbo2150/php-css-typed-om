@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\Tokenizer;
 
+
+
 /**
  * CSS3 Tokenizer that parses CSS3 syntax according to CSS Syntax Module Level 3
  * This tokenizer handles CSS3 syntax including custom properties, calc(), and modern CSS features
@@ -15,6 +17,7 @@ class CSS3Tokenizer
     private int $line = 1;
     private int $column = 1;
     private array $tokens = [];
+    
     
     // Character constants
     private const EOF = '';
@@ -35,7 +38,6 @@ class CSS3Tokenizer
         $this->position = 0;
         $this->line = 1;
         $this->column = 1;
-        
         while ($this->position < strlen($this->input)) {
             $token = $this->nextToken();
             if ($token !== null) {
@@ -53,56 +55,69 @@ class CSS3Tokenizer
      */
     private function nextToken(): ?CSS3Token
     {
-        $this->consumeWhitespace();
-        
         if ($this->isAtEnd()) {
             return null;
         }
-        
+
         $char = $this->peek();
-        
-        // Handle different token types
-        return match (true) {
-            $this->isCommentStart() => $this->consumeComment(),
-            $this->isStringStart($char) => $this->consumeString($char),
-            $this->isNumberStart($char) => $this->consumeNumber(),
-            $char === '#' => $this->consumeHash(),
-            $char === '@' => $this->consumeAtKeyword(),
-            $char === '"' || $char === "'" => $this->consumeString($char),
-            $this->isIdentifierStart($char) => $this->consumeIdentifier(),
-            $this->isWhitespace($char) => $this->consumeWhitespace(),
-            default => $this->consumeDelimiter($char)
-        };
+
+        // Handle different token types (order is important)
+        if ($this->isCommentStart()) {
+            // Comments are dropped by the tokenizer (per CSS Syntax)
+            $this->consumeComment();
+            return null;
+        }
+
+        if ($this->isWhitespace($char)) {
+            return $this->consumeWhitespaceToken();
+        }
+
+        if ($this->isStringStart($char)) {
+            return $this->consumeString($char);
+        }
+
+        if ($this->isNumberStart($char)) {
+            return $this->consumeNumber();
+        }
+
+        if ($char === '#') {
+            return $this->consumeHash();
+        }
+
+        if ($char === '@') {
+            return $this->consumeAtKeyword();
+        }
+
+        if ($this->isIdentifierStart($char)) {
+            return $this->consumeIdentifier();
+        }
+
+        return $this->consumeDelimiter($char);
     }
     
     /**
-     * Consume and return a comment token
+     * Consume and return a comment token (or null since comments are not emitted)
      */
-    private function consumeComment(): CSS3Token
+    private function consumeComment(): ?CSS3Token
     {
-        $start = $this->position;
-        $startLine = $this->line;
-        $startColumn = $this->column;
-        
-        // Skip /*
+        // Skip opening /*
         $this->advance(2);
-        
-        $value = '';
+
         while (!$this->isAtEnd()) {
             if ($this->peek() === '*' && $this->peek(1) === '/') {
                 $this->advance(2);
-                break;
+                return null; // comments are not emitted as tokens
             }
-            
-            if ($this->peek() === "\n") {
+
+            $char = $this->advance();
+            if ($char === "\n") {
                 $this->line++;
                 $this->column = 1;
             }
-            
-            $value .= $this->advance();
         }
-        
-        return CSS3Token::comment($value, $startLine, $startColumn);
+
+        // Unterminated comment: treat as finished
+        return null;
     }
     
     /**
@@ -280,6 +295,16 @@ class CSS3Tokenizer
             return new CSS3Token(CSS3TokenType::FUNCTION, $value, null, $value . '(', $startLine, $startColumn);
         }
         
+        // Peek ahead to see if a colon follows, which would indicate a property declaration
+        $peekPosition = $this->position;
+        while ($peekPosition < strlen($this->input) && $this->isWhitespace($this->input[$peekPosition])) {
+            $peekPosition++;
+        }
+
+        if ($peekPosition < strlen($this->input) && $this->input[$peekPosition] === ':') {
+            return CSS3Token::property($value, $startLine, $startColumn);
+        }
+
         return CSS3Token::ident($value, $startLine, $startColumn);
     }
     
@@ -355,7 +380,7 @@ class CSS3Tokenizer
         return ctype_digit($char) ||
                ($char === '.' && ctype_digit($this->peek(1))) ||
                (($char === '+' || $char === '-') && (ctype_digit($this->peek(1)) ||
-                                                     ($this->peek(1) === '.' && ctype_digit($this->peek(2)))));
+                                                      ($this->peek(1) === '.' && ctype_digit($this->peek(2)))));
     }
     
     /**
@@ -363,7 +388,12 @@ class CSS3Tokenizer
      */
     private function isIdentifierStart(string $char): bool
     {
-        return ctype_alpha($char) || $char === '_' || $char === '-' || ord($char) >= 128;
+        if ($char === self::EOF || $char === '') {
+            return false;
+        }
+
+        $ord = ord($char);
+        return ctype_alpha($char) || $char === '_' || $char === '-' || $ord >= 128;
     }
     
     /**
@@ -371,7 +401,12 @@ class CSS3Tokenizer
      */
     private function isIdentifierPart(string $char): bool
     {
-        return ctype_alnum($char) || $char === '_' || $char === '-' || ord($char) >= 128;
+        if ($char === self::EOF || $char === '') {
+            return false;
+        }
+
+        $ord = ord($char);
+        return ctype_alnum($char) || $char === '_' || $char === '-' || $ord >= 128;
     }
     
     /**
@@ -420,17 +455,36 @@ class CSS3Tokenizer
      */
     private function advance(int $count = 1): string
     {
-        $char = $this->peek();
-        $this->position += $count;
-        $this->column += $count;
-        return $char;
+        $result = '';
+        for ($i = 0; $i < $count; $i++) {
+            $c = $this->peek($i);
+            if ($c === self::EOF) {
+                break;
+            }
+            $result .= $c;
+        }
+
+        // Update position and column/line counters for the actual characters consumed
+        for ($i = 0; $i < strlen($result); $i++) {
+            if ($result[$i] === "\n") {
+                $this->line++;
+                $this->column = 1;
+            } else {
+                $this->column++;
+            }
+            $this->position++;
+        }
+
+        return $result;
     }
     
     /**
      * Check if at end of input
      */
-    private function isAtEnd(): bool
-    {
-        return $this->position >= strlen($this->input);
-    }
+     private function isAtEnd(): bool
+     {
+         return $this->position >= strlen($this->input);
+     }
+
+    
 }
