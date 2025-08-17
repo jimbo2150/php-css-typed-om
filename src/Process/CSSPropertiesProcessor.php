@@ -55,6 +55,10 @@ final class CSSPropertiesProcessor
 	{
 		$propFile = static::getJsonFilePath();
 		if (!file_exists($propFile)) {
+			$dir = dirname($propFile);
+			if (!file_exists($dir)) {
+				mkdir($dir, 0777, true);
+			}
 			if (!touch($propFile)) {
 				throw new \Exception('Could not create CSS properties file.');
 			}
