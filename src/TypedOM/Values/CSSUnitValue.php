@@ -8,14 +8,14 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
  * CSS Unit Value for Typed OM
  * Represents a CSS value with a unit (e.g., 10px, 50%, 2em)
  */
-class CSSUnitValue extends CSSStyleValue
+class CSSUnitValue extends CSSNumericValue
 {
     private float $value;
     private string $unit;
     
     public function __construct(float $value, string $unit)
     {
-        parent::__construct((string) $value, 'unit');
+        parent::__construct('unit'); // Call CSSStyleValue constructor directly
         $this->value = $value;
         $this->unit = $unit;
     }
@@ -57,6 +57,9 @@ class CSSUnitValue extends CSSStyleValue
      */
     public function toString(): string
     {
+        if ($this->unit === 'number') {
+            return (string) $this->value;
+        }
         return $this->value . $this->unit;
     }
     

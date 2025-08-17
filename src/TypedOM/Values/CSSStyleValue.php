@@ -10,12 +10,10 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
  */
 abstract class CSSStyleValue
 {
-    protected string $value;
     protected string $type;
     
-    public function __construct(string $value, string $type)
+    public function __construct(string $type)
     {
-        $this->value = $value;
         $this->type = $type;
     }
     
@@ -33,59 +31,65 @@ abstract class CSSStyleValue
     }
     
     /**
-     * Get the raw value
+     * Parse a CSS value and return appropriate CSSStyleValue instance.
+     * This is a simplified parser and should be replaced with a more robust solution.
      */
-    public function getValue(): string
-    {
-        return $this->value;
-    }
-    
-    /**
-     * Parse a CSS value and return appropriate CSSStyleValue instance
-     */
-    public static function parse(string $cssText): CSSStyleValue
+    public static function createFromCssText(string $cssText): CSSStyleValue
     {
         $cssText = trim($cssText);
-        
-        // Handle different value types
-        if (preg_match('/^(-?\d*\.?\d+)([a-zA-Z%]+)$/', $cssText, $matches)) {
-            $value = (float) $matches[1];
-            $unit = $matches[2];
-            
-            if ($unit === '%') {
-                return new CSSUnitValue($value, '%');
-            }
-            
-            return new CSSUnitValue($value, $unit);
+
+        try {
+            return CSSColorValue::parse($cssText);
+        } catch (\InvalidArgumentException $e) {
+            // Not a color, try next
         }
-        
-        if (is_numeric($cssText)) {
-            return new CSSUnitValue((float) $cssText, 'number');
+
+        try {
+            return CSSNumericValue::parse($cssText);
+        } catch (\InvalidArgumentException $e) {
+            // Not a numeric value, try next
         }
-        
-        if (preg_match('/^#([0-9a-fA-F]{3,8})$/', $cssText)) {
-            return new CSSColorValue($cssText);
+
+        try {
+            return CSSKeywordValue::parse($cssText);
+        } catch (\InvalidArgumentException $e) {
+            // Not a keyword, try next
         }
-        
-        if (preg_match('/^rgb\(/', $cssText) || preg_match('/^hsl\(/', $cssText)) {
-            return new CSSColorValue($cssText);
-        }
-        
-        if (strpos($cssText, ' ') !== false) {
-            return new CSSKeywordValue($cssText);
-        }
-        
-        return new CSSKeywordValue($cssText);
+
+        // If none of the above, it's an unparsed value
+        return new CSSUnparsedValue([$cssText]);
     }
-    
-    /**
-     * Create a new instance from a string
-     */
-    public static function fromString(string $cssText): CSSStyleValue
+
+    public static function parse(string $cssText): CSSStyleValue
     {
-        return static::parse($cssText);
+        return self::createFromCssText($cssText);
     }
-    
+
+    /**
+     * Parses a string containing one or more CSS values and returns an array of CSSStyleValue objects.
+     * This is a simplified implementation and may not handle all complex CSS value strings.
+     *
+     * @param string $cssText The CSS value string to parse.
+     * @return CSSStyleValue[] An array of CSSStyleValue objects.
+     */
+    public static function parseAll(string $cssText): array
+    {
+        $cssText = trim($cssText);
+        if (empty($cssText)) {
+            return [];
+        }
+
+        $values = [];
+        // Simple split by space. This will need to be more robust for complex values.
+        $parts = preg_split('/\s+/', $cssText, -1, PREG_SPLIT_NO_EMPTY);
+
+        foreach ($parts as $part) {
+            $values[] = self::createFromCssText($part);
+        }
+
+        return $values;
+    }
+
     /**
      * Check if this value is valid
      */
