@@ -86,4 +86,26 @@ class CSS3TokenizerNestedAndFuzzTest extends TestCase
         $this->assertTrue($foundComma, 'Comma should be present separating arguments');
         $this->assertGreaterThanOrEqual(2, $foundRightParen, 'At least two RIGHT_PAREN tokens expected');
     }
+
+	public function testMultiLayerWithMediaQueries()
+    {
+        $css = ':root{--test-one:green;} html{ & .test { @media (min-width:768px) { & { width: min(1000px, 100%); & .test2 { height: calc(10% - 10px); } } } } }';
+        $tokenizer = new CSS3Tokenizer($css);
+        $tokens = $tokenizer->tokenize();
+
+        // Ensure we have at-keyword tokens and braces
+        $hasAt = false;
+        $leftBraces = 0;
+        foreach ($tokens as $t) {
+            if ($t->type === CSS3TokenType::AT_KEYWORD) {
+                $hasAt = true;
+            }
+            if ($t->type === CSS3TokenType::LEFT_BRACE) {
+                $leftBraces++;
+            }
+        }
+
+        $this->assertTrue($hasAt, 'Expected at-keyword tokens');
+        $this->assertGreaterThanOrEqual(5, $leftBraces, 'Expected multiple nested left braces');
+    }
 }
