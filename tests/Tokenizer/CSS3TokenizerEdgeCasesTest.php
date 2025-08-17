@@ -63,6 +63,40 @@ class CSS3TokenizerEdgeCasesTest extends TestCase
         $this->assertTrue($found, 'Expected a BAD_STRING token for newline inside string');
     }
 
+    public function testUnterminatedUrlBecomesBadUrl()
+    {
+        $css = 'background: url(http://example.com'; // missing ')'
+        $tokenizer = new CSS3Tokenizer($css);
+        $tokens = $tokenizer->tokenize();
+
+        $found = false;
+        foreach ($tokens as $t) {
+            if ($t->type === CSS3TokenType::BAD_URL) {
+                $found = true;
+                break;
+            }
+        }
+
+        $this->assertTrue($found, 'Expected BAD_URL for unterminated url');
+    }
+
+    public function testNewlineInUnquotedUrlIsBadUrl()
+    {
+        $css = "background: url(http://ex\nample.com)";
+        $tokenizer = new CSS3Tokenizer($css);
+        $tokens = $tokenizer->tokenize();
+
+        $found = false;
+        foreach ($tokens as $t) {
+            if ($t->type === CSS3TokenType::BAD_URL) {
+                $found = true;
+                break;
+            }
+        }
+
+        $this->assertTrue($found, 'Expected BAD_URL when newline is present in unquoted url');
+    }
+
     public function testWhitespaceFlagOff()
     {
         $css = 'color: red;';

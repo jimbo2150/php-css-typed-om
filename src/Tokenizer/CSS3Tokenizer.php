@@ -210,6 +210,8 @@ class CSS3Tokenizer
         $this->position = 0;
         $this->line = 1;
         $this->column = 1;
+    // reset history for reconsume support per tokenization run
+    $this->history = [];
         foreach ($this->tokenizeStream() as $token) {
             $this->tokens[] = $token;
         }
@@ -278,8 +280,14 @@ class CSS3Tokenizer
      */
     private function nextTokenInIdentLike(): ?CSS3Token
     {
-    // Ident-like handling: identifier or function (handled in consumeIdentifier)
-    return $this->consumeIdentifier();
+    // Enter ident-like state for observability per-spec
+    $this->pushState(TokenizerState::IdentLike);
+            $token = $this->consumeIdentifier();
+            $this->popState();
+            if ($token !== null) {
+                return $token;
+            }
+            return null;
     }
 
     /**
@@ -287,7 +295,14 @@ class CSS3Tokenizer
      */
     private function nextTokenInNumber(): ?CSS3Token
     {
-        return $this->consumeNumber();
+    // Enter number state for observability per-spec
+    $this->pushState(TokenizerState::Number);
+            $token = $this->consumeNumber();
+            $this->popState();
+            if ($token !== null) {
+                return $token;
+            }
+            return null;
     }
 
     private function nextTokenInFunction(): ?CSS3Token
@@ -356,7 +371,7 @@ class CSS3Tokenizer
         }
 
         if ($this->isNumberStart($char)) {
-            return $this->consumeNumber();
+            return $this->nextTokenInNumber();
         }
 
         if ($char === '#') {
@@ -368,7 +383,7 @@ class CSS3Tokenizer
         }
 
         if ($this->isIdentifierStart($char)) {
-            return $this->consumeIdentifier();
+            return $this->nextTokenInIdentLike();
         }
 
         return $this->consumeDelimiter($char);
@@ -378,10 +393,18 @@ class CSS3Tokenizer
     {
         // At-rule mostly follows data state tokenization but semicolon ends the at-rule
         $token = $this->nextTokenInData();
-        if ($token !== null && $token->type === CSS3TokenType::SEMICOLON) {
-            // end at-rule prelude
-            $this->popState();
+        if ($token !== null) {
+            // end at-rule prelude on semicolon
+            if ($token->type === CSS3TokenType::SEMICOLON) {
+                $this->popState();
+            }
+
+            // Opening brace begins a block which ends the at-rule prelude
+            if ($token->type === CSS3TokenType::LEFT_BRACE) {
+                $this->popState();
+            }
         }
+
         return $token;
     }
 
@@ -535,8 +558,11 @@ class CSS3Tokenizer
         // Check for unit (dimension)
         if ($this->isIdentifierStart($this->peek())) {
             $unitToken = $this->consumeIdentifier();
-            $unit = $unitToken->value;
-            return CSS3Token::dimension($numericValue, $unit, $value . $unit, $startLine, $startColumn);
+            if ($unitToken !== null) {
+                $unit = $unitToken->value;
+                return CSS3Token::dimension($numericValue, $unit, $value . $unit, $startLine, $startColumn);
+            }
+            // If no unit token produced, fall through to number token
         }
         
         // Check for percentage
@@ -560,6 +586,10 @@ class CSS3Tokenizer
         
         $value = '';
         while ($this->isIdentifierPart($this->peek())) {
+            if ($this->peek() === '\\') {
+                $value .= $this->consumeEscapeSequence();
+                continue;
+            }
             $value .= $this->advance();
         }
         
@@ -589,14 +619,34 @@ class CSS3Tokenizer
     /**
      * Consume and return an identifier token
      */
-    private function consumeIdentifier(): CSS3Token
+    private function consumeIdentifier(): ?CSS3Token
     {
         $startLine = $this->line;
         $startColumn = $this->column;
-        
+        $startPos = $this->position;
+
         $value = '';
+        // Accumulate up to the token max length to avoid unbounded memory growth.
         while ($this->isIdentifierPart($this->peek())) {
-            $value .= $this->advance();
+            if (strlen($value) < \Jimbo2150\PhpCssTypedOm\Tokenizer\CSS3Token::$maxTokenLength) {
+                $value .= $this->advance();
+                continue;
+            }
+
+            // We've reached the cap: consume remaining identifier characters without storing them.
+            $this->advance();
+        }
+        $consumedLen = $this->position - $startPos;
+
+        // If nothing was consumed, return null to avoid emitting empty IDENT tokens
+        if ($consumedLen === 0) {
+            return null;
+        }
+
+        // Debugging: if we produced an empty identifier but consumed characters,
+        // or consumed length is zero, log context to stderr for diagnosis.
+        if ($value === '' || $consumedLen === 0) {
+            $context = substr($this->input, $this->position, 16);
         }
         
         // Check if this is a function
@@ -654,7 +704,17 @@ class CSS3Tokenizer
             return $token;
         }
 
-        return CSS3Token::ident($value, $startLine, $startColumn);
+        $token = CSS3Token::ident($value, $startLine, $startColumn);
+
+        // If we consumed more than the max, mark token as truncated in metadata.
+        if ($consumedLen > \Jimbo2150\PhpCssTypedOm\Tokenizer\CSS3Token::$maxTokenLength) {
+            $meta = $token->metadata;
+            $meta['truncated'] = true;
+            $meta['originalLength'] = $consumedLen;
+            $token = new \Jimbo2150\PhpCssTypedOm\Tokenizer\CSS3Token($token->type, $token->value, $token->unit, $token->representation, $token->line, $token->column, $meta);
+        }
+
+        return $token;
     }
     
     /**
@@ -717,8 +777,25 @@ class CSS3Tokenizer
      */
     public function tokenizeStream(): \Generator
     {
+        $stallCount = 0;
+        $lastPosition = $this->position;
         while (!$this->isAtEnd()) {
             $token = $this->nextToken();
+
+            // detect if tokenizer made no forward progress to avoid infinite loops
+            if ($this->position === $lastPosition) {
+                $stallCount++;
+            } else {
+                $stallCount = 0;
+                $lastPosition = $this->position;
+            }
+
+            if ($stallCount > 1000) {
+                // Emit an error event and break out to avoid runaway memory growth.
+                $this->emit('error', ['message' => 'tokenizer stalled; aborting after repeated non-advancing reads', 'line' => $this->line, 'column' => $this->column]);
+                break;
+            }
+
             if ($token !== null) {
                 // emit token event
                 $this->emit('token', $token);
@@ -895,6 +972,11 @@ class CSS3Tokenizer
             return false;
         }
 
+        // Backslash introduces an escape which can start an identifier
+        if ($char === '\\') {
+            return true;
+        }
+
         $ord = ord($char);
         return ctype_alpha($char) || $char === '_' || $char === '-' || $ord >= 128;
     }
@@ -906,6 +988,11 @@ class CSS3Tokenizer
     {
         if ($char === self::EOF || $char === '') {
             return false;
+        }
+
+        // Backslash may start an escape sequence which is part of an identifier
+        if ($char === '\\') {
+            return true;
         }
 
         $ord = ord($char);
@@ -991,6 +1078,10 @@ class CSS3Tokenizer
         for ($i = 0; $i < strlen($result); $i++) {
             // push history snapshot so we can reconsume accurately
             $this->history[] = ['position' => $this->position, 'line' => $this->line, 'column' => $this->column];
+            // cap history size to avoid unbounded memory usage on long inputs
+            if (count($this->history) > 4096) {
+                array_shift($this->history);
+            }
 
             if ($result[$i] === "\n") {
                 $this->line++;
