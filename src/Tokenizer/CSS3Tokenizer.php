@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\Tokenizer;
 
+use Jimbo2150\PhpCssTypedOm\Tokenizer\TokenizerState;
 
 
 /**
@@ -23,7 +24,16 @@ class CSS3Tokenizer
      * Values can be: 'data', 'string', 'url', 'comment', etc.
      * We'll default to 'data'.
      */
-    private array $stateStack = ['data'];
+    /** @var TokenizerState[] */
+    private array $stateStack = [TokenizerState::Data];
+    /**
+     * History of consumed positions for reconsume support. Each entry is
+     * ['position'=>int,'line'=>int,'column'=>int].
+     *
+     * Note: this may grow for large inputs; it's used to correctly restore
+     * line/column on reconsume per-spec.
+     */
+    private array $history = [];
     /**
      * Event listeners: map event name to array of callables
      */
@@ -33,6 +43,16 @@ class CSS3Tokenizer
      * Optional PDO handle for property validation DB
      */
     private ?\PDO $propertyDb = null;
+
+    /**
+     * Optional path to property DB (constructor configurable)
+     */
+    private ?string $propertyDbPath = null;
+
+    /**
+     * Strict validation: if true, missing DB causes properties to be treated as invalid
+     */
+    private bool $strictValidation = false;
     
     
     // Character constants
@@ -40,18 +60,20 @@ class CSS3Tokenizer
     private const WHITESPACE = " \t\n\r\f";
     private const NEWLINE = "\n\r\f";
     
-    public function __construct(string $css, bool $emitWhitespace = true)
+    public function __construct(string $css, bool $emitWhitespace = true, ?string $propertyDbPath = null, bool $strictValidation = false)
     {
         $this->input = $css;
         $this->emitWhitespace = $emitWhitespace;
+        $this->propertyDbPath = $propertyDbPath;
+        $this->strictValidation = $strictValidation;
         $this->loadPropertyDatabase();
     }
 
     private function validateProperty(string $name): bool
     {
-        // If no DB, assume valid to avoid false negatives
+        // If no DB and strictValidation is enabled, treat as invalid
         if ($this->propertyDb === null) {
-            return true;
+            return !$this->strictValidation;
         }
 
         try {
@@ -79,14 +101,22 @@ class CSS3Tokenizer
             try {
                 $cb($payload);
             } catch (\Throwable $e) {
-                // swallow listener exceptions to not break tokenization
+                // emit error event for listener exceptions but do not break tokenization
+                if (!empty($this->listeners['error'])) {
+                    foreach ($this->listeners['error'] as $errCb) {
+                        try {
+                            $errCb($e);
+                        } catch (\Throwable) {
+                        }
+                    }
+                }
             }
         }
     }
 
     private function loadPropertyDatabase(): void
     {
-        $path = __DIR__ . '/../../dist/CSSProperties/CSSProperties.sqlite';
+        $path = $this->propertyDbPath ?? (__DIR__ . '/../../dist/CSSProperties/CSSProperties.sqlite');
         if (!file_exists($path)) {
             $this->propertyDb = null;
             return;
@@ -147,23 +177,28 @@ class CSS3Tokenizer
         return CSS3Token::unicodeRange($value, $startLine, $startColumn);
     }
 
-    private function pushState(string $state): void
+    private function pushState(TokenizerState $state): void
     {
         $this->stateStack[] = $state;
+        $this->emit('state-enter', ['state' => $state->value]);
     }
 
     private function popState(): ?string
     {
         if (count($this->stateStack) <= 1) {
-            return $this->stateStack[0] ?? null;
+            $val = $this->stateStack[0] ?? null;
+            $this->emit('state-exit', ['state' => $val?->value]);
+            return $val?->value ?? null;
         }
-
-        return array_pop($this->stateStack);
+        $val = array_pop($this->stateStack);
+        $this->emit('state-exit', ['state' => $val->value]);
+        return $val->value;
     }
 
-    private function currentState(): string
+    private function currentState(): TokenizerState
     {
-        return end($this->stateStack) ?: 'data';
+        $val = end($this->stateStack);
+        return $val instanceof TokenizerState ? $val : TokenizerState::Data;
     }
     
     /**
@@ -191,12 +226,96 @@ class CSS3Tokenizer
             return null;
         }
 
-        $char = $this->peek();
+        $state = $this->currentState();
 
+        return match ($state) {
+            TokenizerState::Data => $this->nextTokenInData(),
+            TokenizerState::AtRule => $this->nextTokenInAtRule(),
+            TokenizerState::Block => $this->nextTokenInBlock(),
+            TokenizerState::Paren => $this->nextTokenInParen(),
+            TokenizerState::String => $this->nextTokenInString(),
+            TokenizerState::Comment => $this->nextTokenInComment(),
+            TokenizerState::Url => $this->nextTokenInUrl(),
+            TokenizerState::IdentLike => $this->nextTokenInIdentLike(),
+            TokenizerState::Number => $this->nextTokenInNumber(),
+            TokenizerState::FunctionState => $this->nextTokenInFunction(),
+            TokenizerState::Tag => $this->nextTokenInTag(),
+            TokenizerState::UrlEscape => $this->nextTokenInUrlEscape(),
+            default => $this->nextTokenInData(),
+        };
+    }
+
+    /**
+     * Handle tokens when in STRING state per the spec scaffold.
+     */
+    private function nextTokenInString(): ?CSS3Token
+    {
+        // consumeString expects the opening quote to be present
+        return $this->consumeString($this->peek());
+    }
+
+    /**
+     * Handle tokens when in COMMENT state per the spec scaffold.
+     */
+    private function nextTokenInComment(): ?CSS3Token
+    {
+        $this->consumeComment();
+        // consumeComment typically consumes until end of comment; pop the comment state
+        $this->popState();
+        return null;
+    }
+
+    /**
+     * Handle tokens when in URL state per the spec scaffold.
+     */
+    private function nextTokenInUrl(): ?CSS3Token
+    {
+        return $this->consumeURL($this->line, $this->column) ?? null;
+    }
+
+    /**
+     * Ident-like state handler (ident or function)
+     */
+    private function nextTokenInIdentLike(): ?CSS3Token
+    {
+    // Ident-like handling: identifier or function (handled in consumeIdentifier)
+    return $this->consumeIdentifier();
+    }
+
+    /**
+     * Number state handler
+     */
+    private function nextTokenInNumber(): ?CSS3Token
+    {
+        return $this->consumeNumber();
+    }
+
+    private function nextTokenInFunction(): ?CSS3Token
+    {
+        // Function state behaves like paren (content inside the function)
+        return $this->nextTokenInParen();
+    }
+
+    private function nextTokenInTag(): ?CSS3Token
+    {
+        // Tag state placeholder for future mapping (e.g., HTML-ish tokenization)
+        return $this->nextTokenInData();
+    }
+
+    private function nextTokenInUrlEscape(): ?CSS3Token
+    {
+        // Url-escape state will be used when parsing escaped url sequences
+        return $this->nextTokenInUrl();
+    }
+
+    /**
+     * Tokenization behavior in the data state (main state per spec)
+     */
+    private function nextTokenInData(): ?CSS3Token
+    {
         // Spec-like checks for CDO/CDC sequences
-        $next3 = $this->peek(0) . $this->peek(1) . $this->peek(2) . $this->peek(3);
-        if ($next3 === '<!--') {
-            // CDO token
+        $next4 = $this->peek(0) . $this->peek(1) . $this->peek(2) . $this->peek(3);
+        if ($next4 === '<!--') {
             $startLine = $this->line;
             $startColumn = $this->column;
             $this->advance(4);
@@ -211,10 +330,10 @@ class CSS3Tokenizer
             return new CSS3Token(CSS3TokenType::CDC, '-->', null, '-->', $startLine, $startColumn);
         }
 
-        // Handle different token types (order is important)
+        $char = $this->peek();
+
         if ($this->isCommentStart()) {
-            // Comments are dropped by the tokenizer (per CSS Syntax)
-            $this->pushState('comment');
+            $this->pushState(TokenizerState::Comment);
             $this->consumeComment();
             $this->popState();
             return null;
@@ -230,7 +349,7 @@ class CSS3Tokenizer
         }
 
         if ($this->isStringStart($char)) {
-            $this->pushState('string');
+            $this->pushState(TokenizerState::String);
             $tok = $this->consumeString($char);
             $this->popState();
             return $tok;
@@ -253,6 +372,35 @@ class CSS3Tokenizer
         }
 
         return $this->consumeDelimiter($char);
+    }
+
+    private function nextTokenInAtRule(): ?CSS3Token
+    {
+        // At-rule mostly follows data state tokenization but semicolon ends the at-rule
+        $token = $this->nextTokenInData();
+        if ($token !== null && $token->type === CSS3TokenType::SEMICOLON) {
+            // end at-rule prelude
+            $this->popState();
+        }
+        return $token;
+    }
+
+    private function nextTokenInBlock(): ?CSS3Token
+    {
+        // Block state mostly mirrors data state; a right brace will pop the block state
+        $token = $this->nextTokenInData();
+        if ($token !== null && $token->type === CSS3TokenType::RIGHT_BRACE) {
+            // pop was already performed by consumeDelimiter when producing RIGHT_BRACE
+            // ensure we don't have an extra pop
+        }
+        return $token;
+    }
+
+    private function nextTokenInParen(): ?CSS3Token
+    {
+        // Parenthesis state: mirrors data but ')' pops paren
+        $token = $this->nextTokenInData();
+        return $token;
     }
     
     /**
@@ -442,7 +590,7 @@ class CSS3Tokenizer
         }
 
 		// Enter at-rule state: we'll remain in at-rule until a '{' or ';' is encountered
-		$this->pushState('at-rule');
+    $this->pushState(TokenizerState::AtRule);
 		return new CSS3Token(CSS3TokenType::AT_KEYWORD, $value, null, '@' . $value, $startLine, $startColumn);
     }
     
@@ -475,6 +623,8 @@ class CSS3Tokenizer
                 return new CSS3Token(CSS3TokenType::FUNCTION, $value, null, $value . '(', $startLine, $startColumn);
             }
 
+            // We already consumed the '('. Enter paren/function state so ')' will pop it.
+            $this->pushState(TokenizerState::Paren);
             return new CSS3Token(CSS3TokenType::FUNCTION, $value, null, $value . '(', $startLine, $startColumn);
         }
 
@@ -538,7 +688,7 @@ class CSS3Tokenizer
             default => match ($char) {
                 '{' => (function() use ($startLine, $startColumn) {
                     // entering a block
-                    $this->pushState('block');
+                    $this->pushState(TokenizerState::Block);
                     return new CSS3Token(CSS3TokenType::LEFT_BRACE, '{', null, '{', $startLine, $startColumn);
                 })(),
                 '}' => (function() use ($startLine, $startColumn) {
@@ -547,7 +697,7 @@ class CSS3Tokenizer
                     return new CSS3Token(CSS3TokenType::RIGHT_BRACE, '}', null, '}', $startLine, $startColumn);
                 })(),
                 '(' => (function() use ($startLine, $startColumn) {
-                    $this->pushState('paren');
+                    $this->pushState(TokenizerState::Paren);
                     return new CSS3Token(CSS3TokenType::LEFT_PAREN, '(', null, '(', $startLine, $startColumn);
                 })(),
                 ')' => (function() use ($startLine, $startColumn) {
@@ -560,7 +710,7 @@ class CSS3Tokenizer
                 ':' => new CSS3Token(CSS3TokenType::COLON, ':', null, ':', $startLine, $startColumn),
                 ';' => (function() use ($startLine, $startColumn) {
                     // semicolon closes at-rule prelude
-                    if ($this->currentState() === 'at-rule') {
+                    if ($this->currentState() === TokenizerState::AtRule) {
                         $this->popState();
                     }
                     return new CSS3Token(CSS3TokenType::SEMICOLON, ';', null, ';', $startLine, $startColumn);
@@ -578,6 +728,8 @@ class CSS3Tokenizer
         while (!$this->isAtEnd()) {
             $token = $this->nextToken();
             if ($token !== null) {
+                // emit token event
+                $this->emit('token', $token);
                 yield $token;
             }
         }
@@ -775,6 +927,22 @@ class CSS3Tokenizer
         $pos = $this->position + $offset;
         return $pos < strlen($this->input) ? $this->input[$pos] : self::EOF;
     }
+
+    /**
+     * Reconsume the previously-read character by stepping back one position.
+     * This supports spec-style "reconsume" behavior inside state handlers.
+     */
+    private function reconsume(): void
+    {
+        if (empty($this->history)) {
+            return;
+        }
+
+        $last = array_pop($this->history);
+        $this->position = $last['position'];
+        $this->line = $last['line'];
+        $this->column = $last['column'];
+    }
     
     /**
      * Advance position and return character
@@ -792,6 +960,9 @@ class CSS3Tokenizer
 
         // Update position and column/line counters for the actual characters consumed
         for ($i = 0; $i < strlen($result); $i++) {
+            // push history snapshot so we can reconsume accurately
+            $this->history[] = ['position' => $this->position, 'line' => $this->line, 'column' => $this->column];
+
             if ($result[$i] === "\n") {
                 $this->line++;
                 $this->column = 1;
