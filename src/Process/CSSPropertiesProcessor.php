@@ -62,6 +62,9 @@ final class CSSPropertiesProcessor
 			if (!touch($propFile)) {
 				throw new \Exception('Could not create CSS properties file.');
 			}
+			if (!touch($propFile.'.etag')) {
+				throw new \Exception('Could not create CSS properties etag file.');
+			}
 
 			return true;
 		}
