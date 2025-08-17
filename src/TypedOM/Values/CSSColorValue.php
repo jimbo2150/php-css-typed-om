@@ -18,6 +18,15 @@ class CSSColorValue extends CSSStyleValue
     {
         $cssText = trim($cssText);
 
+        // Named colors (simplified list for demonstration)
+        $namedColors = [
+            'red', 'green', 'blue', 'black', 'white', 'transparent',
+            'currentColor', 'inherit', 'initial', 'unset'
+        ];
+        if (in_array(strtolower($cssText), $namedColors, true)) {
+            return new self($cssText);
+        }
+
         // Hex colors
         if (preg_match('/^#([0-9a-fA-F]{3,8})$/', $cssText)) {
             return new self($cssText);

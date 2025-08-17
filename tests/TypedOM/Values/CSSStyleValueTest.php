@@ -73,4 +73,43 @@ class CSSStyleValueTest extends TestCase
         $this->assertEquals($value->toString(), $clonedValue->toString());
         $this->assertEquals($value->getType(), $clonedValue->getType());
     }
+
+    public function testParse()
+    {
+        // Test that CSSStyleValue::parse calls createFromCssText
+        $value = CSSStyleValue::parse('20px');
+        $this->assertInstanceOf(CSSUnitValue::class, $value);
+        $this->assertEquals('20px', $value->toString());
+    }
+
+    public function testParseAll()
+    {
+        // Test with multiple values
+        $values = CSSStyleValue::parseAll('10px solid red');
+        $this->assertIsArray($values);
+        $this->assertCount(3, $values);
+        $this->assertInstanceOf(CSSUnitValue::class, $values[0]);
+        $this->assertEquals('10px', $values[0]->toString());
+        $this->assertInstanceOf(CSSKeywordValue::class, $values[1]);
+        $this->assertEquals('solid', $values[1]->toString());
+        $this->assertInstanceOf(CSSColorValue::class, $values[2]);
+        $this->assertEquals('red', $values[2]->toString());
+
+        // Test with single value
+        $values = CSSStyleValue::parseAll('auto');
+        $this->assertIsArray($values);
+        $this->assertCount(1, $values);
+        $this->assertInstanceOf(CSSKeywordValue::class, $values[0]);
+        $this->assertEquals('auto', $values[0]->toString());
+
+        // Test with empty string
+        $values = CSSStyleValue::parseAll('');
+        $this->assertIsArray($values);
+        $this->assertCount(0, $values);
+
+        // Test with whitespace only
+        $values = CSSStyleValue::parseAll('   ');
+        $this->assertIsArray($values);
+        $this->assertCount(0, $values);
+    }
 }
