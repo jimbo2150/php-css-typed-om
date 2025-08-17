@@ -172,16 +172,32 @@ class CSS3Tokenizer
      */
     public function streamPreludeAstsLive(): \Generator
     {
+        // Event-driven implementation: use an internal queue plus a socketpair to block
+        // on read until an event arrives. This avoids busy-waiting (usleep) and reduces latency.
         $q = new \SplQueue();
         $finished = false;
 
-        $astCb = function($ast) use ($q) {
+        // Create a socket pair for cross-thread-like signaling. On Unix this returns two connected streams.
+        $sockets = @stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        if ($sockets === false || count($sockets) !== 2) {
+            throw new \RuntimeException('stream_socket_pair() is required for live streaming but is not available on this system.');
+        }
+
+        list($r, $w) = $sockets;
+        stream_set_blocking($r, true);
+        stream_set_blocking($w, true);
+
+        $astCb = function($ast) use ($q, $w) {
             $q->enqueue($ast);
+            // wake reader by writing a single byte; ignore errors
+            @fwrite($w, "x");
         };
 
-        $tokenCb = function($token) use (&$finished) {
+        $tokenCb = function($token) use (&$finished, $w) {
             if ($token->type === CSS3TokenType::EOF) {
                 $finished = true;
+                // wake reader
+                @fwrite($w, "x");
             }
         };
 
@@ -193,19 +209,33 @@ class CSS3Tokenizer
             yield $entry['ast'];
         }
 
-        // then wait for new ones until EOF
+        // Wait for new ASTs until EOF; use stream_select on $r to block
         while (!$finished || !$q->isEmpty()) {
             if (!$q->isEmpty()) {
                 yield $q->dequeue();
                 continue;
             }
-            // small sleep to avoid busy-wait
-            usleep(1000);
+
+            $read = [$r];
+            $write = null;
+            $except = null;
+            // Block until socket is readable (woken by callbacks)
+            $n = @stream_select($read, $write, $except, null);
+            if ($n === false) {
+                break;
+            }
+
+            // Drain the wake byte(s)
+            while (!feof($r) && ($b = @fread($r, 1024)) !== false && $b !== '') {
+                // noop -- just draining
+            }
         }
 
-        // cleanup listeners
+        // cleanup listeners and sockets
         $this->off('at-prelude-ast', $astCb);
         $this->off('token', $tokenCb);
+        @fclose($r);
+        @fclose($w);
     }
 
     /**
