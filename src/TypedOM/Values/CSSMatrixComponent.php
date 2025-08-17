@@ -25,4 +25,9 @@ class CSSMatrixComponent extends CSSTransformComponent
     {
         return $this->matrix->toString();
     }
+
+    public function toMatrix(): DOMMatrix
+    {
+        return $this->matrix;
+    }
 }

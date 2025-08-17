@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
+use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
+
 class CSSRotate extends CSSTransformComponent
 {
     public $angle;
@@ -40,5 +42,22 @@ class CSSRotate extends CSSTransformComponent
                 $this->angle->toString() .
             ')';
         }
+    }
+
+    public function toMatrix(): DOMMatrix
+    {
+        $matrix = new DOMMatrix();
+        $angleRad = deg2rad($this->angle->getNumericValue()); // Assuming angle is in degrees
+
+        if ($this->is2D) {
+            $matrix->rotateSelf($angleRad);
+        }
+        else {
+            $x = $this->x instanceof CSSUnitValue ? $this->x->getNumericValue() : $this->x;
+            $y = $this->y instanceof CSSUnitValue ? $this->y->getNumericValue() : $this->y;
+            $z = $this->z instanceof CSSUnitValue ? $this->z->getNumericValue() : $this->z;
+            $matrix->rotateAxisAngleSelf($x, $y, $z, $angleRad);
+        }
+        return $matrix;
     }
 }

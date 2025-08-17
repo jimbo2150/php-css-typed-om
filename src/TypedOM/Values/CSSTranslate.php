@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
+use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
+
 /**
  * Represents the translate() function of the CSS transform property.
  *
@@ -36,5 +38,16 @@ class CSSTranslate extends CSSTransformComponent
         }
         $str .= ')';
         return $str;
+    }
+
+    public function toMatrix(): DOMMatrix
+    {
+        $matrix = new DOMMatrix();
+        $xPx = $this->x instanceof CSSUnitValue ? $this->x->to('px')->getNumericValue() : $this->x->getNumericValue();
+        $yPx = $this->y instanceof CSSUnitValue ? $this->y->to('px')->getNumericValue() : $this->y->getNumericValue();
+        $zPx = $this->z instanceof CSSUnitValue ? $this->z->to('px')->getNumericValue() : ($this->z ? $this->z->getNumericValue() : 0);
+
+        $matrix->translateSelf($xPx, $yPx, $zPx);
+        return $matrix;
     }
 }

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
+use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
+
 /**
  * Represents the skewX() function of the CSS transform property.
  *
@@ -22,5 +24,13 @@ class CSSSkewX extends CSSTransformComponent
     public function toString(): string
     {
         return 'skewX(' . $this->ax->toString() . ')';
+    }
+
+    public function toMatrix(): DOMMatrix
+    {
+        $matrix = new DOMMatrix();
+        $angleRad = deg2rad($this->ax->getNumericValue()); // Assuming angle is in degrees
+        $matrix->skewXSelf($angleRad);
+        return $matrix;
     }
 }

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
+use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
+
 /**
  * Represents the skewY() function of the CSS transform property.
  *
@@ -22,5 +24,13 @@ class CSSSkewY extends CSSTransformComponent
     public function toString(): string
     {
         return 'skewY(' . $this->ay->toString() . ')';
+    }
+
+    public function toMatrix(): DOMMatrix
+    {
+        $matrix = new DOMMatrix();
+        $angleRad = deg2rad($this->ay->getNumericValue()); // Assuming angle is in degrees
+        $matrix->skewYSelf($angleRad);
+        return $matrix;
     }
 }

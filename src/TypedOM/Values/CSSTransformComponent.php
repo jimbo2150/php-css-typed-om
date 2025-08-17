@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
+use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
+
 /**
  * Base class for components of a CSSTransformValue.
  *
@@ -17,4 +19,6 @@ abstract class CSSTransformComponent
      * @var bool Gets and sets whether the component is a 2D or 3D transform.
      */
     public bool $is2D = true;
+
+    public abstract function toMatrix(): DOMMatrix;
 }

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
+use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
+
 /**
  * Represents the transform property.
  *
@@ -25,13 +27,72 @@ class CSSTransformValue extends CSSStyleValue
         return implode(' ', array_map(fn($c) => $c->toString(), $this->components));
     }
 
-    public function isValid(): bool
+    public function getLength(): int
     {
+        return count($this->components);
+    }
+
+    public function getIs2D(): bool
+    {
+        foreach ($this->components as $component) {
+            if (!$component->is2D) {
+                return false;
+            }
+        }
         return true;
+    }
+
+    public function toMatrix(): DOMMatrix
+    {
+        $matrix = new DOMMatrix();
+        foreach ($this->components as $component) {
+            $matrix = $matrix->multiply($component->toMatrix());
+        }
+        return $matrix;
     }
 
     public function clone(): CSSStyleValue
     {
         return new self($this->components);
+    }
+
+    /**
+     * @return \Generator<array{int, CSSTransformComponent}>
+     */
+    public function entries(): \Generator
+    {
+        foreach ($this->components as $key => $value) {
+            yield [$key, $value];
+        }
+    }
+
+    /**
+     * @param callable(CSSTransformComponent, int, CSSTransformComponent[]): void $callback
+     */
+    public function forEach(callable $callback): void
+    {
+        foreach ($this->components as $key => $value) {
+            $callback($value, $key, $this->components);
+        }
+    }
+
+    /**
+     * @return \Generator<int>
+     */
+    public function keys(): \Generator
+    {
+        foreach ($this->components as $key => $value) {
+            yield $key;
+        }
+    }
+
+    /**
+     * @return \Generator<CSSTransformComponent>
+     */
+    public function values(): \Generator
+    {
+        foreach ($this->components as $value) {
+            yield $value;
+        }
     }
 }

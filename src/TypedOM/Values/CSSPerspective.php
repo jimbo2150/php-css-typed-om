@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
+use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
+
 /**
  * Represents the perspective() function of the CSS transform property.
  *
@@ -22,5 +24,13 @@ class CSSPerspective extends CSSTransformComponent
     public function toString(): string
     {
         return 'perspective(' . $this->length->toString() . ')';
+    }
+
+    public function toMatrix(): DOMMatrix
+    {
+        $matrix = new DOMMatrix();
+        $lengthPx = $this->length instanceof CSSUnitValue ? $this->length->to('px')->getNumericValue() : $this->length->getNumericValue();
+        $matrix->setPerspective($lengthPx);
+        return $matrix;
     }
 }
