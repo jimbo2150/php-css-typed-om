@@ -458,27 +458,7 @@ class CSS3Tokenizer
             }
             
             if ($char === '\\') {
-                $this->advance();
-                $next = $this->peek();
-                
-                if ($next === "\n") {
-                    $this->advance();
-                    continue;
-                }
-                
-                if (ctype_xdigit($next)) {
-                    $hex = '';
-                    $i = 0;
-                    while ($i < 6 && ctype_xdigit($this->peek($i))) {
-                        $hex .= $this->peek($i);
-                        $i++;
-                    }
-                    $this->advance(strlen($hex));
-                    $value .= html_entity_decode('&#x' . $hex . ';');
-                    continue;
-                }
-                
-                $value .= $this->advance();
+                $value .= $this->consumeEscapeSequence();
                 continue;
             }
             
@@ -623,7 +603,7 @@ class CSS3Tokenizer
                 return new CSS3Token(CSS3TokenType::FUNCTION, $value, null, $value . '(', $startLine, $startColumn);
             }
 
-            // We already consumed the '('. Enter paren/function state so ')' will pop it.
+            // We already consumed the '('. Enter paren state so ')' will pop it.
             $this->pushState(TokenizerState::Paren);
             return new CSS3Token(CSS3TokenType::FUNCTION, $value, null, $value . '(', $startLine, $startColumn);
         }
@@ -790,12 +770,7 @@ class CSS3Tokenizer
 
             if ($ch === '\\') {
                 // handle escape sequences in url
-                $this->advance();
-                if ($this->isAtEnd()) {
-                    return CSS3Token::badUrl($value, $startLine, $startColumn);
-                }
-
-                $value .= $this->advance();
+                $value .= $this->consumeEscapeSequence();
                 continue;
             }
 
@@ -804,6 +779,40 @@ class CSS3Tokenizer
 
         // EOF reached before closing ) -> bad-url
         return CSS3Token::badUrl($value, $startLine, $startColumn);
+    }
+
+    /**
+     * Consume an escape sequence and return the resulting string.
+     * Handles hex escapes (up to 6 hex digits) and single-character escapes.
+     */
+    private function consumeEscapeSequence(): string
+    {
+        // We expect the backslash has not yet been consumed; consume it now
+        $bs = $this->advance();
+
+        if ($this->isAtEnd()) {
+            return '';
+        }
+
+        $next = $this->peek();
+        // Hex escape
+        if (ctype_xdigit($next)) {
+            $hex = '';
+            $i = 0;
+            while ($i < 6 && ctype_xdigit($this->peek($i))) {
+                $hex .= $this->peek($i);
+                $i++;
+            }
+            $this->advance(strlen($hex));
+            // optional whitespace after hex escape
+            if ($this->isWhitespace($this->peek())) {
+                $this->advance();
+            }
+            return html_entity_decode('&#x' . $hex . ';');
+        }
+
+        // Single char escape: consume next char literally
+        return $this->advance();
     }
     
     /**
