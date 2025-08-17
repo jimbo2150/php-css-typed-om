@@ -45,4 +45,40 @@ class CSS3TokenizerSpecExtrasTest extends TestCase
         $this->assertNotNull($found, 'URL token should be produced');
         $this->assertEquals('http://example.com/a.png', $found->value);
     }
+
+    public function testBadUrlWithWhitespaceProducesBadUrl()
+    {
+        $css = "background: url(http ://example.com)"; // whitespace inside unquoted URL
+        $t = new CSS3Tokenizer($css);
+        $tokens = $t->tokenize();
+
+        $found = false;
+        foreach ($tokens as $tok) {
+            if ($tok->type === CSS3TokenType::BAD_URL) {
+                $found = true;
+                break;
+            }
+        }
+
+        $this->assertTrue($found, 'Whitespace in unquoted URL should produce BAD_URL');
+    }
+
+    public function testEscapedParenInsideUrlIsAllowed()
+    {
+        // url containing escaped ')' should be treated as part of URL
+        $css = "background: url(http://example.com/a\)b.png);";
+        $t = new CSS3Tokenizer($css);
+        $tokens = $t->tokenize();
+
+        $found = null;
+        foreach ($tokens as $tok) {
+            if ($tok->type === CSS3TokenType::URL) {
+                $found = $tok;
+                break;
+            }
+        }
+
+        $this->assertNotNull($found, 'Escaped parenthesis inside URL should produce URL token');
+        $this->assertStringContainsString(')', $found->value);
+    }
 }

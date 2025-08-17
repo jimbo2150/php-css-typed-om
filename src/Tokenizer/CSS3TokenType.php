@@ -15,6 +15,7 @@ enum CSS3TokenType: string
     case AT_KEYWORD = 'at-keyword';
     case HASH = 'hash';
     case PROPERTY = 'property';
+    case AT_RULE_PRELUDE = 'at-rule-prelude';
     
     // Strings and URLs
     case STRING = 'string';

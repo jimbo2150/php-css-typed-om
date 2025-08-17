@@ -60,4 +60,30 @@ class CSS3TokenizerNestedAndFuzzTest extends TestCase
             gc_collect_cycles();
         }
     }
+
+    public function testNestedFunctionsAndCommas()
+    {
+        $css = 'background: linear-gradient(45deg, rgba(0,0,0,0.5), url(http://example.com/a.png));';
+        $t = new CSS3Tokenizer($css);
+        $tokens = $t->tokenize();
+
+        $foundNestedFunction = false;
+        $foundComma = false;
+        $foundRightParen = 0;
+        foreach ($tokens as $tok) {
+            if ($tok->type === CSS3TokenType::FUNCTION && $tok->value === 'rgba') {
+                $foundNestedFunction = true;
+            }
+            if ($tok->type === CSS3TokenType::COMMA) {
+                $foundComma = true;
+            }
+            if ($tok->type === CSS3TokenType::RIGHT_PAREN) {
+                $foundRightParen++;
+            }
+        }
+
+        $this->assertTrue($foundNestedFunction, 'Nested function token (rgba) should be present');
+        $this->assertTrue($foundComma, 'Comma should be present separating arguments');
+        $this->assertGreaterThanOrEqual(2, $foundRightParen, 'At least two RIGHT_PAREN tokens expected');
+    }
 }

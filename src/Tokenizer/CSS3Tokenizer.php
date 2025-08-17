@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\Tokenizer;
 
 use Jimbo2150\PhpCssTypedOm\Tokenizer\TokenizerState;
+use Jimbo2150\PhpCssTypedOm\Tokenizer\CSS3Token;
 
 
 /**
@@ -39,6 +40,174 @@ class CSS3Tokenizer
      */
     private array $listeners = [];
 
+    /** Stack for tracking active at-rules with their prelude start and buffered representations */
+    private array $atRuleStack = [];
+    /** Pending single token to return before continuing normal flow (used to queue terminators) */
+    private ?CSS3Token $pendingToken = null;
+    /** Last completed at-rule prelude info: ['raw'=>string,'tokens'=>CSS3Token[],'terminator'=>CSS3Token] */
+    private ?array $lastAtPrelude = null;
+    /** All completed preludes (array of ['raw','tokens','terminator','ast']) */
+    private array $completedPreludes = [];
+
+    /**
+     * Return the last completed at-rule prelude information or null.
+     *
+     * Returns ['raw' => string, 'tokens' => CSS3Token[], 'terminator' => CSS3Token] or null
+     */
+    public function getLastAtPrelude(): ?array
+    {
+        return $this->lastAtPrelude;
+    }
+
+    /**
+     * Convert a list of prelude tokens into a small normalized AST-like structure.
+     * The AST is a list of nodes with shape: ['type'=>'ident'|'function'|'paren'|..., 'value' => string, 'children' => []]
+     */
+    public function preludeTokensToAst(array $tokens): array
+    {
+        $ast = [];
+        $stack = []; // stack of PreludeAstNode
+
+        foreach ($tokens as $tk) {
+            $type = $tk->type;
+            $node = null;
+
+            if ($type === CSS3TokenType::IDENT || $type === CSS3TokenType::PROPERTY || $type === CSS3TokenType::HASH || $type === CSS3TokenType::DIMENSION || $type === CSS3TokenType::NUMBER || $type === CSS3TokenType::PERCENTAGE) {
+                $node = new PreludeAstNode($type->value, $tk->value, $tk->line, $tk->column);
+            } elseif ($type === CSS3TokenType::FUNCTION) {
+                $node = new PreludeAstNode('function', $tk->value, $tk->line, $tk->column, []);
+                // push onto stack to collect children until RIGHT_PAREN
+                $stack[] = $node;
+                continue; // function node will be appended when closed
+            } elseif ($type === CSS3TokenType::LEFT_PAREN) {
+                $node = new PreludeAstNode('paren', '(', $tk->line, $tk->column, []);
+                $stack[] = $node;
+                continue;
+            } elseif ($type === CSS3TokenType::RIGHT_PAREN) {
+                // close nearest stack node (function or paren)
+                $closed = array_pop($stack);
+                if ($closed !== null) {
+                    // append to parent or top-level
+                    if (!empty($stack)) {
+                        $stack[count($stack)-1]->children[] = $closed;
+                    } else {
+                        $ast[] = $closed;
+                    }
+                }
+                continue;
+            } else {
+                $node = new PreludeAstNode($type->value, $tk->representation ?? $tk->value, $tk->line, $tk->column);
+            }
+
+            // append node to top-of-stack if present, else top-level
+            if (!empty($stack)) {
+                $stack[count($stack)-1]->children[] = $node;
+            } else {
+                $ast[] = $node;
+            }
+        }
+
+        // close any remaining open nodes
+        while (!empty($stack)) {
+            $remaining = array_pop($stack);
+            if (!empty($stack)) {
+                $stack[count($stack)-1]->children[] = $remaining;
+            } else {
+                $ast[] = $remaining;
+            }
+        }
+
+        return $ast;
+    }
+
+    /**
+     * Yield ASTs for all completed preludes (snapshot at call time).
+     * This is not a live stream; call again to get newly completed preludes.
+     */
+    public function streamPreludeAsts(): \Generator
+    {
+        foreach ($this->completedPreludes as $entry) {
+            yield $entry['ast'];
+        }
+    }
+
+    /**
+     * Return all completed preludes recorded during tokenization.
+     * Each entry is ['raw','tokens','terminator','ast']
+     */
+    public function getAllCompletedPreludes(): array
+    {
+        return $this->completedPreludes;
+    }
+
+    /**
+     * Convenience helper to register a listener for AST-level prelude completions.
+     */
+    public function onPreludeAst(callable $cb): void
+    {
+        $this->on('at-prelude-ast', $cb);
+    }
+
+    /**
+     * Remove a previously registered listener for an event.
+     */
+    public function off(string $event, callable $cb): void
+    {
+        if (empty($this->listeners[$event])) {
+            return;
+        }
+
+        foreach ($this->listeners[$event] as $i => $listener) {
+            if ($listener === $cb) {
+                array_splice($this->listeners[$event], $i, 1);
+                return;
+            }
+        }
+    }
+
+    /**
+     * Live-style generator that yields prelude ASTs as they complete.
+     * Note: this generator will block while waiting for new preludes; consumers
+     * should iterate it in a loop while tokenization runs (or consume after tokenization to get all entries).
+     */
+    public function streamPreludeAstsLive(): \Generator
+    {
+        $q = new \SplQueue();
+        $finished = false;
+
+        $astCb = function($ast) use ($q) {
+            $q->enqueue($ast);
+        };
+
+        $tokenCb = function($token) use (&$finished) {
+            if ($token->type === CSS3TokenType::EOF) {
+                $finished = true;
+            }
+        };
+
+        $this->on('at-prelude-ast', $astCb);
+        $this->on('token', $tokenCb);
+
+        // yield existing completed preludes first
+        foreach ($this->completedPreludes as $entry) {
+            yield $entry['ast'];
+        }
+
+        // then wait for new ones until EOF
+        while (!$finished || !$q->isEmpty()) {
+            if (!$q->isEmpty()) {
+                yield $q->dequeue();
+                continue;
+            }
+            // small sleep to avoid busy-wait
+            usleep(1000);
+        }
+
+        // cleanup listeners
+        $this->off('at-prelude-ast', $astCb);
+        $this->off('token', $tokenCb);
+    }
+
     /**
      * Optional PDO handle for property validation DB
      */
@@ -62,6 +231,10 @@ class CSS3Tokenizer
     
     public function __construct(string $css, bool $emitWhitespace = true, ?string $propertyDbPath = null, bool $strictValidation = false)
     {
+        // Strip UTF-8 BOM if present at the start of the input per spec
+        if (str_starts_with($css, "\xEF\xBB\xBF")) {
+            $css = substr($css, 3);
+        }
         $this->input = $css;
         $this->emitWhitespace = $emitWhitespace;
         $this->propertyDbPath = $propertyDbPath;
@@ -195,6 +368,22 @@ class CSS3Tokenizer
         return $val->value;
     }
 
+    /**
+     * Remove a specific state from the stack (wherever it appears), emitting
+     * a state-exit event for it, without disturbing other states.
+     */
+    private function removeState(TokenizerState $state): void
+    {
+        // find last occurrence of the state in the stack
+        for ($i = count($this->stateStack) - 1; $i >= 0; $i--) {
+            if ($this->stateStack[$i] === $state) {
+                array_splice($this->stateStack, $i, 1);
+                $this->emit('state-exit', ['state' => $state->value]);
+                return;
+            }
+        }
+    }
+
     private function currentState(): TokenizerState
     {
         $val = end($this->stateStack);
@@ -224,6 +413,12 @@ class CSS3Tokenizer
      */
     private function nextToken(): ?CSS3Token
     {
+        // If a pending token has been queued (e.g., a terminator for a structured prelude), return it first
+        if ($this->pendingToken !== null) {
+            $t = $this->pendingToken;
+            $this->pendingToken = null;
+            return $t;
+        }
         if ($this->isAtEnd()) {
             return null;
         }
@@ -283,7 +478,8 @@ class CSS3Tokenizer
     // Enter ident-like state for observability per-spec
     $this->pushState(TokenizerState::IdentLike);
             $token = $this->consumeIdentifier();
-            $this->popState();
+            // remove ident-like state specifically to avoid popping newer states (e.g., paren)
+            $this->removeState(TokenizerState::IdentLike);
             if ($token !== null) {
                 return $token;
             }
@@ -307,8 +503,17 @@ class CSS3Tokenizer
 
     private function nextTokenInFunction(): ?CSS3Token
     {
-        // Function state behaves like paren (content inside the function)
-        return $this->nextTokenInParen();
+        // If the next character is ')', consume it and pop the function state
+        if ($this->peek() === ')') {
+            $startLine = $this->line;
+            $startColumn = $this->column;
+            $this->advance();
+            $this->popState();
+            return new CSS3Token(CSS3TokenType::RIGHT_PAREN, ')', null, ')', $startLine, $startColumn);
+        }
+
+        // Otherwise behave like data state inside the function
+        return $this->nextTokenInData();
     }
 
     private function nextTokenInTag(): ?CSS3Token
@@ -391,21 +596,81 @@ class CSS3Tokenizer
 
     private function nextTokenInAtRule(): ?CSS3Token
     {
-        // At-rule mostly follows data state tokenization but semicolon ends the at-rule
+        // At-rule prelude: behave like data but compute textual prelude from raw input so skipped tokens
+        // (e.g., whitespace) are preserved in the prelude text.
+        $posBefore = $this->position;
         $token = $this->nextTokenInData();
-        if ($token !== null) {
-            // end at-rule prelude on semicolon
-            if ($token->type === CSS3TokenType::SEMICOLON) {
-                $this->popState();
-            }
-
-            // Opening brace begins a block which ends the at-rule prelude
-            if ($token->type === CSS3TokenType::LEFT_BRACE) {
-                $this->popState();
-            }
+        if ($token === null) {
+            return null;
         }
 
-        return $token;
+    // Emit per-token prelude event
+    $this->emit('at-prelude', $token);
+
+    $depth = count($this->stateStack) - 1;
+
+        // If terminator encountered, construct prelude from the top at-rule entry
+        if ($token->type === CSS3TokenType::SEMICOLON || $token->type === CSS3TokenType::LEFT_BRACE) {
+            $entryIndex = count($this->atRuleStack) - 1;
+            $startPos = $posBefore;
+            $buffer = [];
+            if ($entryIndex >= 0) {
+                $entry = $this->atRuleStack[$entryIndex];
+                $startPos = $entry['start'] ?? $posBefore;
+                $buffer = $entry['buffer'] ?? [];
+            }
+
+            $preludeLen = $posBefore - $startPos; // posBefore is where the terminator begins
+            $preludeRepr = $preludeLen > 0 ? substr($this->input, $startPos, $preludeLen) : '';
+            if ($preludeRepr === '') {
+                // fallback to buffered token representations (trim)
+                if (!empty($buffer)) {
+                    // remove terminator if present
+                    array_pop($buffer);
+                }
+                $preludeRepr = trim(implode('', array_map(fn($tk) => $tk->representation ?? $tk->value, $buffer)));
+            }
+
+            $startLine = $this->line;
+            $startColumn = $this->column;
+
+            $preludeToken = new CSS3Token(CSS3TokenType::AT_RULE_PRELUDE, $preludeRepr, null, $preludeRepr, $startLine, $startColumn);
+            $meta = $preludeToken->metadata;
+            $meta['tokens'] = $buffer;
+            $preludeToken = new CSS3Token($preludeToken->type, $preludeToken->value, $preludeToken->unit, $preludeToken->representation, $preludeToken->line, $preludeToken->column, $meta);
+
+                // build AST by re-tokenizing the raw prelude substring to get a correct token sequence
+                $childTokens = [];
+                if ($preludeRepr !== '') {
+                    $childTok = new CSS3Tokenizer($preludeRepr, $this->emitWhitespace);
+                    $childTokens = $childTok->tokenize();
+                } else {
+                    // fallback to buffered token objects if raw substring is empty
+                    $childTokens = $buffer;
+                }
+                $ast = $this->preludeTokensToAst($childTokens);
+
+                // record last completed prelude and append to completedPreludes
+                $entry = ['raw' => $preludeRepr, 'tokens' => $buffer, 'terminator' => $token, 'ast' => $ast];
+                $this->lastAtPrelude = $entry;
+                $this->completedPreludes[] = $entry;
+
+            // Queue the terminator so it's returned on the next call
+            $this->pendingToken = $token;
+                        // If terminator encountered, construct prelude from the top at-rule entry
+            // Pop the at-rule stack entry if present
+            if ($entryIndex >= 0) {
+                array_pop($this->atRuleStack);
+            }
+
+            $this->popState();
+            $this->emit('at-prelude-complete', ['prelude' => $preludeToken, 'terminator' => $token]);
+            // Emit AST-level event for consumers
+            $this->emit('at-prelude-ast', $ast);
+            return $preludeToken;
+        }
+
+    return $token;
     }
 
     private function nextTokenInBlock(): ?CSS3Token
@@ -425,8 +690,11 @@ class CSS3Tokenizer
 
     private function nextTokenInParen(): ?CSS3Token
     {
-        // If the next character is ')', consume it and pop the paren state
-        if ($this->peek() === ')') {
+        // Paren state: handle tokens inside function parentheses more explicitly
+        $char = $this->peek();
+
+        // Closing paren ends this state
+        if ($char === ')') {
             $startLine = $this->line;
             $startColumn = $this->column;
             $this->advance();
@@ -434,8 +702,57 @@ class CSS3Tokenizer
             return new CSS3Token(CSS3TokenType::RIGHT_PAREN, ')', null, ')', $startLine, $startColumn);
         }
 
-        // Otherwise behave like data state
-        return $this->nextTokenInData();
+        // Comments inside parens
+        if ($this->isCommentStart()) {
+            $this->pushState(TokenizerState::Comment);
+            $this->consumeComment();
+            $this->popState();
+            return null;
+        }
+
+        // Whitespace
+        if ($this->isWhitespace($char)) {
+            if ($this->emitWhitespace) {
+                return $this->consumeWhitespaceToken();
+            }
+            $this->skipWhitespace();
+            return null;
+        }
+
+        // Strings
+        if ($this->isStringStart($char)) {
+            return $this->consumeString($char);
+        }
+
+        // Numbers (including percentages/dimensions)
+        if ($this->isNumberStart($char)) {
+            return $this->consumeNumber();
+        }
+
+        // Comma separates function arguments
+        if ($char === ',') {
+            $startLine = $this->line;
+            $startColumn = $this->column;
+            $this->advance();
+            return new CSS3Token(CSS3TokenType::COMMA, ',', null, ',', $startLine, $startColumn);
+        }
+
+        // Opening paren (nested) or other delimiters
+        if ($char === '(') {
+            $startLine = $this->line;
+            $startColumn = $this->column;
+            $this->advance();
+            $this->pushState(TokenizerState::Paren);
+            return new CSS3Token(CSS3TokenType::LEFT_PAREN, '(', null, '(', $startLine, $startColumn);
+        }
+
+        // Identifiers (and nested functions)
+        if ($this->isIdentifierStart($char)) {
+            return $this->nextTokenInIdentLike();
+        }
+
+        // Fallback: delim and single-character tokens
+        return $this->consumeDelimiter($char);
     }
     
     /**
@@ -613,6 +930,10 @@ class CSS3Tokenizer
 
 		// Enter at-rule state: we'll remain in at-rule until a '{' or ';' is encountered
     $this->pushState(TokenizerState::AtRule);
+    // push a new at-rule stack entry capturing start position and an empty buffer of token objects
+    $this->atRuleStack[] = ['start' => $this->position, 'buffer' => []];
+    // emit event that an at-rule prelude has started
+    $this->emit('at-prelude-start', ['name' => $value, 'start' => $this->position, 'line' => $startLine, 'column' => $startColumn]);
 		return new CSS3Token(CSS3TokenType::AT_KEYWORD, $value, null, '@' . $value, $startLine, $startColumn);
     }
     
@@ -628,7 +949,18 @@ class CSS3Tokenizer
         $value = '';
         // Accumulate up to the token max length to avoid unbounded memory growth.
         while ($this->isIdentifierPart($this->peek())) {
-            if (strlen($value) < \Jimbo2150\PhpCssTypedOm\Tokenizer\CSS3Token::$maxTokenLength) {
+            // Handle escape sequences properly
+            if ($this->peek() === '\\') {
+                // consume escape sequence which advances position appropriately
+                $esc = $this->consumeEscapeSequence();
+                if (strlen($value) < CSS3Token::$maxTokenLength) {
+                    $value .= $esc;
+                }
+                // if we've reached cap, continue consuming without storing (escape already consumed)
+                continue;
+            }
+
+            if (strlen($value) < CSS3Token::$maxTokenLength) {
                 $value .= $this->advance();
                 continue;
             }
@@ -656,7 +988,11 @@ class CSS3Tokenizer
 
             // Special-case: url( ... ) should produce a URL or BAD_URL token per spec
             if (strtolower($value) === 'url') {
+                // Enter URL state for observability
+                $this->pushState(TokenizerState::Url);
                 $urlToken = $this->consumeURL($startLine, $startColumn);
+                // If consumeURL returned a token, pop the Url state and return it
+                $this->popState();
                 if ($urlToken !== null) {
                     return $urlToken;
                 }
@@ -696,7 +1032,7 @@ class CSS3Tokenizer
                     // attach metadata by creating a new token instance with extra metadata
                     $meta = $token->metadata;
                     $meta['invalidProperty'] = true;
-                    $token = new \Jimbo2150\PhpCssTypedOm\Tokenizer\CSS3Token($token->type, $token->value, $token->unit, $token->representation, $token->line, $token->column, $meta);
+                    $token = new CSS3Token($token->type, $token->value, $token->unit, $token->representation, $token->line, $token->column, $meta);
                     $this->emit('invalid-property', ['name' => $value, 'line' => $startLine, 'column' => $startColumn]);
                 }
             }
@@ -707,11 +1043,11 @@ class CSS3Tokenizer
         $token = CSS3Token::ident($value, $startLine, $startColumn);
 
         // If we consumed more than the max, mark token as truncated in metadata.
-        if ($consumedLen > \Jimbo2150\PhpCssTypedOm\Tokenizer\CSS3Token::$maxTokenLength) {
+        if ($consumedLen > CSS3Token::$maxTokenLength) {
             $meta = $token->metadata;
             $meta['truncated'] = true;
             $meta['originalLength'] = $consumedLen;
-            $token = new \Jimbo2150\PhpCssTypedOm\Tokenizer\CSS3Token($token->type, $token->value, $token->unit, $token->representation, $token->line, $token->column, $meta);
+            $token = new CSS3Token($token->type, $token->value, $token->unit, $token->representation, $token->line, $token->column, $meta);
         }
 
         return $token;
@@ -799,7 +1135,50 @@ class CSS3Tokenizer
             if ($token !== null) {
                 // emit token event
                 $this->emit('token', $token);
+                // if currently in an at-rule, record the token object into the top at-rule buffer
+                if ($this->currentState() === TokenizerState::AtRule) {
+                    $idx = count($this->atRuleStack) - 1;
+                    if ($idx >= 0) {
+                        $this->atRuleStack[$idx]['buffer'][] = $token;
+                    }
+                }
                 yield $token;
+            }
+        }
+
+        // Before yielding EOF, if any at-rule entries remain open (incomplete preludes), record them
+        if (!empty($this->atRuleStack)) {
+            while (!empty($this->atRuleStack)) {
+                $entry = array_pop($this->atRuleStack);
+                $startPos = $entry['start'] ?? 0;
+                $buffer = $entry['buffer'] ?? [];
+                $preludeRepr = '';
+                if ($startPos < $this->position) {
+                    $preludeRepr = substr($this->input, $startPos, $this->position - $startPos);
+                }
+                if ($preludeRepr === '') {
+                    $preludeRepr = trim(implode('', array_map(fn($tk) => $tk->representation ?? $tk->value, $buffer)));
+                }
+
+                $startLine = $this->line;
+                $startColumn = $this->column;
+
+                $preludeToken = new CSS3Token(CSS3TokenType::AT_RULE_PRELUDE, $preludeRepr, null, $preludeRepr, $startLine, $startColumn);
+                $meta = $preludeToken->metadata;
+                $meta['tokens'] = $buffer;
+                $meta['incomplete'] = true;
+                $preludeToken = new CSS3Token($preludeToken->type, $preludeToken->value, $preludeToken->unit, $preludeToken->representation, $preludeToken->line, $preludeToken->column, $meta);
+
+                // At EOF, avoid spawning a child tokenizer; use the buffered token objects
+                $childTokens = $buffer;
+                $ast = $this->preludeTokensToAst($childTokens);
+
+                $entry = ['raw' => $preludeRepr, 'tokens' => $buffer, 'terminator' => null, 'ast' => $ast, 'incomplete' => true];
+                $this->lastAtPrelude = $entry;
+                $this->completedPreludes[] = $entry;
+
+                $this->emit('at-prelude-complete', ['prelude' => $preludeToken, 'terminator' => null, 'incomplete' => true]);
+                $this->emit('at-prelude-ast', $ast);
             }
         }
 
@@ -853,8 +1232,26 @@ class CSS3Tokenizer
             }
 
             if ($this->isWhitespace($ch)) {
-                // whitespace in unquoted url is invalid -> bad-url
-                return CSS3Token::badUrl($value, $startLine, $startColumn);
+                // whitespace in unquoted url is invalid -> enter bad-url recovery
+                // Consume until ')' or EOF, honoring escape sequences
+                $bad = $value;
+                while (!$this->isAtEnd()) {
+                    if ($this->peek() === ')') {
+                        $this->advance();
+                        return CSS3Token::badUrl($bad, $startLine, $startColumn);
+                    }
+
+                    if ($this->peek() === '\\') {
+                        // consume escape and append decoded char to bad value
+                        $bad .= $this->consumeEscapeSequence();
+                        continue;
+                    }
+
+                    $bad .= $this->advance();
+                }
+
+                // EOF reached in bad-url recovery
+                return CSS3Token::badUrl($bad, $startLine, $startColumn);
             }
 
             if ($ch === '\\') {
@@ -888,6 +1285,13 @@ class CSS3Tokenizer
         }
 
         $next = $this->peek();
+        // Backslash followed by newline is a line continuation -> consume newline and return empty string
+        if ($next === "\n" || $next === "\r" || $next === "\f") {
+            // consume the newline and do not produce a character
+            $this->advance();
+            $this->popState();
+            return '';
+        }
         // Hex escape
         if (ctype_xdigit($next)) {
             $hex = '';
@@ -972,13 +1376,34 @@ class CSS3Tokenizer
             return false;
         }
 
-        // Backslash introduces an escape which can start an identifier
+        // If it's a backslash, an escape can start an identifier
         if ($char === '\\') {
             return true;
         }
 
+        // Leading hyphen rules: '-' may start an identifier only if followed by a name-start code point,
+        // another '-', or an escape (for custom properties or escaped starts).
+        if ($char === '-') {
+            $next = $this->peek(1);
+            if ($next === '' || $next === self::EOF) {
+                return false;
+            }
+            if ($next === '-') {
+                return true; // custom property start
+            }
+            if ($next === '\\') {
+                return true; // escape after hyphen
+            }
+            $ord = ord($next);
+            if (ctype_alpha($next) || $next === '_' || $ord >= 128) {
+                return true;
+            }
+
+            return false;
+        }
+
         $ord = ord($char);
-        return ctype_alpha($char) || $char === '_' || $char === '-' || $ord >= 128;
+        return ctype_alpha($char) || $char === '_' || $ord >= 128;
     }
     
     /**
