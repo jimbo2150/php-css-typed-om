@@ -12,5 +12,7 @@
 	<coverage/>
     <php>
         <env name="APP_ENV" value="testing"/>
+		<!--ini name="error_reporting" value="-1"/>
+        <ini name="display_errors" value="On"/-->
     </php>
 </phpunit>
