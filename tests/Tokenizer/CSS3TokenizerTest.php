@@ -27,7 +27,7 @@ class CSS3TokenizerTest extends TestCase
         $this->assertEquals(CSS3TokenType::DELIM, $tokens[1]->type);
         $this->assertEquals(':', $tokens[1]->value);
     }
-    
+
     public function testNumbers()
     {
         $css = 'width: 100px; height: 50%;';
@@ -47,7 +47,7 @@ class CSS3TokenizerTest extends TestCase
         $this->assertEquals('100', $dimensionToken->value);
         $this->assertEquals('px', $dimensionToken->unit);
     }
-    
+
     public function testStrings()
     {
         $css = 'content: "Hello World";';
@@ -66,7 +66,7 @@ class CSS3TokenizerTest extends TestCase
         $this->assertNotNull($stringToken);
         $this->assertEquals('Hello World', $stringToken->value);
     }
-    
+
     public function testComments()
     {
         $css = '/* This is a comment */ color: blue;';
@@ -76,10 +76,10 @@ class CSS3TokenizerTest extends TestCase
         // Comments are skipped in tokenization
         $this->assertCount(6, $tokens); // ident, colon, whitespace, ident, semicolon, eof
     }
-    
+
     public function testComplexCSS()
     {
-        $css = '.class { margin: 10px 20px; color: #ff0000; }';
+        $css = '.class { margin: 10px 20px; color: #ff0000; height: min(calc(100% - 5px), 1000px); }';
         $tokenizer = new CSS3Tokenizer($css);
         $tokens = $tokenizer->tokenize();
 
