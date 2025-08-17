@@ -31,7 +31,7 @@ class CSS3TokenizerTest extends TestCase
         $this->assertEquals(CSS3TokenType::PROPERTY, $tokens[0]->type);
         $this->assertEquals('color', $tokens[0]->value);
 
-        $this->assertEquals(CSS3TokenType::DELIM, $tokens[1]->type);
+    $this->assertEquals(CSS3TokenType::COLON, $tokens[1]->type);
         $this->assertEquals(':', $tokens[1]->value);
     }
 

@@ -52,6 +52,7 @@ enum CSS3TokenType: string
     case EOF = 'eof';
     case CDO = 'cdo'; // <!--
     case CDC = 'cdc'; // -->
+    case UNICODE_RANGE = 'unicode-range';
     
     // Match operators
     case INCLUDE_MATCH = '~='; // ~=

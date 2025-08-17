@@ -22,6 +22,11 @@ class CSS3Token
     }
 
     /**
+     * Whether tokens should be normalized on creation
+     */
+    public static bool $normalize = false;
+
+    /**
      * Check if this token is a numeric token (number, percentage, or dimension)
      */
     public function isNumeric(): bool
@@ -128,7 +133,12 @@ class CSS3Token
      */
     public static function number(float $value, string $representation, int $line = 1, int $column = 1): self
     {
-        return new self(CSS3TokenType::NUMBER, (string) $value, null, $representation, $line, $column);
+    $isInt = (string)((int) $value) === (string) $value;
+        $meta = ['raw' => $representation, 'isInteger' => $isInt];
+        if (self::$normalize) {
+            $meta['normalized'] = (string) $value;
+        }
+        return new self(CSS3TokenType::NUMBER, (string) $value, null, $representation, $line, $column, $meta);
     }
 
     /**
@@ -136,7 +146,12 @@ class CSS3Token
      */
     public static function dimension(float $value, string $unit, string $representation, int $line = 1, int $column = 1): self
     {
-        return new self(CSS3TokenType::DIMENSION, (string) $value, $unit, $representation, $line, $column);
+        $isInt = (string)((int) $value) === (string) $value;
+        $meta = ['raw' => $representation, 'isInteger' => $isInt, 'unit' => $unit];
+        if (self::$normalize) {
+            $meta['normalized'] = (string) $value . $unit;
+        }
+        return new self(CSS3TokenType::DIMENSION, (string) $value, $unit, $representation, $line, $column, $meta);
     }
 
     /**
@@ -144,7 +159,12 @@ class CSS3Token
      */
     public static function percentage(float $value, string $representation, int $line = 1, int $column = 1): self
     {
-        return new self(CSS3TokenType::PERCENTAGE, (string) $value, '%', $representation, $line, $column);
+        $isInt = (string)((int) $value) === (string) $value;
+        $meta = ['raw' => $representation, 'isInteger' => $isInt];
+        if (self::$normalize) {
+            $meta['normalized'] = (string) $value . '%';
+        }
+        return new self(CSS3TokenType::PERCENTAGE, (string) $value, '%', $representation, $line, $column, $meta);
     }
 
     /**
@@ -153,6 +173,43 @@ class CSS3Token
     public static function string(string $value, string $representation, int $line = 1, int $column = 1): self
     {
         return new self(CSS3TokenType::STRING, $value, null, $representation, $line, $column);
+    }
+
+    /**
+     * Create a bad-string token
+     */
+    public static function badString(string $value, int $line = 1, int $column = 1): self
+    {
+        return new self(CSS3TokenType::BAD_STRING, $value, null, $value, $line, $column);
+    }
+
+    /**
+     * Create a url token
+     */
+    public static function url(string $value, int $line = 1, int $column = 1): self
+    {
+        $meta = ['raw' => $value];
+        if (self::$normalize) {
+            $meta['normalized'] = trim($value);
+        }
+        return new self(CSS3TokenType::URL, $value, null, $value, $line, $column, $meta);
+    }
+
+    /**
+     * Create a bad-url token
+     */
+    public static function badUrl(string $value, int $line = 1, int $column = 1): self
+    {
+        return new self(CSS3TokenType::BAD_URL, $value, null, $value, $line, $column, ['raw' => $value]);
+    }
+
+    public static function unicodeRange(string $value, int $line = 1, int $column = 1): self
+    {
+        $meta = ['raw' => $value];
+        if (self::$normalize) {
+            $meta['normalized'] = strtoupper($value);
+        }
+        return new self(CSS3TokenType::UNICODE_RANGE, $value, null, $value, $line, $column, $meta);
     }
 
     /**
