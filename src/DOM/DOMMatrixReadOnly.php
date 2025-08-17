@@ -105,12 +105,12 @@ class DOMMatrixReadOnly
 					  1.0 === $this->_matrix[10] &&
 					  0.0 === $this->_matrix[11] &&
 					  0.0 === $this->_matrix[14],
-			'isIdentity' => $this->_matrix === [
-				1.0, 0.0, 0.0, 0.0,
-				0.0, 1.0, 0.0, 0.0,
-				0.0, 0.0, 1.0, 0.0,
-				0.0, 0.0, 0.0, 1.0,
-			],
+			'isIdentity' => (
+				abs(1.0 - $this->_matrix[0]) < 0.000001 && abs(0.0 - $this->_matrix[1]) < 0.000001 && abs(0.0 - $this->_matrix[2]) < 0.000001 && abs(0.0 - $this->_matrix[3]) < 0.000001 &&
+				abs(0.0 - $this->_matrix[4]) < 0.000001 && abs(1.0 - $this->_matrix[5]) < 0.000001 && abs(0.0 - $this->_matrix[6]) < 0.000001 && abs(0.0 - $this->_matrix[7]) < 0.000001 &&
+				abs(0.0 - $this->_matrix[8]) < 0.000001 && abs(0.0 - $this->_matrix[9]) < 0.000001 && abs(1.0 - $this->_matrix[10]) < 0.000001 && abs(0.0 - $this->_matrix[11]) < 0.000001 &&
+				abs(0.0 - $this->_matrix[12]) < 0.000001 && abs(0.0 - $this->_matrix[13]) < 0.000001 && abs(0.0 - $this->_matrix[14]) < 0.000001 && abs(1.0 - $this->_matrix[15]) < 0.000001
+			),
 			default => throw new \InvalidArgumentException('Undefined property: '.$name),
 		};
 	}
@@ -313,20 +313,25 @@ class DOMMatrixReadOnly
 		return $this->multiply($translateMatrix);
 	}
 
-	public function scale(float $scaleX = 1.0, ?float $scaleY = null, float $scaleZ = 1.0): DOMMatrix
+	public function scale(float $scaleX = 1.0, ?float $scaleY = null, float $scaleZ = 1.0, float $originX = 0.0, float $originY = 0.0, float $originZ = 0.0): DOMMatrix
 	{
 		if (null === $scaleY) {
 			$scaleY = $scaleX;
 		}
+		
+		$matrix = new DOMMatrix($this);
+		
+		if ($originX !== 0.0 || $originY !== 0.0 || $originZ !== 0.0) {
+			$matrix->translateSelf($originX, $originY, $originZ);
+		}
+		
+		$matrix->scaleSelf($scaleX, $scaleY, $scaleZ);
+		
+		if ($originX !== 0.0 || $originY !== 0.0 || $originZ !== 0.0) {
+			$matrix->translateSelf(-$originX, -$originY, -$originZ);
+		}
 
-		$scaleMatrix = new DOMMatrix([
-			$scaleX, 0.0, 0.0, 0.0,
-			0.0, $scaleY, 0.0, 0.0,
-			0.0, 0.0, $scaleZ, 0.0,
-			0.0, 0.0, 0.0, 1.0,
-		]);
-
-		return $this->multiply($scaleMatrix);
+		return $matrix;
 	}
 
 	public function rotate(float $rotX = 0.0, ?float $rotY = null, float $rotZ = 0.0): DOMMatrix

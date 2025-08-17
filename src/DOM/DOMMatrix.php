@@ -112,14 +112,25 @@ class DOMMatrix extends DOMMatrixReadOnly
 		return $this;
 	}
 
-	public function scaleSelf(float $scaleX = 1.0, ?float $scaleY = null, float $scaleZ = 1.0, float $originX = 0.0, float $originY = 0.0, float $originZ = 0.0): DOMMatrix
+	public function scaleSelf(float $scaleX = 1.0, ?float $scaleY = null, float $scaleZ = 1.0): DOMMatrix
 	{
-		$this->_matrix = $this->scale($scaleX, $scaleY, $scaleZ, $originX, $originY, $originZ)->_matrix;
+		if (null === $scaleY) {
+			$scaleY = $scaleX;
+		}
+
+	       $scaleMatrix = new DOMMatrix([
+	           $scaleX, 0.0, 0.0, 0.0,
+	           0.0, $scaleY, 0.0, 0.0,
+	           0.0, 0.0, $scaleZ, 0.0,
+	           0.0, 0.0, 0.0, 1.0,
+	       ]);
+
+	       $this->multiplySelf($scaleMatrix);
 
 		return $this;
 	}
 
-	public function rotateSelf(float $rotX = 0.0, ?float $rotY = null, ?float $rotZ = null): DOMMatrix
+	public function rotateSelf(float $rotX = 0.0, ?float $rotY = null, ?float $rotZ = 0.0): DOMMatrix
 	{
 		$this->_matrix = $this->rotate($rotX, $rotY, $rotZ)->_matrix;
 
@@ -169,7 +180,7 @@ class DOMMatrix extends DOMMatrixReadOnly
 	public function rotateFromVectorSelf(float $x = 0.0, float $y = 0.0): DOMMatrix
 	{
 		$angle = atan2($y, $x);
-		$this->_matrix = $this->rotateSelf(rad2deg($angle))->_matrix;
+		$this->_matrix = $this->rotateSelf(0, 0, rad2deg($angle))->_matrix;
 
 		return $this;
 	}
