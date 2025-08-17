@@ -10,12 +10,12 @@ use PHPUnit\Framework\TestCase;
 
 class CSSMathMaxTest extends TestCase
 {
-    public function testToString()
-    {
-        $max = new CSSMathMax(
-            new CSSUnitValue(10, 'px'),
-            new CSSUnitValue(5, '%')
-        );
-        $this->assertEquals('max(10px, 5%)', $max->toString());
-    }
+	public function testToString()
+	{
+		$max = new CSSMathMax(
+			new CSSUnitValue(10, 'px'),
+			new CSSUnitValue(5, '%')
+		);
+		$this->assertEquals('max(10px, 5%)', $max->toString());
+	}
 }

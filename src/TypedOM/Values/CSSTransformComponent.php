@@ -13,12 +13,12 @@ use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
  */
 abstract class CSSTransformComponent
 {
-    public abstract function toString(): string;
+	abstract public function toString(): string;
 
-    /**
-     * @var bool Gets and sets whether the component is a 2D or 3D transform.
-     */
-    public bool $is2D = true;
+	/**
+	 * @var bool gets and sets whether the component is a 2D or 3D transform
+	 */
+	public bool $is2D = true;
 
-    public abstract function toMatrix(): DOMMatrix;
+	abstract public function toMatrix(): DOMMatrix;
 }

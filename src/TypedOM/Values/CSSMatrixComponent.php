@@ -13,21 +13,21 @@ use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
  */
 class CSSMatrixComponent extends CSSTransformComponent
 {
-    private DOMMatrix $matrix;
+	private DOMMatrix $matrix;
 
-    public function __construct(DOMMatrix $matrix, array $options = [])
-    {
-        $this->matrix = $matrix;
-        $this->is2D = $options['is2D'] ?? $matrix->is2D;
-    }
+	public function __construct(DOMMatrix $matrix, array $options = [])
+	{
+		$this->matrix = $matrix;
+		$this->is2D = $options['is2D'] ?? $matrix->is2D;
+	}
 
-    public function toString(): string
-    {
-        return $this->matrix->toString();
-    }
+	public function toString(): string
+	{
+		return $this->matrix->toString();
+	}
 
-    public function toMatrix(): DOMMatrix
-    {
-        return $this->matrix;
-    }
+	public function toMatrix(): DOMMatrix
+	{
+		return $this->matrix;
+	}
 }

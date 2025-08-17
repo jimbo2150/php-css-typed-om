@@ -13,24 +13,25 @@ use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
  */
 class CSSSkewY extends CSSTransformComponent
 {
-    private CSSNumericValue $ay;
+	private CSSNumericValue $ay;
 
-    public function __construct(CSSNumericValue $ay)
-    {
-        $this->ay = $ay;
-        $this->is2D = true;
-    }
+	public function __construct(CSSNumericValue $ay)
+	{
+		$this->ay = $ay;
+		$this->is2D = true;
+	}
 
-    public function toString(): string
-    {
-        return 'skewY(' . $this->ay->toString() . ')';
-    }
+	public function toString(): string
+	{
+		return 'skewY('.$this->ay->toString().')';
+	}
 
-    public function toMatrix(): DOMMatrix
-    {
-        $matrix = new DOMMatrix();
-        $angleRad = deg2rad($this->ay->getNumericValue()); // Assuming angle is in degrees
-        $matrix->skewYSelf($angleRad);
-        return $matrix;
-    }
+	public function toMatrix(): DOMMatrix
+	{
+		$matrix = new DOMMatrix();
+		$angleRad = deg2rad($this->ay->getNumericValue()); // Assuming angle is in degrees
+		$matrix->skewYSelf($angleRad);
+
+		return $matrix;
+	}
 }

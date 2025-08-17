@@ -10,12 +10,12 @@ use PHPUnit\Framework\TestCase;
 
 class CSSMathDivisionTest extends TestCase
 {
-    public function testToString()
-    {
-        $div = new CSSMathDivision(
-            new CSSUnitValue(100, 'px'),
-            new CSSUnitValue(2, 'number')
-        );
-        $this->assertEquals('calc(100px / 2)', $div->toString());
-    }
+	public function testToString()
+	{
+		$div = new CSSMathDivision(
+			new CSSUnitValue(100, 'px'),
+			new CSSUnitValue(2, 'number')
+		);
+		$this->assertEquals('calc(100px / 2)', $div->toString());
+	}
 }

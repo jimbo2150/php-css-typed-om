@@ -10,12 +10,12 @@ use PHPUnit\Framework\TestCase;
 
 class CSSMathMinTest extends TestCase
 {
-    public function testToString()
-    {
-        $min = new CSSMathMin(
-            new CSSUnitValue(10, 'px'),
-            new CSSUnitValue(5, '%')
-        );
-        $this->assertEquals('min(10px, 5%)', $min->toString());
-    }
+	public function testToString()
+	{
+		$min = new CSSMathMin(
+			new CSSUnitValue(10, 'px'),
+			new CSSUnitValue(5, '%')
+		);
+		$this->assertEquals('min(10px, 5%)', $min->toString());
+	}
 }

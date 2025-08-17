@@ -12,53 +12,55 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
  */
 class CSSMathDifference extends CSSNumericValue
 {
-    /** @var CSSNumericValue[] */
-    private array $values;
+	/** @var CSSNumericValue[] */
+	private array $values;
 
-    public function __construct(CSSNumericValue ...$values)
-    {
-        if (count($values) < 1) {
-            throw new \InvalidArgumentException('CSSMathDifference requires at least one value.');
-        }
-        $this->values = $values;
-        parent::__construct('math-difference');
-    }
+	public function __construct(CSSNumericValue ...$values)
+	{
+		if (count($values) < 1) {
+			throw new \InvalidArgumentException('CSSMathDifference requires at least one value.');
+		}
+		$this->values = $values;
+		parent::__construct('math-difference');
+	}
 
-    public function getValues(): array
-    {
-        return $this->values;
-    }
+	public function getValues(): array
+	{
+		return $this->values;
+	}
 
-    public function toString(): string
-    {
-        $parts = [];
-        foreach ($this->values as $v) {
-            $parts[] = $v->toString();
-        }
-        return 'calc(' . implode(' - ', $parts) . ')';
-    }
+	public function toString(): string
+	{
+		$parts = [];
+		foreach ($this->values as $v) {
+			$parts[] = $v->toString();
+		}
 
-    public function isValid(): bool
-    {
-        if (empty($this->values)) {
-            return false;
-        }
-        foreach ($this->values as $value) {
-            if (!$value->isValid()) {
-                return false;
-            }
-        }
-        return true;
-    }
+		return 'calc('.implode(' - ', $parts).')';
+	}
 
-    public function clone(): CSSStyleValue
-    {
-        return new self(...$this->values);
-    }
+	public function isValid(): bool
+	{
+		if (empty($this->values)) {
+			return false;
+		}
+		foreach ($this->values as $value) {
+			if (!$value->isValid()) {
+				return false;
+			}
+		}
 
-    public function to(string $unit): ?CSSUnitValue
-    {
-        // Not implemented
-        return null;
-    }
+		return true;
+	}
+
+	public function clone(): CSSStyleValue
+	{
+		return new self(...$this->values);
+	}
+
+	public function to(string $unit): ?CSSUnitValue
+	{
+		// Not implemented
+		return null;
+	}
 }

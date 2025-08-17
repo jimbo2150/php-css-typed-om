@@ -10,9 +10,9 @@ use PHPUnit\Framework\TestCase;
 
 class CSSSkewYTest extends TestCase
 {
-    public function testToString()
-    {
-        $skewY = new CSSSkewY(new CSSUnitValue(45, 'deg'));
-        $this->assertEquals('skewY(45deg)', $skewY->toString());
-    }
+	public function testToString()
+	{
+		$skewY = new CSSSkewY(new CSSUnitValue(45, 'deg'));
+		$this->assertEquals('skewY(45deg)', $skewY->toString());
+	}
 }

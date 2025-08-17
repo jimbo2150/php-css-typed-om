@@ -13,24 +13,25 @@ use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
  */
 class CSSSkewX extends CSSTransformComponent
 {
-    private CSSNumericValue $ax;
+	private CSSNumericValue $ax;
 
-    public function __construct(CSSNumericValue $ax)
-    {
-        $this->ax = $ax;
-        $this->is2D = true;
-    }
+	public function __construct(CSSNumericValue $ax)
+	{
+		$this->ax = $ax;
+		$this->is2D = true;
+	}
 
-    public function toString(): string
-    {
-        return 'skewX(' . $this->ax->toString() . ')';
-    }
+	public function toString(): string
+	{
+		return 'skewX('.$this->ax->toString().')';
+	}
 
-    public function toMatrix(): DOMMatrix
-    {
-        $matrix = new DOMMatrix();
-        $angleRad = deg2rad($this->ax->getNumericValue()); // Assuming angle is in degrees
-        $matrix->skewXSelf($angleRad);
-        return $matrix;
-    }
+	public function toMatrix(): DOMMatrix
+	{
+		$matrix = new DOMMatrix();
+		$angleRad = deg2rad($this->ax->getNumericValue()); // Assuming angle is in degrees
+		$matrix->skewXSelf($angleRad);
+
+		return $matrix;
+	}
 }

@@ -13,27 +13,28 @@ use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
  */
 class CSSSkew extends CSSTransformComponent
 {
-    private CSSNumericValue $ax;
-    private CSSNumericValue $ay;
+	private CSSNumericValue $ax;
+	private CSSNumericValue $ay;
 
-    public function __construct(CSSNumericValue $ax, CSSNumericValue $ay)
-    {
-        $this->ax = $ax;
-        $this->ay = $ay;
-        $this->is2D = true;
-    }
+	public function __construct(CSSNumericValue $ax, CSSNumericValue $ay)
+	{
+		$this->ax = $ax;
+		$this->ay = $ay;
+		$this->is2D = true;
+	}
 
-    public function toString(): string
-    {
-        return 'skew(' . $this->ax->toString() . ', ' . $this->ay->toString() . ')';
-    }
+	public function toString(): string
+	{
+		return 'skew('.$this->ax->toString().', '.$this->ay->toString().')';
+	}
 
-    public function toMatrix(): DOMMatrix
-    {
-        $matrix = new DOMMatrix();
-        $axRad = deg2rad($this->ax->getNumericValue()); // Assuming angle is in degrees
-        $ayRad = deg2rad($this->ay->getNumericValue()); // Assuming angle is in degrees
-        $matrix->skewSelf($axRad, $ayRad);
-        return $matrix;
-    }
+	public function toMatrix(): DOMMatrix
+	{
+		$matrix = new DOMMatrix();
+		$axRad = deg2rad($this->ax->getNumericValue()); // Assuming angle is in degrees
+		$ayRad = deg2rad($this->ay->getNumericValue()); // Assuming angle is in degrees
+		$matrix->skewSelf($axRad, $ayRad);
+
+		return $matrix;
+	}
 }

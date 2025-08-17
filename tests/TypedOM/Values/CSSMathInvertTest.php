@@ -10,9 +10,9 @@ use PHPUnit\Framework\TestCase;
 
 class CSSMathInvertTest extends TestCase
 {
-    public function testToString()
-    {
-        $invert = new CSSMathInvert(new CSSUnitValue(10, 'px'));
-        $this->assertEquals('calc(1 / 10px)', $invert->toString());
-    }
+	public function testToString()
+	{
+		$invert = new CSSMathInvert(new CSSUnitValue(10, 'px'));
+		$this->assertEquals('calc(1 / 10px)', $invert->toString());
+	}
 }

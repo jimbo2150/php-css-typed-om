@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../vendor/autoload.php';
+require_once __DIR__.'/../vendor/autoload.php';
 
 use Jimbo2150\PhpCssTypedOm\Tokenizer\CSS3Tokenizer;
 use Jimbo2150\PhpCssTypedOm\TypedOM\CSSStyleDeclaration;
@@ -39,11 +39,11 @@ $css = '
 $tokenizer = new CSS3Tokenizer($css);
 $tokens = $tokenizer->tokenize();
 
-echo "Tokenized " . count($tokens) . " tokens from CSS\n";
+echo 'Tokenized '.count($tokens)." tokens from CSS\n";
 echo "First 10 tokens:\n";
-for ($i = 0; $i < min(10, count($tokens)); $i++) {
-    $token = $tokens[$i];
-    echo sprintf("  %-15s: %s\n", $token->type->value, $token->value);
+for ($i = 0; $i < min(10, count($tokens)); ++$i) {
+	$token = $tokens[$i];
+	echo sprintf("  %-15s: %s\n", $token->type->value, $token->value);
 }
 
 // Demo 2: CSS Typed OM
@@ -52,23 +52,23 @@ echo "\n2. CSS Typed OM Demo:\n";
 // Create a style declaration
 $style = new CSSStyleDeclaration('width: 100px; height: 50%; color: #ff0000;');
 
-echo "Original CSS: " . $style->getCssText() . "\n";
+echo 'Original CSS: '.$style->getCssText()."\n";
 
 // Get and modify values
 $width = $style->getPropertyValue('width');
 if ($width instanceof CSSUnitValue) {
-    echo "Width: " . $width->getNumericValue() . $width->getUnit() . "\n";
-    
-    // Double the width
-    $newWidth = $width->multiply(2);
-    $style->setProperty('width', $newWidth);
-    echo "New width: " . $style->getPropertyValue('width')->toString() . "\n";
+	echo 'Width: '.$width->getNumericValue().$width->getUnit()."\n";
+
+	// Double the width
+	$newWidth = $width->multiply(2);
+	$style->setProperty('width', $newWidth);
+	echo 'New width: '.$style->getPropertyValue('width')->toString()."\n";
 }
 
 // Add a new property
 $margin = new CSSUnitValue(10, 'px');
 $style->setProperty('margin', $margin);
-echo "Updated CSS: " . $style->getCssText() . "\n";
+echo 'Updated CSS: '.$style->getCssText()."\n";
 
 // Demo 3: Complex CSS manipulation
 echo "\n3. Complex CSS Manipulation:\n";
@@ -101,7 +101,7 @@ $complexCSS = '
 $complexStyle = new CSSStyleDeclaration($complexCSS);
 echo "Complex CSS properties:\n";
 foreach ($complexStyle->getProperties() as $property => $value) {
-    echo sprintf("  %-20s: %s\n", $property, $value->toString());
+	echo sprintf("  %-20s: %s\n", $property, $value->toString());
 }
 
 // Demo 4: Unit conversions
@@ -109,7 +109,7 @@ echo "\n4. Unit Conversions:\n";
 $pxValue = new CSSUnitValue(16, 'px');
 $emValue = $pxValue->to('em');
 if ($emValue) {
-    echo "16px = " . $emValue->getNumericValue() . "em\n";
+	echo '16px = '.$emValue->getNumericValue()."em\n";
 }
 
 // Demo 5: CSS calculations
@@ -118,8 +118,8 @@ $baseSize = new CSSUnitValue(16, 'px');
 $largeSize = $baseSize->multiply(1.5);
 $smallSize = $baseSize->divide(2);
 
-echo "Base: " . $baseSize->toString() . "\n";
-echo "Large: " . $largeSize->toString() . "\n";
-echo "Small: " . $smallSize->toString() . "\n";
+echo 'Base: '.$baseSize->toString()."\n";
+echo 'Large: '.$largeSize->toString()."\n";
+echo 'Small: '.$smallSize->toString()."\n";
 
 echo "\n=== Demo Complete ===\n";

@@ -10,9 +10,9 @@ use PHPUnit\Framework\TestCase;
 
 class CSSMathNegateTest extends TestCase
 {
-    public function testToString()
-    {
-        $negate = new CSSMathNegate(new CSSUnitValue(10, 'px'));
-        $this->assertEquals('calc(-1 * 10px)', $negate->toString());
-    }
+	public function testToString()
+	{
+		$negate = new CSSMathNegate(new CSSUnitValue(10, 'px'));
+		$this->assertEquals('calc(-1 * 10px)', $negate->toString());
+	}
 }

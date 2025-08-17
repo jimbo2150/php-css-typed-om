@@ -6,88 +6,89 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 /**
  * Base class for CSS Typed OM values
- * Represents a CSS value that can be manipulated through the Typed OM API
+ * Represents a CSS value that can be manipulated through the Typed OM API.
  */
 abstract class CSSStyleValue
 {
-    protected string $type;
-    
-    public function __construct(string $type)
-    {
-        $this->type = $type;
-    }
-    
-    /**
-     * Get the string representation of the value
-     */
-    abstract public function toString(): string;
-    
-    /**
-     * Get the type of the value
-     */
-    public function getType(): string
-    {
-        return $this->type;
-    }
-    
-    /**
-     * Parse a CSS value and return appropriate CSSStyleValue instance.
-     * This is a simplified parser and should be replaced with a more robust solution.
-     */
-    public static function createFromCssText(string $cssText): CSSStyleValue
-    {
-        $cssText = trim($cssText);
+	protected string $type;
 
-        try {
-            return CSSColorValue::parse($cssText);
-        } catch (\InvalidArgumentException $e) {
-            // Not a color, try next
-        }
+	public function __construct(string $type)
+	{
+		$this->type = $type;
+	}
 
-        try {
-            return CSSNumericValue::parse($cssText);
-        } catch (\InvalidArgumentException $e) {
-            // Not a numeric value, try next
-        }
+	/**
+	 * Get the string representation of the value.
+	 */
+	abstract public function toString(): string;
 
-        // If it's not a color or a numeric value, it's a keyword
-        // This assumes that any remaining string is a keyword.
-        // More robust parsing would involve checking for valid keyword characters.
-        return new CSSKeywordValue($cssText);
-    }
+	/**
+	 * Get the type of the value.
+	 */
+	public function getType(): string
+	{
+		return $this->type;
+	}
 
-    public static function parse(string $cssText): CSSStyleValue
-    {
-        return self::createFromCssText($cssText);
-    }
+	/**
+	 * Parse a CSS value and return appropriate CSSStyleValue instance.
+	 * This is a simplified parser and should be replaced with a more robust solution.
+	 */
+	public static function createFromCssText(string $cssText): CSSStyleValue
+	{
+		$cssText = trim($cssText);
 
-    /**
-     * Parses a string containing one or more CSS values and returns an array of CSSStyleValue objects.
-     * This is a simplified implementation and may not handle all complex CSS value strings.
-     *
-     * @param string $cssText The CSS value string to parse.
-     * @return CSSStyleValue[] An array of CSSStyleValue objects.
-     */
-    public static function parseAll(string $cssText): array
-    {
-        $cssText = trim($cssText);
-        if (empty($cssText)) {
-            return [];
-        }
+		try {
+			return CSSColorValue::parse($cssText);
+		} catch (\InvalidArgumentException $e) {
+			// Not a color, try next
+		}
 
-        $values = [];
-        // Simple split by space. This will need to be more robust for complex values.
-        $parts = preg_split('/\s+/', $cssText, -1, PREG_SPLIT_NO_EMPTY);
+		try {
+			return CSSNumericValue::parse($cssText);
+		} catch (\InvalidArgumentException $e) {
+			// Not a numeric value, try next
+		}
 
-        foreach ($parts as $part) {
-            $values[] = self::createFromCssText($part);
-        }
+		// If it's not a color or a numeric value, it's a keyword
+		// This assumes that any remaining string is a keyword.
+		// More robust parsing would involve checking for valid keyword characters.
+		return new CSSKeywordValue($cssText);
+	}
 
-        return $values;
-    }
+	public static function parse(string $cssText): CSSStyleValue
+	{
+		return self::createFromCssText($cssText);
+	}
 
-    /**
-     * Clone this value
-     */
-    abstract public function clone(): CSSStyleValue;
+	/**
+	 * Parses a string containing one or more CSS values and returns an array of CSSStyleValue objects.
+	 * This is a simplified implementation and may not handle all complex CSS value strings.
+	 *
+	 * @param string $cssText the CSS value string to parse
+	 *
+	 * @return CSSStyleValue[] an array of CSSStyleValue objects
+	 */
+	public static function parseAll(string $cssText): array
+	{
+		$cssText = trim($cssText);
+		if (empty($cssText)) {
+			return [];
+		}
+
+		$values = [];
+		// Simple split by space. This will need to be more robust for complex values.
+		$parts = preg_split('/\s+/', $cssText, -1, PREG_SPLIT_NO_EMPTY);
+
+		foreach ($parts as $part) {
+			$values[] = self::createFromCssText($part);
+		}
+
+		return $values;
+	}
+
+	/**
+	 * Clone this value.
+	 */
+	abstract public function clone(): CSSStyleValue;
 }
