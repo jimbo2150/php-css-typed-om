@@ -387,20 +387,32 @@ class CSS3Tokenizer
 
     private function nextTokenInBlock(): ?CSS3Token
     {
-        // Block state mostly mirrors data state; a right brace will pop the block state
-        $token = $this->nextTokenInData();
-        if ($token !== null && $token->type === CSS3TokenType::RIGHT_BRACE) {
-            // pop was already performed by consumeDelimiter when producing RIGHT_BRACE
-            // ensure we don't have an extra pop
+        // If the next character is '}', consume it and pop the block state immediately
+        if ($this->peek() === '}') {
+            $startLine = $this->line;
+            $startColumn = $this->column;
+            $this->advance();
+            $this->popState();
+            return new CSS3Token(CSS3TokenType::RIGHT_BRACE, '}', null, '}', $startLine, $startColumn);
         }
-        return $token;
+
+        // Otherwise behave like data state
+        return $this->nextTokenInData();
     }
 
     private function nextTokenInParen(): ?CSS3Token
     {
-        // Parenthesis state: mirrors data but ')' pops paren
-        $token = $this->nextTokenInData();
-        return $token;
+        // If the next character is ')', consume it and pop the paren state
+        if ($this->peek() === ')') {
+            $startLine = $this->line;
+            $startColumn = $this->column;
+            $this->advance();
+            $this->popState();
+            return new CSS3Token(CSS3TokenType::RIGHT_PAREN, ')', null, ')', $startLine, $startColumn);
+        }
+
+        // Otherwise behave like data state
+        return $this->nextTokenInData();
     }
     
     /**
@@ -787,10 +799,14 @@ class CSS3Tokenizer
      */
     private function consumeEscapeSequence(): string
     {
+        // Enter a transient "url-escape" state for observability
+        $this->pushState(TokenizerState::UrlEscape);
+
         // We expect the backslash has not yet been consumed; consume it now
         $bs = $this->advance();
 
         if ($this->isAtEnd()) {
+            $this->popState();
             return '';
         }
 
@@ -808,11 +824,15 @@ class CSS3Tokenizer
             if ($this->isWhitespace($this->peek())) {
                 $this->advance();
             }
-            return html_entity_decode('&#x' . $hex . ';');
+            $decoded = html_entity_decode('&#x' . $hex . ';');
+            $this->popState();
+            return $decoded;
         }
 
         // Single char escape: consume next char literally
-        return $this->advance();
+        $ch = $this->advance();
+        $this->popState();
+        return $ch;
     }
     
     /**
