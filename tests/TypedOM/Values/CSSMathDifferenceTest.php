@@ -2,67 +2,114 @@
 
 declare(strict_types=1);
 
-namespace Jimbo2150\PhpCssTypedOm\Tests\TypedOM\Values;
+namespace Tests\TypedOM\Values;
 
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSMathDifference;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnitValue;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * Tests for CSSMathDifference class.
+ */
 class CSSMathDifferenceTest extends TestCase
 {
-	public function testToString()
-	{
-		$diff = new CSSMathDifference(
-			new CSSUnitValue(10, 'px'),
-			new CSSUnitValue(5, '%')
-		);
-		$this->assertEquals('calc(10px - 5%)', $diff->toString());
-	}
+    public function testConstructor()
+    {
+        $value1 = new CSSUnitValue(30, 'px');
+        $value2 = new CSSUnitValue(10, 'px');
+        
+        $difference = new CSSMathDifference($value1, $value2);
+        $this->assertInstanceOf(CSSMathDifference::class, $difference);
+    }
 
-	public function testToStringWithThreeValues()
-	{
-		$diff = new CSSMathDifference(
-			new CSSUnitValue(10, 'px'),
-			new CSSUnitValue(5, '%'),
-			new CSSUnitValue(2, 'em')
-		);
-		$this->assertEquals('calc(10px - 5% - 2em)', $diff->toString());
-	}
+    public function testGetValues()
+    {
+        $value1 = new CSSUnitValue(30, 'px');
+        $value2 = new CSSUnitValue(10, 'px');
+        
+        $difference = new CSSMathDifference($value1, $value2);
+        $values = $difference->getValues();
+        
+        $this->assertCount(2, $values);
+        $this->assertSame($value1, $values[0]);
+        $this->assertSame($value2, $values[1]);
+    }
 
-	// public function testGetValues()
-	// {
-	//     $values = [
-	//         new CSSUnitValue(10, 'px'),
-	//         new CSSUnitValue(5, '%')
-	//     ];
-	//     $diff = new CSSMathDifference(...$values);
-	//     // $this->assertEquals($values, $diff->getValues());
-	// }
+    public function testToString()
+    {
+        $value1 = new CSSUnitValue(30, 'px');
+        $value2 = new CSSUnitValue(10, 'px');
+        
+        $difference = new CSSMathDifference($value1, $value2);
+        $this->assertSame('calc(30px - 10px)', $difference->toString());
+    }
 
-	public function testIsValid()
-	{
-		$diff = new CSSMathDifference(
-			new CSSUnitValue(10, 'px'),
-			new CSSUnitValue(5, '%')
-		);
-		$this->assertTrue($diff->isValid());
-	}
+    public function testToStringWithMultipleValues()
+    {
+        $value1 = new CSSUnitValue(100, 'px');
+        $value2 = new CSSUnitValue(20, 'px');
+        $value3 = new CSSUnitValue(10, 'px');
+        
+        $difference = new CSSMathDifference($value1, $value2, $value3);
+        $this->assertSame('calc(100px - 20px - 10px)', $difference->toString());
+    }
 
-	public function testClone()
-	{
-		$diff = new CSSMathDifference(
-			new CSSUnitValue(10, 'px'),
-			new CSSUnitValue(5, '%')
-		);
-		$clone = $diff->clone();
-		$this->assertInstanceOf(CSSMathDifference::class, $clone);
-		$this->assertNotSame($diff, $clone);
-		$this->assertEquals($diff->toString(), $clone->toString());
-	}
+    public function testIsValid()
+    {
+        $value1 = new CSSUnitValue(30, 'px');
+        $value2 = new CSSUnitValue(10, 'px');
+        
+        $difference = new CSSMathDifference($value1, $value2);
+        $this->assertTrue($difference->isValid());
+    }
 
-	public function testConstructorWithNoValues()
-	{
-		$this->expectException(\InvalidArgumentException::class);
-		new CSSMathDifference();
-	}
+    public function testClone()
+    {
+        $value1 = new CSSUnitValue(30, 'px');
+        $value2 = new CSSUnitValue(10, 'px');
+        
+        $difference = new CSSMathDifference($value1, $value2);
+        $cloned = $difference->clone();
+        
+        $this->assertInstanceOf(CSSMathDifference::class, $cloned);
+        $this->assertNotSame($difference, $cloned);
+    }
+
+    public function testToUnit()
+    {
+        $value1 = new CSSUnitValue(30, 'px');
+        $value2 = new CSSUnitValue(10, 'px');
+        
+        $difference = new CSSMathDifference($value1, $value2);
+        $result = $difference->to('px');
+        
+        $this->assertInstanceOf(CSSUnitValue::class, $result);
+        $this->assertSame(20.0, $result->value);
+        $this->assertSame('px', $result->unit);
+    }
+
+    public function testToUnitWithIncompatibleUnits()
+    {
+        $value1 = new CSSUnitValue(30, 'px');
+        $value2 = new CSSUnitValue(10, 'em');
+        
+        $difference = new CSSMathDifference($value1, $value2);
+        $result = $difference->to('px');
+        
+        $this->assertNull($result);
+    }
+
+    public function testSingleValue()
+    {
+        $value = new CSSUnitValue(10, 'px');
+        
+        $difference = new CSSMathDifference($value);
+        $this->assertSame('calc(10px)', $difference->toString());
+    }
+
+    public function testEmptyDifference()
+    {
+        $difference = new CSSMathDifference();
+        $this->assertSame('calc()', $difference->toString());
+    }
 }

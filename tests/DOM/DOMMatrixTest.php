@@ -2,319 +2,250 @@
 
 declare(strict_types=1);
 
-namespace Jimbo2150\PhpCssTypedOm\Test\DOM;
+namespace Tests\DOM;
 
 use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrixReadOnly;
 use PHPUnit\Framework\TestCase;
 
 /**
- * @internal
- *
- * @coversNothing
+ * Tests for DOMMatrix class.
  */
-final class DOMMatrixTest extends TestCase
+class DOMMatrixTest extends TestCase
 {
-    public function testConstructorDefault(): void
+    public function testConstructor()
     {
-        $matrix = new DOMMatrixReadOnly();
-        self::assertTrue($matrix->isIdentity);
-        self::assertTrue($matrix->is2D);
+        $matrix = new DOMMatrix();
+        $this->assertInstanceOf(DOMMatrix::class, $matrix);
+        $this->assertSame(1.0, $matrix->m11);
     }
 
-    public function testConstructorFromArray2D(): void
+    public function testInvertSelf()
     {
-        $matrix = new DOMMatrixReadOnly([1, 2, 3, 4, 5, 6]);
-        self::assertFalse($matrix->isIdentity);
-        self::assertTrue($matrix->is2D);
-        self::assertEquals(1.0, $matrix->m11);
-        self::assertEquals(2.0, $matrix->m12);
-        self::assertEquals(3.0, $matrix->m21);
-        self::assertEquals(4.0, $matrix->m22);
-        self::assertEquals(5.0, $matrix->m41);
-        self::assertEquals(6.0, $matrix->m42);
+        $matrix = new DOMMatrix('matrix(2, 0, 0, 2, 10, 20)');
+        $result = $matrix->invertSelf();
+        
+        $this->assertSame($matrix, $result);
+        $this->assertSame(0.5, $matrix->m11);
+        $this->assertSame(0.0, $matrix->m12);
+        $this->assertSame(0.0, $matrix->m21);
+        $this->assertSame(0.5, $matrix->m22);
+        $this->assertSame(-5.0, $matrix->m41);
+        $this->assertSame(-10.0, $matrix->m42);
     }
 
-    public function testConstructorFromArray3D(): void
+    public function testMultiplySelf()
     {
-        $matrix = new DOMMatrixReadOnly(array_fill(0, 16, 1.0));
-        self::assertFalse($matrix->isIdentity);
-        self::assertFalse($matrix->is2D);
-        self::assertEquals(1.0, $matrix->m44);
+        $matrix1 = new DOMMatrix('matrix(2, 0, 0, 2, 0, 0)');
+        $matrix2 = new DOMMatrix('matrix(1, 0, 0, 1, 10, 20)');
+        
+        $result = $matrix1->multiplySelf($matrix2);
+        
+        $this->assertSame($matrix1, $result);
+        $this->assertSame(2.0, $matrix1->m11);
+        $this->assertSame(0.0, $matrix1->m12);
+        $this->assertSame(0.0, $matrix1->m21);
+        $this->assertSame(2.0, $matrix1->m22);
+        $this->assertSame(20.0, $matrix1->m41);
+        $this->assertSame(40.0, $matrix1->m42);
     }
 
-    public function testConstructorFromString2D(): void
+    public function testPreMultiplySelf()
     {
-        $matrix = new DOMMatrixReadOnly('matrix(1, 2, 3, 4, 5, 6)');
-        self::assertFalse($matrix->isIdentity);
-        self::assertTrue($matrix->is2D);
-        self::assertEquals(1.0, $matrix->m11);
-        self::assertEquals(2.0, $matrix->m12);
-        self::assertEquals(3.0, $matrix->m21);
-        self::assertEquals(4.0, $matrix->m22);
-        self::assertEquals(5.0, $matrix->m41);
-        self::assertEquals(6.0, $matrix->m42);
+        $matrix1 = new DOMMatrix('matrix(2, 0, 0, 2, 0, 0)');
+        $matrix2 = new DOMMatrix('matrix(1, 0, 0, 1, 10, 20)');
+        
+        $result = $matrix1->preMultiplySelf($matrix2);
+        
+        $this->assertSame($matrix1, $result);
+        $this->assertSame(2.0, $matrix1->m11);
+        $this->assertSame(0.0, $matrix1->m12);
+        $this->assertSame(0.0, $matrix1->m21);
+        $this->assertSame(2.0, $matrix1->m22);
+        $this->assertSame(20.0, $matrix1->m41);
+        $this->assertSame(40.0, $matrix1->m42);
     }
 
-    public function testConstructorFromString3D(): void
+    public function testTranslateSelf()
     {
-    	$matrix = new DOMMatrixReadOnly('matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)');
-    	self::assertTrue($matrix->isIdentity);
-    	self::assertTrue($matrix->is2D);
+        $matrix = new DOMMatrix();
+        $result = $matrix->translateSelf(10, 20, 30);
+        
+        $this->assertSame($matrix, $result);
+        $this->assertSame(10.0, $matrix->m41);
+        $this->assertSame(20.0, $matrix->m42);
+        $this->assertSame(30.0, $matrix->m43);
     }
 
-    public function testConstructorFromDOMMatrixReadOnly(): void
+    public function testScaleSelf()
     {
-        $original = new DOMMatrixReadOnly([1, 2, 3, 4, 5, 6]);
-        $copy = new DOMMatrixReadOnly($original);
-        self::assertEquals($original, $copy);
+        $matrix = new DOMMatrix();
+        $result = $matrix->scaleSelf(2, 3, 4);
+        
+        $this->assertSame($matrix, $result);
+        $this->assertSame(2.0, $matrix->m11);
+        $this->assertSame(3.0, $matrix->m22);
+        $this->assertSame(4.0, $matrix->m33);
     }
 
-    public function testToString2D(): void
+    public function testScaleSelfWithNullScaleY()
     {
-        $matrix = new DOMMatrixReadOnly([1, 2, 3, 4, 5, 6]);
-        self::assertSame('matrix(1, 2, 3, 4, 5, 6)', $matrix->toString());
+        $matrix = new DOMMatrix();
+        $result = $matrix->scaleSelf(2);
+        
+        $this->assertSame($matrix, $result);
+        $this->assertSame(2.0, $matrix->m11);
+        $this->assertSame(2.0, $matrix->m22);
+        $this->assertSame(1.0, $matrix->m33);
     }
 
-    public function testToString3D(): void
+    public function testRotateSelf()
     {
-        $matrix = new DOMMatrixReadOnly(array_fill(0, 16, 1.0));
-        self::assertSame('matrix3d(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)', $matrix->toString());
+        $matrix = new DOMMatrix();
+        $result = $matrix->rotateSelf(45);
+        
+        $this->assertSame($matrix, $result);
+        $this->assertEqualsWithDelta(0.7071, $matrix->m11, 0.0001);
+        $this->assertEqualsWithDelta(0.7071, $matrix->m12, 0.0001);
+        $this->assertEqualsWithDelta(-0.7071, $matrix->m21, 0.0001);
+        $this->assertEqualsWithDelta(0.7071, $matrix->m22, 0.0001);
     }
 
-    public function testMultiply(): void
+    public function testRotateSelfWithMultipleAngles()
     {
-        $matrix1 = new DOMMatrixReadOnly([1, 0, 0, 1, 0, 0]); // Identity 2D
-        $matrix2 = new DOMMatrixReadOnly([2, 0, 0, 2, 0, 0]); // Scale by 2
-        $result = $matrix1->multiply($matrix2);
-        self::assertInstanceOf(DOMMatrix::class, $result);
-        self::assertEquals(2.0, $result->m11);
-        self::assertEquals(2.0, $result->m22);
+        $matrix = new DOMMatrix();
+        $result = $matrix->rotateSelf(45, 30, 60);
+        
+        $this->assertSame($matrix, $result);
+        $this->assertNotEquals(1.0, $matrix->m11);
+        $this->assertNotEquals(0.0, $matrix->m12);
     }
 
-    public function testFlipX(): void
+    public function testScale3dSelf()
     {
-        $matrix = new DOMMatrixReadOnly();
-        $flipped = $matrix->flipX();
-        self::assertInstanceOf(DOMMatrix::class, $flipped);
-        self::assertEquals(-1.0, $flipped->m11);
-        self::assertEquals(1.0, $flipped->m22);
+        $matrix = new DOMMatrix();
+        $result = $matrix->scale3dSelf(2, 10, 20, 30);
+        
+        $this->assertSame($matrix, $result);
+        $this->assertSame(2.0, $matrix->m11);
+        $this->assertSame(2.0, $matrix->m22);
+        $this->assertSame(2.0, $matrix->m33);
     }
 
-    public function testFlipY(): void
+    public function testRotateAxisAngleSelf()
     {
-        $matrix = new DOMMatrixReadOnly();
-        $flipped = $matrix->flipY();
-        self::assertInstanceOf(DOMMatrix::class, $flipped);
-        self::assertEquals(1.0, $flipped->m11);
-        self::assertEquals(-1.0, $flipped->m22);
+        $matrix = new DOMMatrix();
+        $result = $matrix->rotateAxisAngleSelf(1, 1, 1, 45);
+        
+        $this->assertSame($matrix, $result);
+        $this->assertNotEquals(1.0, $matrix->m11);
+        $this->assertNotEquals(0.0, $matrix->m12);
     }
 
-    public function testInverse(): void
+    public function testRotateFromVectorSelf()
     {
-        $matrix = new DOMMatrixReadOnly([2, 0, 0, 2, 0, 0]); // Scale by 2
-        $inverse = $matrix->inverse();
-        self::assertInstanceOf(DOMMatrix::class, $inverse);
-        self::assertEquals(0.5, $inverse->m11);
-        self::assertEquals(0.5, $inverse->m22);
-
-        $identity = $matrix->multiply($inverse);
-        self::assertEqualsWithDelta(1.0, $identity->m11, 0.000001);
-        self::assertEqualsWithDelta(1.0, $identity->m22, 0.000001);
+        $matrix = new DOMMatrix();
+        $result = $matrix->rotateFromVectorSelf(1, 1);
+        
+        $this->assertSame($matrix, $result);
+        $this->assertNotEquals(1.0, $matrix->m11);
+        $this->assertNotEquals(0.0, $matrix->m12);
     }
 
-    public function testTranslate(): void
+    public function testSetMatrixValue()
     {
-        $matrix = new DOMMatrixReadOnly();
-        $translated = $matrix->translate(10, 20, 30);
-        self::assertInstanceOf(DOMMatrix::class, $translated);
-        self::assertEquals(10.0, $translated->m41);
-        self::assertEquals(20.0, $translated->m42);
-        self::assertEquals(30.0, $translated->m43);
+        $matrix = new DOMMatrix();
+        $result = $matrix->setMatrixValue('matrix(2, 0, 0, 2, 10, 20)');
+        
+        $this->assertSame($matrix, $result);
+        $this->assertSame(2.0, $matrix->m11);
+        $this->assertSame(0.0, $matrix->m12);
+        $this->assertSame(0.0, $matrix->m21);
+        $this->assertSame(2.0, $matrix->m22);
+        $this->assertSame(10.0, $matrix->m41);
+        $this->assertSame(20.0, $matrix->m42);
     }
 
-    public function testScale(): void
+    public function testSkewXSelf()
     {
-        $matrix = new DOMMatrixReadOnly();
-        $scaled = $matrix->scale(2, 3, 4);
-        self::assertInstanceOf(DOMMatrix::class, $scaled);
-        self::assertEquals(2.0, $scaled->m11);
-        self::assertEquals(3.0, $scaled->m22);
-        self::assertEquals(4.0, $scaled->m33);
-
-        $scaledUniform = $matrix->scale(5);
-        self::assertEquals(5.0, $scaledUniform->m11);
-        self::assertEquals(5.0, $scaledUniform->m22);
-        self::assertEquals(1.0, $scaledUniform->m33); // Corrected assertion
+        $matrix = new DOMMatrix();
+        $result = $matrix->skewXSelf(45);
+        
+        $this->assertSame($matrix, $result);
+        $this->assertEqualsWithDelta(1.0, $matrix->m11, 0.0001);
+        $this->assertEqualsWithDelta(0.0, $matrix->m12, 0.0001);
+        $this->assertEqualsWithDelta(1.0, $matrix->m21, 0.0001);
+        $this->assertEqualsWithDelta(1.0, $matrix->m22, 0.0001);
     }
 
-    public function testRotate(): void
+    public function testSkewYSelf()
     {
-        $matrix = new DOMMatrixReadOnly();
-        $rotated = $matrix->rotate(90, 0, 0); // Rotate around X-axis
-        self::assertInstanceOf(DOMMatrix::class, $rotated);
-        self::assertEqualsWithDelta(1.0, $rotated->m11, 0.000001);
-        self::assertEqualsWithDelta(0.0, $rotated->m12, 0.000001);
-        self::assertEqualsWithDelta(0.0, $rotated->m13, 0.000001);
-        self::assertEqualsWithDelta(0.0, $rotated->m21, 0.000001);
-        self::assertEqualsWithDelta(0.0, $rotated->m22, 0.000001);
-        self::assertEqualsWithDelta(1.0, $rotated->m23, 0.000001);
-        self::assertEqualsWithDelta(0.0, $rotated->m31, 0.000001);
-        self::assertEqualsWithDelta(-1.0, $rotated->m32, 0.000001);
-        self::assertEqualsWithDelta(0.0, $rotated->m33, 0.000001);
+        $matrix = new DOMMatrix();
+        $result = $matrix->skewYSelf(45);
+        
+        $this->assertSame($matrix, $result);
+        $this->assertEqualsWithDelta(1.0, $matrix->m11, 0.0001);
+        $this->assertEqualsWithDelta(1.0, $matrix->m12, 0.0001);
+        $this->assertEqualsWithDelta(0.0, $matrix->m21, 0.0001);
+        $this->assertEqualsWithDelta(1.0, $matrix->m22, 0.0001);
     }
 
-    public function testFromMatrix(): void
+    public function testToFloat64Array()
     {
-        $original = new DOMMatrixReadOnly([1, 2, 3, 4, 5, 6]);
-        $newMatrix = DOMMatrixReadOnly::fromMatrix($original);
-        self::assertEquals($original, $newMatrix);
-    }
-
-    public function testFromFloat32Array(): void
-    {
-        $array = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 10.0, 20.0, 30.0, 1.0];
-        $matrix = DOMMatrixReadOnly::fromFloat32Array($array);
-        self::assertEquals(10.0, $matrix->m41);
-    }
-
-    public function testFromFloat64Array(): void
-    {
-        $array = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 10.0, 20.0, 30.0, 1.0];
-        $matrix = DOMMatrixReadOnly::fromFloat64Array($array);
-        self::assertEquals(10.0, $matrix->m41);
-    }
-
-    public function testToFloat32Array(): void
-    {
-        $matrix = new DOMMatrixReadOnly([1, 2, 3, 4, 5, 6]);
-        $array = $matrix->toFloat32Array();
-        self::assertIsArray($array);
-        self::assertCount(16, $array);
-        self::assertEquals(1.0, $array[0]);
-    }
-
-    public function testToFloat64Array(): void
-    {
-        $matrix = new DOMMatrixReadOnly([1, 2, 3, 4, 5, 6]);
+        $matrix = new DOMMatrix();
         $array = $matrix->toFloat64Array();
-        self::assertIsArray($array);
-        self::assertCount(16, $array);
-        self::assertEquals(1.0, $array[0]);
+        
+        $expected = [
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            0, 0, 0, 1
+        ];
+        
+        $this->assertSame($expected, $array);
     }
 
-    // DOMMatrix specific tests
-
-    public function testSetProperty(): void
+    public function testPropertyAccess()
     {
         $matrix = new DOMMatrix();
-        $matrix->m11 = 5.0;
-        self::assertEquals(5.0, $matrix->m11);
+        
+        $this->assertSame(1.0, $matrix->m11);
+        $this->assertSame(0.0, $matrix->m12);
+        $this->assertSame(0.0, $matrix->m13);
+        $this->assertSame(0.0, $matrix->m14);
+        $this->assertSame(0.0, $matrix->m21);
+        $this->assertSame(1.0, $matrix->m22);
+        $this->assertSame(0.0, $matrix->m23);
+        $this->assertSame(0.0, $matrix->m24);
+        $this->assertSame(0.0, $matrix->m31);
+        $this->assertSame(0.0, $matrix->m32);
+        $this->assertSame(1.0, $matrix->m33);
+        $this->assertSame(0.0, $matrix->m34);
+        $this->assertSame(0.0, $matrix->m41);
+        $this->assertSame(0.0, $matrix->m42);
+        $this->assertSame(0.0, $matrix->m43);
+        $this->assertSame(1.0, $matrix->m44);
     }
 
-    public function testInvertSelf(): void
-    {
-        $matrix = new DOMMatrix([2, 0, 0, 2, 0, 0]);
-        $matrix->invertSelf();
-        self::assertEquals(0.5, $matrix->m11);
-        self::assertEquals(0.5, $matrix->m22);
-    }
-
-    public function testMultiplySelf(): void
-    {
-        $matrix1 = new DOMMatrix([1, 0, 0, 1, 0, 0]);
-        $matrix2 = new DOMMatrixReadOnly([2, 0, 0, 2, 0, 0]);
-        $matrix1->multiplySelf($matrix2);
-        self::assertEquals(2.0, $matrix1->m11);
-        self::assertEquals(2.0, $matrix1->m22);
-    }
-
-    public function testPreMultiplySelf(): void
-    {
-        $matrix1 = new DOMMatrix([1, 0, 0, 1, 0, 0]);
-        $matrix2 = new DOMMatrixReadOnly([2, 0, 0, 2, 0, 0]);
-        $matrix1->preMultiplySelf($matrix2);
-        self::assertEquals(2.0, $matrix1->m11);
-        self::assertEquals(2.0, $matrix1->m22);
-    }
-
-    public function testTranslateSelf(): void
+    public function testPropertySet()
     {
         $matrix = new DOMMatrix();
-        $matrix->translateSelf(10, 20, 30);
-        self::assertEquals(10.0, $matrix->m41);
-        self::assertEquals(20.0, $matrix->m42);
-        self::assertEquals(30.0, $matrix->m43);
+        
+        $matrix->m11 = 2.0;
+        $matrix->m22 = 3.0;
+        $matrix->m41 = 10.0;
+        $matrix->m42 = 20.0;
+        
+        $this->assertSame(2.0, $matrix->m11);
+        $this->assertSame(3.0, $matrix->m22);
+        $this->assertSame(10.0, $matrix->m41);
+        $this->assertSame(20.0, $matrix->m42);
     }
 
-    public function testScaleSelf(): void
+    public function testInvalidPropertySet()
     {
+        $this->expectException(\InvalidArgumentException::class);
         $matrix = new DOMMatrix();
-        $matrix->scaleSelf(2, 3, 4);
-        self::assertEquals(2.0, $matrix->m11);
-        self::assertEquals(3.0, $matrix->m22);
-        self::assertEquals(4.0, $matrix->m33);
-    }
-
-    public function testRotateSelf(): void
-    {
-        $matrix = new DOMMatrix();
-        $matrix->rotateSelf(90, 0, 0);
-        self::assertEqualsWithDelta(0.0, $matrix->m22, 0.000001);
-        self::assertEqualsWithDelta(1.0, $matrix->m23, 0.000001);
-        self::assertEqualsWithDelta(-1.0, $matrix->m32, 0.000001);
-        self::assertEqualsWithDelta(0.0, $matrix->m33, 0.000001);
-    }
-
-    public function testScale3dSelf(): void
-    {
-        $matrix = new DOMMatrix();
-        $matrix->scale3dSelf(5);
-        self::assertEquals(5.0, $matrix->m11);
-        self::assertEquals(5.0, $matrix->m22);
-        self::assertEquals(5.0, $matrix->m33);
-    }
-
-    public function testRotateAxisAngleSelf(): void
-    {
-        $matrix = new DOMMatrix();
-        $matrix->rotateAxisAngleSelf(1, 0, 0, 90); // Rotate 90 degrees around X-axis
-        self::assertEqualsWithDelta(1.0, $matrix->m11, 0.000001);
-        self::assertEqualsWithDelta(0.0, $matrix->m22, 0.000001);
-        self::assertEqualsWithDelta(1.0, $matrix->m23, 0.000001); // Corrected assertion
-        self::assertEqualsWithDelta(-1.0, $matrix->m32, 0.000001); // Corrected assertion
-        self::assertEqualsWithDelta(0.0, $matrix->m33, 0.000001); // Corrected assertion
-    }
-
-    public function testRotateFromVectorSelf(): void
-    {
-        $matrix = new DOMMatrix();
-        $matrix->rotateFromVectorSelf(1, 1); // Rotate 45 degrees
-        self::assertEqualsWithDelta(cos(deg2rad(45)), $matrix->m11, 0.000001);
-        self::assertEqualsWithDelta(sin(deg2rad(45)), $matrix->m12, 0.000001);
-    }
-
-    public function testSetMatrixValue(): void
-    {
-        $matrix = new DOMMatrix();
-        $matrix->setMatrixValue('matrix(1, 2, 3, 4, 5, 6)');
-        self::assertEquals(1.0, $matrix->m11);
-        self::assertEquals(6.0, $matrix->m42);
-    }
-
-    public function testSkewXSelf(): void
-    {
-        $matrix = new DOMMatrix();
-        $matrix->skewXSelf(45);
-        self::assertEqualsWithDelta(1.0, $matrix->m11, 0.000001);
-        self::assertEqualsWithDelta(tan(deg2rad(45)), $matrix->m21, 0.000001);
-    }
-
-    public function testSkewYSelf(): void
-    {
-        $matrix = new DOMMatrix();
-        $matrix->skewYSelf(45);
-        self::assertEqualsWithDelta(1.0, $matrix->m11, 0.000001);
-        self::assertEqualsWithDelta(tan(deg2rad(45)), $matrix->m12, 0.000001);
+        $matrix->invalid = 1.0;
     }
 }

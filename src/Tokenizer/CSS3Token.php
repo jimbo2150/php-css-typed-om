@@ -176,7 +176,7 @@ class CSS3Token
 	/**
 	 * Create a dimension token (number with unit).
 	 */
-	public static function dimension(float $value, string $unit, string $representation, int $line = 1, int $column = 1): self
+	public static function dimension(float $value, string $unit, string $representation, int $line = 1, int $column = 1, array $metadata = []): self
 	{
 		$isInt = (string) ((int) $value) === (string) $value;
 		$meta = ['raw' => $representation, 'isInteger' => $isInt, 'unit' => $unit];
@@ -184,7 +184,7 @@ class CSS3Token
 			$meta['normalized'] = (string) $value.$unit;
 		}
 
-		return new self(CSS3TokenType::DIMENSION, (string) $value, $unit, $representation, $line, $column, $meta);
+		return new self(CSS3TokenType::DIMENSION, (string) $value, $unit, $representation, $line, $column, array_merge($meta, $metadata));
 	}
 
 	/**

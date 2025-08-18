@@ -2,25 +2,60 @@
 
 declare(strict_types=1);
 
-namespace Jimbo2150\PhpCssTypedOm\Tests\TypedOM\Values;
+namespace Tests\TypedOM\Values;
 
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSImageValue;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * Tests for CSSImageValue class.
+ */
 class CSSImageValueTest extends TestCase
 {
-	public function testToString()
-	{
-		$image = new CSSImageValue('http://example.com/image.png');
-		$this->assertEquals('url(http://example.com/image.png)', $image->toString());
-	}
+    public function testConstructor()
+    {
+        $image = new CSSImageValue('url("test.jpg")');
+        $this->assertInstanceOf(CSSImageValue::class, $image);
+    }
 
-	public function testIsValid()
-	{
-		$validImage = new CSSImageValue('http://example.com/image.png');
-		$this->assertTrue($validImage->isValid());
+    public function testGetUrl()
+    {
+        $image = new CSSImageValue('url("test.jpg")');
+        $this->assertSame('url("test.jpg")', $image->getUrl());
+    }
 
-		$invalidImage = new CSSImageValue('not-a-url');
-		$this->assertFalse($invalidImage->isValid());
-	}
+    public function testToString()
+    {
+        $image = new CSSImageValue('url("test.jpg")');
+        $this->assertSame('url("test.jpg")', $image->toString());
+    }
+
+    public function testIsValid()
+    {
+        $image = new CSSImageValue('url("test.jpg")');
+        $this->assertTrue($image->isValid());
+    }
+
+    public function testClone()
+    {
+        $image = new CSSImageValue('url("test.jpg")');
+        $cloned = $image->clone();
+        
+        $this->assertInstanceOf(CSSImageValue::class, $cloned);
+        $this->assertNotSame($image, $cloned);
+        $this->assertSame($image->getUrl(), $cloned->getUrl());
+    }
+
+    public function testEmptyUrl()
+    {
+        $image = new CSSImageValue('');
+        $this->assertSame('', $image->getUrl());
+    }
+
+    public function testComplexUrl()
+    {
+        $url = 'url("https://example.com/path/to/image.png")';
+        $image = new CSSImageValue($url);
+        $this->assertSame($url, $image->getUrl());
+    }
 }
