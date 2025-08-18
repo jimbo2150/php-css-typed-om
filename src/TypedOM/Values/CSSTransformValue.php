@@ -11,9 +11,12 @@ use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSTransformValue
  */
-class CSSTransformValue extends CSSStyleValue
+class CSSTransformValue extends CSSStyleValue implements \ArrayAccess
 {
-	/** @var CSSTransformComponent[] */
+	/**
+	 * @var CSSTransformComponent[]
+	 * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSTransformValue/length
+	 */
 	private array $components;
 
 	public function __construct(array $components)
@@ -27,7 +30,7 @@ class CSSTransformValue extends CSSStyleValue
 		return implode(' ', array_map(fn ($c) => $c->toString(), $this->components));
 	}
 
-	public function __get(string $name)
+	public function __get(string $name): mixed
 	{
 		return match ($name) {
 			'length' => count($this->components),
@@ -40,7 +43,7 @@ class CSSTransformValue extends CSSStyleValue
 
 				return true;
 			})(),
-			default => throw new \Exception('Undefined property: '.$name),
+			default => throw new \Error("Undefined property: {$name}"),
 		};
 	}
 
@@ -48,7 +51,7 @@ class CSSTransformValue extends CSSStyleValue
 	{
 		$matrix = new DOMMatrix();
 		foreach ($this->components as $component) {
-			$matrix = $matrix->multiply($component->toMatrix());
+			$matrix->multiplySelf($component->toMatrix());
 		}
 
 		return $matrix;
@@ -64,14 +67,32 @@ class CSSTransformValue extends CSSStyleValue
 		return new self($clonedComponents);
 	}
 
-	/**
-	 * @return \Generator<array{int, CSSTransformComponent}>
-	 */
-	public function entries(): \Generator
+	public function offsetExists($offset): bool
 	{
-		foreach ($this->components as $key => $value) {
-			yield [$key, $value];
+		return isset($this->components[$offset]);
+	}
+
+	public function offsetGet($offset): ?CSSTransformComponent
+	{
+		return $this->components[$offset] ?? null;
+	}
+
+	public function offsetSet($offset, $value): void
+	{
+		if (!$value instanceof CSSTransformComponent) {
+			throw new \InvalidArgumentException('Value must be a CSSTransformComponent.');
 		}
+
+		if (is_null($offset)) {
+			$this->components[] = $value;
+		} else {
+			$this->components[$offset] = $value;
+		}
+	}
+
+	public function offsetUnset($offset): void
+	{
+		unset($this->components[$offset]);
 	}
 
 	/**

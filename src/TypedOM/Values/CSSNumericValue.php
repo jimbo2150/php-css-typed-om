@@ -45,4 +45,53 @@ abstract class CSSNumericValue extends CSSStyleValue
 
 		throw new \InvalidArgumentException('Invalid CSS numeric value: '.$cssText);
 	}
+
+	/**
+	 * Creates a new CSSUnitValue object from a CSS numeric value.
+	 *
+	 * @param string $cssText the CSS text to parse
+	 */
+	public static function from(string $cssText): self
+	{
+		return self::parse($cssText);
+	}
+
+	/**
+	 * Adds all the values in the values list and returns the result.
+	 *
+	 * @param CSSNumericValue[] $values
+	 */
+	public static function toSum(...$values): CSSNumericValue
+	{
+		if (empty($values)) {
+			return new CSSUnitValue(0, 'number');
+		}
+
+		$sum = 0;
+		$unit = null;
+		
+		foreach ($values as $value) {
+			if ($value instanceof CSSUnitValue) {
+				if ($unit === null) {
+					$unit = $value->unit;
+				} elseif ($unit !== $value->unit) {
+					throw new \InvalidArgumentException('All values must have the same unit');
+				}
+				$sum += $value->value;
+			}
+		}
+
+		return new CSSUnitValue($sum, $unit ?? 'number');
+	}
+
+	/**
+	 * Magic getter for property access.
+	 */
+	public function __get(string $name): mixed
+	{
+		return match ($name) {
+			'type' => $this->type,
+			default => throw new \Error("Undefined property: {$name}"),
+		};
+	}
 }

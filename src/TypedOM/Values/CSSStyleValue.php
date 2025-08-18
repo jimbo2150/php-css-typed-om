@@ -20,15 +20,26 @@ abstract class CSSStyleValue
 	/**
 	 * Get the string representation of the value.
 	 */
-	abstract public function toString(): string;
+abstract public function toString(): string;
 
-	/**
-	 * Get the type of the value.
-	 */
-	public function getType(): string
-	{
-		return $this->type;
-	}
+/**
+	* Get the type of the value.
+	*/
+public function getType(): string
+{
+	return $this->type;
+}
+
+/**
+	* Magic getter for property access.
+	*/
+public function __get(string $name): mixed
+{
+	return match ($name) {
+		'type' => $this->type,
+		default => throw new \Error("Undefined property: {$name}"),
+	};
+}
 
 	/**
 	 * Parse a CSS value and return appropriate CSSStyleValue instance.

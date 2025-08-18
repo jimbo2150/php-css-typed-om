@@ -76,4 +76,21 @@ class CSSRotate extends CSSTransformComponent
 
 		return $cloned;
 	}
+
+	public function __get(string $name): mixed
+	{
+		return match ($name) {
+			'angle' => $this->angle,
+			'x' => $this->x,
+			'y' => $this->y,
+			'z' => $this->z,
+			'is2D' => $this->is2D,
+			default => throw new \Error(sprintf('Undefined property: %s::$%s', self::class, $name)),
+		};
+	}
+
+	public function __set(string $name, mixed $value): void
+	{
+		throw new \Error(sprintf('Cannot set property %s::$%s', self::class, $name));
+	}
 }

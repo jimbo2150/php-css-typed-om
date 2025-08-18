@@ -39,4 +39,18 @@ class CSSImageValue extends CSSStyleValue
 	{
 		return new self($this->url);
 	}
+
+	public function __get(string $name): mixed
+	{
+		return match ($name) {
+			'url' => $this->url,
+			'type' => $this->type,
+			default => throw new \Error(sprintf('Undefined property: %s::$%s', self::class, $name)),
+		};
+	}
+
+	public function __set(string $name, mixed $value): void
+	{
+		throw new \Error(sprintf('Cannot set property %s::$%s', self::class, $name));
+	}
 }

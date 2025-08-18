@@ -70,6 +70,20 @@ class CSSColorValue extends CSSStyleValue
 
 	public function clone(): CSSStyleValue
 	{
-		return new self($this->value);
+		return new self($this->colorString);
+	}
+
+	public function __get(string $name): mixed
+	{
+		return match ($name) {
+			'value' => $this->colorString,
+			'type' => $this->type,
+			default => throw new \Error(sprintf('Undefined property: %s::$%s', self::class, $name)),
+		};
+	}
+
+	public function __set(string $name, mixed $value): void
+	{
+		throw new \Error(sprintf('Cannot set property %s::$%s', self::class, $name));
 	}
 }

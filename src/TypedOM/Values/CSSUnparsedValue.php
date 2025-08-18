@@ -85,4 +85,24 @@ class CSSUnparsedValue extends CSSStyleValue implements \IteratorAggregate
 			yield $key;
 		}
 	}
+
+	/**
+	 * Magic getter for property access.
+	 */
+	public function __get(string $name): mixed
+	{
+		return match ($name) {
+			'length' => count($this->members),
+			'type' => $this->type,
+			default => throw new \Error("Undefined property: {$name}"),
+		};
+	}
+
+	/**
+	 * Magic setter for property access.
+	 */
+	public function __set(string $name, mixed $value): void
+	{
+		throw new \Error("Cannot set property: {$name}");
+	}
 }

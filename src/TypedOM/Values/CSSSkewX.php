@@ -39,4 +39,18 @@ class CSSSkewX extends CSSTransformComponent
 	{
 		return new self(clone $this->ax);
 	}
+
+	public function __get(string $name): mixed
+	{
+		return match ($name) {
+			'ax' => $this->ax,
+			'is2D' => $this->is2D,
+			default => throw new \Error(sprintf('Undefined property: %s::$%s', self::class, $name)),
+		};
+	}
+
+	public function __set(string $name, mixed $value): void
+	{
+		throw new \Error(sprintf('Cannot set property %s::$%s', self::class, $name));
+	}
 }

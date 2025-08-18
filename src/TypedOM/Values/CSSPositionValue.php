@@ -56,4 +56,19 @@ class CSSPositionValue extends CSSStyleValue
 
 		return new self(CSSNumericValue::parse($parts[0]), CSSNumericValue::parse($parts[1]));
 	}
+
+	public function __get(string $name): mixed
+	{
+		return match ($name) {
+			'x' => $this->x,
+			'y' => $this->y,
+			'type' => $this->type,
+			default => throw new \Error(sprintf('Undefined property: %s::$%s', self::class, $name)),
+		};
+	}
+
+	public function __set(string $name, mixed $value): void
+	{
+		throw new \Error(sprintf('Cannot set property %s::$%s', self::class, $name));
+	}
 }

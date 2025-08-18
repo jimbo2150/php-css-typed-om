@@ -53,6 +53,31 @@ class CSSUnitValue extends CSSNumericValue
 	}
 
 	/**
+	 * Magic getter for property access.
+	 */
+	public function __get(string $name): mixed
+	{
+		return match ($name) {
+			'value' => $this->value,
+			'unit' => $this->unit,
+			'type' => $this->type,
+			default => throw new \Error("Undefined property: {$name}"),
+		};
+	}
+
+	/**
+	 * Magic setter for property access.
+	 */
+	public function __set(string $name, mixed $value): void
+	{
+		match ($name) {
+			'value' => $this->value = (float) $value,
+			'unit' => $this->unit = (string) $value,
+			default => throw new \Error("Undefined property: {$name}"),
+		};
+	}
+
+	/**
 	 * Convert to string representation.
 	 */
 	public function toString(): string

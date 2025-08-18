@@ -58,4 +58,29 @@ class CSSVariableReferenceValue extends CSSStyleValue
 	{
 		return new self($this->variable, $this->fallback);
 	}
+
+	/**
+	 * Magic getter for property access.
+	 */
+	public function __get(string $name): mixed
+	{
+		return match ($name) {
+			'variable' => $this->variable,
+			'fallback' => $this->fallback,
+			'type' => $this->type,
+			default => throw new \Error("Undefined property: {$name}"),
+		};
+	}
+
+	/**
+	 * Magic setter for property access.
+	 */
+	public function __set(string $name, mixed $value): void
+	{
+		match ($name) {
+			'variable' => $this->variable = (string) $value,
+			'fallback' => $this->fallback = $value instanceof CSSUnparsedValue ? $value : null,
+			default => throw new \Error("Undefined property: {$name}"),
+		};
+	}
 }

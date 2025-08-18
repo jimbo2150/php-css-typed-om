@@ -28,4 +28,27 @@ class CSSKeywordValue extends CSSStyleValue
 	{
 		return '' !== trim($this->value);
 	}
+
+	/**
+	 * Magic getter for property access.
+	 */
+	public function __get(string $name): mixed
+	{
+		return match ($name) {
+			'value' => $this->value,
+			'type' => $this->type,
+			default => throw new \Error("Undefined property: {$name}"),
+		};
+	}
+
+	/**
+	 * Magic setter for property access.
+	 */
+	public function __set(string $name, mixed $value): void
+	{
+		match ($name) {
+			'value' => $this->value = (string) $value,
+			default => throw new \Error("Undefined property: {$name}"),
+		};
+	}
 }
