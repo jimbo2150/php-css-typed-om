@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\TransformComponentTrait;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\MagicPropertyAccessTrait;
 
 /**
  * Represents the skew() function of the CSS transform property.
@@ -13,48 +15,42 @@ use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
  */
 class CSSSkew extends CSSTransformComponent
 {
-	private CSSNumericValue $ax;
-	private CSSNumericValue $ay;
+    use TransformComponentTrait;
+    use MagicPropertyAccessTrait;
 
-	public function __construct(CSSNumericValue $ax, CSSNumericValue $ay)
-	{
-		$this->ax = $ax;
-		$this->ay = $ay;
-		$this->is2D = true;
-	}
+    public function __construct(CSSNumericValue $ax, CSSNumericValue $ay)
+    {
+        $values = [
+            'ax' => $ax,
+            'ay' => $ay
+        ];
+        
+        $this->initializeTransformComponent($values, true);
+    }
 
-	public function toString(): string
-	{
-		return 'skew('.$this->ax->toString().', '.$this->ay->toString().')';
-	}
+    public function getTransformType(): string
+    {
+        return 'skew';
+    }
 
-	public function toMatrix(): DOMMatrix
-	{
-		$matrix = new DOMMatrix();
-		$axRad = deg2rad($this->ax->getNumericValue()); // Assuming angle is in degrees
-		$ayRad = deg2rad($this->ay->getNumericValue()); // Assuming angle is in degrees
-		$matrix->skewSelf($axRad, $ayRad);
+    public function toString(): string
+    {
+        return $this->toTransformString('skew', ['ax', 'ay']);
+    }
 
-		return $matrix;
-	}
+    public function toMatrix(): DOMMatrix
+    {
+        $matrix = new DOMMatrix();
+        $axRad = deg2rad($this->getValue('ax')->getNumericValue());
+        $ayRad = deg2rad($this->getValue('ay')->getNumericValue());
+        $matrix->skewSelf($axRad, $ayRad);
 
-	public function clone(): self
-	{
-		return new self(clone $this->ax, clone $this->ay);
-	}
+        return $matrix;
+    }
 
-	public function __get(string $name): mixed
-	{
-		return match ($name) {
-			'ax' => $this->ax,
-			'ay' => $this->ay,
-			'is2D' => $this->is2D,
-			default => throw new \Error(sprintf('Undefined property: %s::$%s', self::class, $name)),
-		};
-	}
-
-	public function __set(string $name, mixed $value): void
-	{
-		throw new \Error(sprintf('Cannot set property %s::$%s', self::class, $name));
-	}
+    public function clone(): self
+    {
+        $values = $this->cloneValues();
+        return new self($values['ax'], $values['ay']);
+    }
 }

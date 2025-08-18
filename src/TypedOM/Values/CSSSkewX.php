@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\TransformComponentTrait;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\MagicPropertyAccessTrait;
 
 /**
  * Represents the skewX() function of the CSS transform property.
@@ -13,44 +15,37 @@ use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
  */
 class CSSSkewX extends CSSTransformComponent
 {
-	private CSSNumericValue $ax;
+    use TransformComponentTrait;
+    use MagicPropertyAccessTrait;
 
-	public function __construct(CSSNumericValue $ax)
-	{
-		$this->ax = $ax;
-		$this->is2D = true;
-	}
+    public function __construct(CSSNumericValue $ax)
+    {
+        $values = ['ax' => $ax];
+        $this->initializeTransformComponent($values, true);
+    }
 
-	public function toString(): string
-	{
-		return 'skewX('.$this->ax->toString().')';
-	}
+    public function getTransformType(): string
+    {
+        return 'skewX';
+    }
 
-	public function toMatrix(): DOMMatrix
-	{
-		$matrix = new DOMMatrix();
-		$angleRad = deg2rad($this->ax->getNumericValue()); // Assuming angle is in degrees
-		$matrix->skewXSelf($angleRad);
+    public function toString(): string
+    {
+        return $this->toTransformString('skewX', ['ax']);
+    }
 
-		return $matrix;
-	}
+    public function toMatrix(): DOMMatrix
+    {
+        $matrix = new DOMMatrix();
+        $angleRad = deg2rad($this->getValue('ax')->getNumericValue());
+        $matrix->skewXSelf($angleRad);
 
-	public function clone(): self
-	{
-		return new self(clone $this->ax);
-	}
+        return $matrix;
+    }
 
-	public function __get(string $name): mixed
-	{
-		return match ($name) {
-			'ax' => $this->ax,
-			'is2D' => $this->is2D,
-			default => throw new \Error(sprintf('Undefined property: %s::$%s', self::class, $name)),
-		};
-	}
-
-	public function __set(string $name, mixed $value): void
-	{
-		throw new \Error(sprintf('Cannot set property %s::$%s', self::class, $name));
-	}
+    public function clone(): self
+    {
+        $values = $this->cloneValues();
+        return new self($values['ax']);
+    }
 }

@@ -4,12 +4,18 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
+use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\MathOperationsTrait;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\MagicPropertyAccessTrait;
+
 /**
  * CSS Unit Value for Typed OM
  * Represents a CSS value with a unit (e.g., 10px, 50%, 2em).
  */
 class CSSUnitValue extends CSSNumericValue
 {
+	use MathOperationsTrait;
+	use MagicPropertyAccessTrait;
+
 	private float $value;
 	private string $unit;
 
@@ -18,6 +24,7 @@ class CSSUnitValue extends CSSNumericValue
 		parent::__construct('unit'); // Call CSSStyleValue constructor directly
 		$this->value = $value;
 		$this->unit = $unit;
+		$this->initializeMathOperations($value, $unit);
 	}
 
 	/**
@@ -34,6 +41,7 @@ class CSSUnitValue extends CSSNumericValue
 	public function setNumericValue(float $value): void
 	{
 		$this->value = $value;
+		$this->initializeMathOperations($value, $this->unit);
 	}
 
 	/**
@@ -50,6 +58,7 @@ class CSSUnitValue extends CSSNumericValue
 	public function setUnit(string $unit): void
 	{
 		$this->unit = $unit;
+		$this->initializeMathOperations($this->value, $unit);
 	}
 
 	/**
@@ -71,8 +80,8 @@ class CSSUnitValue extends CSSNumericValue
 	public function __set(string $name, mixed $value): void
 	{
 		match ($name) {
-			'value' => $this->value = (float) $value,
-			'unit' => $this->unit = (string) $value,
+			'value' => $this->setNumericValue((float) $value),
+			'unit' => $this->setUnit((string) $value),
 			default => throw new \Error("Undefined property: {$name}"),
 		};
 	}

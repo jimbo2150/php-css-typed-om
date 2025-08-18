@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\TransformComponentTrait;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\MagicPropertyAccessTrait;
 
 /**
  * Represents the scale() function of the CSS transform property.
@@ -13,68 +15,50 @@ use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
  */
 class CSSScale extends CSSTransformComponent
 {
-	private $x;
-	private $y;
-	private $z;
+    use TransformComponentTrait;
+    use MagicPropertyAccessTrait;
 
-	public function __construct($x, $y, $z = null)
-	{
-		$this->x = $x;
-		$this->y = $y;
-		$this->z = $z;
-		$this->is2D = null === $z;
-	}
+    public function __construct($x, $y, $z = null)
+    {
+        $values = [
+            'x' => $x,
+            'y' => $y,
+            'z' => $z
+        ];
+        $is2D = null === $z;
 
-	public function toString(): string
-	{
-		$str = 'scale';
-		if (!$this->is2D) {
-			$str .= '3d';
-		}
-		$str .= '('.$this->x->toString();
-		$str .= ', '.$this->y->toString();
-		if (!$this->is2D) {
-			$str .= ', '.$this->z->toString();
-		}
-		$str .= ')';
+        $this->initializeTransformComponent($values, $is2D);
+    }
 
-		return $str;
-	}
+    public function getTransformType(): string
+    {
+        return 'scale';
+    }
 
-	public function toMatrix(): DOMMatrix
-	{
-		$matrix = new DOMMatrix();
-		$xScale = $this->x instanceof CSSUnitValue ? $this->x->getNumericValue() : $this->x;
-		$yScale = $this->y instanceof CSSUnitValue ? $this->y->getNumericValue() : $this->y;
-		$zScale = $this->z instanceof CSSUnitValue ? $this->z->getNumericValue() : ($this->z ? $this->z : 1);
+    public function toString(): string
+    {
+        if ($this->is2D()) {
+            return $this->toTransformString('scale', ['x', 'y']);
+        } else {
+            return $this->toTransformString('scale3d', ['x', 'y', 'z']);
+        }
+    }
 
-		$matrix->scaleSelf($xScale, $yScale, $zScale);
+    public function toMatrix(): DOMMatrix
+    {
+        $matrix = new DOMMatrix();
+        $xScale = $this->getValue('x')->getNumericValue();
+        $yScale = $this->getValue('y')->getNumericValue();
+        $zScale = $this->is2D() ? 1 : $this->getValue('z')->getNumericValue();
 
-		return $matrix;
-	}
+        $matrix->scaleSelf($xScale, $yScale, $zScale);
 
-	public function clone(): self
-	{
-		$clonedX = $this->x instanceof CSSUnitValue ? clone $this->x : $this->x;
-		$clonedY = $this->y instanceof CSSUnitValue ? clone $this->y : $this->y;
-		$clonedZ = $this->z instanceof CSSUnitValue ? clone $this->z : $this->z;
+        return $matrix;
+    }
 
-		return new self($clonedX, $clonedY, $clonedZ);
-	}
-
-	public function __get(string $name): mixed
-	{
-		return match ($name) {
-			'x' => $this->x,
-			'y' => $this->y,
-			'z' => $this->z,
-			'is2D' => $this->is2D,
-			default => throw new \Error(sprintf('Undefined property: %s::$%s', self::class, $name)),
-		};
-	}
-
-	public function __set(string $name, mixed $value): void
-	{
-		throw new \Error(sprintf('Cannot set property %s::$%s', self::class, $name));
-	}
+    public function clone(): self
+    {
+        $values = $this->cloneValues();
+        return new self($values['x'], $values['y'], $this->is2D() ? null : $values['z']);
+    }
 }

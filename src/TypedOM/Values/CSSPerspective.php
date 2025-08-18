@@ -13,30 +13,30 @@ use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
  */
 class CSSPerspective extends CSSTransformComponent
 {
-	private CSSNumericValue $length;
+    private CSSNumericValue $length;
 
-	public function __construct(CSSNumericValue $length)
-	{
-		$this->length = $length;
-		$this->is2D = false;
-	}
+    public function __construct(CSSNumericValue $length)
+    {
+        $this->length = $length;
+        $this->is2D = false;
+    }
 
-	public function toString(): string
-	{
-		return 'perspective('.$this->length->toString().')';
-	}
+    public function toString(): string
+    {
+        return 'perspective('.$this->length->toString().')';
+    }
 
-	public function toMatrix(): DOMMatrix
-	{
-		$matrix = new DOMMatrix();
-		$lengthPx = $this->length instanceof CSSUnitValue ? $this->length->to('px')->getNumericValue() : $this->length->getNumericValue();
-		$matrix->setPerspective($lengthPx);
+    public function toMatrix(): DOMMatrix
+    {
+        $matrix = new DOMMatrix();
+        $lengthPx = $this->length instanceof CSSUnitValue ? $this->length->to('px')->getNumericValue() : $this->length->getNumericValue();
+        $matrix->setPerspective($lengthPx);
 
-		return $matrix;
-	}
+        return $matrix;
+    }
 
-	public function clone(): self
-	{
-		return new self(clone $this->length);
-	}
+    public function clone(): self
+    {
+        return new self(clone $this->length);
+    }
 }

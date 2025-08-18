@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
+use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\MagicPropertyAccessTrait;
+
 /**
  * Represents a CSS position value.
  *
@@ -11,6 +13,8 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
  */
 class CSSPositionValue extends CSSStyleValue
 {
+	use MagicPropertyAccessTrait;
+
 	private CSSNumericValue $x;
 	private CSSNumericValue $y;
 

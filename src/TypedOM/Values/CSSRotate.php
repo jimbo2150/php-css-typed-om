@@ -5,92 +5,75 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\TransformComponentTrait;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\MagicPropertyAccessTrait;
 
 class CSSRotate extends CSSTransformComponent
 {
-	public $angle;
-	public $x;
-	public $y;
-	public $z;
+    use TransformComponentTrait;
+    use MagicPropertyAccessTrait;
 
-	public function __construct($p1, $p2 = null, $p3 = null, $p4 = null)
-	{
-		if (null !== $p4) {
-			$this->x = $p1;
-			$this->y = $p2;
-			$this->z = $p3;
-			$this->angle = $p4;
-			$this->is2D = false;
-		} else {
-			$this->angle = $p1;
-			$this->x = new CSSUnitValue(0, 'number');
-			$this->y = new CSSUnitValue(0, 'number');
-			$this->z = new CSSUnitValue(1, 'number'); // rotate() is rotateZ()
-			$this->is2D = true;
-		}
-	}
+    public function __construct($p1, $p2 = null, $p3 = null, $p4 = null)
+    {
+        if (null !== $p4) {
+            // 3D rotation: rotate3d(x, y, z, angle)
+            $values = [
+                'x' => $p1,
+                'y' => $p2,
+                'z' => $p3,
+                'angle' => $p4
+            ];
+            $is2D = false;
+        } else {
+            // 2D rotation: rotate(angle)
+            $values = [
+                'x' => new CSSUnitValue(0, 'number'),
+                'y' => new CSSUnitValue(0, 'number'),
+                'z' => new CSSUnitValue(1, 'number'), // rotate() is rotateZ()
+                'angle' => $p1
+            ];
+            $is2D = true;
+        }
 
-	public function toString(): string
-	{
-		if ($this->is2D) {
-			return 'rotate('.$this->angle->toString().')';
-		} else {
-			return 'rotate3d('.
-				$this->x->toString().', '.
-				$this->y->toString().', '.
-				$this->z->toString().', '.
-				$this->angle->toString().
-			')';
-		}
-	}
+        $this->initializeTransformComponent($values, $is2D);
+    }
 
-	public function toMatrix(): DOMMatrix
-	{
-		$matrix = new DOMMatrix();
-		$angleRad = deg2rad($this->angle->getNumericValue()); // Assuming angle is in degrees
+    public function getTransformType(): string
+    {
+        return 'rotate';
+    }
 
-		if ($this->is2D) {
-			$matrix->rotateSelf($angleRad);
-		} else {
-			$x = $this->x instanceof CSSUnitValue ? $this->x->getNumericValue() : $this->x;
-			$y = $this->y instanceof CSSUnitValue ? $this->y->getNumericValue() : $this->y;
-			$z = $this->z instanceof CSSUnitValue ? $this->z->getNumericValue() : $this->z;
-			$matrix->rotateAxisAngleSelf($x, $y, $z, $angleRad);
-		}
+    public function toString(): string
+    {
+        if ($this->is2D()) {
+            return $this->toTransformString('rotate', ['angle']);
+        } else {
+            return $this->toTransformString('rotate3d', ['x', 'y', 'z', 'angle']);
+        }
+    }
 
-		return $matrix;
-	}
+    public function toMatrix(): DOMMatrix
+    {
+        $matrix = new DOMMatrix();
+        $angle = $this->getValue('angle');
+        $angleRad = deg2rad($angle->getNumericValue());
 
-	public function clone(): self
-	{
-		$clonedX = $this->x instanceof CSSUnitValue ? clone $this->x : $this->x;
-		$clonedY = $this->y instanceof CSSUnitValue ? clone $this->y : $this->y;
-		$clonedZ = $this->z instanceof CSSUnitValue ? clone $this->z : $this->z;
-		$clonedAngle = $this->angle instanceof CSSUnitValue ? clone $this->angle : $this->angle;
+        if ($this->is2D()) {
+            $matrix->rotateSelf($angleRad);
+        } else {
+            $x = $this->getValue('x')->getNumericValue();
+            $y = $this->getValue('y')->getNumericValue();
+            $z = $this->getValue('z')->getNumericValue();
+            $matrix->rotateAxisAngleSelf($x, $y, $z, $angleRad);
+        }
 
-		$cloned = new self($clonedAngle);
-		$cloned->x = $clonedX;
-		$cloned->y = $clonedY;
-		$cloned->z = $clonedZ;
-		$cloned->is2D = $this->is2D;
+        return $matrix;
+    }
 
-		return $cloned;
-	}
-
-	public function __get(string $name): mixed
-	{
-		return match ($name) {
-			'angle' => $this->angle,
-			'x' => $this->x,
-			'y' => $this->y,
-			'z' => $this->z,
-			'is2D' => $this->is2D,
-			default => throw new \Error(sprintf('Undefined property: %s::$%s', self::class, $name)),
-		};
-	}
-
-	public function __set(string $name, mixed $value): void
-	{
-		throw new \Error(sprintf('Cannot set property %s::$%s', self::class, $name));
-	}
+    public function clone(): self
+    {
+        $cloned = new self($this->getValue('angle'));
+        $cloned->initializeTransformComponent($this->cloneValues(), $this->is2D());
+        return $cloned;
+    }
 }

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\TransformComponentTrait;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\MagicPropertyAccessTrait;
 
 /**
  * Represents the translate() function of the CSS transform property.
@@ -13,68 +15,55 @@ use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrix;
  */
 class CSSTranslate extends CSSTransformComponent
 {
-	private CSSNumericValue $x;
-	private CSSNumericValue $y;
-	private ?CSSNumericValue $z;
+    use TransformComponentTrait;
+    use MagicPropertyAccessTrait;
 
-	public function __construct(CSSNumericValue $x, CSSNumericValue $y, ?CSSNumericValue $z = null)
-	{
-		$this->x = $x;
-		$this->y = $y;
-		$this->z = $z;
-		$this->is2D = null === $z;
-	}
+    public function __construct(CSSNumericValue $x, CSSNumericValue $y, ?CSSNumericValue $z = null)
+    {
+        $values = [
+            'x' => $x,
+            'y' => $y,
+            'z' => $z
+        ];
+        $is2D = null === $z;
 
-	public function toString(): string
-	{
-		$str = 'translate';
-		if (!$this->is2D) {
-			$str .= '3d';
-		}
-		$str .= '('.$this->x->toString();
-		$str .= ', '.$this->y->toString();
-		if (!$this->is2D) {
-			$str .= ', '.$this->z->toString();
-		}
-		$str .= ')';
+        $this->initializeTransformComponent($values, $is2D);
+    }
 
-		return $str;
-	}
+    public function getTransformType(): string
+    {
+        return 'translate';
+    }
 
-	public function toMatrix(): DOMMatrix
-	{
-		$matrix = new DOMMatrix();
-		$xPx = $this->x instanceof CSSUnitValue ? $this->x->to('px')->getNumericValue() : $this->x->getNumericValue();
-		$yPx = $this->y instanceof CSSUnitValue ? $this->y->to('px')->getNumericValue() : $this->y->getNumericValue();
-		$zPx = $this->z instanceof CSSUnitValue ? $this->z->to('px')->getNumericValue() : ($this->z ? $this->z->getNumericValue() : 0);
+    public function toString(): string
+    {
+        if ($this->is2D()) {
+            return $this->toTransformString('translate', ['x', 'y']);
+        } else {
+            return $this->toTransformString('translate3d', ['x', 'y', 'z']);
+        }
+    }
 
-		$matrix->translateSelf($xPx, $yPx, $zPx);
+    public function toMatrix(): DOMMatrix
+    {
+        $matrix = new DOMMatrix();
+        
+        $x = $this->getValue('x');
+        $y = $this->getValue('y');
+        $z = $this->is2D() ? null : $this->getValue('z');
+        
+        $xPx = $x instanceof CSSUnitValue ? $x->to('px')->getNumericValue() : $x->getNumericValue();
+        $yPx = $y instanceof CSSUnitValue ? $y->to('px')->getNumericValue() : $y->getNumericValue();
+        $zPx = $z instanceof CSSUnitValue ? $z->to('px')->getNumericValue() : ($z ? $z->getNumericValue() : 0);
 
-		return $matrix;
-	}
+        $matrix->translateSelf($xPx, $yPx, $zPx);
 
-	public function clone(): self
-	{
-		$clonedX = clone $this->x;
-		$clonedY = clone $this->y;
-		$clonedZ = $this->z ? clone $this->z : null;
+        return $matrix;
+    }
 
-		return new self($clonedX, $clonedY, $clonedZ);
-	}
-
-	public function __get(string $name): mixed
-	{
-		return match ($name) {
-			'x' => $this->x,
-			'y' => $this->y,
-			'z' => $this->z,
-			'is2D' => $this->is2D,
-			default => throw new \Error(sprintf('Undefined property: %s::$%s', self::class, $name)),
-		};
-	}
-
-	public function __set(string $name, mixed $value): void
-	{
-		throw new \Error(sprintf('Cannot set property %s::$%s', self::class, $name));
-	}
+    public function clone(): self
+    {
+        $values = $this->cloneValues();
+        return new self($values['x'], $values['y'], $this->is2D() ? null : $values['z']);
+    }
 }
