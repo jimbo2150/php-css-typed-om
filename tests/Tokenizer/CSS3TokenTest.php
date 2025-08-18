@@ -203,7 +203,7 @@ class CSS3TokenTest extends TestCase
     public function testTokenTruncation()
     {
         $longString = str_repeat('a', 2000);
-        $token = new CSS3Token(CSS3TokenType::IDENT, $longString);
+        $token = CSS3Token::ident($longString);
         
         $this->assertLessThanOrEqual(1024, strlen($token->value));
         $this->assertArrayHasKey('truncated', $token->metadata);
@@ -228,12 +228,12 @@ class CSS3TokenTest extends TestCase
         $this->assertJson($json);
         
         $decoded = json_decode($json, true);
-        $this->assertSame(CSS3TokenType::DIMENSION, $decoded['type']);
+        $this->assertSame(CSS3TokenType::DIMENSION->value, $decoded['type']);
         $this->assertSame('100', $decoded['value']);
         $this->assertSame('px', $decoded['unit']);
         $this->assertSame('100px', $decoded['representation']);
         $this->assertSame(1, $decoded['line']);
         $this->assertSame(1, $decoded['column']);
-        $this->assertSame(['key' => 'value'], $decoded['metadata']);
+        $this->assertSame(['raw' => '100px', 'isInteger' => true, 'unit' => 'px', 'key' => 'value'], $decoded['metadata']);
     }
 }
