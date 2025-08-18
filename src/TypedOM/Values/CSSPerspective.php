@@ -39,7 +39,11 @@ class CSSPerspective extends CSSTransformComponent
             $lengthPx = 0;
         }
         
-        $matrix->setPerspective($lengthPx);
+        // Apply perspective transformation by setting the appropriate matrix values
+        // Perspective matrix: [1,0,0,0, 0,1,0,0, 0,0,1,-1/length, 0,0,0,1]
+        if ($lengthPx > 0) {
+            $matrix->m34 = -1 / $lengthPx;
+        }
 
         return $matrix;
     }
