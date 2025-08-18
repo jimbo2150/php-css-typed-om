@@ -21,7 +21,7 @@ class CSSMathMaxTest extends TestCase
             new CSSUnitValue(3, '')
         ];
         
-        $max = new CSSMathMax($values);
+        $max = new CSSMathMax(...$values);
         $this->assertInstanceOf(CSSMathMax::class, $max);
     }
 
@@ -33,7 +33,7 @@ class CSSMathMaxTest extends TestCase
             new CSSUnitValue(3, '')
         ];
         
-        $max = new CSSMathMax($values);
+        $max = new CSSMathMax(...$values);
         $this->assertSame($values, $max->getValues());
     }
 
@@ -45,7 +45,7 @@ class CSSMathMaxTest extends TestCase
             new CSSUnitValue(3, '')
         ];
         
-        $max = new CSSMathMax($values);
+        $max = new CSSMathMax(...$values);
         $this->assertSame('max(1, 2, 3)', $max->toString());
     }
 
@@ -57,7 +57,7 @@ class CSSMathMaxTest extends TestCase
             new CSSUnitValue(3, '')
         ];
         
-        $max = new CSSMathMax($values);
+        $max = new CSSMathMax(...$values);
         $this->assertTrue($max->isValid());
     }
 
@@ -69,7 +69,7 @@ class CSSMathMaxTest extends TestCase
             new CSSUnitValue(3, '')
         ];
         
-        $max = new CSSMathMax($values);
+        $max = new CSSMathMax(...$values);
         $cloned = $max->clone();
         
         $this->assertInstanceOf(CSSMathMax::class, $cloned);
@@ -84,7 +84,7 @@ class CSSMathMaxTest extends TestCase
             new CSSUnitValue(3, '')
         ];
         
-        $max = new CSSMathMax($values);
+        $max = new CSSMathMax(...$values);
         $result = $max->to('');
         
         $this->assertInstanceOf(CSSUnitValue::class, $result);
@@ -98,7 +98,7 @@ class CSSMathMaxTest extends TestCase
             new CSSUnitValue(2, 'em')
         ];
         
-        $max = new CSSMathMax($values);
+        $max = new CSSMathMax(...$values);
         $result = $max->to('px');
         
         $this->assertNull($result);
@@ -108,7 +108,7 @@ class CSSMathMaxTest extends TestCase
     {
         $values = [new CSSUnitValue(5, '')];
         
-        $max = new CSSMathMax($values);
+        $max = new CSSMathMax(...$values);
         $result = $max->to('');
         
         $this->assertInstanceOf(CSSUnitValue::class, $result);
@@ -123,7 +123,7 @@ class CSSMathMaxTest extends TestCase
             new CSSUnitValue(-3, '')
         ];
         
-        $max = new CSSMathMax($values);
+        $max = new CSSMathMax(...$values);
         $result = $max->to('');
         
         $this->assertInstanceOf(CSSUnitValue::class, $result);
@@ -138,7 +138,7 @@ class CSSMathMaxTest extends TestCase
             new CSSUnitValue(-3, '')
         ];
         
-        $max = new CSSMathMax($values);
+        $max = new CSSMathMax(...$values);
         $result = $max->to('');
         
         $this->assertInstanceOf(CSSUnitValue::class, $result);
@@ -153,7 +153,7 @@ class CSSMathMaxTest extends TestCase
             new CSSUnitValue(1.9, '')
         ];
         
-        $max = new CSSMathMax($values);
+        $max = new CSSMathMax(...$values);
         $result = $max->to('');
         
         $this->assertInstanceOf(CSSUnitValue::class, $result);
@@ -164,7 +164,7 @@ class CSSMathMaxTest extends TestCase
     {
         $values = [];
         
-        $max = new CSSMathMax($values);
+        $max = new CSSMathMax(...$values);
         $result = $max->to('');
         
         $this->assertNull($result);

@@ -21,7 +21,7 @@ class CSSMathMinTest extends TestCase
             new CSSUnitValue(3, '')
         ];
         
-        $min = new CSSMathMin($values);
+        $min = new CSSMathMin(...$values);
         $this->assertInstanceOf(CSSMathMin::class, $min);
     }
 
@@ -33,7 +33,7 @@ class CSSMathMinTest extends TestCase
             new CSSUnitValue(3, '')
         ];
         
-        $min = new CSSMathMin($values);
+        $min = new CSSMathMin(...$values);
         $this->assertSame($values, $min->getValues());
     }
 
@@ -45,7 +45,7 @@ class CSSMathMinTest extends TestCase
             new CSSUnitValue(3, '')
         ];
         
-        $min = new CSSMathMin($values);
+        $min = new CSSMathMin(...$values);
         $this->assertSame('min(1, 2, 3)', $min->toString());
     }
 
@@ -57,7 +57,7 @@ class CSSMathMinTest extends TestCase
             new CSSUnitValue(3, '')
         ];
         
-        $min = new CSSMathMin($values);
+        $min = new CSSMathMin(...$values);
         $this->assertTrue($min->isValid());
     }
 
@@ -69,7 +69,7 @@ class CSSMathMinTest extends TestCase
             new CSSUnitValue(3, '')
         ];
         
-        $min = new CSSMathMin($values);
+        $min = new CSSMathMin(...$values);
         $cloned = $min->clone();
         
         $this->assertInstanceOf(CSSMathMin::class, $cloned);
@@ -84,7 +84,7 @@ class CSSMathMinTest extends TestCase
             new CSSUnitValue(3, '')
         ];
         
-        $min = new CSSMathMin($values);
+        $min = new CSSMathMin(...$values);
         $result = $min->to('');
         
         $this->assertInstanceOf(CSSUnitValue::class, $result);
@@ -98,7 +98,7 @@ class CSSMathMinTest extends TestCase
             new CSSUnitValue(2, 'em')
         ];
         
-        $min = new CSSMathMin($values);
+        $min = new CSSMathMin(...$values);
         $result = $min->to('px');
         
         $this->assertNull($result);
@@ -108,7 +108,7 @@ class CSSMathMinTest extends TestCase
     {
         $values = [new CSSUnitValue(5, '')];
         
-        $min = new CSSMathMin($values);
+        $min = new CSSMathMin(...$values);
         $result = $min->to('');
         
         $this->assertInstanceOf(CSSUnitValue::class, $result);
@@ -123,7 +123,7 @@ class CSSMathMinTest extends TestCase
             new CSSUnitValue(-3, '')
         ];
         
-        $min = new CSSMathMin($values);
+        $min = new CSSMathMin(...$values);
         $result = $min->to('');
         
         $this->assertInstanceOf(CSSUnitValue::class, $result);
@@ -138,7 +138,7 @@ class CSSMathMinTest extends TestCase
             new CSSUnitValue(-3, '')
         ];
         
-        $min = new CSSMathMin($values);
+        $min = new CSSMathMin(...$values);
         $result = $min->to('');
         
         $this->assertInstanceOf(CSSUnitValue::class, $result);
@@ -153,7 +153,7 @@ class CSSMathMinTest extends TestCase
             new CSSUnitValue(1.9, '')
         ];
         
-        $min = new CSSMathMin($values);
+        $min = new CSSMathMin(...$values);
         $result = $min->to('');
         
         $this->assertInstanceOf(CSSUnitValue::class, $result);
@@ -164,7 +164,7 @@ class CSSMathMinTest extends TestCase
     {
         $values = [];
         
-        $min = new CSSMathMin($values);
+        $min = new CSSMathMin(...$values);
         $result = $min->to('');
         
         $this->assertNull($result);

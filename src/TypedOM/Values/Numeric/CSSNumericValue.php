@@ -2,9 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
+namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 
 use Jimbo2150\PhpCssTypedOm\Process\CSSCalcParser;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnitValue;
 
 /**
  * Represents a CSS value that can be expressed as a number, or a number and a unit.
@@ -14,6 +16,20 @@ use Jimbo2150\PhpCssTypedOm\Process\CSSCalcParser;
  */
 abstract class CSSNumericValue extends CSSStyleValue
 {
+	public private(set) CSSNumericType $type {
+		get {
+			return $this->type;
+		}
+	}
+
+	public function type(): CSSNumericType {
+		return $this->type;
+	}
+
+	public function __construct() {
+		$this->type = new CSSNumericType();
+	}
+
 	/**
 	 * The parse() method of the CSSNumericValue interface creates a new CSSUnitValue object from a CSS numeric value.
 	 *
@@ -21,7 +37,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 	 *
 	 * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSNumericValue/parse
 	 */
-	public static function parse(string $cssText): self
+	public static function parse(string $cssText): static
 	{
 		$cssText = trim($cssText);
 
@@ -51,47 +67,23 @@ abstract class CSSNumericValue extends CSSStyleValue
 	 *
 	 * @param string $cssText the CSS text to parse
 	 */
-	public static function from(string $cssText): self
+	public static function from(string $cssText): static
 	{
-		return self::parse($cssText);
+		return static::parse($cssText);
+	}
+
+	public function to(string $unit): ?CSSUnitValue
+	{
+		// TODO: Implement
 	}
 
 	/**
 	 * Adds all the values in the values list and returns the result.
 	 *
-	 * @param CSSNumericValue[] $values
+	 * @param string[] $values
 	 */
-	public static function toSum(...$values): CSSNumericValue
+	public static function toSum(...$units): static
 	{
-		if (empty($values)) {
-			return new CSSUnitValue(0, 'number');
-		}
-
-		$sum = 0;
-		$unit = null;
-		
-		foreach ($values as $value) {
-			if ($value instanceof CSSUnitValue) {
-				if ($unit === null) {
-					$unit = $value->unit;
-				} elseif ($unit !== $value->unit) {
-					throw new \InvalidArgumentException('All values must have the same unit');
-				}
-				$sum += $value->value;
-			}
-		}
-
-		return new CSSUnitValue($sum, $unit ?? 'number');
-	}
-
-	/**
-	 * Magic getter for property access.
-	 */
-	public function __get(string $name): mixed
-	{
-		return match ($name) {
-			'type' => $this->type,
-			default => throw new \Error("Undefined property: {$name}"),
-		};
+		// TODO: Implement
 	}
 }

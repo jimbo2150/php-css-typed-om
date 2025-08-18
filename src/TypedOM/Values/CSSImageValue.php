@@ -39,7 +39,7 @@ class CSSImageValue extends CSSStyleValue
         return false !== filter_var($this->getValue(), FILTER_VALIDATE_URL);
     }
 
-    public function clone(): CSSStyleValue
+    public function clone(): self
     {
         return new self($this->getValue());
     }
