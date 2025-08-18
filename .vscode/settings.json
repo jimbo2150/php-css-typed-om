@@ -3,8 +3,11 @@
 		"ASCIIC",
 		"CODEPOINT",
 		"codepoints",
+		"ERRMODE",
+		"IPPROTO",
 		"Jimbo",
 		"reconsume",
+		"repr",
 		"Subresources"
 	]
 }
