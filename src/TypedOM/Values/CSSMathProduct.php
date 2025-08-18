@@ -44,11 +44,6 @@ class CSSMathProduct extends CSSNumericValue
 		if (empty($this->values)) {
 			return false;
 		}
-		foreach ($this->values as $value) {
-			if (!$value->isValid()) {
-				return false;
-			}
-		}
 
 		return true;
 	}
