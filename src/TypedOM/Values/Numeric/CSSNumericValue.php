@@ -7,6 +7,8 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 use Jimbo2150\PhpCssTypedOm\Process\CSSCalcParser;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnitValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
 
 /**
  * Represents a CSS value that can be expressed as a number, or a number and a unit.
@@ -67,12 +69,12 @@ abstract class CSSNumericValue extends CSSStyleValue
 	 *
 	 * @param string $cssText the CSS text to parse
 	 */
-	public static function from(string $cssText): static
+	public function from(string $cssText): static
 	{
 		return static::parse($cssText);
 	}
 
-	public function to(string $unit): ?CSSUnitValue
+	public function to(string $unit): CSSMathSum
 	{
 		// TODO: Implement
 	}
@@ -82,7 +84,43 @@ abstract class CSSNumericValue extends CSSStyleValue
 	 *
 	 * @param string[] $values
 	 */
-	public static function toSum(...$units): static
+	public function toSum(string ...$units): CSSMathSum
+	{
+		// TODO: Implement
+	}
+
+
+	public function add(string|CSSMathSum $value): CSSMathSum
+	{
+		// TODO: Implement
+	}
+
+	public function sub(string|CSSMathSum $value): CSSMathSum
+	{
+		// TODO: Implement
+	}
+
+	public function mul(string|CSSNumericValue $value): CSSMathProduct
+	{
+		// TODO: Implement
+	}
+
+	public function div(string|CSSNumericValue $value): CSSMathProduct
+	{
+		// TODO: Implement
+	}
+
+	public function min(string|CSSNumericValue ...$values): CSSUnitValue
+	{
+		// TODO: Implement
+	}
+
+	public function max(string|CSSNumericValue ...$values): CSSUnitValue
+	{
+		// TODO: Implement
+	}
+
+	public function equals(string|CSSNumericValue $value): bool
 	{
 		// TODO: Implement
 	}
