@@ -37,7 +37,8 @@ class CSSSkewX extends CSSTransformComponent
     public function toMatrix(): DOMMatrix
     {
         $matrix = new DOMMatrix();
-        $angleRad = deg2rad($this->getValue('ax')->getNumericValue());
+        $axValue = $this->getValue('ax');
+        $angleRad = $axValue ? deg2rad($axValue->getNumericValue()) : 0;
         $matrix->skewXSelf($angleRad);
 
         return $matrix;

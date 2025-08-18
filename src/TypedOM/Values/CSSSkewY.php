@@ -37,7 +37,8 @@ class CSSSkewY extends CSSTransformComponent
     public function toMatrix(): DOMMatrix
     {
         $matrix = new DOMMatrix();
-        $angleRad = deg2rad($this->getValue('ay')->getNumericValue());
+        $ayValue = $this->getValue('ay');
+        $angleRad = $ayValue ? deg2rad($ayValue->getNumericValue()) : 0;
         $matrix->skewYSelf($angleRad);
 
         return $matrix;

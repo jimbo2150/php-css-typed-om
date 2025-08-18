@@ -13,7 +13,7 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 class CSSMathProduct extends CSSNumericValue
 {
 	/** @var CSSNumericValue[] */
-	private array $values;
+	public readonly array $values;
 
 	public function __construct(CSSNumericValue ...$values)
 	{

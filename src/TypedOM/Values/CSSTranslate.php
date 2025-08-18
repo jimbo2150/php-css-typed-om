@@ -52,9 +52,9 @@ class CSSTranslate extends CSSTransformComponent
         $y = $this->getValue('y');
         $z = $this->is2D() ? null : $this->getValue('z');
         
-        $xPx = $x instanceof CSSUnitValue ? $x->to('px')->getNumericValue() : $x->getNumericValue();
-        $yPx = $y instanceof CSSUnitValue ? $y->to('px')->getNumericValue() : $y->getNumericValue();
-        $zPx = $z instanceof CSSUnitValue ? $z->to('px')->getNumericValue() : ($z ? $z->getNumericValue() : 0);
+        $xPx = $x instanceof CSSUnitValue ? ($x->to('px')->value ?? 0) : 0;
+        $yPx = $y instanceof CSSUnitValue ? ($y->to('px')->value ?? 0) : 0;
+        $zPx = $z instanceof CSSUnitValue ? ($z->to('px')->value ?? 0) : 0;
 
         $matrix->translateSelf($xPx, $yPx, $zPx);
 

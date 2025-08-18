@@ -29,7 +29,16 @@ class CSSPerspective extends CSSTransformComponent
     public function toMatrix(): DOMMatrix
     {
         $matrix = new DOMMatrix();
-        $lengthPx = $this->length instanceof CSSUnitValue ? $this->length->to('px')->getNumericValue() : $this->length->getNumericValue();
+        
+        if ($this->length instanceof CSSUnitValue) {
+            $converted = $this->length->to('px');
+            $lengthPx = $converted ? $converted->value : 0;
+        } else {
+            // For other CSSNumericValue types, we need to handle appropriately
+            // According to spec, perspective should be a length value
+            $lengthPx = 0;
+        }
+        
         $matrix->setPerspective($lengthPx);
 
         return $matrix;

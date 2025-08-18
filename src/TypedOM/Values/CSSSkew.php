@@ -41,9 +41,28 @@ class CSSSkew extends CSSTransformComponent
     public function toMatrix(): DOMMatrix
     {
         $matrix = new DOMMatrix();
-        $axRad = deg2rad($this->getValue('ax')->getNumericValue());
-        $ayRad = deg2rad($this->getValue('ay')->getNumericValue());
-        $matrix->skewSelf($axRad, $ayRad);
+        $axValue = $this->getValue('ax');
+        $ayValue = $this->getValue('ay');
+        
+        $axDeg = $axValue ? $axValue->getNumericValue() : 0;
+        $ayDeg = $ayValue ? $ayValue->getNumericValue() : 0;
+        
+        // CSS skew(ax, ay) creates a matrix where:
+        // [1, tan(ay), 0, 0]
+        // [tan(ax), 1, 0, 0]
+        // We need to apply both skews in the correct order
+        $axRad = deg2rad($axDeg);
+        $ayRad = deg2rad($ayDeg);
+        
+        // Create the combined skew matrix directly
+        $skewMatrix = new DOMMatrix([
+            1.0, tan($ayRad), 0.0, 0.0,
+            tan($axRad), 1.0, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 1.0,
+        ]);
+        
+        $matrix->multiplySelf($skewMatrix);
 
         return $matrix;
     }

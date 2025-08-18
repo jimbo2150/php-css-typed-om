@@ -56,14 +56,18 @@ class CSSRotate extends CSSTransformComponent
     {
         $matrix = new DOMMatrix();
         $angle = $this->getValue('angle');
-        $angleRad = deg2rad($angle->getNumericValue());
+        $angleRad = $angle ? deg2rad($angle->getNumericValue()) : 0;
 
         if ($this->is2D()) {
             $matrix->rotateSelf($angleRad);
         } else {
-            $x = $this->getValue('x')->getNumericValue();
-            $y = $this->getValue('y')->getNumericValue();
-            $z = $this->getValue('z')->getNumericValue();
+            $xValue = $this->getValue('x');
+            $yValue = $this->getValue('y');
+            $zValue = $this->getValue('z');
+            
+            $x = $xValue ? $xValue->getNumericValue() : 0;
+            $y = $yValue ? $yValue->getNumericValue() : 0;
+            $z = $zValue ? $zValue->getNumericValue() : 1;
             $matrix->rotateAxisAngleSelf($x, $y, $z, $angleRad);
         }
 

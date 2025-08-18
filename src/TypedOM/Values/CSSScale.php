@@ -47,9 +47,13 @@ class CSSScale extends CSSTransformComponent
     public function toMatrix(): DOMMatrix
     {
         $matrix = new DOMMatrix();
-        $xScale = $this->getValue('x')->getNumericValue();
-        $yScale = $this->getValue('y')->getNumericValue();
-        $zScale = $this->is2D() ? 1 : $this->getValue('z')->getNumericValue();
+        $xValue = $this->getValue('x');
+        $yValue = $this->getValue('y');
+        $zValue = $this->is2D() ? null : $this->getValue('z');
+        
+        $xScale = $xValue ? $xValue->getNumericValue() : 1;
+        $yScale = $yValue ? $yValue->getNumericValue() : 1;
+        $zScale = $zValue ? $zValue->getNumericValue() : 1;
 
         $matrix->scaleSelf($xScale, $yScale, $zScale);
 

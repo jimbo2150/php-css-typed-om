@@ -149,7 +149,7 @@ class CSSUnitValue extends CSSNumericValue
 			return null;
 		}
 
-		return new CSSUnitValue($this->value + $other->getValue(), $this->unit);
+		return new CSSUnitValue($this->value + $other->value, $this->unit);
 	}
 
 	/**
@@ -161,7 +161,7 @@ class CSSUnitValue extends CSSNumericValue
 			return null;
 		}
 
-		return new CSSUnitValue($this->value - $other->getValue(), $this->unit);
+		return new CSSUnitValue($this->value - $other->value, $this->unit);
 	}
 
 	/**
