@@ -111,7 +111,11 @@ class CSSUnitValue extends CSSNumericValue
 	 */
 	public function clone(): CSSStyleValue
 	{
-		return new CSSUnitValue($this->value, $this->unit);
+		return $this->cloneToSelf();
+	}
+
+	private function cloneToSelf(?float $value = null, ?string $unit = null): self {
+		return new self($value ?? $this->value, $unit ?? $this->unit);
 	}
 
 	/**
@@ -128,13 +132,13 @@ class CSSUnitValue extends CSSNumericValue
 		];
 
 		if ($this->unit === $targetUnit) {
-			return $this->clone();
+			return $this->cloneToSelf();
 		}
 
 		if (isset($conversionFactors[$this->unit][$targetUnit])) {
 			$newValue = $this->value * $conversionFactors[$this->unit][$targetUnit];
 
-			return new CSSUnitValue($newValue, $targetUnit);
+			return $this->cloneToSelf($newValue, $targetUnit);
 		}
 
 		return null;
