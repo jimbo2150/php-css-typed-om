@@ -52,4 +52,13 @@ class CSSScale extends CSSTransformComponent
 
 		return $matrix;
 	}
+
+	public function clone(): self
+	{
+		$clonedX = $this->x instanceof CSSUnitValue ? clone $this->x : $this->x;
+		$clonedY = $this->y instanceof CSSUnitValue ? clone $this->y : $this->y;
+		$clonedZ = $this->z instanceof CSSUnitValue ? clone $this->z : $this->z;
+
+		return new self($clonedX, $clonedY, $clonedZ);
+	}
 }

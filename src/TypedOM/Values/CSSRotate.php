@@ -60,4 +60,20 @@ class CSSRotate extends CSSTransformComponent
 
 		return $matrix;
 	}
+
+	public function clone(): self
+	{
+		$clonedX = $this->x instanceof CSSUnitValue ? clone $this->x : $this->x;
+		$clonedY = $this->y instanceof CSSUnitValue ? clone $this->y : $this->y;
+		$clonedZ = $this->z instanceof CSSUnitValue ? clone $this->z : $this->z;
+		$clonedAngle = $this->angle instanceof CSSUnitValue ? clone $this->angle : $this->angle;
+
+		$cloned = new self($clonedAngle);
+		$cloned->x = $clonedX;
+		$cloned->y = $clonedY;
+		$cloned->z = $clonedZ;
+		$cloned->is2D = $this->is2D;
+
+		return $cloned;
+	}
 }

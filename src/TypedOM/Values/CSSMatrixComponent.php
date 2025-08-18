@@ -30,4 +30,9 @@ class CSSMatrixComponent extends CSSTransformComponent
 	{
 		return $this->matrix;
 	}
+
+	public function clone(): self
+	{
+		return new self(clone $this->matrix, ['is2D' => $this->is2D]);
+	}
 }

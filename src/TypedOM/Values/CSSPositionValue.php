@@ -43,6 +43,17 @@ class CSSPositionValue extends CSSStyleValue
 
 	public function clone(): CSSStyleValue
 	{
-		return new self($this->x, $this->y);
+		return new self(clone $this->x, clone $this->y);
+	}
+
+	public static function parse(string $cssText): self
+	{
+		$parts = preg_split('/\s+/', trim($cssText), -1, PREG_SPLIT_NO_EMPTY);
+
+		if (2 !== count($parts)) {
+			throw new \InvalidArgumentException('Invalid CSS position value: '.$cssText);
+		}
+
+		return new self(CSSNumericValue::parse($parts[0]), CSSNumericValue::parse($parts[1]));
 	}
 }

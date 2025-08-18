@@ -37,4 +37,9 @@ class CSSSkew extends CSSTransformComponent
 
 		return $matrix;
 	}
+
+	public function clone(): self
+	{
+		return new self(clone $this->ax, clone $this->ay);
+	}
 }

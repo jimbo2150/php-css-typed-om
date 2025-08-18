@@ -21,4 +21,6 @@ abstract class CSSTransformComponent
 	public bool $is2D = true;
 
 	abstract public function toMatrix(): DOMMatrix;
+
+	abstract public function clone(): self;
 }

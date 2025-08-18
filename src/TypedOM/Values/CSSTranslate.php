@@ -52,4 +52,13 @@ class CSSTranslate extends CSSTransformComponent
 
 		return $matrix;
 	}
+
+	public function clone(): self
+	{
+		$clonedX = clone $this->x;
+		$clonedY = clone $this->y;
+		$clonedZ = $this->z ? clone $this->z : null;
+
+		return new self($clonedX, $clonedY, $clonedZ);
+	}
 }

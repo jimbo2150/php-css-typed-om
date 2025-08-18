@@ -56,7 +56,12 @@ class CSSTransformValue extends CSSStyleValue
 
 	public function clone(): CSSStyleValue
 	{
-		return new self($this->components);
+		$clonedComponents = [];
+		foreach ($this->components as $component) {
+			$clonedComponents[] = clone $component;
+		}
+
+		return new self($clonedComponents);
 	}
 
 	/**

@@ -34,4 +34,9 @@ class CSSPerspective extends CSSTransformComponent
 
 		return $matrix;
 	}
+
+	public function clone(): self
+	{
+		return new self(clone $this->length);
+	}
 }
