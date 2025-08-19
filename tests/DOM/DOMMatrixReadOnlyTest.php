@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\DOM;
+namespace Jimbo2150\PhpCssTypedOm\Tests\DOM;
 
 use Jimbo2150\PhpCssTypedOm\DOM\DOMMatrixReadOnly;
 use PHPUnit\Framework\TestCase;

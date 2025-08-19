@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Jimbo2150\PhpCssTypedOm\Tests\TypedOM\Values;
+namespace Jimbo2150\PhpCssTypedOm\Jimbo2150\PhpCssTypedOm\Tests\TypedOM\Values;
 
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSVariableReferenceValue;

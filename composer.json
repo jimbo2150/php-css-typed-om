@@ -22,18 +22,14 @@
     "minimum-stability": "stable",
     "require": {
 		"php": ">=8.4",
-		"ext-intl": "*",
-        "guzzlehttp/guzzle": "^7.9"
+		"ext-intl": "*"
 	},
 	"scripts": {
 		"post-install-cmd": [
-			"@processCssProperties"
+			
 		],
 		"post-update-cmd": [
-			"@processCssProperties"
-		],
-		"processCssProperties": [
-			"Jimbo2150\\PhpCssTypedOm\\Process\\CSSPropertiesProcessor::run"
+			
 		]
 	},
     "require-dev": {

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\TypedOM\Values;
+namespace Jimbo2150\PhpCssTypedOm\Tests\TypedOM\Values;
 
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSMathMax;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnitValue;

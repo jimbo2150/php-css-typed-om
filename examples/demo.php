@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 require_once __DIR__.'/../vendor/autoload.php';
 
-use Jimbo2150\PhpCssTypedOm\Tokenizer\CSS3Tokenizer;
 use Jimbo2150\PhpCssTypedOm\TypedOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnitValue;
 
@@ -35,16 +34,6 @@ $css = '
     background-color: #0056b3;
 }
 ';
-
-$tokenizer = new CSS3Tokenizer($css);
-$tokens = $tokenizer->tokenize();
-
-echo 'Tokenized '.count($tokens)." tokens from CSS\n";
-echo "First 10 tokens:\n";
-for ($i = 0; $i < min(10, count($tokens)); ++$i) {
-	$token = $tokens[$i];
-	echo sprintf("  %-15s: %s\n", $token->type->value, $token->value);
-}
 
 // Demo 2: CSS Typed OM
 echo "\n2. CSS Typed OM Demo:\n";
