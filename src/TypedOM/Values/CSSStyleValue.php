@@ -4,17 +4,20 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
+use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\SimpleValueTrait;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
+
 /**
  * Base class for CSS Typed OM values
  * Represents a CSS value that can be manipulated through the Typed OM API.
  */
 abstract class CSSStyleValue
 {
-	protected string $type;
+	use SimpleValueTrait;
 
-	public function __construct(string $type)
+	public function __construct(string $value)
 	{
-		$this->type = $type;
+		$this->setValue($value);
 	}
 
 	/**
@@ -23,29 +26,10 @@ abstract class CSSStyleValue
 	abstract public function toString(): string;
 
 	/**
-	 * Get the type of the value.
-	 */
-	public function getType(): string
-	{
-		return $this->type;
-	}
-
-	/**
-	 * Magic getter for property access.
-	 */
-	public function __get(string $name): mixed
-	{
-		return match ($name) {
-			'type' => $this->type,
-			default => throw new \Error("Undefined property: {$name}"),
-		};
-	}
-
-	/**
 	 * Parse a CSS value and return appropriate CSSStyleValue instance.
 	 * This is a simplified parser and should be replaced with a more robust solution.
 	 */
-	public static function createFromCssText(string $cssText): CSSStyleValue
+	private static function createFromCssText(string $cssText): CSSStyleValue
 	{
 		$cssText = trim($cssText);
 
@@ -101,5 +85,5 @@ abstract class CSSStyleValue
 	/**
 	 * Clone this value.
 	 */
-	abstract public function clone(): CSSStyleValue;
+	abstract public function clone(): static;
 }

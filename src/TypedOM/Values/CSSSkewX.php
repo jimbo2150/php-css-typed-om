@@ -16,7 +16,6 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\MagicPropertyAccessTrait;
 class CSSSkewX extends CSSTransformComponent
 {
     use TransformComponentTrait;
-    use MagicPropertyAccessTrait;
 
     public function __construct(CSSNumericValue $ax)
     {

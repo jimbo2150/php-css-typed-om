@@ -16,7 +16,6 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\MagicPropertyAccessTrait;
 class CSSScale extends CSSTransformComponent
 {
     use TransformComponentTrait;
-    use MagicPropertyAccessTrait;
 
     public function __construct($x, $y, $z = null)
     {

@@ -11,7 +11,6 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\MagicPropertyAccessTrait;
 class CSSRotate extends CSSTransformComponent
 {
     use TransformComponentTrait;
-    use MagicPropertyAccessTrait;
 
     public function __construct($p1, $p2 = null, $p3 = null, $p4 = null)
     {

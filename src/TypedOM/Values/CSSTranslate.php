@@ -16,7 +16,6 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\MagicPropertyAccessTrait;
 class CSSTranslate extends CSSTransformComponent
 {
     use TransformComponentTrait;
-    use MagicPropertyAccessTrait;
 
     public function __construct(CSSNumericValue $x, CSSNumericValue $y, ?CSSNumericValue $z = null)
     {

@@ -10,7 +10,6 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\MagicPropertyAccessTrait;
 class CSSColorValue extends CSSStyleValue
 {
     use SimpleValueTrait;
-    use MagicPropertyAccessTrait;
 
     public function __construct(string $colorString)
     {
