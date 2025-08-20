@@ -11,7 +11,7 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Traits;
  */
 trait SimpleValueTrait
 {
-    public protected(set) string $value {
+    public protected(set) string|float $value {
 		get {
 			return $this->value;
 		}

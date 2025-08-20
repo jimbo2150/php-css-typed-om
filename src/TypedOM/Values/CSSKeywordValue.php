@@ -4,31 +4,26 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
-use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\SimpleValueTrait;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\MagicPropertyAccessTrait;
-
 class CSSKeywordValue extends CSSStyleValue
 {
-    use SimpleValueTrait;
 
     public function __construct(string $value)
     {
-        $this->initializeSimpleValue($value, 'keyword');
-        parent::__construct('keyword');
+        parent::__construct($value);
     }
 
     public function toString(): string
     {
-        return $this->getValue();
+        return $this->value;
     }
 
-    public function clone(): CSSStyleValue
+    public function clone(): self
     {
-        return new self($this->getValue());
+        return new self($this->value);
     }
 
-    public function isValid(): bool
+	protected static function validateValue(mixed $value): bool
     {
-        return '' !== trim($this->getValue());
+        return '' !== trim($value);
     }
 }
