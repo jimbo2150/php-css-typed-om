@@ -21,11 +21,6 @@ abstract class CSSStyleValue
 	}
 
 	/**
-	 * Get the string representation of the value.
-	 */
-	abstract public function toString(): string;
-
-	/**
 	 * Parse a CSS value and return appropriate CSSStyleValue instance.
 	 * This is a simplified parser and should be replaced with a more robust solution.
 	 */
