@@ -18,8 +18,8 @@ abstract class CSS {
 		if ($unit === null) {
 			throw new BadMethodCallException('Static method ' . $name . ' does not exist.');
 		}
-		if (!isset($arguments[0]) || !is_numeric($arguments[0])) {
-            throw new InvalidArgumentException('Static method ' . $name . ' requires 1 numeric parameter.');
+		if (!isset($arguments[0]) || !is_numeric($arguments[0]) || !is_string($arguments[0])) {
+            throw new InvalidArgumentException('Static method ' . $name . ' requires 1 numeric string parameter.');
         }
         return new CSSUnitValue($arguments[0], $unit);
     }
