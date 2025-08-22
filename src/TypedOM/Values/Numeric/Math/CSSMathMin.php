@@ -11,7 +11,6 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math;
  */
 class CSSMathMin extends CSSMathValue
 {
-	public const ?string type = 'min';
 
 	public const ?string operator = 'min';
 }

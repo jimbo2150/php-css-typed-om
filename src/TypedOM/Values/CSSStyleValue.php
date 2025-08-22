@@ -13,11 +13,10 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
  */
 abstract class CSSStyleValue
 {
-	use SimpleValueTrait;
 
-	public function __construct(string $value)
+	public function __construct()
 	{
-		$this->setValue($value);
+		
 	}
 
 	/**

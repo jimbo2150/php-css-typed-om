@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Traits;
 
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericType;
+
 /**
  * Trait for simple value classes (color, keyword, image).
  * 
@@ -23,18 +25,15 @@ trait SimpleValueTrait
      * @param mixed $value The new value
      * @throws \InvalidArgumentException When value type is invalid
      */
-    protected function setValue(mixed $value): void
+    protected function setValue(mixed $value, CSSNumericType $type): void
     {
-        if (!$this->validateValue($value)) {
-            throw new \InvalidArgumentException(sprintf(
-                'Invalid value type for %s. Expected %s, got %s',
-                static::class,
-                $this->valueType,
-                gettype($value)
-            ));
-        }
+        $this->validateValue($value, $type);
         $this->value = $value;
     }
+
+	protected static function isValueValid(mixed $value): bool {
+		return false;
+	}
 
     /**
      * Validate the value type.
@@ -42,17 +41,25 @@ trait SimpleValueTrait
      * @param mixed $value The value to validate
      * @return bool True if valid
      */
-    protected static function validateValue(mixed $value): bool
+    protected static function validateValue(mixed $value, CSSNumericType $type): bool
     {
-        return true;
+        if (!static::isValueValid($value)) {
+            throw new \InvalidArgumentException(sprintf(
+                'Invalid value type for %s. Expected %s, got %s',
+                static::class,
+                $type,
+                gettype($value)
+            ));
+        }
+		return true;
     }
 
     /**
      * Convert to string representation.
      */
-    public function toString(): string
+    public function __toString(): string
     {
-        return $this->value;
+        return (string) $this->value;
     }
 
     /**

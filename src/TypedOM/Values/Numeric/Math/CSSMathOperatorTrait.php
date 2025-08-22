@@ -10,6 +10,7 @@ trait CSSMathOperatorTrait
 {
 	use CSSMathOperationTrait;
 
+	public const ?string sign = null;
 	public const ?string operator = null;
 
 	public function toString(): string

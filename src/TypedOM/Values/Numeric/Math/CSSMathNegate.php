@@ -16,7 +16,7 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
  */
 class CSSMathNegate extends CSSMathValue
 {
-	public const ?string type = 'negate';
+	public const ?string sign = '/';
 
-	public const ?string operator = '-';
+	public const ?string operator = 'negate';
 }

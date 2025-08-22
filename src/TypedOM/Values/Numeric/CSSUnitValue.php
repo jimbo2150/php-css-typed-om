@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 
+use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\SimpleValueTrait;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 
 /**
@@ -12,6 +13,7 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
  */
 class CSSUnitValue extends CSSNumericValue
 {
+	use SimpleValueTrait;
 
 	private CSSUnitEnum $unitObj;
 

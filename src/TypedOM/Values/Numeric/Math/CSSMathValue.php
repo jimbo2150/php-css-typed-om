@@ -16,9 +16,9 @@ abstract class CSSMathValue extends CSSNumericValue
 {
 	use CSSMathOperatorTrait;
 
-    public function toString(): string
+    public function __toString(): string
     {
-        return $this->buildString();
+        
     }
 
     public function clone(): static
@@ -27,6 +27,6 @@ abstract class CSSMathValue extends CSSNumericValue
         foreach ($this->values as $value) {
             $clonedValues[] = clone $value;
         }
-        return new static($this->type, $clonedValues);
+        return new static($clonedValues);
     }
 }
