@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 
 use Jimbo2150\PhpCssTypedOm\Process\CSSCalcParser;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\SimpleValueTrait;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\TypeableUnitTrait;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMax;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMin;
@@ -19,18 +21,9 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
  */
 abstract class CSSNumericValue extends CSSStyleValue
 {
-	public private(set) CSSNumericType $type {
-		get {
-			return $this->type;
-		}
-	}
-
-	public function type(): CSSNumericType {
-		return $this->type;
-	}
+	use SimpleValueTrait, TypeableUnitTrait;
 
 	public function __construct() {
-		$this->type = new CSSNumericType();
 	}
 
 	/**
@@ -93,32 +86,32 @@ abstract class CSSNumericValue extends CSSStyleValue
 
 	public function add(CSSNumericValue $value): CSSMathSum
 	{
-		return new CSSMathSum([$value]);
+		return new CSSMathSum($value);
 	}
 
 	public function sub(CSSMathSum $value): CSSMathSum
 	{
-		return new CSSMathSum([$value]);
+		return new CSSMathSum($value);
 	}
 
 	public function mul(CSSNumericValue $value): CSSMathProduct
 	{
-		return new CSSMathProduct([$value]);
+		return new CSSMathProduct($value);
 	}
 
 	public function div(CSSNumericValue $value): CSSMathProduct
 	{
-		return new CSSMathProduct([$value]);
+		return new CSSMathProduct($value);
 	}
 
 	public function min(CSSNumericValue ...$values): CSSMathMin
 	{
-		return new CSSMathMin([...$values]);
+		return new CSSMathMin($values);
 	}
 
 	public function max(CSSNumericValue ...$values): CSSMathMax
 	{
-		return new CSSMathMax([...$values]);
+		return new CSSMathMax($values);
 	}
 
 	public function equals(self $numericValue): bool

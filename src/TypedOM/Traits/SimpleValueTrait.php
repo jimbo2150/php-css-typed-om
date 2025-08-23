@@ -19,13 +19,23 @@ trait SimpleValueTrait
 		}
 	}
 
+	public private(set) CSSNumericType $type {
+		get {
+			return $this->type;
+		}
+	}
+
+	public function type(): CSSNumericType {
+		return $this->type;
+	}
+
     /**
      * Set the value.
      * 
      * @param mixed $value The new value
      * @throws \InvalidArgumentException When value type is invalid
      */
-    protected function setValue(mixed $value, CSSNumericType $type): void
+    protected function setValue(mixed $value, ?CSSNumericType $type = null): void
     {
         $this->validateValue($value, $type);
         $this->value = $value;

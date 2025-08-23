@@ -8,7 +8,6 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 
 trait CSSMathOperationTrait
 {
-	use CSSValuableTrait;
 
 	public function clone(): CSSStyleValue
 	{

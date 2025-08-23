@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math;
 
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\MultiValueTrait;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 
 /**
@@ -14,7 +14,7 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
  */
 abstract class CSSMathValue extends CSSNumericValue
 {
-	use CSSMathOperatorTrait;
+	use CSSMathOperatorTrait, MultiValueTrait;
 
     public function __toString(): string
     {

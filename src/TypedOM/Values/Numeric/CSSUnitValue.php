@@ -13,27 +13,11 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
  */
 class CSSUnitValue extends CSSNumericValue
 {
-	use SimpleValueTrait;
-
-	private CSSUnitEnum $unitObj;
-
- 	public string $unit {
-		get {
-			return $this->unitObj->toString();
-		}
-	}
 
 	public function __construct(string|float $value, string|CSSUnitEnum $unit)
 	{
 		$this->setValue(floatval($value));
 		$this->setUnit($unit);
-	}
-
-	private function setUnit(string|CSSUnitEnum $unit) {
-		if(is_string($unit)) {
-			$unit = CSSUnitEnum::from($unit);
-		}
-		$this->unitObj = $unit;
 	}
 
 	/**

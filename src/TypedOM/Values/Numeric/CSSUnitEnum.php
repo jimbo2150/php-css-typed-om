@@ -33,7 +33,7 @@ enum CSSUnitEnum: string
 	case ANGLE_deg = 'deg';
 	case ANGLE_grad = 'grad';
 	case ANGLE_rad = 'rad';
-	case LENGTH_turn = 'turn';
+	case ANGLE_turn = 'turn';
 
 	case TIME_s = 's';
 	case TIME_ms = 'ms';
@@ -47,11 +47,24 @@ enum CSSUnitEnum: string
 
 	case FLEX_fr = 'fr';
 
+	public function type(): ?CSSUnitTypeEnum {
+		$parts = $this->splitType();
+		$type = CSSUnitTypeEnum::$parts[0] ?? (match(true) {
+			in_array($parts[0], ['NUMBER']) => CSSUnitTypeEnum::LENGTH,
+			default => null
+		});
+		return $type;
+	}
+
 	public function toString(): string {
-		$parts = explode('_', $this->name);
+		$parts = $this->splitType();
 		if(count($parts) > 1) {
 			return $parts[1];
 		}
 		return $this->value;
+	}
+
+	private function splitType(): array {
+		return explode('_', $this->name);
 	}
 }
