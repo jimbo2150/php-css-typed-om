@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\Tests\TypedOM;
 
 use Jimbo2150\PhpCssTypedOm\CSS;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericArray;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMin;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
 use PHPUnit\Framework\TestCase;
 use BadMethodCallException;
@@ -19,8 +21,10 @@ class CSSTest extends TestCase
 		$px = CSS::px("10");
         $this->assertInstanceOf(CSSUnitValue::class, $px);
 		$this->assertEquals(new CSSUnitValue(10, CSSUnitEnum::LENGTH_px), $px);
+		$this->assertEquals(null, $px->length);
 		$num = CSS::number("35.42");
 		$this->assertEquals(new CSSUnitValue(35.42, CSSUnitEnum::NUMBER), $num);
+		$this->assertEquals(null, $num->length);
         $this->assertEquals(new CSSUnitValue(10, CSSUnitEnum::LENGTH_px), CSS::px("10"));
         $this->assertEquals(new CSSUnitValue(1.5, CSSUnitEnum::LENGTH_em), CSS::em("1.5"));
         $this->assertEquals(new CSSUnitValue(50, CSSUnitEnum::PERCENT), CSS::percent("50"));
@@ -48,5 +52,13 @@ class CSSTest extends TestCase
     {
         $sum = CSS::px('10')->add(CSS::percent('10'))->add(CSS::flex('23'))->add(CSS::dppx('1324'));
 		$this->assertInstanceOf(CSSMathSum::class, $sum);
+		$this->assertEquals(4, $sum->length);
+    }
+
+	public function testMinMethod()
+    {
+        $min = CSS::px('10')->min(new CSSNumericArray([CSS::dppx('1324'), CSS::vh('2043')]));
+		$this->assertInstanceOf(CSSMathMin::class, $min);
+		$this->assertEquals(3, $min->length);
     }
 }

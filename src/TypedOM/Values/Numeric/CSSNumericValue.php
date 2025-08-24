@@ -86,37 +86,56 @@ abstract class CSSNumericValue extends CSSStyleValue
 
 	public function add(CSSNumericValue $value): CSSMathSum
 	{
-		return (new CSSMathSum([...$this->values->values ?? [$this->value], $value]));
+		return (new CSSMathSum([
+			...$this->_getCurrentValues(), $value
+		]));
 	}
 
 	public function sub(CSSMathSum $value): CSSMathSum
 	{
-  		return (new CSSMathSum([...$this->values->values ?? [$this->value], $value]));
+  		return (new CSSMathSum([
+			...$this->_getCurrentValues(), $value
+		]));
 	}
 
 	public function mul(CSSNumericValue $value): CSSMathProduct
 	{
-		return (new CSSMathProduct([...$this->values->values ?? [$this->value], $value]));
+		return (new CSSMathProduct([
+			...$this->_getCurrentValues(), $value
+		]));
 	}
 
 	public function div(CSSNumericValue $value): CSSMathProduct
 	{
-		return (new CSSMathProduct([...$this->values->values ?? [$this->value], $value]));
+		return (new CSSMathProduct([
+			...$this->_getCurrentValues(), $value
+		]));
 	}
 
 	public function min(CSSNumericArray $values): CSSMathMin
 	{
-		return (new CSSMathMin([...$this->values->values ?? [$this->value], ...$values->values]));
+		return (new CSSMathMin([
+			...$this->_getCurrentValues(), ...$values->values
+		]));
 	}
 
 	public function max(CSSNumericArray $values): CSSMathMax
 	{
-		return (new CSSMathMax([...$this->values->values ?? [$this->value], ...$values->values]));
+		return (new CSSMathMax([
+			...$this->_getCurrentValues(), ...$values->values
+		]));
 	}
 
 	public function equals(self $numericValue): bool
 	{
 		// TODO: Implement
 		return $this === $numericValue;
+	}
+
+	protected function _getCurrentValues(): array {
+		return isset($this->length) && isset($this->inner_values) &&
+			is_array($this->inner_values) ?
+				$this->inner_values :
+				($this->value ? [$this] : []);
 	}
 }

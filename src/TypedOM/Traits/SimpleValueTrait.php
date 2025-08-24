@@ -14,7 +14,7 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
  */
 trait SimpleValueTrait
 {
-    public protected(set) string|float $value {
+    public protected(set) string|float|null $value = null {
 		get {
 			return $this->value;
 		}

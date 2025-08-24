@@ -22,6 +22,16 @@ trait MultiValueTrait
 		}
 	}
 
+	/** @var CSSNumericArray */
+    public private(set) array $inner_values {
+		get {
+			return $this->values->values;
+		}
+		set {
+			
+		}
+	}
+
 	public int $length {
 		get => count($this->values);
 	}

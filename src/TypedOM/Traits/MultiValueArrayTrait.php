@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Traits;
 
+use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericArray;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 
@@ -38,7 +39,7 @@ trait MultiValueArrayTrait
 			$values = $this->values;
 			foreach($value as $entry) {
 				if(!($entry instanceof CSSNumericValue)) {
-					continue;
+					throw new InvalidArgumentException('All values must be of type ' . CSSNumericValue::class);
 				}
 				$values[] = $entry;
 			}
