@@ -18,7 +18,7 @@ abstract class CSSMathValue extends CSSNumericValue
 
     public function __toString(): string
     {
-        
+        // TODO: Implement
     }
 
     public function clone(): static
