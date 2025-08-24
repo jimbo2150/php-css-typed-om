@@ -6,17 +6,16 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Traits;
 
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericArray;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
 
 /**
  * Trait for simple value classes (color, keyword, image).
  * 
  * Provides common functionality for simple CSS values that don't need complex operations.
  */
-trait MultiValueTrait
+trait MultiValueArrayTrait
 {
-	/** @var CSSNumericArray */
-    public protected(set) CSSNumericArray $values {
+	/** @var array<CSSNumericValue> */
+    public protected(set) array $values = [] {
 		get {
 			return $this->values;
 		}
@@ -32,11 +31,18 @@ trait MultiValueTrait
 	 */
 	public function __construct(CSSNumericValue|CSSNumericArray|array $value) {
 		if($value instanceof CSSNumericArray) {
-			$this->values = $value;
-		} else if($value instanceof CSSNumericValue) {
-			$this->values->add($value);
+			$this->values[] = $value;
+		} else if ($value instanceof CSSNumericArray) {
+			$this->values = $value->values;
 		} else {
-			$this->values = new CSSNumericArray($value);
+			$values = $this->values;
+			foreach($value as $entry) {
+				if(!($entry instanceof CSSNumericValue)) {
+					continue;
+				}
+				$values[] = $entry;
+			}
+			$this->values = $values;
 		}
 	}
 
@@ -46,14 +52,5 @@ trait MultiValueTrait
     public function __toString(): string
     {
         return (string) $this->value;
-    }
-
-    /**
-     * Clone the value.
-     */
-    public function clone(): static
-    {
-        $clone = clone $this;
-        return $clone;
     }
 }

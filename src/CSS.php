@@ -10,6 +10,13 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 
 abstract class CSS {
+
+	const array UNIT_MAP = [
+		'percent'			=> '%',
+		'number'			=> '',
+		'flex'				=> 'fr'
+	];
+
 	public static function __callStatic(string $name, array $arguments): CSSUnitValue
     {
 		$lowerName = self::_translateUnitMethod(strtolower($name));
@@ -25,10 +32,6 @@ abstract class CSS {
     }
 
 	private static function _translateUnitMethod(string $name): string {
-		return match($name) {
-			'percent' => '%',
-			'number' => '',
-			default => $name
-		};
+		return self::UNIT_MAP[$name] ?? $name;
 	}
 }

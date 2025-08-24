@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 
 use Countable;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\MultiValueTrait;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\MultiValueArrayTrait;
 
 /**
  * Represents a CSS value that can be expressed as a number, or a number and a unit.
@@ -15,7 +15,7 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\MultiValueTrait;
  */
 class CSSNumericArray extends CSSNumericValue implements Countable
 {
-	use MultiValueTrait;
+	use MultiValueArrayTrait;
 
 	public function count(): int {
 		return $this->length;

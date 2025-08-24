@@ -7,6 +7,7 @@ namespace Jimbo2150\PhpCssTypedOm\Tests\TypedOM;
 use Jimbo2150\PhpCssTypedOm\CSS;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
 use PHPUnit\Framework\TestCase;
 use BadMethodCallException;
 use InvalidArgumentException;
@@ -41,5 +42,11 @@ class CSSTest extends TestCase
     {
         $this->expectException(InvalidArgumentException::class);
         CSS::px('abc');
+    }
+
+	public function testAddMethod()
+    {
+        $sum = CSS::px('10')->add(CSS::percent('10'))->add(CSS::flex('23'))->add(CSS::dppx('1324'));
+		$this->assertInstanceOf(CSSMathSum::class, $sum);
     }
 }

@@ -86,32 +86,32 @@ abstract class CSSNumericValue extends CSSStyleValue
 
 	public function add(CSSNumericValue $value): CSSMathSum
 	{
-		return new CSSMathSum($value);
+		return (new CSSMathSum([...$this->values->values ?? [$this->value], $value]));
 	}
 
 	public function sub(CSSMathSum $value): CSSMathSum
 	{
-		return new CSSMathSum($value);
+  		return (new CSSMathSum([...$this->values->values ?? [$this->value], $value]));
 	}
 
 	public function mul(CSSNumericValue $value): CSSMathProduct
 	{
-		return new CSSMathProduct($value);
+		return (new CSSMathProduct([...$this->values->values ?? [$this->value], $value]));
 	}
 
 	public function div(CSSNumericValue $value): CSSMathProduct
 	{
-		return new CSSMathProduct($value);
+		return (new CSSMathProduct([...$this->values->values ?? [$this->value], $value]));
 	}
 
-	public function min(CSSNumericValue ...$values): CSSMathMin
+	public function min(CSSNumericArray $values): CSSMathMin
 	{
-		return new CSSMathMin($values);
+		return (new CSSMathMin([...$this->values->values ?? [$this->value], ...$values->values]));
 	}
 
-	public function max(CSSNumericValue ...$values): CSSMathMax
+	public function max(CSSNumericArray $values): CSSMathMax
 	{
-		return new CSSMathMax($values);
+		return (new CSSMathMax([...$this->values->values ?? [$this->value], ...$values->values]));
 	}
 
 	public function equals(self $numericValue): bool
