@@ -36,50 +36,6 @@ abstract class CSS {
 	}
 
 	public static function escape(string $value): string {
-		if (str_starts_with($value, '--')) {
-			$result = '--';
-			$len = mb_strlen($value);
-			for ($i = 2; $i < $len; $i++) {
-				$c = mb_substr($value, $i, 1);
-				$code = mb_ord($c);
-				if ($code >= 0x80) {
-					$hex = strtolower(dechex($code));
-					$result .= '\\' . $hex . ' ';
-				} elseif ($code == 0) {
-					$result .= '\\0';
-				} elseif ($code >= 1 && $code <= 0x1F || $code == 0x7F) {
-					$hex = strtolower(dechex($code));
-					$result .= '\\' . $hex . ' ';
-				} elseif (!preg_match('/[a-zA-Z0-9_-]/', $c)) {
-					$result .= '\\' . $c;
-				} else {
-					$result .= $c;
-				}
-			}
-			return $result;
-		} else {
-			$result = '';
-			$first = true;
-			$len = mb_strlen($value);
-			for ($i = 0; $i < $len; $i++) {
-				$c = mb_substr($value, $i, 1);
-				if (preg_match('/\p{L}/u', $c) || $c === '_' || $c === '-' || (!$first && preg_match('/\p{N}/u', $c))) {
-					$result .= $c;
-					$first = false;
-				} else {
-					$code = mb_ord($c);
-					if ($code == 0) {
-						$result .= '\\0';
-					} elseif ($code >= 1 && $code <= 0x1F || $code >= 0x7F || $code >= 0x20 && $code <= 0x7E) {
-						$hex = strtolower(dechex($code));
-						$result .= '\\' . $hex . ' ';
-					} else {
-						$result .= '\\' . $c;
-					}
-					$first = false;
-				}
-			}
-			return $result;
-		}
+		//TODO: Implement according to the specification/spec: https://drafts.csswg.org/cssom/#the-css.escape()-method and https://drafts.csswg.org/cssom/#serialize-an-identifier
 	}
 }
