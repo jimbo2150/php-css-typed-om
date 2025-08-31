@@ -56,11 +56,11 @@ class CSSTest extends TestCase
     }
 
 	public function testMinMethod()
-	   {
-	       $min = CSS::px('10')->min(new CSSNumericArray([CSS::dppx('1324'), CSS::vh('2043')]));
+	{
+	    $min = CSS::px('10')->min(new CSSNumericArray([CSS::dppx('1324'), CSS::vh('2043')]));
 		$this->assertInstanceOf(CSSMathMin::class, $min);
 		$this->assertEquals(3, $min->length);
-	   }
+	}
 
 	public function testEscape()
 	{
@@ -78,6 +78,11 @@ class CSSTest extends TestCase
 		$this->assertEquals('-\\\\31 23', CSS::escape('-123'));
 		$this->assertEquals('_123', CSS::escape('_123'));
 
+		// Test floats
+		$this->assertEquals('\\\\30 \\\\.25', CSS::escape(00.25));
+		$this->assertEquals('-\\\\31 \\\\.235', CSS::escape(-1.235));
+		$this->assertEquals('-\\\\31 23', CSS::escape(-123.0));
+
 		// Test escaping special characters
 		$this->assertEquals('hello\\\\ world', CSS::escape('hello world'));
 		$this->assertEquals('test\\\\.', CSS::escape('test.'));
@@ -91,7 +96,9 @@ class CSSTest extends TestCase
 
 		// Test control characters
 		$this->assertEquals('�', CSS::escape("\0"));
-		$this->assertEquals('\\\\1', CSS::escape("\1"));
+		$this->assertEquals('\\\\\\0', CSS::escape('\0'));
+		$this->assertEquals('\\\\\\0', CSS::escape('\\0'));
+		$this->assertEquals('\\\\1 ', CSS::escape("\1"));
 		$this->assertEquals('\\\\7f ', CSS::escape("\x7F"));
 		$this->assertEquals('\\\\?', CSS::escape("\x3F"));
 
@@ -115,18 +122,5 @@ class CSSTest extends TestCase
 		$this->assertEquals('\\\\(\\\\)\\\\[\\\\]\\\\{\\\\}', CSS::escape('()[]{}'));
 		$this->assertEquals('--a', CSS::escape('--a'));
 		$this->assertEquals('\\\\30 ', CSS::escape(0));
-		$this->assertEquals('�', CSS::escape('\0'));
-	}
-
-	public function testEscapeInvalidArgument()
-	{
-		$this->expectException(\TypeError::class);
-		CSS::escape(123);
-	}
-
-	public function testEscapeNull()
-	{
-		$this->expectException(\TypeError::class);
-		CSS::escape(null);
 	}
 }
