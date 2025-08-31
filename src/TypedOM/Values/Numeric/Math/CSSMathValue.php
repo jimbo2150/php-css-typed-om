@@ -14,11 +14,26 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
  */
 abstract class CSSMathValue extends CSSNumericValue
 {
-	use CSSMathOperatorTrait, MultiValueTrait;
+	use CSSMathOperationTrait, MultiValueTrait;
 
     public function __toString(): string
     {
-        // TODO: Implement
+        $values = array_map(fn($v) => (string)$v, $this->values->values);
+        $count = count($values);
+
+        if ($count === 1) {
+            if (static::operator === 'invert') {
+                return 'calc(1 / ' . $values[0] . ')';
+            } elseif (static::operator === 'negate') {
+                return 'calc(-' . $values[0] . ')';
+            }
+        }
+
+        if (defined(static::class . '::sign')) {
+            return 'calc(' . implode(' ' . static::sign . ' ', $values) . ')';
+        } else {
+            return static::operator . '(' . implode(', ', $values) . ')';
+        }
     }
 
     public function clone(): static

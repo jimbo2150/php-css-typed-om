@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 
+use Stringable;
+
 /**
  * CSS Unit Value for Typed OM
  * Represents a CSS value with a unit (e.g., 10px, 50%, 2em).
  */
-class CSSUnitValue extends CSSNumericValue
+class CSSUnitValue extends CSSNumericValue implements Stringable
 {
 
 	public function __construct(string|float $value, string|CSSUnitEnum $unit)
@@ -20,8 +22,7 @@ class CSSUnitValue extends CSSNumericValue
 	/**
 	 * Convert to string representation.
 	 */
-	public function toString(): string
-	{
+	public function __toString(): string {
 		return "{$this->value}{$this->unit}";
 	}
 

@@ -6,7 +6,11 @@ namespace Jimbo2150\PhpCssTypedOm\Tests\TypedOM\Values\Numeric;
 
 use Jimbo2150\PhpCssTypedOm\CSS;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericArray;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMin;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMax;
 use PHPUnit\Framework\TestCase;
 
 class CSSNumericValueTest extends TestCase
@@ -122,11 +126,11 @@ class CSSNumericValueTest extends TestCase
 	       $this->assertEquals(2, $sum->length);
 
 	       // First value: px to percent
-	       $this->assertEquals('percent', $sum->inner_values[0]->unit);
+	       $this->assertEquals('%', $sum->inner_values[0]->unit);
 	       $this->assertEquals(16, $sum->inner_values[0]->value);
 
 	       // Second value: vw to percent
-	       $this->assertEquals('percent', $sum->inner_values[1]->unit);
+	       $this->assertEquals('%', $sum->inner_values[1]->unit);
 	       $this->assertEquals(23, $sum->inner_values[1]->value);
 	   }
 
@@ -211,5 +215,94 @@ class CSSNumericValueTest extends TestCase
         $sum = new CSSMathSum([new CSSUnitValue(10, 'px')]);
 
         $this->assertFalse($unitValue->equals($sum));
+    }
+
+    public function testAddMethod()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $value2 = new CSSUnitValue(5, 'px');
+        $result = $value1->add($value2);
+
+        $this->assertInstanceOf(CSSMathSum::class, $result);
+        $this->assertEquals(2, $result->length);
+        $this->assertEquals(10, $result->inner_values[0]->value);
+        $this->assertEquals('px', $result->inner_values[0]->unit);
+        $this->assertEquals(5, $result->inner_values[1]->value);
+        $this->assertEquals('px', $result->inner_values[1]->unit);
+    }
+
+    public function testSubMethod()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $sum = new CSSMathSum([new CSSUnitValue(5, 'px')]);
+        $result = $value1->sub($sum);
+
+        $this->assertInstanceOf(CSSMathSum::class, $result);
+        $this->assertEquals(2, $result->length);
+        $this->assertEquals(10, $result->inner_values[0]->value);
+        $this->assertEquals('px', $result->inner_values[0]->unit);
+        $this->assertInstanceOf(CSSMathSum::class, $result->inner_values[1]);
+        $this->assertEquals(5, $result->inner_values[1]->inner_values[0]->value);
+        $this->assertEquals('px', $result->inner_values[1]->inner_values[0]->unit);
+    }
+
+    public function testMulMethod()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $value2 = new CSSUnitValue(2, 'number');
+        $result = $value1->mul($value2);
+
+        $this->assertInstanceOf(CSSMathProduct::class, $result);
+        $this->assertEquals(2, $result->length);
+        $this->assertEquals(10, $result->inner_values[0]->value);
+        $this->assertEquals('px', $result->inner_values[0]->unit);
+        $this->assertEquals(2, $result->inner_values[1]->value);
+        $this->assertEquals('', $result->inner_values[1]->unit);
+    }
+
+    public function testDivMethod()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $value2 = new CSSUnitValue(2, 'number');
+        $result = $value1->div($value2);
+
+        $this->assertInstanceOf(CSSMathProduct::class, $result);
+        $this->assertEquals(2, $result->length);
+        $this->assertEquals(10, $result->inner_values[0]->value);
+        $this->assertEquals('px', $result->inner_values[0]->unit);
+        $this->assertEquals(2, $result->inner_values[1]->value);
+        $this->assertEquals('', $result->inner_values[1]->unit);
+    }
+
+    public function testMinMethod()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $array = new CSSNumericArray([new CSSUnitValue(5, 'px'), new CSSUnitValue(15, 'px')]);
+        $result = $value1->min($array);
+
+        $this->assertInstanceOf(CSSMathMin::class, $result);
+        $this->assertEquals(3, $result->length);
+        $this->assertEquals(10, $result->inner_values[0]->value);
+        $this->assertEquals('px', $result->inner_values[0]->unit);
+        $this->assertEquals(5, $result->inner_values[1]->value);
+        $this->assertEquals('px', $result->inner_values[1]->unit);
+        $this->assertEquals(15, $result->inner_values[2]->value);
+        $this->assertEquals('px', $result->inner_values[2]->unit);
+    }
+
+    public function testMaxMethod()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $array = new CSSNumericArray([new CSSUnitValue(5, 'px'), new CSSUnitValue(15, 'px')]);
+        $result = $value1->max($array);
+
+        $this->assertInstanceOf(CSSMathMax::class, $result);
+        $this->assertEquals(3, $result->length);
+        $this->assertEquals(10, $result->inner_values[0]->value);
+        $this->assertEquals('px', $result->inner_values[0]->unit);
+        $this->assertEquals(5, $result->inner_values[1]->value);
+        $this->assertEquals('px', $result->inner_values[1]->unit);
+        $this->assertEquals(15, $result->inner_values[2]->value);
+        $this->assertEquals('px', $result->inner_values[2]->unit);
     }
 }
