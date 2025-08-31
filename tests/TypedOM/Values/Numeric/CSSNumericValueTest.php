@@ -138,4 +138,78 @@ class CSSNumericValueTest extends TestCase
         $this->assertInstanceOf(CSSMathSum::class, $sum);
         $this->assertEquals(0, $sum->length);
     }
+
+    public function testEqualsSameUnitValue()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $value2 = new CSSUnitValue(10, 'px');
+
+        $this->assertTrue($value1->equals($value2));
+    }
+
+    public function testEqualsSameUnitDifferentValue()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $value2 = new CSSUnitValue(20, 'px');
+
+        $this->assertFalse($value1->equals($value2));
+    }
+
+    public function testEqualsDifferentConvertibleUnits()
+    {
+        $value1 = new CSSUnitValue(16, 'px');
+        $value2 = new CSSUnitValue(1, 'em');
+
+        $this->assertTrue($value1->equals($value2));
+    }
+
+    public function testEqualsDifferentConvertibleUnitsNotEqual()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $value2 = new CSSUnitValue(1, 'em');
+
+        $this->assertFalse($value1->equals($value2));
+    }
+
+    public function testEqualsIncompatibleUnits()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $value2 = new CSSUnitValue(10, 'deg');
+
+        $this->assertFalse($value1->equals($value2));
+    }
+
+    public function testEqualsMathSumSameValues()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $value2 = new CSSUnitValue(5, 'px');
+        $sum1 = new CSSMathSum([$value1, $value2]);
+
+        $value3 = new CSSUnitValue(10, 'px');
+        $value4 = new CSSUnitValue(5, 'px');
+        $sum2 = new CSSMathSum([$value3, $value4]);
+
+        $this->assertTrue($sum1->equals($sum2));
+    }
+
+    public function testEqualsMathSumDifferentValues()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $value2 = new CSSUnitValue(5, 'px');
+        $sum1 = new CSSMathSum([$value1, $value2]);
+
+        $value3 = new CSSUnitValue(10, 'px');
+        $value4 = new CSSUnitValue(6, 'px');
+        $sum2 = new CSSMathSum([$value3, $value4]);
+
+        $this->assertFalse($sum1->equals($sum2));
+    }
+
+    public function testEqualsDifferentTypes()
+    {
+        $unitValue = new CSSUnitValue(10, 'px');
+        $sum = new CSSMathSum([new CSSUnitValue(10, 'px')]);
+
+        $this->assertFalse($unitValue->equals($sum));
+    }
 }

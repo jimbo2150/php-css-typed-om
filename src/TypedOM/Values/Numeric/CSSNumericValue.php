@@ -195,8 +195,38 @@ abstract class CSSNumericValue extends CSSStyleValue
 
 	public function equals(self $numericValue): bool
 	{
-		// TODO: Implement
-		return $this === $numericValue;
+		if ($this instanceof CSSUnitValue && $numericValue instanceof CSSUnitValue) {
+			if ($this->unit === $numericValue->unit) {
+				return abs($this->value - $numericValue->value) < 0.0001;
+			} else {
+				// Check if units are of the same type (e.g., both length)
+				if ($this->type() === $numericValue->type()) {
+					try {
+						$converted = $numericValue->to($this->unit);
+						return abs($this->value - $converted->value) < 0.0001;
+					} catch (\Exception $e) {
+						return false;
+					}
+				} else {
+					return false;
+				}
+			}
+		} else {
+			// For other cases, compare recursively if same type
+			if (get_class($this) === get_class($numericValue)) {
+				$thisValues = $this->_getCurrentValues();
+				$otherValues = $numericValue->_getCurrentValues();
+				if (count($thisValues) === count($otherValues)) {
+					foreach ($thisValues as $i => $value) {
+						if (!$value->equals($otherValues[$i])) {
+							return false;
+						}
+					}
+					return true;
+				}
+			}
+			return false;
+		}
 	}
 
 	protected function _getCurrentValues(): array {

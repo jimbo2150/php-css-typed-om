@@ -48,12 +48,8 @@ enum CSSUnitEnum: string
 	case FLEX_fr = 'fr';
 
 	public function type(): ?CSSUnitTypeEnum {
-		$parts = $this->splitType();
-		$type = CSSUnitTypeEnum::$parts[0] ?? (match(true) {
-			in_array($parts[0], ['NUMBER']) => CSSUnitTypeEnum::LENGTH,
-			default => null
-		});
-		return $type;
+		[$type] = $this->splitType();
+		return CSSUnitTypeEnum::{$type} ?? null;
 	}
 
 	public function toString(): string {
