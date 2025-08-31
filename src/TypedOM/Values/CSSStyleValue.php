@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
-use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\SimpleValueTrait;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 
 /**
