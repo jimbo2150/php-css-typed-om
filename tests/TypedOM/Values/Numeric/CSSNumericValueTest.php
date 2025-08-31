@@ -93,6 +93,7 @@ class CSSNumericValueTest extends TestCase
         $sum = $value->toSum('em');
 
         $this->assertInstanceOf(CSSMathSum::class, $sum);
+        /** @var CSSMathSum $sum */
         $this->assertEquals(1, $sum->length);
         $this->assertEquals('em', $sum->inner_values[0]->unit);
         $this->assertEqualsWithDelta(0.625, $sum->inner_values[0]->value, 0.001); // 10px / 16 = 0.625em
@@ -104,6 +105,7 @@ class CSSNumericValueTest extends TestCase
         $sum = $value->toSum('px', 'em', 'pt');
 
         $this->assertInstanceOf(CSSMathSum::class, $sum);
+        /** @var CSSMathSum $sum */
         $this->assertEquals(3, $sum->length);
 
         // First value: px to px (same)
@@ -124,6 +126,7 @@ class CSSNumericValueTest extends TestCase
 	       $sum = (new CSSUnitValue(16, 'px'))->add(CSS::vw('23'))->toSum('percent', 'percent');
 
 	       $this->assertInstanceOf(CSSMathSum::class, $sum);
+	       /** @var CSSMathSum $sum */
 	       $this->assertEquals(2, $sum->length);
 
 	       // First value: px to percent
@@ -245,12 +248,15 @@ class CSSNumericValueTest extends TestCase
         $result = $value1->sub($sum);
 
         $this->assertInstanceOf(CSSMathSum::class, $result);
+        /** @var CSSMathSum $result */
         $this->assertEquals(2, $result->length);
         $this->assertEquals(10, $result->inner_values[0]->value);
         $this->assertEquals('px', $result->inner_values[0]->unit);
-        $this->assertInstanceOf(CSSMathSum::class, $result->inner_values[1]);
-        $this->assertEquals(5, $result->inner_values[1]->inner_values[0]->value);
-        $this->assertEquals('px', $result->inner_values[1]->inner_values[0]->unit);
+		/** @var CSSMathSum $innerSum */
+		$innerSum = $result->inner_values[1];
+        $this->assertInstanceOf(CSSMathSum::class, $innerSum);
+        $this->assertEquals(5, $innerSum->inner_values[0]->value);
+        $this->assertEquals('px', $innerSum->inner_values[0]->unit);
     }
 
     public function testSubMethodStringCast()
@@ -289,6 +295,7 @@ class CSSNumericValueTest extends TestCase
         $result = $value1->mul($value2);
 
         $this->assertInstanceOf(CSSMathProduct::class, $result);
+        /** @var CSSMathProduct $result */
         $this->assertEquals(2, $result->length);
         $this->assertEquals(10, $result->inner_values[0]->value);
         $this->assertEquals('px', $result->inner_values[0]->unit);
@@ -312,6 +319,7 @@ class CSSNumericValueTest extends TestCase
         $result = $value1->div($value2);
 
         $this->assertInstanceOf(CSSMathProduct::class, $result);
+        /** @var CSSMathProduct $result */
         $this->assertEquals(2, $result->length);
         $this->assertEquals(10, $result->inner_values[0]->value);
         $this->assertEquals('px', $result->inner_values[0]->unit);
@@ -335,6 +343,7 @@ class CSSNumericValueTest extends TestCase
         $result = $value1->min($array);
 
         $this->assertInstanceOf(CSSMathMin::class, $result);
+        /** @var CSSMathMin $result */
         $this->assertEquals(3, $result->length);
         $this->assertEquals(10, $result->inner_values[0]->value);
         $this->assertEquals('px', $result->inner_values[0]->unit);
@@ -360,6 +369,7 @@ class CSSNumericValueTest extends TestCase
         $result = $value1->max($array);
 
         $this->assertInstanceOf(CSSMathMax::class, $result);
+        /** @var CSSMathMax $result */
         $this->assertEquals(3, $result->length);
         $this->assertEquals(10, $result->inner_values[0]->value);
         $this->assertEquals('px', $result->inner_values[0]->unit);
