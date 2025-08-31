@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 
-use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\SimpleValueTrait;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
-
 /**
  * CSS Unit Value for Typed OM
  * Represents a CSS value with a unit (e.g., 10px, 50%, 2em).

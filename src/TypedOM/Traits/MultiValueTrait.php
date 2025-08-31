@@ -6,7 +6,6 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Traits;
 
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericArray;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
 
 /**
  * Trait for simple value classes (color, keyword, image).
