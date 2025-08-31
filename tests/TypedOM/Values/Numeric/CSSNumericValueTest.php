@@ -223,12 +223,9 @@ class CSSNumericValueTest extends TestCase
         $value2 = new CSSUnitValue(5, 'px');
         $result = $value1->add($value2);
 
-        $this->assertInstanceOf(CSSMathSum::class, $result);
-        $this->assertEquals(2, $result->length);
-        $this->assertEquals(10, $result->inner_values[0]->value);
-        $this->assertEquals('px', $result->inner_values[0]->unit);
-        $this->assertEquals(5, $result->inner_values[1]->value);
-        $this->assertEquals('px', $result->inner_values[1]->unit);
+        $this->assertInstanceOf(CSSUnitValue::class, $result);
+        $this->assertEquals(15, $result->value);
+        $this->assertEquals('px', $result->unit);
     }
 
     public function testAddMethodStringCast()
@@ -237,7 +234,7 @@ class CSSNumericValueTest extends TestCase
         $value2 = new CSSUnitValue(5, 'px');
         $result = $value1->add($value2);
 
-        $this->assertEquals('calc(10px + 5px)', (string)$result);
+        $this->assertEquals('15px', (string)$result);
     }
 
     public function testSubMethod()
@@ -270,12 +267,9 @@ class CSSNumericValueTest extends TestCase
         $value2 = new CSSUnitValue(5, 'px');
         $result = $value1->sub($value2);
 
-        $this->assertInstanceOf(CSSMathSum::class, $result);
-        $this->assertEquals(2, $result->length);
-        $this->assertEquals(10, $result->inner_values[0]->value);
-        $this->assertEquals('px', $result->inner_values[0]->unit);
-        $this->assertEquals(5, $result->inner_values[1]->value);
-        $this->assertEquals('px', $result->inner_values[1]->unit);
+        $this->assertInstanceOf(CSSUnitValue::class, $result);
+        $this->assertEquals(5, $result->value);
+        $this->assertEquals('px', $result->unit);
     }
 
     public function testSubMethodWithCSSUnitValueStringCast()
@@ -284,7 +278,7 @@ class CSSNumericValueTest extends TestCase
         $value2 = new CSSUnitValue(5, 'px');
         $result = $value1->sub($value2);
 
-        $this->assertEquals('calc(10px + 5px)', (string)$result);
+        $this->assertEquals('5px', (string)$result);
     }
 
     public function testMulMethod()

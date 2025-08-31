@@ -151,16 +151,16 @@ abstract class CSSNumericValue extends CSSStyleValue
 	}
 
 
-	public function add(CSSNumericValue|CSSUnitValue $value): CSSMathSum
+	public function add(CSSNumericValue|CSSUnitValue $value): CSSNumericValue
 	{
 		return (new CSSMathSum([
 			...$this->_getCurrentValues(), $value
 		]));
 	}
 
-	public function sub(CSSNumericValue|CSSUnitValue $value): CSSMathSum
+	public function sub(CSSNumericValue|CSSUnitValue $value): CSSNumericValue
 	{
-	  		return (new CSSMathSum([
+		return (new CSSMathSum([
 			...$this->_getCurrentValues(), $value
 		]));
 	}

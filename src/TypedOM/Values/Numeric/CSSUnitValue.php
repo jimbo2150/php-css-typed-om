@@ -20,6 +20,30 @@ class CSSUnitValue extends CSSNumericValue implements Stringable
 	}
 
 	/**
+	 * Add another CSSNumericValue.
+	 * If both are CSSUnitValue with same unit, return a simple CSSUnitValue.
+	 */
+	public function add(CSSNumericValue|CSSUnitValue $value): CSSNumericValue
+	{
+		if ($value instanceof CSSUnitValue && $this->unit === $value->unit) {
+			return new self($this->value + $value->value, $this->unit);
+		}
+		return parent::add($value);
+	}
+
+	/**
+	 * Subtract another CSSNumericValue.
+	 * If both are CSSUnitValue with same unit, return a simple CSSUnitValue.
+	 */
+	public function sub(CSSNumericValue|CSSUnitValue $value): CSSNumericValue
+	{
+		if ($value instanceof CSSUnitValue && $this->unit === $value->unit) {
+			return new self($this->value - $value->value, $this->unit);
+		}
+		return parent::sub($value);
+	}
+
+	/**
 	 * Convert to string representation.
 	 */
 	public function __toString(): string {
