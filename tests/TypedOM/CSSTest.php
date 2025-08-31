@@ -56,9 +56,77 @@ class CSSTest extends TestCase
     }
 
 	public function testMinMethod()
-    {
-        $min = CSS::px('10')->min(new CSSNumericArray([CSS::dppx('1324'), CSS::vh('2043')]));
+	   {
+	       $min = CSS::px('10')->min(new CSSNumericArray([CSS::dppx('1324'), CSS::vh('2043')]));
 		$this->assertInstanceOf(CSSMathMin::class, $min);
 		$this->assertEquals(3, $min->length);
-    }
+	   }
+
+	public function testEscape()
+	{
+		// Test basic valid identifiers
+		$this->assertEquals('hello', CSS::escape('hello'));
+		$this->assertEquals('world', CSS::escape('world'));
+		$this->assertEquals('_private', CSS::escape('_private'));
+		$this->assertEquals('-webkit', CSS::escape('-webkit'));
+		$this->assertEquals('a1b2', CSS::escape('a1b2'));
+		$this->assertEquals('test-case', CSS::escape('test-case'));
+		$this->assertEquals('test_case', CSS::escape('test_case'));
+
+		// Test escaping first character if invalid start
+		$this->assertEquals('\\31 23', CSS::escape('123'));
+		$this->assertEquals('-123', CSS::escape('-123'));
+		$this->assertEquals('_123', CSS::escape('_123'));
+
+		// Test escaping special characters
+		$this->assertEquals('hello\\20 world', CSS::escape('hello world'));
+		$this->assertEquals('test\\2e ', CSS::escape('test.'));
+		$this->assertEquals('test\\23 ', CSS::escape('test#'));
+		$this->assertEquals('test\\28 ', CSS::escape('test('));
+
+		// Test Unicode
+		$this->assertEquals('café', CSS::escape('café'));
+		$this->assertEquals('测试', CSS::escape('测试'));
+		$this->assertEquals('\\1f600 ', CSS::escape('😀')); // Emoji, should be escaped
+
+		// Test control characters
+		$this->assertEquals('\\0', CSS::escape("\0"));
+		$this->assertEquals('\\1 ', CSS::escape("\1"));
+		$this->assertEquals('\\7f ', CSS::escape("\x7F"));
+		$this->assertEquals('\\3f ', CSS::escape("\x3F"));
+
+		// Test custom properties
+		$this->assertEquals('--custom', CSS::escape('--custom'));
+		$this->assertEquals('--custom-prop', CSS::escape('--custom-prop'));
+		$this->assertEquals('--123', CSS::escape('--123')); // Valid for custom
+		$this->assertEquals('--custom\\ prop', CSS::escape('--custom prop'));
+		$this->assertEquals('--\\1f600 ', CSS::escape('--😀'));
+
+		// Test empty string
+		$this->assertEquals('', CSS::escape(''));
+
+		// Test single character
+		$this->assertEquals('a', CSS::escape('a'));
+		$this->assertEquals('\\31 ', CSS::escape('1'));
+		$this->assertEquals('\\20 ', CSS::escape(' '));
+
+		// Examples from MDN: https://developer.mozilla.org/en-US/docs/Web/API/CSS/escape_static
+		$this->assertEquals('\\\\.foo\\\\#bar', CSS::escape('.foo#bar'));
+		$this->assertEquals('\\\\(\\\\)\\\\[\\\\]\\\\{\\\\}', CSS::escape('()[]{}'));
+		$this->assertEquals('--a', CSS::escape('--a'));
+		$this->assertEquals('\\30 ', CSS::escape(0));
+		$this->assertEquals('\ufffd', CSS::escape('\0'));
+	}
+
+	public function testEscapeInvalidArgument()
+	{
+		$this->expectException(\TypeError::class);
+		CSS::escape(123);
+	}
+
+	public function testEscapeNull()
+	{
+		$this->expectException(\TypeError::class);
+		CSS::escape(null);
+	}
 }
