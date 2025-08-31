@@ -39,7 +39,9 @@ class CSSTest extends TestCase
     public function testStaticUnitMethodWithNoArgument()
     {
         $this->expectException(InvalidArgumentException::class);
-        CSS::px();
+		// @phpstan-ignore-next-line
+		// phpcs:ignore
+		CSS::px();
     }
 
     public function testStaticUnitMethodWithNonNumericArgument()
