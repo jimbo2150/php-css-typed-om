@@ -12,6 +12,7 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMin;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMax;
 use PHPUnit\Framework\TestCase;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 
 class CSSNumericValueTest extends TestCase
 {
@@ -376,4 +377,81 @@ class CSSNumericValueTest extends TestCase
 
         $this->assertEquals('max(10px, 5px, 15px)', (string)$result);
     }
+
+    public function testParseSimpleNumber()
+    {
+        $result = CSSNumericValue::parse('123');
+        $this->assertInstanceOf(CSSUnitValue::class, $result);
+        $this->assertEquals(123, $result->value);
+        $this->assertEquals('', $result->unit);
+    }
+
+    public function testParseWithUnit()
+    {
+        $result = CSSNumericValue::parse('10px');
+        $this->assertInstanceOf(CSSUnitValue::class, $result);
+        $this->assertEquals(10, $result->value);
+        $this->assertEquals('px', $result->unit);
+    }
+
+    public function testParseNegative()
+    {
+        $result = CSSNumericValue::parse('-5em');
+        $this->assertInstanceOf(CSSUnitValue::class, $result);
+        $this->assertEquals(-5, $result->value);
+        $this->assertEquals('em', $result->unit);
+    }
+
+    public function testParseDecimal()
+    {
+        $result = CSSNumericValue::parse('1.5rem');
+        $this->assertInstanceOf(CSSUnitValue::class, $result);
+        $this->assertEquals(1.5, $result->value);
+        $this->assertEquals('rem', $result->unit);
+    }
+
+    public function testParsePercent()
+    {
+        $result = CSSNumericValue::parse('50%');
+        $this->assertInstanceOf(CSSUnitValue::class, $result);
+        $this->assertEquals(50, $result->value);
+        $this->assertEquals('%', $result->unit);
+    }
+
+    public function testParseTrimmed()
+    {
+        $result = CSSNumericValue::parse('  10px  ');
+        $this->assertInstanceOf(CSSUnitValue::class, $result);
+        $this->assertEquals(10, $result->value);
+        $this->assertEquals('px', $result->unit);
+    }
+
+	public function testParseDegree()
+    {
+        $result = CSSNumericValue::parse('365deg');
+        $this->assertInstanceOf(CSSUnitValue::class, $result);
+        $this->assertEquals(365, $result->value);
+        $this->assertEquals('deg', $result->unit);
+    }
+
+	public function testParseTurn()
+    {
+        $result = CSSNumericValue::parse('5turn');
+        $this->assertInstanceOf(CSSUnitValue::class, $result);
+        $this->assertEquals(5, $result->value);
+        $this->assertEquals('turn', $result->unit);
+    }
+
+    public function testParseInvalid()
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        CSSNumericValue::parse('abc');
+    }
+
+    public function testParseInvalidMultiple()
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        CSSNumericValue::parse('10px 20px');
+    }
+
 }
