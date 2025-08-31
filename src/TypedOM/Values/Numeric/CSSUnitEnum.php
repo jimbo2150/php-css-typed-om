@@ -57,6 +57,9 @@ enum CSSUnitEnum: string
 	}
 
 	public function toString(): string {
+		if($this === self::PERCENT) {
+			return 'percent';
+		}
 		$parts = $this->splitType();
 		if(count($parts) > 1) {
 			return $parts[1];

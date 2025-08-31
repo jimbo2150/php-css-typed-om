@@ -4,18 +4,13 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math;
 
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
-
+/**
+ * Trait for CSS math operations.
+ *
+ * Provides common functionality for CSS math values.
+ */
 trait CSSMathOperationTrait
 {
-
-	public function clone(): CSSStyleValue
-	{
-		return new static($this->values);
-	}
-
-	public function toString(): string
-	{
-		return implode(' ' . $this->operator . ' ', $this->values);
-	}
+    // Placeholder trait for basic math operations
+    // This can be expanded with more functionality as needed
 }

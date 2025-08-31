@@ -15,15 +15,12 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
  */
 trait MultiValueArrayTrait
 {
+
 	/** @var array<CSSNumericValue> */
     public protected(set) array $values = [] {
 		get {
 			return $this->values;
 		}
-	}
-
-	public int $length {
-		get => count($this->values);
 	}
 
 	/**

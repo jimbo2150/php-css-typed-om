@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 
 use Jimbo2150\PhpCssTypedOm\Process\CSSCalcParser;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\LengthTrait;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\SimpleValueTrait;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\TypeableUnitTrait;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
@@ -21,7 +22,7 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
  */
 abstract class CSSNumericValue extends CSSStyleValue
 {
-	use SimpleValueTrait, TypeableUnitTrait;
+	use SimpleValueTrait, TypeableUnitTrait, LengthTrait;
 
 	public function __construct() {
 	}
@@ -68,19 +69,85 @@ abstract class CSSNumericValue extends CSSStyleValue
 		return static::parse($cssText);
 	}
 
-	public function to(string $unit): CSSMathSum
+	public function to(string $unit): CSSUnitValue
 	{
-		// TODO: Implement
+		$currentValue = $this->value;
+		$currentUnit = $this->unit;
+
+		// If same unit, return a copy
+		if ($currentUnit === $unit) {
+			return new CSSUnitValue($currentValue, $currentUnit);
+		}
+
+		// Special case for percent: keep value as-is
+		if ($unit === 'percent') {
+			return new CSSUnitValue($currentValue, $unit);
+		}
+
+		// Convert to base unit (px) first, then to target unit
+		$pxValue = $this->convertToPx($currentValue, $currentUnit);
+		$targetValue = $this->convertFromPx($pxValue, $unit);
+
+		return new CSSUnitValue($targetValue, $unit);
+	}
+
+	private function convertToPx(float $value, string $unit): float
+	{
+		return match ($unit) {
+			'px' => $value,
+			'pt' => $value * 1.333, // 1pt = 1.333px
+			'pc' => $value * 16,    // 1pc = 16px
+			'in' => $value * 96,    // 1in = 96px
+			'cm' => $value * 37.795, // 1cm ≈ 37.795px
+			'mm' => $value * 3.7795, // 1mm ≈ 3.7795px
+			'em' => $value * 16,    // Assume 1em = 16px (default font-size)
+			'rem' => $value * 16,   // Assume 1rem = 16px
+			'vw' => $value * 9.6,   // Assume 1vw = 9.6px (viewport width / 100)
+			'vh' => $value * 5.4,   // Assume 1vh = 5.4px (viewport height / 100)
+			'vmin' => $value * 5.4, // Assume vmin = vh for simplicity
+			'vmax' => $value * 9.6, // Assume vmax = vw for simplicity
+			default => $value,      // Unknown unit, return as-is
+		};
+	}
+
+	private function convertFromPx(float $pxValue, string $unit): float
+	{
+		return match ($unit) {
+			'px' => $pxValue,
+			'pt' => $pxValue / 1.333,
+			'pc' => $pxValue / 16,
+			'in' => $pxValue / 96,
+			'cm' => $pxValue / 37.795,
+			'mm' => $pxValue / 3.7795,
+			'em' => $pxValue / 16,
+			'rem' => $pxValue / 16,
+			'vw' => $pxValue / 9.6,
+			'vh' => $pxValue / 5.4,
+			'vmin' => $pxValue / 5.4,
+			'vmax' => $pxValue / 9.6,
+			default => $pxValue,    // Unknown unit, return px value
+		};
 	}
 
 	/**
-	 * Adds all the values in the values list and returns the result.
+	 * Converts the current value to each specified unit and returns their sum.
 	 *
-	 * @param string[] $values
+	 * @param string ...$units The units to convert to and sum
+	 * @return CSSMathSum A CSSMathSum containing the sum of all converted values
 	 */
 	public function toSum(string ...$units): CSSMathSum
 	{
-		// TODO: Implement
+		$convertedValues = [];
+		$currentValues = $this->_getCurrentValues();
+
+		// Convert each current value to the corresponding unit
+		foreach ($units as $i => $unit) {
+			$value = $currentValues[$i] ?? $this;
+			$convertedValues[] = $value->to($unit);
+		}
+
+		// Return CSSMathSum with all converted values
+		return new CSSMathSum($convertedValues);
 	}
 
 

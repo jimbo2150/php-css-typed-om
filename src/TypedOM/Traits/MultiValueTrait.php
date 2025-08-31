@@ -15,6 +15,7 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
  */
 trait MultiValueTrait
 {
+
 	/** @var CSSNumericArray */
     public protected(set) CSSNumericArray $values {
 		get {
@@ -32,10 +33,6 @@ trait MultiValueTrait
 		}
 	}
 
-	public int $length {
-		get => count($this->values);
-	}
-
 	/**
 	 * Summary of __construct
 	 * @param CSSNumericValue|CSSNumericArray<CSSNumericValue>|array<CSSNumericArray> $value
@@ -44,7 +41,7 @@ trait MultiValueTrait
 		if($value instanceof CSSNumericArray) {
 			$this->values = $value;
 		} else if($value instanceof CSSNumericValue) {
-			$this->values->add($value);
+			$this->values = new CSSNumericArray([$value]);
 		} else {
 			$this->values = new CSSNumericArray($value);
 		}

@@ -19,7 +19,7 @@ abstract class CSS {
 
 	public static function __callStatic(string $name, array $arguments): CSSUnitValue
     {
-		$lowerName = self::_translateUnitMethod(strtolower($name));
+		$lowerName = self::translateUnit(strtolower($name));
 		$unit = CSSUnitEnum::tryFrom($lowerName) ?? CSSUnitEnum::tryFrom($name);
 
 		if ($unit === null) {
@@ -31,7 +31,7 @@ abstract class CSS {
         return new CSSUnitValue($arguments[0], $unit);
     }
 
-	private static function _translateUnitMethod(string $name): string {
+	public static function translateUnit(string $name): string {
 		return self::UNIT_MAP[$name] ?? $name;
 	}
 }

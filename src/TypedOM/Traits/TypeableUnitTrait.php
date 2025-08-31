@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Traits;
 
 use Exception;
+use Jimbo2150\PhpCssTypedOm\CSS;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericType;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
 
@@ -15,22 +16,25 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
  */
 trait TypeableUnitTrait
 {
-	protected CSSUnitEnum $unitObj;
+	protected ?CSSUnitEnum $unitObj = null;
 
     public string $unit {
 		get {
-			return $this->unitObj->toString();
+			return $this->unitObj ? $this->unitObj->toString() : '';
 		}
 	}
 
 	protected function setUnit(string|CSSUnitEnum $unit) {
 		if(is_string($unit)) {
-			$unit = CSSUnitEnum::from($unit);
+			$unit = CSSUnitEnum::from(CSS::translateUnit($unit));
 		}
 		$this->unitObj = $unit;
 	}
 
 	public function type(): string {
+		if (!$this->unitObj) {
+			throw new Exception('No unit set.');
+		}
 		$type = $this->unitObj->type();
 		if(!$type) {
 			throw new Exception('Unknown unit type.');

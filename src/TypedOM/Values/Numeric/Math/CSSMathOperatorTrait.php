@@ -15,6 +15,6 @@ trait CSSMathOperatorTrait
 
 	public function toString(): string
 	{
-		return implode(' ' . $this->operator . ' ', $this->values);
-	}	
+		return implode(' ' . $this->operator . ' ', $this->values->values);
+	}
 }
