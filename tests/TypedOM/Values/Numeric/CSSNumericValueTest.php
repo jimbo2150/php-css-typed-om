@@ -231,6 +231,15 @@ class CSSNumericValueTest extends TestCase
         $this->assertEquals('px', $result->inner_values[1]->unit);
     }
 
+    public function testAddMethodStringCast()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $value2 = new CSSUnitValue(5, 'px');
+        $result = $value1->add($value2);
+
+        $this->assertEquals('calc(10px + 5px)', (string)$result);
+    }
+
     public function testSubMethod()
     {
         $value1 = new CSSUnitValue(10, 'px');
@@ -244,6 +253,15 @@ class CSSNumericValueTest extends TestCase
         $this->assertInstanceOf(CSSMathSum::class, $result->inner_values[1]);
         $this->assertEquals(5, $result->inner_values[1]->inner_values[0]->value);
         $this->assertEquals('px', $result->inner_values[1]->inner_values[0]->unit);
+    }
+
+    public function testSubMethodStringCast()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $sum = new CSSMathSum([new CSSUnitValue(5, 'px')]);
+        $result = $value1->sub($sum);
+
+        $this->assertEquals('calc(10px + calc(5px))', (string)$result);
     }
 
     public function testMulMethod()
@@ -260,6 +278,15 @@ class CSSNumericValueTest extends TestCase
         $this->assertEquals('', $result->inner_values[1]->unit);
     }
 
+    public function testMulMethodStringCast()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $value2 = new CSSUnitValue(2, 'number');
+        $result = $value1->mul($value2);
+
+        $this->assertEquals('calc(10px * 2)', (string)$result);
+    }
+
     public function testDivMethod()
     {
         $value1 = new CSSUnitValue(10, 'px');
@@ -272,6 +299,15 @@ class CSSNumericValueTest extends TestCase
         $this->assertEquals('px', $result->inner_values[0]->unit);
         $this->assertEquals(2, $result->inner_values[1]->value);
         $this->assertEquals('', $result->inner_values[1]->unit);
+    }
+
+    public function testDivMethodStringCast()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $value2 = new CSSUnitValue(2, 'number');
+        $result = $value1->div($value2);
+
+        $this->assertEquals('calc(10px * 2)', (string)$result);
     }
 
     public function testMinMethod()
@@ -290,6 +326,15 @@ class CSSNumericValueTest extends TestCase
         $this->assertEquals('px', $result->inner_values[2]->unit);
     }
 
+    public function testMinMethodStringCast()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $array = new CSSNumericArray([new CSSUnitValue(5, 'px'), new CSSUnitValue(15, 'px')]);
+        $result = $value1->min($array);
+
+        $this->assertEquals('min(10px, 5px, 15px)', (string)$result);
+    }
+
     public function testMaxMethod()
     {
         $value1 = new CSSUnitValue(10, 'px');
@@ -304,5 +349,14 @@ class CSSNumericValueTest extends TestCase
         $this->assertEquals('px', $result->inner_values[1]->unit);
         $this->assertEquals(15, $result->inner_values[2]->value);
         $this->assertEquals('px', $result->inner_values[2]->unit);
+    }
+
+    public function testMaxMethodStringCast()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $array = new CSSNumericArray([new CSSUnitValue(5, 'px'), new CSSUnitValue(15, 'px')]);
+        $result = $value1->max($array);
+
+        $this->assertEquals('max(10px, 5px, 15px)', (string)$result);
     }
 }
