@@ -32,8 +32,6 @@ The following CSS Typed OM classes are currently supported:
 | `CSSMathMax` | Represents max() function |
 | `CSSMathInvert` | Represents inversion operations |
 | `CSSMathNegate` | Represents negation operations |
-| `DOMMatrix` | Represents a 2D or 3D transformation matrix |
-| `DOMMatrixReadOnly` | Read-only version of DOMMatrix |
 
 ## Unsupported Typed OM Classes
 
