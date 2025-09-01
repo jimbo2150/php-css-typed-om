@@ -2,14 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Jimbo2150\PhpCssTypedOm\Process;
+namespace Jimbo2150\PhpCssTypedOm\Parser;
 
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSMathDifference;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSMathDivision;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSMathProduct;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSMathSum;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSNumericValue;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnitValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathInvert;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
 
 class CSSCalcParser
 {
@@ -103,13 +102,13 @@ class CSSCalcParser
 						$valueStack[] = new CSSMathSum($operand1, $operand2);
 						break;
 					case '-':
-						$valueStack[] = new CSSMathDifference($operand1, $operand2);
+						$valueStack[] = new CSSMathInvert($operand1, $operand2);
 						break;
 					case '*':
 						$valueStack[] = new CSSMathProduct($operand1, $operand2);
 						break;
 					case '/':
-						$valueStack[] = new CSSMathDivision($operand1, $operand2);
+						$valueStack[] = new CSSMathProduct($operand1, $operand2);
 						break;
 				}
 			} else { // Operand
