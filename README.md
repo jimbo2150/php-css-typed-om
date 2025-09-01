@@ -46,6 +46,12 @@ The following CSS Typed OM classes are not yet implemented:
 | `CSSPositionValue` | Represents CSS position values |
 | `CSSUnparsedValue` | Represents unparsed CSS values |
 
+### Why are these not supported?
+The unsupported Typed OM classes listed above generally require a connection to a DOM object so that it can parse
+and apply values to elements or CSS stylesheets. Without it, they are not all that useful. In the future, if there
+is sufficient demand and need for these (or if I connect this class to the new DOM Document object), they will be
+implemented.
+
 ## Usage Examples
 
 ### Creating Unit Values
