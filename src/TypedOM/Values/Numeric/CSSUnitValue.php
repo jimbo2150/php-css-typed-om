@@ -13,6 +13,12 @@ use Stringable;
 class CSSUnitValue extends CSSNumericValue implements Stringable
 {
 
+	/**
+	 * Constructor for CSSUnitValue.
+	 *
+	 * @param string|float $value The numeric value
+	 * @param string|CSSUnitEnum $unit The unit
+	 */
 	public function __construct(string|float $value, string|CSSUnitEnum $unit)
 	{
 		$this->setValue(floatval($value));
@@ -58,6 +64,13 @@ class CSSUnitValue extends CSSNumericValue implements Stringable
 		return $this->cloneToSelf();
 	}
 
+	/**
+	 * Clone to a new instance with optional new value and unit.
+	 *
+	 * @param float|null $value The new value
+	 * @param string|null $unit The new unit
+	 * @return self The cloned instance
+	 */
 	private function cloneToSelf(?float $value = null, ?string $unit = null): self {
 		return new self($value ?? $this->value, $unit ?? $this->unit);
 	}

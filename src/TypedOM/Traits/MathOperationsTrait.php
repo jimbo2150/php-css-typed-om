@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Traits;
 
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnitValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
+
 
 /**
  * Trait for CSS math operations (sum, product, etc.).
@@ -39,11 +40,11 @@ trait MathOperationsTrait
      */
     public function add(CSSUnitValue $other): ?CSSUnitValue
     {
-        if ($this->unit !== $other->getUnit()) {
+        if ($this->unit !== $other->unit) {
             return null;
         }
 
-        return new CSSUnitValue($this->value + $other->getNumericValue(), $this->unit);
+        return new CSSUnitValue($this->value + $other->value, $this->unit);
     }
 
     /**
@@ -54,11 +55,11 @@ trait MathOperationsTrait
      */
     public function subtract(CSSUnitValue $other): ?CSSUnitValue
     {
-        if ($this->unit !== $other->getUnit()) {
+        if ($this->unit !== $other->unit) {
             return null;
         }
 
-        return new CSSUnitValue($this->value - $other->getNumericValue(), $this->unit);
+        return new CSSUnitValue($this->value - $other->value, $this->unit);
     }
 
     /**
@@ -136,6 +137,8 @@ trait MathOperationsTrait
 
     /**
      * Get the numeric value.
+     *
+     * @return float The numeric value
      */
     public function getNumericValue(): float
     {
@@ -144,6 +147,8 @@ trait MathOperationsTrait
 
     /**
      * Set the numeric value.
+     *
+     * @param float $value The numeric value
      */
     public function setNumericValue(float $value): void
     {
@@ -152,6 +157,8 @@ trait MathOperationsTrait
 
     /**
      * Get the unit.
+     *
+     * @return string The unit
      */
     public function getUnit(): string
     {
@@ -160,6 +167,8 @@ trait MathOperationsTrait
 
     /**
      * Set the unit.
+     *
+     * @param string $unit The unit
      */
     public function setUnit(string $unit): void
     {
@@ -168,6 +177,8 @@ trait MathOperationsTrait
 
     /**
      * Check if this value is valid.
+     *
+     * @return bool True if the value is valid
      */
     public function isValid(): bool
     {

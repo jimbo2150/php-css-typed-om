@@ -12,7 +12,9 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math;
  */
 class CSSMathInvert extends CSSMathValue
 {
+	/** @var string The sign representation */
 	public const ?string sign = '1 / {value}';
 
+	/** @var string The operator name */
 	public const ?string operator = 'invert';
 }

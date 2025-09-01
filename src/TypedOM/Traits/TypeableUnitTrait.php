@@ -16,14 +16,20 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
  */
 trait TypeableUnitTrait
 {
-	protected ?CSSUnitEnum $unitObj = null;
 
+	/** @var CSSUnitEnum|null The unit enum object */
+	protected ?CSSUnitEnum $unitObj = null;
     public string $unit {
 		get {
 			return $this->unitObj ? $this->unitObj->toString() : '';
 		}
 	}
 
+	/**
+	 * Set the unit.
+	 *
+	 * @param string|CSSUnitEnum $unit The unit to set
+	 */
 	protected function setUnit(string|CSSUnitEnum $unit) {
 		if(is_string($unit)) {
 			$unit = CSSUnitEnum::from(CSS::translateUnit($unit));
@@ -31,6 +37,12 @@ trait TypeableUnitTrait
 		$this->unitObj = $unit;
 	}
 
+	/**
+	 * Get the type of the unit.
+	 *
+	 * @return string The unit type
+	 * @throws Exception If no unit is set or unknown type
+	 */
 	public function type(): string {
 		if (!$this->unitObj) {
 			throw new Exception('No unit set.');

@@ -16,6 +16,11 @@ abstract class CSSMathValue extends CSSNumericValue
 {
 	use CSSMathOperationTrait, MultiValueTrait;
 
+	/**
+	 * Convert to string representation.
+	 *
+	 * @return string The CSS string representation
+	 */
     public function __toString(): string
     {
         $values = array_map(fn($v) => (string)$v, $this->values->values);
@@ -35,8 +40,13 @@ abstract class CSSMathValue extends CSSNumericValue
             return static::operator . '(' . implode(', ', $values) . ')';
         }
     }
-
-    public function clone(): static
+   
+    /**
+     * Clone this math value.
+     *
+     * @return static The cloned value
+     */
+       public function clone(): static
     {
         $clonedValues = [];
         foreach ($this->values as $value) {

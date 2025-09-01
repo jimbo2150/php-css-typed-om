@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Traits;
 
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnitValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
+
 
 /**
  * Trait for CSS transform components with 2D/3D support.
@@ -13,13 +14,13 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnitValue;
  */
 trait TransformComponentTrait
 {
-    /** @var array<string, CSSUnitValue> Component values */
+    /** @var array<string,CSSUnitValue> Component values */
     private array $values = [];
 
     /**
      * Initialize transform component with values and 2D/3D flag.
      *
-     * @param array<string, CSSUnitValue> $values Component values
+     * @param array<string,CSSUnitValue> $values Component values
      * @param bool $is2D Whether this is a 2D transform
      */
     private function initializeTransformComponent(array $values, bool $is2D = true): void
@@ -44,7 +45,7 @@ trait TransformComponentTrait
     /**
      * Get component values.
      * 
-     * @return array<string, CSSUnitValue>
+     * @return array<string,CSSUnitValue>
      */
     public function getValues(): array
     {
@@ -76,7 +77,7 @@ trait TransformComponentTrait
     /**
      * Clone all component values.
      * 
-     * @return array<string, CSSUnitValue> Cloned values
+     * @return array<string,CSSUnitValue> Cloned values
      */
     protected function cloneValues(): array
     {
@@ -99,7 +100,7 @@ trait TransformComponentTrait
         $values = [];
         foreach ($valueOrder as $name) {
             if (isset($this->values[$name])) {
-                $values[] = $this->values[$name]->toString();
+                $values[] = (string) $this->values[$name];
             }
         }
 
@@ -128,18 +129,5 @@ trait TransformComponentTrait
                 ));
             }
         }
-    }
-
-    /**
-     * Check if this transform is valid.
-     */
-    public function isValid(): bool
-    {
-        foreach ($this->values as $value) {
-            if (!$value->isValid()) {
-                return false;
-            }
-        }
-        return true;
     }
 }

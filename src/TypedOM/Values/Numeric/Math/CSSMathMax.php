@@ -12,5 +12,6 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math;
 class CSSMathMax extends CSSMathValue
 {
 
+	/** @var string The operator name */
 	public const ?string operator = 'max';
 }

@@ -15,7 +15,9 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 class CSSMathProduct extends CSSMathValue
 {
 
- 	public const ?string sign = '*';
+	/** @var string The sign for multiplication */
+	public const ?string sign = '*';
 
+	/** @var string The operator name */
 	public const ?string operator = 'product';
 }

@@ -17,6 +17,11 @@ class CSSNumericArray extends CSSNumericValue implements Countable
 {
 	use MultiValueArrayTrait;
 
+	/**
+	 * Count the number of values.
+	 *
+	 * @return int The number of values
+	 */
 	public function count(): int {
 		return $this->length;
 	}

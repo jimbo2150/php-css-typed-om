@@ -4,12 +4,19 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 
+/**
+ * Enum representing CSS units for numeric values.
+ * This enum defines various CSS units categorized by type (e.g., length, angle, time).
+ * Each case corresponds to a specific unit string used in CSS.
+ */
 enum CSSUnitEnum: string
 {
 
+	// Number and percent units
 	case NUMBER = '';
 	case PERCENT = '%';
 
+	// Length units
 	case LENGTH_em = 'em';
 	case LENGTH_ex = 'ex';
 	case LENGTH_ch = 'ch';
@@ -60,28 +67,43 @@ enum CSSUnitEnum: string
 	case LENGTH_svmin = 'svmin';
 	case LENGTH_svw = 'svw';
 
+	// Angle units
 	case ANGLE_deg = 'deg';
 	case ANGLE_grad = 'grad';
 	case ANGLE_rad = 'rad';
 	case ANGLE_turn = 'turn';
 
+	// Time units
 	case TIME_s = 's';
 	case TIME_ms = 'ms';
 
+	// Frequency units
 	case FREQ_Hz = 'hz';
 	case FEQ_kHz = 'khz';
 
+	// Resolution units
 	case RES_dpi = 'dpi';
 	case RES_dpcm = 'dpcm';
 	case RES_dppx = 'dppx';
 
+	// Flex units
 	case FLEX_fr = 'fr';
 
+	/**
+	 * Returns the type of the CSS unit.
+	 *
+	 * @return CSSUnitTypeEnum|null The unit type or null if not found.
+	 */
 	public function type(): ?CSSUnitTypeEnum {
 		[$type] = $this->splitType();
 		return CSSUnitTypeEnum::{$type} ?? null;
 	}
 
+	/**
+	 * Returns the string representation of the unit.
+	 *
+	 * @return string The unit string (e.g., 'em', '%').
+	 */
 	public function toString(): string {
 		$parts = $this->splitType();
 		if(count($parts) > 1) {
@@ -90,6 +112,11 @@ enum CSSUnitEnum: string
 		return $this->value;
 	}
 
+	/**
+	 * Splits the enum name by '_' to extract type and unit.
+	 *
+	 * @return array The parts of the name.
+	 */
 	private function splitType(): array {
 		return explode('_', $this->name);
 	}

@@ -24,6 +24,9 @@ abstract class CSSNumericValue extends CSSStyleValue
 {
 	use SimpleValueTrait, TypeableUnitTrait, LengthTrait;
 
+	/**
+	 * CSSNumericValue constructor.
+	 */
 	public function __construct() {
 	}
 
@@ -69,6 +72,12 @@ abstract class CSSNumericValue extends CSSStyleValue
 		return static::parse($cssText);
 	}
 
+	/**
+	 * Converts the numeric value to the specified unit.
+	 *
+	 * @param string $unit The target unit
+	 * @return CSSUnitValue The converted value
+	 */
 	public function to(string $unit): CSSUnitValue
 	{
 		$currentValue = $this->value;
@@ -91,6 +100,13 @@ abstract class CSSNumericValue extends CSSStyleValue
 		return new CSSUnitValue($targetValue, $unit);
 	}
 
+	/**
+	 * Converts a value from the given unit to pixels.
+	 *
+	 * @param float $value The value to convert
+	 * @param string $unit The source unit
+	 * @return float The value in pixels
+	 */
 	private function convertToPx(float $value, string $unit): float
 	{
 		return match ($unit) {
@@ -110,6 +126,13 @@ abstract class CSSNumericValue extends CSSStyleValue
 		};
 	}
 
+	/**
+	 * Converts a pixel value to the specified unit.
+	 *
+	 * @param float $pxValue The value in pixels
+	 * @param string $unit The target unit
+	 * @return float The converted value
+	 */
 	private function convertFromPx(float $pxValue, string $unit): float
 	{
 		return match ($unit) {
@@ -151,6 +174,12 @@ abstract class CSSNumericValue extends CSSStyleValue
 	}
 
 
+	/**
+	 * Adds the given value to this numeric value.
+	 *
+	 * @param CSSNumericValue|CSSUnitValue $value The value to add
+	 * @return CSSNumericValue The result of the addition
+	 */
 	public function add(CSSNumericValue|CSSUnitValue $value): CSSNumericValue
 	{
 		return (new CSSMathSum([
@@ -158,6 +187,12 @@ abstract class CSSNumericValue extends CSSStyleValue
 		]));
 	}
 
+	/**
+	 * Subtracts the given value from this numeric value.
+	 *
+	 * @param CSSNumericValue|CSSUnitValue $value The value to subtract
+	 * @return CSSNumericValue The result of the subtraction
+	 */
 	public function sub(CSSNumericValue|CSSUnitValue $value): CSSNumericValue
 	{
 		return (new CSSMathSum([
@@ -165,6 +200,12 @@ abstract class CSSNumericValue extends CSSStyleValue
 		]));
 	}
 
+	/**
+	 * Multiplies this numeric value by the given value.
+	 *
+	 * @param CSSNumericValue|CSSUnitValue $value The multiplier
+	 * @return CSSMathProduct The result of the multiplication
+	 */
 	public function mul(CSSNumericValue|CSSUnitValue $value): CSSMathProduct
 	{
 		return (new CSSMathProduct([
@@ -172,6 +213,12 @@ abstract class CSSNumericValue extends CSSStyleValue
 		]));
 	}
 
+	/**
+	 * Divides this numeric value by the given value.
+	 *
+	 * @param CSSNumericValue|CSSUnitValue $value The divisor
+	 * @return CSSMathProduct The result of the division
+	 */
 	public function div(CSSNumericValue|CSSUnitValue $value): CSSMathProduct
 	{
 		return (new CSSMathProduct([
@@ -179,6 +226,12 @@ abstract class CSSNumericValue extends CSSStyleValue
 		]));
 	}
 
+	/**
+	 * Returns the minimum value between this and the given values.
+	 *
+	 * @param CSSNumericArray $values The values to compare
+	 * @return CSSMathMin The minimum value
+	 */
 	public function min(CSSNumericArray $values): CSSMathMin
 	{
 		return (new CSSMathMin([
@@ -186,6 +239,12 @@ abstract class CSSNumericValue extends CSSStyleValue
 		]));
 	}
 
+	/**
+	 * Returns the maximum value between this and the given values.
+	 *
+	 * @param CSSNumericArray $values The values to compare
+	 * @return CSSMathMax The maximum value
+	 */
 	public function max(CSSNumericArray $values): CSSMathMax
 	{
 		return (new CSSMathMax([
@@ -193,6 +252,12 @@ abstract class CSSNumericValue extends CSSStyleValue
 		]));
 	}
 
+	/**
+	 * Checks if this numeric value is equal to another.
+	 *
+	 * @param self $numericValue The value to compare
+	 * @return bool True if equal, false otherwise
+	 */
 	public function equals(self $numericValue): bool
 	{
 		if ($this instanceof CSSUnitValue && $numericValue instanceof CSSUnitValue) {
@@ -229,6 +294,11 @@ abstract class CSSNumericValue extends CSSStyleValue
 		}
 	}
 
+	/**
+	 * Gets the current values for this numeric value.
+	 *
+	 * @return array The current values
+	 */
 	protected function _getCurrentValues(): array {
 		return isset($this->length) && isset($this->inner_values) &&
 			is_array($this->inner_values) ?

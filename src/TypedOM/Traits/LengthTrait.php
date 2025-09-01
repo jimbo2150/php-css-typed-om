@@ -12,6 +12,7 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Traits;
 trait LengthTrait
 {
 
+	/** @var ?int The length of the values array, or null if not set */
 	public ?int $length {
 		get => isset($this->values) ? count($this->values) : null;
 	}

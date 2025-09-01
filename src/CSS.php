@@ -47,15 +47,54 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
  * @method static CSSUnitValue dpcm(string|int|float $value) Create a dpcm unit value
  * @method static CSSUnitValue dppx(string|int|float $value) Create a dppx unit value
  * @method static CSSUnitValue fr(string|int|float $value) Create a fr unit value
+ * @method static CSSUnitValue cap(string|int|float $value) Create a cap unit value
+ * @method static CSSUnitValue rcap(string|int|float $value) Create a rcap unit value
+ * @method static CSSUnitValue cqb(string|int|float $value) Create a cqb unit value
+ * @method static CSSUnitValue cqh(string|int|float $value) Create a cqh unit value
+ * @method static CSSUnitValue cqw(string|int|float $value) Create a cqw unit value
+ * @method static CSSUnitValue cqi(string|int|float $value) Create a cqi unit value
+ * @method static CSSUnitValue cqmax(string|int|float $value) Create a cqmax unit value
+ * @method static CSSUnitValue cqmin(string|int|float $value) Create a cqmin unit value
+ * @method static CSSUnitValue dvb(string|int|float $value) Create a dvb unit value
+ * @method static CSSUnitValue dvh(string|int|float $value) Create a dvh unit value
+ * @method static CSSUnitValue dvi(string|int|float $value) Create a dvi unit value
+ * @method static CSSUnitValue dvmax(string|int|float $value) Create a dvmax unit value
+ * @method static CSSUnitValue dvmin(string|int|float $value) Create a dvmin unit value
+ * @method static CSSUnitValue dvw(string|int|float $value) Create a dvw unit value
+ * @method static CSSUnitValue lvb(string|int|float $value) Create a lvb unit value
+ * @method static CSSUnitValue lvh(string|int|float $value) Create a lvh unit value
+ * @method static CSSUnitValue lvi(string|int|float $value) Create a lvi unit value
+ * @method static CSSUnitValue lvmax(string|int|float $value) Create a lvmax unit value
+ * @method static CSSUnitValue lvmin(string|int|float $value) Create a lvmin unit value
+ * @method static CSSUnitValue lvw(string|int|float $value) Create a lvw unit value
+ * @method static CSSUnitValue lch(string|int|float $value) Create a lch unit value
+ * @method static CSSUnitValue rex(string|int|float $value) Create a rex unit value
+ * @method static CSSUnitValue ric(string|int|float $value) Create a ric unit value
+ * @method static CSSUnitValue svb(string|int|float $value) Create a svb unit value
+ * @method static CSSUnitValue svh(string|int|float $value) Create a svh unit value
+ * @method static CSSUnitValue svi(string|int|float $value) Create a svi unit value
+ * @method static CSSUnitValue svmax(string|int|float $value) Create a svmax unit value
+ * @method static CSSUnitValue svmin(string|int|float $value) Create a svmin unit value
+ * @method static CSSUnitValue svw(string|int|float $value) Create a svw unit value
  */
 abstract class CSS {
 
+	/** @var array<string, string> Map of unit names to symbols */
 	const array UNIT_MAP = [
 		'percent'			=> '%',
 		'number'			=> '',
 		'flex'				=> 'fr'
 	];
 
+	/**
+	 * Magic method for static calls to create CSS unit values.
+	 *
+	 * @param string $name The unit name
+	 * @param array $arguments The value
+	 * @return CSSUnitValue The created unit value
+	 * @throws BadMethodCallException If the unit is not supported
+	 * @throws InvalidArgumentException If the value is invalid
+	 */
 	public static function __callStatic(string $name, array $arguments): CSSUnitValue
     {
 		$lowerName = self::translateUnit(strtolower($name));
@@ -70,10 +109,22 @@ abstract class CSS {
         return new CSSUnitValue($arguments[0], $unit);
     }
 
+	/**
+	 * Translates a unit name to its corresponding symbol if mapped, otherwise returns the name unchanged.
+	 *
+	 * @param string $name The unit name to translate
+	 * @return string The translated unit symbol or the original name
+	 */
 	public static function translateUnit(string $name): string {
 		return self::UNIT_MAP[$name] ?? $name;
 	}
 
+	/**
+	 * Escapes a value for safe inclusion in CSS strings, handling special characters and null bytes.
+	 *
+	 * @param string|int|float|null $value The value to escape
+	 * @return string The escaped value
+	 */
 	public static function escape(string|int|float|null $value): string {
 		if($value === null) {
 			$value = "\x00";
@@ -110,6 +161,12 @@ abstract class CSS {
 		return preg_replace('/\\\\(\\\\+)?/u', '\\\\\\\${1}', $output);
 	}
 
+	/**
+	 * Checks if a character is null or contains a null byte.
+	 *
+	 * @param string|null $char The character to check
+	 * @return bool True if the character is null or contains null byte, false otherwise
+	 */
 	private static function __charIsNull(string|null $char): bool {
 		return $char === null || preg_match('/\x00/u', $char) === 1;
 	}

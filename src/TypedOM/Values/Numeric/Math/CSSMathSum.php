@@ -13,7 +13,9 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math;
 class CSSMathSum extends CSSMathValue
 {
 
+	/** @var string The sign for addition */
 	public const ?string sign = '+';
 
+	/** @var string The operator name */
 	public const ?string operator = 'sum';
 }

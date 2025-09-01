@@ -27,6 +27,7 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
  */
 class CSSCalcParser
 {
+	/** @var array<string, array{precedence: int, associativity: string}> Operator precedence and associativity */
 	private const OPERATORS = [
 		'+' => ['precedence' => 1, 'associativity' => 'left'],
 		'-' => ['precedence' => 1, 'associativity' => 'left'],

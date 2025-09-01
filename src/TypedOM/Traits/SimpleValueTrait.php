@@ -15,6 +15,7 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 trait SimpleValueTrait
 {
 
+    /** @var string|float|null The value */
     public protected(set) string|float|null $value = null {
 		get {
 			return $this->value;
@@ -32,8 +33,14 @@ trait SimpleValueTrait
         $this->validateValue($value);
         $this->value = $value;
     }
-
-	protected static function isValueValid(mixed $value): bool {
+   
+    /**
+     * Check if the value is valid.
+     *
+     * @param mixed $value The value to check
+     * @return bool True if valid
+     */
+    protected static function isValueValid(mixed $value): bool {
 		return is_numeric($value);
 	}
 

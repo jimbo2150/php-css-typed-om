@@ -33,8 +33,9 @@ trait MultiValueTrait
 	}
 
 	/**
-	 * Summary of __construct
-	 * @param CSSNumericValue|CSSNumericArray<CSSNumericValue>|array<CSSNumericArray> $value
+	 * Constructor for MultiValueTrait.
+	 *
+	 * @param CSSNumericValue|CSSNumericArray|array $value The value to initialize with
 	 */
 	public function __construct(CSSNumericValue|CSSNumericArray|array $value) {
 		if($value instanceof CSSNumericArray) {

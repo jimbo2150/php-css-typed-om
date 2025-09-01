@@ -13,13 +13,18 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 abstract class CSSStyleValue
 {
 
+	/**
+	 * Constructs a new CSSStyleValue.
+	 */
 	public function __construct()
 	{
-		
+
 	}
 
 	/**
 	 * Clone this value.
+	 *
+	 * @return static A clone of this value
 	 */
 	abstract public function clone(): static;
 }
