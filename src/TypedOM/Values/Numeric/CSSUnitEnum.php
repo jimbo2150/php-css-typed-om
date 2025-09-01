@@ -6,6 +6,7 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 
 enum CSSUnitEnum: string
 {
+
 	case NUMBER = '';
 	case PERCENT = '%';
 
@@ -29,6 +30,35 @@ enum CSSUnitEnum: string
 	case LENGTH_pt = 'pt';
 	case LENGTH_pc = 'pc';
 	case LENGTH_px = 'px';
+	case LENGTH_cap = 'cap';
+	case LENGTH_rcap = 'rcap';
+	case LENGTH_cqb = 'cqb';
+	case LENGTH_cqh = 'cqh';
+	case LENGTH_cqw = 'cqw';
+	case LENGTH_cqi = 'cqi';
+	case LENGTH_cqmax = 'cqmax';
+	case LENGTH_cqmin = 'cqmin';
+	case LENGTH_dvb = 'dvb';
+	case LENGTH_dvh = 'dvh';
+	case LENGTH_dvi = 'dvi';
+	case LENGTH_dvmax = 'dvmax';
+	case LENGTH_dvmin = 'dvmin';
+	case LENGTH_dvw = 'dvw';
+	case LENGTH_lvb = 'lvb';
+	case LENGTH_lvh = 'lvh';
+	case LENGTH_lvi = 'lvi';
+	case LENGTH_lvmax = 'lvmax';
+	case LENGTH_lvmin = 'lvmin';
+	case LENGTH_lvw = 'lvw';
+	case LENGTH_rch = 'lch';
+	case LENGTH_rex = 'rex';
+	case LENGTH_ric = 'ric';
+	case LENGTH_svb = 'svb';
+	case LENGTH_svh = 'svh';
+	case LENGTH_svi = 'svi';
+	case LENGTH_svmax = 'svmax';
+	case LENGTH_svmin = 'svmin';
+	case LENGTH_svw = 'svw';
 
 	case ANGLE_deg = 'deg';
 	case ANGLE_grad = 'grad';
