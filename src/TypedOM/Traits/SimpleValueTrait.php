@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Traits;
 
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericType;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
-
 /**
  * Trait for simple value classes (color, keyword, image).
  * 

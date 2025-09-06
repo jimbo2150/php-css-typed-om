@@ -47,9 +47,6 @@ trait TypeableUnitTrait
 			throw new Exception('No unit set.');
 		}
 		$type = $this->unitObj->type();
-		if(!$type) {
-			return null;
-		}
 		return $type->value;
 	}
 }

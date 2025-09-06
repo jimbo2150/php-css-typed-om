@@ -18,7 +18,6 @@ abstract class CSSStyleValue
 	 */
 	public function __construct()
 	{
-
 	}
 
 	/**

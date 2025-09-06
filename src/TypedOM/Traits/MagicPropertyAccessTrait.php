@@ -47,8 +47,8 @@ trait MagicPropertyAccessTrait
         }
 
         // Allow access to type property from parent classes
-        if ($name === 'type' && property_exists($this, 'type')) {
-            return $this->type;
+        if ($name === 'type') {
+            return $this->propertyTypes;
         }
 
         throw new \Error(sprintf('Undefined property: %s::$%s', static::class, $name));

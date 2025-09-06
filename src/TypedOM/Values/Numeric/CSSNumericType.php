@@ -4,9 +4,14 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 
+use AllowDynamicProperties;
+use Exception;
+use TypeError;
+
 /**
  * Represents the type of a CSS numeric value.
  */
+#[AllowDynamicProperties()]
 class CSSNumericType
 {
 	/**
@@ -35,15 +40,16 @@ class CSSNumericType
 	 * @throws \InvalidArgumentException If property is not allowed or value is invalid
 	 */
 	public function __set(string $key, string|int $value) {
-		if(!in_array($key, static::allowedProperties, true)) {
-			throw new \InvalidArgumentException("Property '{$key}' is not allowed.");
-		} else {
-			if($key !== 'percentHint' && !is_int($value)) {
-				throw new \InvalidArgumentException("Value for '{$key}' must be an integer.");
-			} else if(!is_string($value)) {
-				throw new \InvalidArgumentException("Value for '{$key}' must be a string.");
-			}
+		$type = CSSUnitTypeEnum::from($key);
+		$typeStr = $type->verifyValue($value);
+		if($typeStr instanceof Exception) {
+			throw $typeStr;
 		}
-		$this->{$key} = $value;
+		if(!settype($value, $typeStr)) {
+			 // @codeCoverageIgnoreStart
+			throw new TypeError('Could not change type of value to ' . (string) $typeStr);
+			 // @codeCoverageIgnoreEnd
+		}
+		$this->{$type->value} = $value;
 	}
 }
