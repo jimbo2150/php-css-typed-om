@@ -28,6 +28,7 @@
 		"test": "./vendor/bin/phpunit",
 		"test-deprecated": "./vendor/bin/phpunit --display-deprecations",
 		"test-coverage": "XDEBUG_MODE=coverage ./vendor/bin/phpunit --coverage-text",
+		"test-coverage-html": "XDEBUG_MODE=coverage ./vendor/bin/phpunit --coverage-html ./.test/coverage",
 		"post-install-cmd": [
 			
 		],
