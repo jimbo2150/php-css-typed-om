@@ -115,6 +115,36 @@ $emValue = $value->to('em'); // CSSUnitValue(1, 'em')
 $sum = $value->toSum('px', 'em', 'pt'); // CSSMathSum with 3 values
 ```
 
+### CSSContext for Context-Dependent Conversions
+
+The library now supports context-dependent unit conversions using CSSContext:
+
+```php
+use Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext;
+
+$value = CSS::px(20);
+
+// Custom context with different font-size
+$context = (new CSSContext())->setFontSize(10.0);
+$emValue = $value->to('em', $context); // 2em (20px / 10px font-size)
+
+// Custom viewport for vw conversion
+$context = (new CSSContext())->setViewportWidth(800.0);
+$vwValue = $value->to('vw', $context); // 2.5vw (20px / (800/100))
+```
+
+### Enhanced Calc Parser
+
+The calc() parser now handles extra whitespace and negative decimals more robustly:
+
+```php
+// Works with extra whitespace
+$result = CSSCalcParser::parse('calc( 10px + 5px )'); // CSSMathSum
+
+// Handles negative decimals
+$result = CSSCalcParser::parse('calc(-1.5px * 2)'); // CSSMathProduct
+```
+
 ### String Representation
 
 ```php
