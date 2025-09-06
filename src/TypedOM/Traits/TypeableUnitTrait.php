@@ -6,7 +6,6 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Traits;
 
 use Exception;
 use Jimbo2150\PhpCssTypedOm\CSS;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericType;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
 
 /**
