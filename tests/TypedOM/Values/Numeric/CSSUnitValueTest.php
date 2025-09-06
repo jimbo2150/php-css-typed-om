@@ -62,4 +62,55 @@ class CSSUnitValueTest extends TestCase
         $value = new CSSUnitValue(10.5, 'px');
         $this->assertEquals('10.5px', (string)$value);
     }
+
+    public function testAddSameUnit()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $value2 = new CSSUnitValue(5, 'px');
+        $result = $value1->add($value2);
+
+        $this->assertInstanceOf(CSSUnitValue::class, $result);
+        $this->assertEquals(15, $result->value);
+        $this->assertEquals('px', $result->unit);
+    }
+
+    public function testAddDifferentUnit()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $value2 = new CSSUnitValue(5, 'em');
+        $result = $value1->add($value2);
+
+        $this->assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum::class, $result);
+    }
+
+    public function testSubSameUnit()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $value2 = new CSSUnitValue(5, 'px');
+        $result = $value1->sub($value2);
+
+        $this->assertInstanceOf(CSSUnitValue::class, $result);
+        $this->assertEquals(5, $result->value);
+        $this->assertEquals('px', $result->unit);
+    }
+
+    public function testSubDifferentUnit()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $value2 = new CSSUnitValue(5, 'em');
+        $result = $value1->sub($value2);
+
+        $this->assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum::class, $result);
+    }
+
+    public function testClone()
+    {
+        $value = new CSSUnitValue(10, 'px');
+        $clone = $value->clone();
+
+        $this->assertInstanceOf(CSSUnitValue::class, $clone);
+        $this->assertEquals(10, $clone->value);
+        $this->assertEquals('px', $clone->unit);
+        $this->assertNotSame($value, $clone);
+    }
 }

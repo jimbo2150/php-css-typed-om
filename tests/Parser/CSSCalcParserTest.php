@@ -213,6 +213,20 @@ class CSSCalcParserTest extends TestCase
         CSSCalcParser::parse('calc(+)');
     }
 
+    public function testParseInvalidExpression2()
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid expression.');
+        CSSCalcParser::parse('calc(10px 5px)');
+    }
+
+    public function testParseMismatchedParenthesesClosing()
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Mismatched parentheses.');
+        CSSCalcParser::parse('calc(10px + 5px))');
+    }
+
     public function testParseComplexExpression()
     {
         $result = CSSCalcParser::parse('calc((10px + 5em) * 2 - 3px)');

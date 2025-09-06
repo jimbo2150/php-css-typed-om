@@ -181,6 +181,27 @@ class CSSNumericValueTest extends TestCase
         $this->assertFalse($value1->equals($value2));
     }
 
+    public function testEqualsDifferentConvertibleUnitsNotEqual3()
+    {
+        $value1 = new CSSUnitValue(1, 's');
+        $value2 = new CSSUnitValue(100, 'ms');
+
+        $this->assertFalse($value1->equals($value2));
+    }
+
+    public function testEqualsWithConversionError()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $value2 = $this->getMockBuilder(CSSUnitValue::class)
+            ->setConstructorArgs([10, 'em'])
+            ->onlyMethods(['to'])
+            ->getMock();
+
+        $value2->method('to')->will($this->throwException(new \Exception()));
+
+        $this->assertFalse($value1->equals($value2));
+    }
+
     public function testEqualsIncompatibleUnits()
     {
         $value1 = new CSSUnitValue(10, 'px');
@@ -223,6 +244,26 @@ class CSSNumericValueTest extends TestCase
         $this->assertFalse($unitValue->equals($sum));
     }
 
+    public function testEqualsMathSumDifferentNumberOfValues()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $value2 = new CSSUnitValue(5, 'px');
+        $sum1 = new CSSMathSum([$value1, $value2]);
+
+        $value3 = new CSSUnitValue(10, 'px');
+        $sum2 = new CSSMathSum([$value3]);
+
+        $this->assertFalse($sum1->equals($sum2));
+    }
+
+    public function testEqualsDifferentConvertibleUnitsNotEqual2()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $value2 = new CSSUnitValue(2, 'em');
+
+        $this->assertFalse($value1->equals($value2));
+    }
+
     public function testAddMethod()
     {
         $value1 = new CSSUnitValue(10, 'px');
@@ -241,6 +282,19 @@ class CSSNumericValueTest extends TestCase
         $result = $value1->add($value2);
 
         $this->assertEquals('15px', (string)$result);
+    }
+
+    public function testEqualsMathProductSameValues()
+    {
+        $value1 = new CSSUnitValue(10, 'px');
+        $value2 = new CSSUnitValue(2, 'number');
+        $product1 = new CSSMathProduct([$value1, $value2]);
+
+        $value3 = new CSSUnitValue(10, 'px');
+        $value4 = new CSSUnitValue(2, 'number');
+        $product2 = new CSSMathProduct([$value3, $value4]);
+
+        $this->assertTrue($product1->equals($product2));
     }
 
     public function testSubMethod()
@@ -514,5 +568,45 @@ class CSSNumericValueTest extends TestCase
         $this->assertInstanceOf(CSSUnitValue::class, $converted);
         $this->assertEqualsWithDelta(5.0, $converted->value, 0.001); // 27 / 5.4 = 5vh
         $this->assertEquals('vh', $converted->unit);
+    }
+
+	public function testFrom()
+	{
+		$this->assertEquals(CSSNumericValue::parse('10px'), (new CSSUnitValue(10, 'px'))->from('10px'));
+	}
+
+    public function testTypeMethod()
+    {
+        $pxValue = new CSSUnitValue(10, 'px');
+        $this->assertEquals('length', $pxValue->type());
+
+        $degValue = new CSSUnitValue(90, 'deg');
+        $this->assertEquals('angle', $degValue->type());
+
+        $sValue = new CSSUnitValue(2, 's');
+        $this->assertEquals('time', $sValue->type());
+
+        $hzValue = new CSSUnitValue(100, 'hz');
+        $this->assertEquals('frequency', $hzValue->type());
+
+        $dpiValue = new CSSUnitValue(300, 'dpi');
+        $this->assertEquals('resolution', $dpiValue->type());
+
+        $frValue = new CSSUnitValue(1, 'fr');
+        $this->assertEquals('flex', $frValue->type());
+
+        $percentValue = new CSSUnitValue(50, 'percent');
+        $this->assertEquals('percent', $percentValue->type());
+    }
+
+    public function testTypeMethodWithNoUnit()
+    {
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('No unit set');
+        $value = new CSSUnitValue(10, 'number');
+  $reflectedProperty = new \ReflectionProperty(CSSUnitValue::class, 'unitObj');
+  $reflectedProperty->setAccessible(true);
+  $reflectedProperty->setValue($value, null);
+        $value->type();
     }
 }

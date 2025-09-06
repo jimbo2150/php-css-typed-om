@@ -21,7 +21,19 @@ class CSSMathValueTest extends TestCase
         $this->assertEquals('calc(1 / 10px)', (string)$mathInvert);
     }
 
+    public function testCSSMathInvertWithSingleValueToString()
+    {
+        $mathInvert = new CSSMathInvert(new CSSUnitValue(10, 'px'));
+        $this->assertEquals('calc(1 / 10px)', (string)$mathInvert);
+    }
+
     public function testCSSMathNegateToString()
+    {
+        $mathNegate = new CSSMathNegate(new CSSUnitValue(10, 'px'));
+        $this->assertEquals('calc(-10px)', (string)$mathNegate);
+    }
+
+    public function testCSSMathNegateWithSingleValueToString()
     {
         $mathNegate = new CSSMathNegate(new CSSUnitValue(10, 'px'));
         $this->assertEquals('calc(-10px)', (string)$mathNegate);
@@ -31,6 +43,12 @@ class CSSMathValueTest extends TestCase
     {
         $mathSum = new CSSMathSum([new CSSUnitValue(10, 'px'), new CSSUnitValue(20, 'px')]);
         $this->assertEquals('calc(10px + 20px)', (string)$mathSum);
+    }
+
+    public function testCSSMathSumWithSingleValueToString()
+    {
+        $mathSum = new CSSMathSum([new CSSUnitValue(10, 'px')]);
+        $this->assertEquals('calc(10px)', (string)$mathSum);
     }
 
     public function testCSSMathProductToString()

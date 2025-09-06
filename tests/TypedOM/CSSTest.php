@@ -125,4 +125,9 @@ class CSSTest extends TestCase
 		$this->assertEquals('--a', CSS::escape('--a'));
 		$this->assertEquals('\\\\30 ', CSS::escape(0));
 	}
+
+	public function testEscapeNull()
+	{
+		$this->assertEquals("\u{FFFD}", CSS::escape(null));
+	}
 }

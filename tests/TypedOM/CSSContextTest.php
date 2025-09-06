@@ -43,7 +43,12 @@ class CSSContextTest extends TestCase
         $context = new CSSContext(16.0, 1000.0, 800.0);
         $this->assertEquals(1.0, $context->getToPxFactor('px'));
         $this->assertEquals(1.333, $context->getToPxFactor('pt'));
+        $this->assertEquals(16.0, $context->getToPxFactor('pc'));
+        $this->assertEquals(96.0, $context->getToPxFactor('in'));
+        $this->assertEquals(37.795, $context->getToPxFactor('cm'));
+        $this->assertEquals(3.7795, $context->getToPxFactor('mm'));
         $this->assertEquals(16.0, $context->getToPxFactor('em'));
+        $this->assertEquals(16.0, $context->getToPxFactor('rem'));
         $this->assertEquals(10.0, $context->getToPxFactor('vw'));
         $this->assertEquals(8.0, $context->getToPxFactor('vh'));
         $this->assertEquals(8.0, $context->getToPxFactor('vmin'));

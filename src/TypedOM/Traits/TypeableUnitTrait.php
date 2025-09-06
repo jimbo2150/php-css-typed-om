@@ -43,13 +43,13 @@ trait TypeableUnitTrait
 	 * @return string The unit type
 	 * @throws Exception If no unit is set or unknown type
 	 */
-	public function type(): string {
+	public function type(): ?string {
 		if (!$this->unitObj) {
 			throw new Exception('No unit set.');
 		}
 		$type = $this->unitObj->type();
 		if(!$type) {
-			throw new Exception('Unknown unit type.');
+			return null;
 		}
 		return $type->value;
 	}
