@@ -46,7 +46,7 @@ abstract class CSSMathValue extends CSSNumericValue
      *
      * @return static The cloned value
      */
-       public function clone(): static
+    public function clone(): static
     {
         $clonedValues = [];
         foreach ($this->values->values as $value) {
