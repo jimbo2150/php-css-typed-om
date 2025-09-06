@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 
+use Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext;
+
 use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\LengthTrait;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\SimpleValueTrait;
@@ -11,6 +13,8 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\TypeableUnitTrait;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMax;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMin;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathNegate;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathInvert;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
 
@@ -76,10 +80,12 @@ abstract class CSSNumericValue extends CSSStyleValue
 	 * Converts the numeric value to the specified unit.
 	 *
 	 * @param string $unit The target unit
+	 * @param CSSContext|null $context Optional context for relative unit conversions (default: new CSSContext())
 	 * @return CSSUnitValue The converted value
 	 */
-	public function to(string $unit): CSSUnitValue
+	public function to(string $unit, ?CSSContext $context = null): CSSUnitValue
 	{
+		$context = $context ?? new CSSContext();
 		$currentValue = $this->value;
 		$currentUnit = $this->unit;
 
@@ -94,8 +100,8 @@ abstract class CSSNumericValue extends CSSStyleValue
 		}
 
 		// Convert to base unit (px) first, then to target unit
-		$pxValue = $this->convertToPx($currentValue, $currentUnit);
-		$targetValue = $this->convertFromPx($pxValue, $unit);
+		$pxValue = self::convertToPx($currentValue, $currentUnit, $context);
+		$targetValue = self::convertFromPx($pxValue, $unit, $context);
 
 		return new CSSUnitValue($targetValue, $unit);
 	}
@@ -107,23 +113,10 @@ abstract class CSSNumericValue extends CSSStyleValue
 	 * @param string $unit The source unit
 	 * @return float The value in pixels
 	 */
-	private function convertToPx(float $value, string $unit): float
+	private static function convertToPx(float $value, string $unit, CSSContext $context): float
 	{
-		return match ($unit) {
-			'px' => $value,
-			'pt' => $value * 1.333, // 1pt = 1.333px
-			'pc' => $value * 16,    // 1pc = 16px
-			'in' => $value * 96,    // 1in = 96px
-			'cm' => $value * 37.795, // 1cm ≈ 37.795px
-			'mm' => $value * 3.7795, // 1mm ≈ 3.7795px
-			'em' => $value * 16,    // Assume 1em = 16px (default font-size)
-			'rem' => $value * 16,   // Assume 1rem = 16px
-			'vw' => $value * 9.6,   // Assume 1vw = 9.6px (viewport width / 100)
-			'vh' => $value * 5.4,   // Assume 1vh = 5.4px (viewport height / 100)
-			'vmin' => $value * 5.4, // Assume vmin = vh for simplicity
-			'vmax' => $value * 9.6, // Assume vmax = vw for simplicity
-			default => $value,      // Unknown unit, return as-is
-		};
+		$factor = $context->getToPxFactor($unit);
+		return $value * $factor;
 	}
 
 	/**
@@ -133,23 +126,10 @@ abstract class CSSNumericValue extends CSSStyleValue
 	 * @param string $unit The target unit
 	 * @return float The converted value
 	 */
-	private function convertFromPx(float $pxValue, string $unit): float
+	private static function convertFromPx(float $pxValue, string $unit, CSSContext $context): float
 	{
-		return match ($unit) {
-			'px' => $pxValue,
-			'pt' => $pxValue / 1.333,
-			'pc' => $pxValue / 16,
-			'in' => $pxValue / 96,
-			'cm' => $pxValue / 37.795,
-			'mm' => $pxValue / 3.7795,
-			'em' => $pxValue / 16,
-			'rem' => $pxValue / 16,
-			'vw' => $pxValue / 9.6,
-			'vh' => $pxValue / 5.4,
-			'vmin' => $pxValue / 5.4,
-			'vmax' => $pxValue / 9.6,
-			default => $pxValue,    // Unknown unit, return px value
-		};
+		$factor = $context->getFromPxFactor($unit);
+		return $pxValue * $factor;
 	}
 
 	/**
@@ -196,7 +176,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 	public function sub(CSSNumericValue|CSSUnitValue $value): CSSNumericValue
 	{
 		return (new CSSMathSum([
-			...$this->_getCurrentValues(), $value
+			...$this->_getCurrentValues(), new CSSMathNegate([$value])
 		]));
 	}
 
@@ -222,7 +202,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 	public function div(CSSNumericValue|CSSUnitValue $value): CSSMathProduct
 	{
 		return (new CSSMathProduct([
-			...$this->_getCurrentValues(), $value
+			...$this->_getCurrentValues(), new CSSMathInvert([$value])
 		]));
 	}
 
@@ -300,9 +280,8 @@ abstract class CSSNumericValue extends CSSStyleValue
 	 * @return array The current values
 	 */
 	protected function _getCurrentValues(): array {
-		return isset($this->length) && isset($this->inner_values) &&
-			is_array($this->inner_values) ?
-				$this->inner_values :
-				($this->value ? [$this] : []);
+		return property_exists($this, 'values') && $this->values instanceof \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericArray
+			? $this->values->values
+			: [$this];
 	}
 }

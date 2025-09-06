@@ -16,7 +16,18 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
  */
 class CSSMathNegate extends CSSMathValue
 {
-	public const ?string sign = '/';
+    public const ?string sign = '-';
 
-	public const ?string operator = 'negate';
+    public const ?string operator = 'negate';
+
+    /**
+     * Convert to string representation.
+     *
+     * @return string The CSS string representation
+     */
+    public function __toString(): string
+    {
+        $value = $this->values->values[0];
+        return 'calc(-' . $value . ')';
+    }
 }

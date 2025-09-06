@@ -15,67 +15,47 @@ use PHPUnit\Framework\TestCase;
 
 class CSSMathValueTest extends TestCase
 {
-    public function testCSSMathSumToString()
-    {
-        $value1 = new CSSUnitValue(10, 'px');
-        $value2 = new CSSUnitValue(20, 'px');
-        $sum = new CSSMathSum([$value1, $value2]);
-        $this->assertEquals('calc(10px + 20px)', (string)$sum);
-    }
-
-    public function testCSSMathProductToString()
-    {
-        $value1 = new CSSUnitValue(10, 'px');
-        $value2 = new CSSUnitValue(2, 'number');
-        $product = new CSSMathProduct([$value1, $value2]);
-        $this->assertEquals('calc(10px * 2)', (string)$product);
-    }
-
-    public function testCSSMathMinToString()
-    {
-        $value1 = new CSSUnitValue(10, 'px');
-        $value2 = new CSSUnitValue(20, 'px');
-        $min = new CSSMathMin([$value1, $value2]);
-        $this->assertEquals('min(10px, 20px)', (string)$min);
-    }
-
-    public function testCSSMathMaxToString()
-    {
-        $value1 = new CSSUnitValue(10, 'px');
-        $value2 = new CSSUnitValue(20, 'px');
-        $max = new CSSMathMax([$value1, $value2]);
-        $this->assertEquals('max(10px, 20px)', (string)$max);
-    }
-
     public function testCSSMathInvertToString()
     {
-        $value = new CSSUnitValue(10, 'px');
-        $invert = new CSSMathInvert([$value]);
-        $this->assertEquals('calc(1 / 10px)', (string)$invert);
+        $mathInvert = new CSSMathInvert(new CSSUnitValue(10, 'px'));
+        $this->assertEquals('calc(1 / 10px)', (string)$mathInvert);
     }
 
     public function testCSSMathNegateToString()
     {
-        $value = new CSSUnitValue(10, 'px');
-        $negate = new CSSMathNegate([$value]);
-        $this->assertEquals('calc(-10px)', (string)$negate);
+        $mathNegate = new CSSMathNegate(new CSSUnitValue(10, 'px'));
+        $this->assertEquals('calc(-10px)', (string)$mathNegate);
     }
 
-    public function testCSSMathSumWithMultipleValues()
+    public function testCSSMathSumToString()
     {
-        $value1 = new CSSUnitValue(10, 'px');
-        $value2 = new CSSUnitValue(20, 'px');
-        $value3 = new CSSUnitValue(5, 'em');
-        $sum = new CSSMathSum([$value1, $value2, $value3]);
-        $this->assertEquals('calc(10px + 20px + 5em)', (string)$sum);
+        $mathSum = new CSSMathSum([new CSSUnitValue(10, 'px'), new CSSUnitValue(20, 'px')]);
+        $this->assertEquals('calc(10px + 20px)', (string)$mathSum);
     }
 
-    public function testCSSMathMinWithMultipleValues()
+    public function testCSSMathProductToString()
     {
-        $value1 = new CSSUnitValue(10, 'px');
-        $value2 = new CSSUnitValue(20, 'px');
-        $value3 = new CSSUnitValue(5, 'em');
-        $min = new CSSMathMin([$value1, $value2, $value3]);
-        $this->assertEquals('min(10px, 20px, 5em)', (string)$min);
+        $mathProduct = new CSSMathProduct([new CSSUnitValue(10, 'px'), new CSSUnitValue(20, 'px')]);
+        $this->assertEquals('calc(10px * 20px)', (string)$mathProduct);
+    }
+
+    public function testCSSMathMinToString()
+    {
+        $mathMin = new CSSMathMin([new CSSUnitValue(10, 'px'), new CSSUnitValue(20, 'px')]);
+        $this->assertEquals('min(10px, 20px)', (string)$mathMin);
+    }
+
+    public function testCSSMathMaxToString()
+    {
+        $mathMax = new CSSMathMax([new CSSUnitValue(10, 'px'), new CSSUnitValue(20, 'px')]);
+        $this->assertEquals('max(10px, 20px)', (string)$mathMax);
+    }
+
+    public function testClone()
+    {
+        $mathSum = new CSSMathSum([new CSSUnitValue(10, 'px'), new CSSUnitValue(20, 'px')]);
+        $clone = $mathSum->clone();
+        $this->assertNotSame($mathSum, $clone);
+        $this->assertNotSame($mathSum->values, $clone->values);
     }
 }

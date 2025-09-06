@@ -223,4 +223,69 @@ class CSSCalcParserTest extends TestCase
         $this->assertInstanceOf(CSSMathProduct::class, $result->inner_values[0]);
         $this->assertInstanceOf(CSSMathNegate::class, $result->inner_values[1]);
     }
+
+    /**
+     * Test parse with extra whitespace around operators.
+     */
+    public function testParseWithExtraWhitespace()
+    {
+        $result = CSSCalcParser::parse('calc( 10px  +  5px )');
+
+        $this->assertInstanceOf(CSSMathSum::class, $result);
+        /** @var CSSMathSum $result */
+        $this->assertEquals(2, $result->length);
+        $this->assertEquals(10, $result->inner_values[0]->value);
+        $this->assertEquals('px', $result->inner_values[0]->unit);
+        $this->assertEquals(5, $result->inner_values[1]->value);
+        $this->assertEquals('px', $result->inner_values[1]->unit);
+    }
+
+    /**
+     * Test parse with negative decimal numbers.
+     */
+    public function testParseNegativeDecimal()
+    {
+        $result = CSSCalcParser::parse('calc(-1.5px * 2)');
+
+        $this->assertInstanceOf(CSSMathProduct::class, $result);
+        /** @var CSSMathProduct $result */
+        $this->assertEquals(2, $result->length);
+        $this->assertEquals(-1.5, $result->inner_values[0]->value);
+        $this->assertEquals('px', $result->inner_values[0]->unit);
+        $this->assertEquals(2, $result->inner_values[1]->value);
+        $this->assertEquals('', $result->inner_values[1]->unit);
+    }
+
+    /**
+     * Test parse with mixed whitespace in complex expression.
+     */
+    public function testParseComplexWithWhitespace()
+    {
+        $result = CSSCalcParser::parse('calc( ( 10px + 5em ) * 2 - 3px )');
+
+        $this->assertInstanceOf(CSSMathSum::class, $result);
+        /** @var CSSMathSum $result */
+        $this->assertEquals(2, $result->length);
+        $this->assertInstanceOf(CSSMathProduct::class, $result->inner_values[0]);
+        $this->assertInstanceOf(CSSMathNegate::class, $result->inner_values[1]);
+    }
+    public function testParseEmptyCalc()
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid expression.');
+        CSSCalcParser::parse('calc()');
+    }
+
+    public function testParseWhitespaceCalc()
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid expression.');
+        CSSCalcParser::parse('calc( )');
+    }
+
+    public function testParseWithMultipleSpaces()
+    {
+        $result = CSSCalcParser::parse('calc(10px  +  5px)');
+        $this->assertInstanceOf(CSSMathSum::class, $result);
+    }
 }

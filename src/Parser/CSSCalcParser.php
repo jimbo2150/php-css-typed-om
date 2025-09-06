@@ -44,12 +44,12 @@ class CSSCalcParser
 	 */
 	public static function parse(string $calcString): CSSNumericValue
 	{
-		// Remove 'calc()' wrapper and trim whitespace
-		$expression = trim(substr($calcString, 5, -1));
+		// Remove 'calc()' wrapper, trim whitespace, and normalize multiple spaces
+		$expression = preg_replace('/\s+/', ' ', trim(substr($calcString, 5, -1)));
 
 		// Tokenization: Split the expression into operators, operands, and parentheses
 		preg_match_all(
-			'/(-?[0-9]+(?:\.[0-9]*)?(?:[a-zA-Z%]+)?)|([+\-*\/()])|([^+\-*\/()\s]+)/i',
+			'/(-?\d*\.?\d+(?:[a-zA-Z%]+)?)|([+\-*\/()])|([a-zA-Z%]+|[\S]+)/i',
 			$expression,
 			$matches,
 			PREG_SET_ORDER
@@ -71,7 +71,7 @@ class CSSCalcParser
 		$operatorStack = [];
 
 		foreach ($tokens as $token) {
-			if (is_numeric($token) || preg_match('/^-?[0-9]+(?:\.[0-9]*)?(?:[a-zA-Z%]+)?$/i', $token)) { // Operand (number with unit)
+			if (preg_match('/^-?\d*\.?\d+(?:[a-zA-Z%]+)?$/i', $token)) { // Operand (number with unit)
 				$outputQueue[] = $token;
 			} elseif (isset(self::OPERATORS[$token])) { // Operator
 				$op1 = $token;

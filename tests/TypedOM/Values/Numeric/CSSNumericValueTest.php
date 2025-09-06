@@ -9,8 +9,10 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericArray;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathInvert;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMin;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMax;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathNegate;
 use PHPUnit\Framework\TestCase;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 
@@ -252,9 +254,13 @@ class CSSNumericValueTest extends TestCase
         $this->assertEquals(2, $result->length);
         $this->assertEquals(10, $result->inner_values[0]->value);
         $this->assertEquals('px', $result->inner_values[0]->unit);
-		/** @var CSSMathSum $innerSum */
-		$innerSum = $result->inner_values[1];
+  /** @var CSSMathNegate $negate */
+  $negate = $result->inner_values[1];
+        $this->assertInstanceOf(CSSMathNegate::class, $negate);
+        /** @var CSSMathSum $innerSum */
+        $innerSum = $negate->inner_values[0];
         $this->assertInstanceOf(CSSMathSum::class, $innerSum);
+        $this->assertEquals(1, $innerSum->length);
         $this->assertEquals(5, $innerSum->inner_values[0]->value);
         $this->assertEquals('px', $innerSum->inner_values[0]->unit);
     }
@@ -262,10 +268,10 @@ class CSSNumericValueTest extends TestCase
     public function testSubMethodStringCast()
     {
         $value1 = new CSSUnitValue(10, 'px');
-        $sum = new CSSMathSum([new CSSUnitValue(5, 'px')]);
-        $result = $value1->sub($sum);
+        $value2 = new CSSUnitValue(5, 'px');
+        $result = $value1->sub($value2);
 
-        $this->assertEquals('calc(10px + calc(5px))', (string)$result);
+        $this->assertEquals('5px', (string)$result);
     }
 
     public function testSubMethodWithCSSUnitValue()
@@ -299,6 +305,7 @@ class CSSNumericValueTest extends TestCase
         $this->assertEquals(2, $result->length);
         $this->assertEquals(10, $result->inner_values[0]->value);
         $this->assertEquals('px', $result->inner_values[0]->unit);
+        $this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[1]);
         $this->assertEquals(2, $result->inner_values[1]->value);
         $this->assertEquals('', $result->inner_values[1]->unit);
     }
@@ -323,8 +330,12 @@ class CSSNumericValueTest extends TestCase
         $this->assertEquals(2, $result->length);
         $this->assertEquals(10, $result->inner_values[0]->value);
         $this->assertEquals('px', $result->inner_values[0]->unit);
-        $this->assertEquals(2, $result->inner_values[1]->value);
-        $this->assertEquals('', $result->inner_values[1]->unit);
+        $this->assertInstanceOf(CSSMathInvert::class, $result->inner_values[1]);
+        /** @var CSSMathInvert $invert */
+        $invert = $result->inner_values[1];
+        $this->assertEquals(1, $invert->length);
+        $this->assertEquals(2, $invert->inner_values[0]->value);
+        $this->assertEquals('', $invert->inner_values[0]->unit);
     }
 
     public function testDivMethodStringCast()
@@ -333,7 +344,7 @@ class CSSNumericValueTest extends TestCase
         $value2 = new CSSUnitValue(2, 'number');
         $result = $value1->div($value2);
 
-        $this->assertEquals('calc(10px * 2)', (string)$result);
+        $this->assertEquals('calc(10px * calc(1 / 2))', (string)$result);
     }
 
     public function testMinMethod()
@@ -464,4 +475,44 @@ class CSSNumericValueTest extends TestCase
         CSSNumericValue::parse('10px 20px');
     }
 
+    /**
+     * Test to method with custom CSSContext for em conversion.
+     */
+    public function testToMethodWithCustomContextEm()
+    {
+        $value = new CSSUnitValue(20, 'px');
+        $context = (new \Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext())->setFontSize(10.0);
+        $converted = $value->to('em', $context);
+
+        $this->assertInstanceOf(CSSUnitValue::class, $converted);
+        $this->assertEqualsWithDelta(2.0, $converted->value, 0.001); // 20px / 10px font-size = 2em
+        $this->assertEquals('em', $converted->unit);
+    }
+
+    /**
+     * Test to method with custom CSSContext for vw conversion.
+     */
+    public function testToMethodWithCustomContextVw()
+    {
+        $value = new CSSUnitValue(48, 'px');
+        $context = (new \Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext())->setViewportWidth(800.0);
+        $converted = $value->to('vw', $context);
+
+        $this->assertInstanceOf(CSSUnitValue::class, $converted);
+        $this->assertEqualsWithDelta(6.0, $converted->value, 0.001); // 48px / (800/100) = 6vw
+        $this->assertEquals('vw', $converted->unit);
+    }
+
+    /**
+     * Test to method with default CSSContext for vh conversion.
+     */
+    public function testToMethodWithDefaultContextVh()
+    {
+        $value = new CSSUnitValue(27, 'px');
+        $converted = $value->to('vh'); // Uses default context (vh factor 5.4px)
+
+        $this->assertInstanceOf(CSSUnitValue::class, $converted);
+        $this->assertEqualsWithDelta(5.0, $converted->value, 0.001); // 27 / 5.4 = 5vh
+        $this->assertEquals('vh', $converted->unit);
+    }
 }

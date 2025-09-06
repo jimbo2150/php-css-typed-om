@@ -29,10 +29,12 @@ trait MultiValueArrayTrait
 	 * @param CSSNumericValue|CSSNumericArray|array $value The value to initialize with
 	 */
 	public function __construct(CSSNumericValue|CSSNumericArray|array $value) {
-		if($value instanceof CSSNumericArray) {
-			$this->values[] = $value;
-		} else if ($value instanceof CSSNumericArray) {
+		if ($value instanceof CSSNumericArray) {
 			$this->values = $value->values;
+		} else if ($value instanceof CSSNumericValue) {
+			$values = $this->values;
+			$values[] = $value;
+			$this->values = $values;
 		} else {
 			$values = $this->values;
 			foreach($value as $entry) {
@@ -50,6 +52,6 @@ trait MultiValueArrayTrait
      */
     public function __toString(): string
     {
-        return (string) $this->value;
+        return implode(', ', $this->values);
     }
 }

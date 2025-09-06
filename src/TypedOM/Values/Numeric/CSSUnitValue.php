@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathNegate;
+
 use Stringable;
 
 /**
