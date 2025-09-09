@@ -16,5 +16,5 @@ class CSSMathInvert extends CSSMathValue
 	public const ?string sign = '1 / {value}';
 
 	/** @var string The operator name */
-	public const ?string operator = 'invert';
+	public const ?string operator = '';
 }

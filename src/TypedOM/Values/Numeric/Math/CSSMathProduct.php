@@ -19,5 +19,5 @@ class CSSMathProduct extends CSSMathValue
 	public const ?string sign = '*';
 
 	/** @var string The operator name */
-	public const ?string operator = 'product';
+	public const ?string operator = '';
 }

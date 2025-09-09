@@ -200,12 +200,13 @@ class CSSCalcParserTest extends TestCase
     public function testParseSingleValue()
     {
         $input = 'calc(10px)';
+		$output = '10px';
         $result = CSSCalcParser::parse($input);
 
         $this->assertInstanceOf(CSSUnitValue::class, $result);
         $this->assertEquals(10, $result->value);
         $this->assertEquals('px', $result->unit);
-        $this->assertEquals($input, (string) $result);
+        $this->assertEquals($output, (string) $result);
     }
 
     public function testParseMismatchedParentheses()

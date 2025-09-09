@@ -17,5 +17,5 @@ class CSSMathSum extends CSSMathValue
 	public const ?string sign = '+';
 
 	/** @var string The operator name */
-	public const ?string operator = 'sum';
+	public const ?string operator = '';
 }

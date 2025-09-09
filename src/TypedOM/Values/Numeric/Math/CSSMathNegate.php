@@ -18,16 +18,5 @@ class CSSMathNegate extends CSSMathValue
 {
     public const ?string sign = '-';
 
-    public const ?string operator = 'negate';
-
-    /**
-     * Convert to string representation.
-     *
-     * @return string The CSS string representation
-     */
-    public function __toString(): string
-    {
-        $value = $this->values->values[0];
-        return 'calc(-' . $value . ')';
-    }
+    public const ?string operator = '';
 }

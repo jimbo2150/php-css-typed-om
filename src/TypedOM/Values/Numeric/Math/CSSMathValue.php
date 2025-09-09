@@ -25,20 +25,48 @@ abstract class CSSMathValue extends CSSNumericValue
     {
         $values = array_map(fn($v) => (string)$v, $this->values->values);
         $count = count($values);
+		$trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2);
+		$caller = $trace[1];
+		$calledByMathValue = is_a($caller['class'], self::class, true);
+		$hasOperator = (static::operator ?? static::operator !== '' ? true : false) ? true : false;
+		$wrapWithCalc = false == $calledByMathValue && false == $hasOperator;
 
-        if ($count === 1) {
-            if (static::operator === 'invert') {
-                return 'calc(1 / ' . $values[0] . ')';
-            } elseif (static::operator === 'negate') {
-                return 'calc(-' . $values[0] . ')';
+		$printArgs = [
+			'wrap-open' =>
+				($wrapWithCalc ?
+					'calc(' :
+					($calledByMathValue && $count > 1 ? '(' : '')
+				) .
+				($hasOperator ?
+					static::operator . '(' : ''
+				),
+			'inner' => implode(
+				(
+					defined(static::class . '::sign') ?
+						' ' . static::sign . ' ' :
+						', '
+				),
+				$values
+			),
+			'wrap-close' =>
+				($wrapWithCalc ?
+					')' :
+					($calledByMathValue && $count > 1 ? ')' : '')
+				) .
+				($hasOperator ?
+					')' : ''
+				),
+		];
+
+        if ($count == 1) {
+            if ($this instanceof CSSMathInvert) {
+                $printArgs['inner'] = '1 / ' . $values[0];
+            } elseif ($this instanceof CSSMathNegate) {
+				$printArgs['inner'] = '-' . $values[0];
             }
         }
 
-        if (defined(static::class . '::sign')) {
-            return 'calc(' . implode(' ' . static::sign . ' ', $values) . ')';
-        } else {
-            return static::operator . '(' . implode(', ', $values) . ')';
-        }
+		return $printArgs['wrap-open'] . $printArgs['inner'] . $printArgs['wrap-close'];
     }
    
     /**
