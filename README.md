@@ -1,4 +1,4 @@
-# PHP CSS Typed OM and CSSOM
+# PHP CSS Typed Object Model (OM) and CSS OM
 
 A standalone PHP model for parsing and manipulating CSS stylesheets, declarations, and CSS Typed OM values. The package targets PHP 8.4+ and currently has no runtime dependencies.
 
