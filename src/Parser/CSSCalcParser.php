@@ -33,6 +33,8 @@ class CSSCalcParser
 		'-' => ['precedence' => 1, 'associativity' => 'left'],
 		'*' => ['precedence' => 2, 'associativity' => 'left'],
 		'/' => ['precedence' => 2, 'associativity' => 'left'],
+		'u+' => ['precedence' => 3, 'associativity' => 'right'],
+		'u-' => ['precedence' => 3, 'associativity' => 'right'],
 	];
 
 	/**
@@ -44,36 +46,29 @@ class CSSCalcParser
 	 */
 	public static function parse(string $calcString): CSSNumericValue
 	{
-		// Remove 'calc()' wrapper, trim whitespace, and normalize multiple spaces
-		$expression = preg_replace('/\s+/', ' ', trim(substr($calcString, 5, -1)));
-
-		// Tokenization: Split the expression into operators, operands, and parentheses
-		preg_match_all(
-			'/(-?\d*\.?\d+(?:[a-zA-Z%]+)?)|([+\-*\/()])|([a-zA-Z%]+|[\S]+)/i',
-			$expression,
-			$matches,
-			PREG_SET_ORDER
-		);
-
-		$tokens = [];
-		foreach ($matches as $match) {
-			if (!empty($match[1])) { // Number with optional unit
-				$tokens[] = $match[1];
-			} elseif (!empty($match[2])) { // Operator or parenthesis
-				$tokens[] = $match[2];
-			} elseif (!empty($match[3])) { // Unknown token
-				$tokens[] = $match[3];
-			}
+		$calcString = trim($calcString);
+		if (!preg_match('/^calc\s*\(/i', $calcString, $wrapper)) {
+			throw new \InvalidArgumentException('Expected a calc() expression.');
 		}
+		$open = strpos($calcString, '(');
+		$close = CSSSyntaxScanner::findMatchingDelimiter($calcString, $open);
+		if ($close === null || ($close < strlen($calcString) - 1 && $calcString[$close + 1] === ')')) {
+			throw new \InvalidArgumentException('Mismatched parentheses.');
+		}
+		if ($close !== strlen($calcString) - 1) {
+			throw new \InvalidArgumentException('Invalid expression.');
+		}
+		$expression = substr($calcString, $open + 1, $close - $open - 1);
+		$tokens = self::tokenize($expression);
 
 		// Shunting-yard algorithm: Convert infix to Reverse Polish Notation (RPN)
 		$outputQueue = [];
 		$operatorStack = [];
 
 		foreach ($tokens as $token) {
-			if (preg_match('/^-?\d*\.?\d+(?:[a-zA-Z%]+)?$/i', $token)) { // Operand (number with unit)
+			if (self::isOperand($token)) {
 				$outputQueue[] = $token;
-			} elseif (isset(self::OPERATORS[$token])) { // Operator
+			} elseif (isset(self::OPERATORS[$token])) {
 				$op1 = $token;
 				while (
 					!empty($operatorStack) &&
@@ -113,7 +108,15 @@ class CSSCalcParser
 		// Evaluation of RPN: Build the CSSMathValue tree
 		$valueStack = [];
 		foreach ($outputQueue as $token) {
-			if (isset(self::OPERATORS[$token])) { // Operator
+			if (isset(self::OPERATORS[$token])) {
+				if ($token === 'u-' || $token === 'u+') {
+					if ($valueStack === []) {
+						throw new \InvalidArgumentException('Insufficient operands for operator: ' . substr($token, 1));
+					}
+					$value = array_pop($valueStack);
+					$valueStack[] = $token === 'u-' ? new CSSMathNegate([$value]) : $value;
+					continue;
+				}
 				if (count($valueStack) < 2) {
 					throw new \InvalidArgumentException('Insufficient operands for operator: '.$token);
 				}
@@ -144,5 +147,95 @@ class CSSCalcParser
 		}
 
 		return $valueStack[0];
+	}
+
+	/** @return list<string> */
+	private static function tokenize(string $expression): array
+	{
+		$tokens = [];
+		$offset = 0;
+		$length = strlen($expression);
+		$expectsOperand = true;
+		$numberPattern = '/\G[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?(?:[a-zA-Z]+|%)?/';
+
+		while ($offset < $length) {
+			$character = $expression[$offset];
+			if (ctype_space($character)) {
+				$offset++;
+				continue;
+			}
+
+			if (($character === '+' || $character === '-') && $expectsOperand) {
+				if (preg_match($numberPattern, $expression, $number, 0, $offset)) {
+					$tokens[] = $number[0];
+					$offset += strlen($number[0]);
+					$expectsOperand = false;
+					continue;
+				}
+				$tokens[] = $character === '-' ? 'u-' : 'u+';
+				$offset++;
+				continue;
+			}
+
+			if (preg_match($numberPattern, $expression, $number, 0, $offset)) {
+				$tokens[] = $number[0];
+				$offset += strlen($number[0]);
+				$expectsOperand = false;
+				continue;
+			}
+
+			if ($character === '(' || $character === ')') {
+				$tokens[] = $character;
+				$offset++;
+				$expectsOperand = $character === '(';
+				continue;
+			}
+
+			if (str_contains('+-*/', $character)) {
+				$tokens[] = $character;
+				$offset++;
+				$expectsOperand = true;
+				continue;
+			}
+
+			if (preg_match('/\G[a-zA-Z][a-zA-Z0-9-]*/', $expression, $identifier, 0, $offset)) {
+				$name = $identifier[0];
+				$afterName = $offset + strlen($name);
+				$open = $afterName;
+				while ($open < $length && ctype_space($expression[$open])) {
+					$open++;
+				}
+				if (($expression[$open] ?? '') === '(') {
+					$close = CSSSyntaxScanner::findMatchingDelimiter($expression, $open);
+					if ($close === null) {
+						throw new \InvalidArgumentException('Mismatched parentheses.');
+					}
+					$tokens[] = substr($expression, $offset, $close - $offset + 1);
+					$offset = $close + 1;
+					$expectsOperand = false;
+					continue;
+				}
+				$tokens[] = $name;
+				$offset = $afterName;
+				$expectsOperand = false;
+				continue;
+			}
+
+			$start = $offset++;
+			while ($offset < $length && !ctype_space($expression[$offset])
+				&& !str_contains('()+-*/', $expression[$offset])) {
+				$offset++;
+			}
+			$tokens[] = substr($expression, $start, $offset - $start);
+			$expectsOperand = false;
+		}
+
+		return $tokens;
+	}
+
+	private static function isOperand(string $token): bool
+	{
+		return (bool) preg_match('/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?(?:[a-zA-Z]+|%)?$/D', $token)
+			|| preg_match('/^[a-zA-Z][a-zA-Z0-9-]*\s*\(/', $token) === 1;
 	}
 }

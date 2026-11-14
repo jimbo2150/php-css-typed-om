@@ -1,161 +1,97 @@
-# PHP Typed Object Model
+# PHP CSS Typed OM and CSSOM
 
-## A PHP implementation of the CSS Typed Object Model (OM).
-
-## THIS IS A WORK IN PROGRESS (WIP)
+A standalone PHP model for parsing and manipulating CSS stylesheets, declarations, and CSS Typed OM values. The package targets PHP 8.4+ and currently has no runtime dependencies.
 
 ## Installation
-
-Install via Composer:
 
 ```bash
 composer require jimbo2150/php-css-typed-om
 ```
 
-## Supported Typed OM Classes
+## CSSOM
 
-The following CSS Typed OM classes are currently supported:
+Parse stylesheets into mutable `CSSStyleSheet`, `CSSRuleList`, `CSSStyleRule`, grouping-rule, and declaration objects:
 
-| Class | Description |
-|-------|-------------|
-| `CSSStyleValue` | Base class for all CSS values |
-| `CSSNumericValue` | Abstract base for numeric values |
-| `CSSUnitValue` | Represents a value with a unit (e.g., `10px`, `2em`) |
-| `CSSNumericArray` | Array of numeric values |
-| `CSSNumericType` | Represents the type of a numeric value |
-| `CSSUnitEnum` | Enumeration of CSS units |
-| `CSSUnitTypeEnum` | Enumeration of CSS unit types |
-| `CSSMathValue` | Abstract base for math operations |
-| `CSSMathSum` | Represents addition operations |
-| `CSSMathProduct` | Represents multiplication operations |
-| `CSSMathMin` | Represents min() function |
-| `CSSMathMax` | Represents max() function |
-| `CSSMathInvert` | Represents inversion operations |
-| `CSSMathNegate` | Represents negation operations |
+```php
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleSheet;
 
-## Unsupported Typed OM Classes
+$sheet = CSSStyleSheet::parse(<<<'CSS'
+@media (min-width: 40rem) {
+    .card { width: calc(100% - 2rem); }
+}
+CSS);
 
-The following CSS Typed OM classes are not yet implemented:
+$mediaRule = $sheet->cssRules[0];
+$styleRule = $mediaRule->cssRules[0];
+$styleRule->style->setProperty('color', 'rebeccapurple');
+$sheet->insertRule('.notice { display: block }', count($sheet->cssRules));
 
-| Class | Description |
-|-------|-------------|
-| `CSSKeywordValue` | Represents CSS keywords (e.g., `auto`, `none`) |
-| `CSSImageValue` | Represents CSS image values |
-| `CSSColorValue` | Represents CSS color values |
-| `CSSTransformValue` | Represents CSS transform values |
-| `CSSPositionValue` | Represents CSS position values |
-| `CSSUnparsedValue` | Represents unparsed CSS values |
+echo $sheet->cssText;
+```
 
-### Why are these not supported?
-The unsupported Typed OM classes listed above generally require a connection to a DOM object so that it can parse
-and apply values to elements or CSS stylesheets. Without it, they are not all that useful. In the future, if there
-is sufficient demand and need for these (or if I connect this class to the new DOM Document object), they will be
-implemented.
+`CSSStyleSheet` supports `parse()`, `cssRules`, `insertRule()`, `deleteRule()`, `replaceSync()`, `cssText`, and parse diagnostics. Rule lists and declarations are ordered and mutable. Declarations support `getPropertyValue()`, `getPropertyPriority()`, `setProperty()`, `removeProperty()`, `item()`, `length`, and `cssText`. `MediaList`, `StyleSheet`, and `StyleSheetList` provide standalone equivalents for media queries and stylesheet metadata.
 
-## Usage Examples
+Stylesheet parsing recovers at malformed declarations/rules and reports `message` and byte `offset` entries through `getParseErrors()`. Direct declaration replacement and rule insertion validate before mutating and throw `InvalidArgumentException` on malformed input. Structured rules serialize in normalized form; unknown at-rules are retained as opaque source.
 
-### Creating Unit Values
+The parser structures qualified and nested style rules; media, supports, layer, keyframes, starting-style, and other grouping rules; import/namespace rules; page margin boxes; position-try rules; and CSS function rules with parameter and declaration objects. Selector and condition matching is not performed. Import rules retain their URL and media text but do not fetch or attach an imported sheet.
+
+## Typed OM Values
+
+### Numeric Values
 
 ```php
 use Jimbo2150\PhpCssTypedOm\CSS;
-
-// Using the CSS utility class
-$width = CSS::px(100);
-$height = CSS::em(2);
-$margin = CSS::percent(10);
-
-// Direct instantiation
-$length = new CSSUnitValue(50, 'px');
-```
-
-### Parsing CSS Values
-
-```php
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 
-$value = CSSNumericValue::parse('10px');
-echo $value->value; // 10
-echo $value->unit;  // 'px'
+$width = CSSNumericValue::parse('12px');
+echo $width->value; // 12
+echo $width->unit;  // px
+
+$minimum = CSSNumericValue::parse('clamp(10px, 5vw, 100px)');
+echo $minimum; // clamp(10px, 5vw, 100px)
+
+$height = CSS::em(2);
 ```
 
-### Math Operations
+Numeric values include unit/type enums and exponent vectors, variadic arithmetic, `calc()`, `min()`, `max()`, and `clamp()`. Same-dimension units convert through a supplied `CSSContext`; cross-dimension conversions are rejected. `CSSContext` uses its supplied font size and viewport dimensions, with estimates for font-metric-relative units and viewport fallbacks for container/dynamic units. These conversions cannot reflect a browser's actual element or font metrics. Unit factories accept numeric strings, integers, and floats.
+
+### Property Values and Maps
 
 ```php
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSMathSum;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 
-$value1 = CSS::px(10);
-$value2 = CSS::px(5);
+$width = CSSStyleValue::parse('width', '12px');
+$display = CSSStyleValue::parse('display', 'grid');
+$backgrounds = CSSStyleValue::parseAll('background-image', 'url("a.png"), linear-gradient(red, blue)');
 
-// Addition
-$sum = $value1->add($value2); // CSSUnitValue(15, 'px')
-
-// Subtraction
-$diff = $value1->sub($value2); // CSSUnitValue(5, 'px')
-
-// Multiplication
-$product = $value1->mul(CSS::number(2)); // CSSMathProduct
-
-// Division
-$quotient = $value1->div(CSS::number(2)); // CSSMathProduct
-
-// Min/Max
-$min = $value1->min(new CSSNumericArray([$value2, CSS::px(20)])); // CSSMathMin
-$max = $value1->max(new CSSNumericArray([$value2, CSS::px(20)])); // CSSMathMax
+$rule = $sheet->cssRules[1];
+$rule->styleMap->set('width', $width);
 ```
 
-### Unit Conversion
+Property parsing returns typed numeric, keyword, image, position, and transform values where recognized. Transform values/components are iterable and mutable; `CSSTransformValue::toMatrix()` returns a 16-number, column-major 4x4 matrix. Custom properties are represented as mutable `CSSUnparsedValue` sequences, with `var()` references exposed as `CSSVariableReferenceValue`. Unsupported or property-specific grammars remain available as unparsed source instead of being silently discarded. `StylePropertyMap` and `StylePropertyMapReadOnly` operate on standalone declaration blocks.
 
-```php
-$value = CSS::px(16);
+## Scope and Limitations
 
-// Convert to em
-$emValue = $value->to('em'); // CSSUnitValue(1, 'em')
+- This package models CSS source and objects; it is not a browser engine.
+- It does not parse HTML, associate stylesheets with elements, match selectors, calculate the cascade/computed styles, or implement layout/rendering.
+- CSSOM View, viewport/screen geometry, DOM event APIs, and browser-owned objects are out of scope.
+- The parser validates CSS structure, not every property grammar. Unknown valid rules and values are retained; malformed syntax may be recovered with diagnostics.
+- CSS color syntax currently uses the generic unparsed-value fallback.
+- CSS serialization of structured objects is normalized and is not a byte-for-byte stylesheet formatter.
 
-// Convert to sum with multiple units
-$sum = $value->toSum('px', 'em', 'pt'); // CSSMathSum with 3 values
+## Development
+
+Run the test suite with:
+
+```bash
+composer test
 ```
 
-### CSSContext for Context-Dependent Conversions
+The test suite covers scanner nesting/escaping, numeric and Typed OM values, declaration and rule mutation, malformed-input recovery, opaque syntax retention, and serialization round trips.
 
-The library now supports context-dependent unit conversions using CSSContext:
+## References
 
-```php
-use Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext;
-
-$value = CSS::px(20);
-
-// Custom context with different font-size
-$context = (new CSSContext())->setFontSize(10.0);
-$emValue = $value->to('em', $context); // 2em (20px / 10px font-size)
-
-// Custom viewport for vw conversion
-$context = (new CSSContext())->setViewportWidth(800.0);
-$vwValue = $value->to('vw', $context); // 2.5vw (20px / (800/100))
-```
-
-### Enhanced Calc Parser
-
-The calc() parser now handles extra whitespace and negative decimals more robustly:
-
-```php
-// Works with extra whitespace
-$result = CSSCalcParser::parse('calc( 10px + 5px )'); // CSSMathSum
-
-// Handles negative decimals
-$result = CSSCalcParser::parse('calc(-1.5px * 2)'); // CSSMathProduct
-```
-
-### String Representation
-
-```php
-$value = CSS::px(100);
-echo (string) $value; // "100px"
-
-$calc = $value->add(CSS::em(2));
-echo (string) $calc; // "calc(100px + 2em)"
-```
-
-## Resources
-
-### Mozilla Developer Network (MDN)
-[Mozilla Developer Network's documentation of the CSS Typed Object Model API](https://developer.mozilla.org/en-US/docs/Web/API/CSS_Typed_OM_API)
+- [CSS Typed OM API](https://developer.mozilla.org/en-US/docs/Web/API/CSS_Typed_OM_API)
+- [CSS Object Model](https://developer.mozilla.org/en-US/docs/Web/API/CSS_Object_Model)
+- [CSSOM specification](https://drafts.csswg.org/cssom/)
+- [CSS Typed OM Level 1](https://drafts.css-houdini.org/css-typed-om/)

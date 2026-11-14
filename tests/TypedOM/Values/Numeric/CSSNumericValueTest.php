@@ -123,22 +123,64 @@ class CSSNumericValueTest extends TestCase
         $this->assertEqualsWithDelta(12.0, $sum->inner_values[2]->value, 0.01);
     }
 
-	public function testToSumMethodFromSum()
-	   {
-	       $sum = (new CSSUnitValue(16, 'px'))->add(CSS::vw('23'))->toSum('percent', 'percent');
+	public function testToSumRejectsIncompatiblePercentConversion(): void
+	{
+		$this->expectException(\InvalidArgumentException::class);
+		(new CSSUnitValue(16, 'px'))->toSum('percent');
+	}
 
-	       $this->assertInstanceOf(CSSMathSum::class, $sum);
-	       /** @var CSSMathSum $sum */
-	       $this->assertEquals(2, $sum->length);
+	public function testArithmeticMethodsAcceptMultipleOperands(): void
+	{
+		$value = new CSSUnitValue(10, 'px');
+		$sum = $value->add(new CSSUnitValue(2, 'em'), new CSSUnitValue(3, 'px'));
+		$minimum = $value->min(new CSSUnitValue(2, 'px'), new CSSUnitValue(3, 'px'));
 
-	       // First value: px to percent
-	       $this->assertEquals('%', $sum->inner_values[0]->unit);
-	       $this->assertEquals(16, $sum->inner_values[0]->value);
+		self::assertInstanceOf(CSSMathSum::class, $sum);
+		self::assertCount(3, $sum->values);
+		self::assertInstanceOf(CSSMathMin::class, $minimum);
+		self::assertCount(3, $minimum->values);
+	}
 
-	       // Second value: vw to percent
-	       $this->assertEquals('%', $sum->inner_values[1]->unit);
-	       $this->assertEquals(23, $sum->inner_values[1]->value);
-	   }
+	public function testRejectsIncompatibleUnitConversionAndAddition(): void
+	{
+		try {
+			(new CSSUnitValue(10, 'px'))->to('deg');
+			self::fail('Expected a cross-dimension conversion to throw.');
+		} catch (\InvalidArgumentException) {
+			self::assertTrue(true);
+		}
+
+		$this->expectException(\InvalidArgumentException::class);
+		(new CSSUnitValue(10, 'px'))->add(new CSSUnitValue(1, 's'));
+	}
+
+	public function testConvertsAnglesAndTimes(): void
+	{
+		self::assertEqualsWithDelta(180.0, (new CSSUnitValue(M_PI, 'rad'))->to('deg')->value, 0.0001);
+		self::assertEqualsWithDelta(1000.0, (new CSSUnitValue(1, 's'))->to('ms')->value, 0.0001);
+	}
+
+	public function testNumericTypeVectorsExposeUnitAndMathDimensions(): void
+	{
+		$lengthType = (new CSSUnitValue(10, 'px'))->type;
+		$productType = (new CSSUnitValue(10, 'px'))->mul(new CSSUnitValue(2, 'px'))->type;
+		$numberType = (new CSSUnitValue(2, 'number'))->type;
+
+		self::assertSame(1, $lengthType->length);
+		self::assertSame(2, $productType->length);
+		self::assertSame([], $numberType->toArray());
+	}
+
+	public function testConvertsMathValuesWithoutDiscardingTheirStructure(): void
+	{
+		$sum = CSSNumericValue::parse('calc(16px + 16px)')->to('em');
+		$product = (new CSSUnitValue(16, 'px'))->div(new CSSUnitValue(2, 'number'))->to('em');
+
+		self::assertInstanceOf(CSSMathSum::class, $sum);
+		self::assertSame('calc(1em + 1em)', (string) $sum);
+		self::assertInstanceOf(CSSMathProduct::class, $product);
+		self::assertSame('calc(1em / 2)', (string) $product);
+	}
 
     public function testToSumMethodEmptyUnits()
     {
@@ -146,7 +188,8 @@ class CSSNumericValueTest extends TestCase
         $sum = $value->toSum();
 
         $this->assertInstanceOf(CSSMathSum::class, $sum);
-        $this->assertEquals(0, $sum->length);
+        $this->assertEquals(1, $sum->length);
+        $this->assertSame($value, $sum->inner_values[0]);
     }
 
     public function testEqualsSameUnitValue()
@@ -398,7 +441,7 @@ class CSSNumericValueTest extends TestCase
         $value2 = new CSSUnitValue(2, 'number');
         $result = $value1->div($value2);
 
-        $this->assertEquals('calc(10px * calc(1 / 2))', (string)$result);
+		$this->assertEquals('calc(10px / 2)', (string)$result);
     }
 
     public function testMinMethod()

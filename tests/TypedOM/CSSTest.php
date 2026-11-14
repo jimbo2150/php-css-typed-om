@@ -28,6 +28,8 @@ class CSSTest extends TestCase
         $this->assertEquals(new CSSUnitValue(10, CSSUnitEnum::LENGTH_px), CSS::px("10"));
         $this->assertEquals(new CSSUnitValue(1.5, CSSUnitEnum::LENGTH_em), CSS::em("1.5"));
         $this->assertEquals(new CSSUnitValue(50, CSSUnitEnum::PERCENT), CSS::percent("50"));
+        $this->assertEquals(new CSSUnitValue(10, CSSUnitEnum::LENGTH_px), CSS::px(10));
+        $this->assertEquals(new CSSUnitValue(10.5, CSSUnitEnum::LENGTH_px), CSS::px(10.5));
     }
 
     public function testInvalidStaticUnitMethod()
@@ -52,16 +54,22 @@ class CSSTest extends TestCase
 
 	public function testAddMethod()
     {
-        $sum = CSS::px('10')->add(CSS::percent('10'))->add(CSS::flex('23'))->add(CSS::dppx('1324'));
+		$sum = CSS::px('10')->add(CSS::em('10'))->add(CSS::vh('23'));
 		$this->assertInstanceOf(CSSMathSum::class, $sum);
-		$this->assertEquals(4, $sum->length);
+		$this->assertEquals(3, $sum->length);
     }
 
 	public function testMinMethod()
 	{
-	    $min = CSS::px('10')->min(new CSSNumericArray([CSS::dppx('1324'), CSS::vh('2043')]));
+	    $min = CSS::px('10')->min(new CSSNumericArray([CSS::em('1324'), CSS::vh('2043')]));
 		$this->assertInstanceOf(CSSMathMin::class, $min);
 		$this->assertEquals(3, $min->length);
+	}
+
+	public function testArithmeticRejectsIncompatibleDimensions()
+	{
+		$this->expectException(InvalidArgumentException::class);
+		CSS::px(10)->add(CSS::s(1));
 	}
 
 	public function testEscape()

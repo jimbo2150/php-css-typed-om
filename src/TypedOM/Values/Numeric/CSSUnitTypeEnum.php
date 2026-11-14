@@ -29,6 +29,9 @@ enum CSSUnitTypeEnum: string
 				}
 				return 'int';
 		}
+		if (is_int($value) || (is_string($value) && preg_match('/^-?\d+$/D', $value))) {
+			return 'int';
+		}
 		return 'string';
 	}
 }

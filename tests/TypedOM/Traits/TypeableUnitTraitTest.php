@@ -22,6 +22,14 @@ class TypeableUnitTraitTest extends TestCase
 		$this->assertSame('px', $this->unit);
 	}
 
+	public function testUnitNamesAreCaseInsensitive(): void
+	{
+		$this->setUnit('PX');
+		$this->assertSame('px', $this->unit);
+		$this->setUnit('q');
+		$this->assertSame('Q', $this->unit);
+	}
+
 	public function testSetUnitWithEnum(): void
 	{
 		$this->setUnit(CSSUnitEnum::LENGTH_px);

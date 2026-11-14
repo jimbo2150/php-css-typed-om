@@ -31,24 +31,26 @@ class CSSUnitValue extends CSSNumericValue implements Stringable
 	 * Add another CSSNumericValue.
 	 * If both are CSSUnitValue with same unit, return a simple CSSUnitValue.
 	 */
-	public function add(CSSNumericValue|CSSUnitValue $value): CSSNumericValue
+	public function add(CSSNumericValue ...$values): CSSNumericValue
 	{
-		if ($value instanceof CSSUnitValue && $this->unit === $value->unit) {
-			return new self($this->value + $value->value, $this->unit);
+		if ($values !== [] && array_all($values, fn (CSSNumericValue $value): bool =>
+			$value instanceof CSSUnitValue && $this->unit === $value->unit)) {
+			return new self($this->value + array_sum(array_map(static fn (CSSUnitValue $value): float => $value->value, $values)), $this->unit);
 		}
-		return parent::add($value);
+		return parent::add(...$values);
 	}
 
 	/**
 	 * Subtract another CSSNumericValue.
 	 * If both are CSSUnitValue with same unit, return a simple CSSUnitValue.
 	 */
-	public function sub(CSSNumericValue|CSSUnitValue $value): CSSNumericValue
+	public function sub(CSSNumericValue ...$values): CSSNumericValue
 	{
-		if ($value instanceof CSSUnitValue && $this->unit === $value->unit) {
-			return new self($this->value - $value->value, $this->unit);
+		if ($values !== [] && array_all($values, fn (CSSNumericValue $value): bool =>
+			$value instanceof CSSUnitValue && $this->unit === $value->unit)) {
+			return new self($this->value - array_sum(array_map(static fn (CSSUnitValue $value): float => $value->value, $values)), $this->unit);
 		}
-		return parent::sub($value);
+		return parent::sub(...$values);
 	}
 
 	/**

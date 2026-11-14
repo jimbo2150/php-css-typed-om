@@ -21,7 +21,7 @@ class CSSKeywordValue extends CSSStyleValue
      */
     public function __construct(string $keyword)
     {
-        $this->keyword = $keyword;
+		$this->setValue($keyword);
     }
 
     /**
@@ -34,6 +34,20 @@ class CSSKeywordValue extends CSSStyleValue
         return $this->keyword;
     }
 
+    public function getValue(): string
+    {
+        return $this->keyword;
+    }
+
+    public function setValue(string $value): void
+    {
+        $value = trim($value);
+		if (!preg_match('/^(?:--|[-_a-zA-Z]|[^\x00-\x7F]|\\\\(?:[0-9a-fA-F]{1,6}\s?|[^\r\n\f]))(?:[-_a-zA-Z0-9]|[^\x00-\x7F]|\\\\(?:[0-9a-fA-F]{1,6}\s?|[^\r\n\f]))*$/uD', $value)) {
+			throw new \InvalidArgumentException('CSS keyword value must be a non-empty identifier.');
+        }
+        $this->keyword = $value;
+    }
+
     /**
      * Convert to string representation.
      *
@@ -42,6 +56,23 @@ class CSSKeywordValue extends CSSStyleValue
     public function __toString(): string
     {
         return $this->keyword;
+    }
+
+    public function __get(string $name): mixed
+    {
+        if ($name === 'value') {
+            return $this->getValue();
+        }
+        throw new \Error('Undefined property: ' . static::class . '::$' . $name);
+    }
+
+    public function __set(string $name, mixed $value): void
+    {
+        if ($name === 'value' && is_string($value)) {
+            $this->setValue($value);
+            return;
+        }
+        throw new \Error('Cannot set property ' . static::class . '::$' . $name);
     }
 
     /**

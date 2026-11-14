@@ -12,6 +12,11 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math;
  */
 class CSSMathSum extends CSSMathValue
 {
+	public function __construct(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue|\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericArray|array $values)
+	{
+		parent::__construct($values);
+		$this->requireOperandCount(1);
+	}
 
 	/** @var string The sign for addition */
 	public const ?string sign = '+';

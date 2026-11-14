@@ -31,7 +31,19 @@ trait TypeableUnitTrait
 	 */
 	protected function setUnit(string|CSSUnitEnum $unit) {
 		if(is_string($unit)) {
-			$unit = CSSUnitEnum::from(CSS::translateUnit($unit));
+			$symbol = CSS::translateUnit(strtolower($unit));
+			$unit = CSSUnitEnum::tryFrom($symbol);
+			if ($unit === null) {
+				foreach (CSSUnitEnum::cases() as $candidate) {
+					if (strcasecmp($candidate->value, $symbol) === 0) {
+						$unit = $candidate;
+						break;
+					}
+				}
+			}
+			if ($unit === null) {
+				throw new \InvalidArgumentException('Unsupported CSS unit: ' . $symbol);
+			}
 		}
 		$this->unitObj = $unit;
 	}
@@ -47,6 +59,6 @@ trait TypeableUnitTrait
 			throw new Exception('No unit set.');
 		}
 		$type = $this->unitObj->type();
-		return $type->value;
+		return $type?->value;
 	}
 }

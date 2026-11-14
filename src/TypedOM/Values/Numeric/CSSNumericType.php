@@ -32,6 +32,23 @@ class CSSNumericType
 		'percentHint'
 	];
 
+	/** @var array<string, int|string> */
+	private array $dimensions = [];
+
+	/** @param array<string, int> $dimensions */
+	public function __construct(array $dimensions = [])
+	{
+		foreach ($dimensions as $dimension => $exponent) {
+			$this->__set($dimension, $exponent);
+		}
+	}
+
+	/** @param array<string, int> $dimensions */
+	public static function fromDimensions(array $dimensions): self
+	{
+		return new self($dimensions);
+	}
+
 	/**
 	 * Set a property value.
 	 *
@@ -51,5 +68,48 @@ class CSSNumericType
 			 // @codeCoverageIgnoreEnd
 		}
 		$this->{$type->value} = $value;
+		$this->dimensions[$type->value] = $value;
+	}
+
+	public function __get(string $key): int|string
+	{
+		$type = CSSUnitTypeEnum::from($key);
+		return $this->dimensions[$type->value] ?? 0;
+	}
+
+	/** @return array<string, int|string> */
+	public function toArray(): array
+	{
+		return $this->dimensions;
+	}
+
+	public function multiply(self $other): self
+	{
+		$dimensions = $this->dimensions;
+		foreach ($other->dimensions as $dimension => $exponent) {
+			$dimensions[$dimension] = (int) ($dimensions[$dimension] ?? 0) + (int) $exponent;
+		}
+		return new self(array_filter($dimensions, static fn (int|string $exponent): bool => (int) $exponent !== 0));
+	}
+
+	public function invert(): self
+	{
+		$dimensions = [];
+		foreach ($this->dimensions as $dimension => $exponent) {
+			$dimensions[$dimension] = -(int) $exponent;
+		}
+		return new self($dimensions);
+	}
+
+	public function equals(self $other): bool
+	{
+		$left = $this->dimensions;
+		$right = $other->dimensions;
+		foreach (self::allowedProperties as $dimension) {
+			if ((int) ($left[$dimension] ?? 0) !== (int) ($right[$dimension] ?? 0)) {
+				return false;
+			}
+		}
+		return true;
 	}
 }

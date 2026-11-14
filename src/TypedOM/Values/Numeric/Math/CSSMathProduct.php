@@ -14,6 +14,11 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
  */
 class CSSMathProduct extends CSSMathValue
 {
+	public function __construct(CSSNumericValue|\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericArray|array $values)
+	{
+		parent::__construct($values);
+		$this->requireOperandCount(1);
+	}
 
 	/** @var string The sign for multiplication */
 	public const ?string sign = '*';

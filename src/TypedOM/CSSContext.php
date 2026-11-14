@@ -140,19 +140,23 @@ class CSSContext
     }
 
 	private function __getFactor(string $unit): float {
-		return match (strtolower($unit)) {
-    		'px' => 1.0,
-    		'pt' => 1.333,
-    		'pc' => 16.0,
-    		'in' => 96.0,
-    		'cm' => 37.795,
-    		'mm' => 3.7795,
-    		'em', 'rem' => $this->fontSize,
-    		'vw' => $this->viewportWidth / 100.0,
-    		'vh' => $this->viewportHeight / 100.0,
-    		'vmin' => min($this->viewportWidth, $this->viewportHeight) / 100.0,
-    		'vmax' => max($this->viewportWidth, $this->viewportHeight) / 100.0,
-    		default => 1.0, // Unknown units return as-is
-    	};
+		$unit = strtolower($unit);
+		return match ($unit) {
+			'px' => 1.0,
+			'pt' => 1.333,
+			'pc' => 16.0,
+			'in' => 96.0,
+			'cm' => 37.795,
+			'mm' => 3.7795,
+			'q' => 96.0 / 101.6,
+			'em', 'rem', 'ic', 'ric' => $this->fontSize,
+			'ex', 'rex', 'ch', 'rch', 'cap', 'rcap' => $this->fontSize / 2.0,
+			'lh', 'rlh' => $this->fontSize * 1.2,
+			'vw', 'svw', 'lvw', 'dvw', 'vi', 'svi', 'lvi', 'dvi', 'cqw', 'cqi' => $this->viewportWidth / 100.0,
+			'vh', 'svh', 'lvh', 'dvh', 'vb', 'svb', 'lvb', 'dvb', 'cqh', 'cqb' => $this->viewportHeight / 100.0,
+			'vmin', 'svmin', 'lvmin', 'dvmin', 'cqmin' => min($this->viewportWidth, $this->viewportHeight) / 100.0,
+			'vmax', 'svmax', 'lvmax', 'dvmax', 'cqmax' => max($this->viewportWidth, $this->viewportHeight) / 100.0,
+			default => 1.0, // Unknown units return as-is
+		};
 	}
 }

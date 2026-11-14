@@ -336,4 +336,20 @@ class CSSCalcParserTest extends TestCase
         $this->assertInstanceOf(CSSMathSum::class, $result);
         $this->assertEquals('calc(10px + 5px)', (string) $result);
     }
+
+    public function testParseUnaryOperatorsAndScientificNotation()
+    {
+        $result = CSSCalcParser::parse('calc(-(10px + 2e1px) + .5px)');
+
+        $this->assertInstanceOf(CSSMathSum::class, $result);
+        $this->assertInstanceOf(CSSMathNegate::class, $result->inner_values[0]);
+        $this->assertEquals(0.5, $result->inner_values[1]->value);
+        $this->assertEquals('calc(-(10px + 20px) + 0.5px)', (string) $result);
+    }
+
+    public function testRejectsTrailingGarbageAfterCalc()
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        CSSCalcParser::parse('calc(10px + 2px) junk');
+    }
 }

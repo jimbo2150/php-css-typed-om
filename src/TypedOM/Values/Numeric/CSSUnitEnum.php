@@ -57,7 +57,7 @@ enum CSSUnitEnum: string
 	case LENGTH_lvmax = 'lvmax';
 	case LENGTH_lvmin = 'lvmin';
 	case LENGTH_lvw = 'lvw';
-	case LENGTH_rch = 'lch';
+	case LENGTH_rch = 'rch';
 	case LENGTH_rex = 'rex';
 	case LENGTH_ric = 'ric';
 	case LENGTH_svb = 'svb';
@@ -96,7 +96,17 @@ enum CSSUnitEnum: string
 	 */
 	public function type(): ?CSSUnitTypeEnum {
 		[$type] = $this->splitType();
-		return CSSUnitTypeEnum::{$type} ?? null;
+		return match ($type) {
+			'LENGTH' => CSSUnitTypeEnum::LENGTH,
+			'PERCENT' => CSSUnitTypeEnum::PERCENT,
+			'PERCENT_HINT' => CSSUnitTypeEnum::PERCENT_HINT,
+			'ANGLE' => CSSUnitTypeEnum::ANGLE,
+			'TIME' => CSSUnitTypeEnum::TIME,
+			'FREQ' => CSSUnitTypeEnum::FREQ,
+			'REZ', 'RES' => CSSUnitTypeEnum::RES,
+			'FLEX' => CSSUnitTypeEnum::FLEX,
+			default => null,
+		};
 	}
 
 	/**
