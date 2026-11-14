@@ -66,6 +66,12 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 		return $this->featureMaps[$featureType] ??= new CSSFontFeatureValuesMap();
 	}
 
+	/** @return array<string, CSSFontFeatureValuesMap> */
+	public function getFeatureMaps(): array
+	{
+		return $this->featureMaps;
+	}
+
 	public function getCssText(): string
 	{
 		$blocks = [];

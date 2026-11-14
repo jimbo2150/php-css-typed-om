@@ -65,6 +65,11 @@ class CSSAtRule extends CSSRule
 		return $this->style;
 	}
 
+	public function hasBlock(): bool
+	{
+		return $this->hasBlock;
+	}
+
 	public function getCssText(): string
 	{
 		$prelude = $this->prelude === '' ? '' : ' ' . $this->prelude;

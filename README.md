@@ -31,6 +31,19 @@ echo $sheet->cssText;
 
 `CSSStyleSheet` supports `parse()`, `cssRules`, `insertRule()`, `deleteRule()`, `replaceSync()`, `cssText`, and parse diagnostics. Rule lists and declarations are ordered and mutable. Declarations support `getPropertyValue()`, `getPropertyPriority()`, `setProperty()`, `removeProperty()`, `item()`, `length`, `parentRule`, and `cssText`. `MediaList`, `StyleSheet`, and `StyleSheetList` provide standalone equivalents for media queries and stylesheet metadata.
 
+Use `CSSRenderer` when a readable or compact rendering is needed without changing the existing `cssText` serialization:
+
+```php
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderMode;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderer;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderOptions;
+
+echo CSSRenderer::render($sheet); // Pretty output (two-space indentation)
+echo CSSRenderer::render($sheet, new CSSRenderOptions(CSSRenderMode::Minified));
+```
+
+`CSSRenderOptions` accepts an optional `ruleCallback` closure with the signature `function (CSSRule $rule, string $renderedText): string`. It runs after each rule's children are rendered, so transformed child text is included in its parent. Unknown `CSSOpaqueRule` source is preserved verbatim in either mode because its syntax cannot be safely reformatted; minification is best-effort for such rules. Existing `getCssText()` and `cssText` output is unchanged.
+
 Stylesheet parsing recovers at malformed declarations/rules and reports `message` and byte `offset` entries through `getParseErrors()`. Direct declaration replacement and rule insertion validate atomically before mutating and throw `InvalidArgumentException` on malformed or structurally unsafe input. Structured rules serialize in normalized form; unknown at-rules are retained as opaque source.
 
 `CSSParserOptions` enforces configurable resource limits by default (`maxBytes`: 16 MiB, `maxDepth`: 256 nested rule levels, `maxRules`: 100,000 rules, `maxMathDepth`: 256 nested math levels). Stylesheet parsing records a diagnostic and stops safely at boundaries; strict entry points (`insertRule()`, `replaceSync()`, `CSSParser::parseSingleRule()`, and `CSSNumericValue::parse()`) throw `InvalidArgumentException` without mutating existing state. Pass a custom `CSSParserOptions` instance or `CSSParserOptions::unlimited()` to override or disable limits.

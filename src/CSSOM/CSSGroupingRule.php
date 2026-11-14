@@ -48,6 +48,11 @@ class CSSGroupingRule extends CSSRule
 		return $this->name;
 	}
 
+	public function getPrelude(): string
+	{
+		return $this->prelude;
+	}
+
 	public function getCssRules(): CSSRuleList
 	{
 		return $this->cssRules;
