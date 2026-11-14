@@ -204,4 +204,16 @@ CSS);
 		self::assertStringNotContainsString("\n", $minified);
 		self::assertSame([], CSSStyleSheet::parse($minified)->getParseErrors());
 	}
+
+	public function testMinifiedOutputStripsNewlinesInCommaSeparatedSelectors(): void
+	{
+		$sheet = CSSStyleSheet::parse("h1,\nh2 {\n  color: red;\n}\n@media screen {\n  p,\n  div {\n    color: blue;\n  }\n}");
+		$minified = CSSRenderer::render($sheet, new CSSRenderOptions(CSSRenderMode::Minified));
+
+		self::assertStringNotContainsString("\n", $minified);
+		self::assertStringContainsString('h1,h2{color:red;}', $minified);
+		self::assertStringContainsString('@media screen{p,', $minified);
+		self::assertStringContainsString('div{color:blue;}}', $minified);
+		self::assertSame([], CSSStyleSheet::parse($minified)->getParseErrors());
+	}
 }

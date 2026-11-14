@@ -170,6 +170,7 @@ final class CSSRenderer
 	{
 		if (CSSRenderMode::Minified === $options->mode) {
 			$header = trim($header);
+			$header = str_replace(["\r\n", "\r", "\n"], '', $header);
 
 			return $header.'{'.implode('', $body).'}';
 		}
