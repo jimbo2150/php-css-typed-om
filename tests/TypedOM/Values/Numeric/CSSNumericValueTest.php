@@ -648,7 +648,6 @@ class CSSNumericValueTest extends TestCase
         $this->expectExceptionMessage('No unit set');
         $value = new CSSUnitValue(10, 'number');
   $reflectedProperty = new \ReflectionProperty(CSSUnitValue::class, 'unitObj');
-  $reflectedProperty->setAccessible(true);
   $reflectedProperty->setValue($value, null);
         $value->type();
     }
