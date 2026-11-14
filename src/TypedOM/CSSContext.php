@@ -4,150 +4,105 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM;
 
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
+use InvalidArgumentException;
 
 /**
- * CSSContext provides runtime context for unit conversions, such as font-size and viewport dimensions.
- * This allows accurate conversion of relative units like em, rem, vw, vh.
+ * Runtime context for CSS unit conversions (font size and viewport dimensions in pixels).
  */
 class CSSContext
 {
-    /** @var float Font size in pixels (default: 16px) */
-    private float $fontSize;
+	private float $fontSize;
+	private float $viewportWidth;
+	private float $viewportHeight;
 
-    /** @var float Viewport width in pixels (default: 960px) */
-    private float $viewportWidth;
+	/** @var array<string, float> Cache for conversion factors */
+	private array $factorCache = [];
 
-    /** @var float Viewport height in pixels (default: 540px) */
-    private float $viewportHeight;
+	/**
+	 * @throws InvalidArgumentException When any context dimension is non-finite or <= 0
+	 */
+	public function __construct(float $fontSize = 16.0, float $viewportWidth = 960.0, float $viewportHeight = 540.0)
+	{
+		$this->fontSize = self::validateDimension($fontSize, 'fontSize');
+		$this->viewportWidth = self::validateDimension($viewportWidth, 'viewportWidth');
+		$this->viewportHeight = self::validateDimension($viewportHeight, 'viewportHeight');
+	}
 
-    /** @var array<string, float> Cache for conversion factors */
-    private array $factorCache = [];
+	public function getFontSize(): float
+	{
+		return $this->fontSize;
+	}
 
-    /**
-     * CSSContext constructor.
-     *
-     * @param float $fontSize Font size in pixels
-     * @param float $viewportWidth Viewport width in pixels
-     * @param float $viewportHeight Viewport height in pixels
-     */
-    public function __construct(float $fontSize = 16.0, float $viewportWidth = 960.0, float $viewportHeight = 540.0)
-    {
-        $this->fontSize = $fontSize;
-        $this->viewportWidth = $viewportWidth;
-        $this->viewportHeight = $viewportHeight;
-    }
+	/**
+	 * @throws InvalidArgumentException When $fontSize is non-finite or <= 0
+	 */
+	public function setFontSize(float $fontSize): self
+	{
+		$this->fontSize = self::validateDimension($fontSize, 'fontSize');
+		$this->factorCache = [];
+		return $this;
+	}
 
-    /**
-     * Get the font size in pixels.
-     *
-     * @return float Font size
-     */
-    public function getFontSize(): float
-    {
-        return $this->fontSize;
-    }
+	public function getViewportWidth(): float
+	{
+		return $this->viewportWidth;
+	}
 
-    /**
-     * Set the font size in pixels.
-     *
-     * @param float $fontSize Font size
-     * @return self
-     */
-    public function setFontSize(float $fontSize): self
-    {
-    	$this->fontSize = $fontSize;
-    	$this->factorCache = []; // Clear cache when context changes
-    	return $this;
-    }
+	/**
+	 * @throws InvalidArgumentException When $viewportWidth is non-finite or <= 0
+	 */
+	public function setViewportWidth(float $viewportWidth): self
+	{
+		$this->viewportWidth = self::validateDimension($viewportWidth, 'viewportWidth');
+		$this->factorCache = [];
+		return $this;
+	}
 
-    /**
-     * Get the viewport width in pixels.
-     *
-     * @return float Viewport width
-     */
-    public function getViewportWidth(): float
-    {
-        return $this->viewportWidth;
-    }
+	public function getViewportHeight(): float
+	{
+		return $this->viewportHeight;
+	}
 
-    /**
-     * Set the viewport width in pixels.
-     *
-     * @param float $viewportWidth Viewport width
-     * @return self
-     */
-    public function setViewportWidth(float $viewportWidth): self
-    {
-    	$this->viewportWidth = $viewportWidth;
-    	$this->factorCache = []; // Clear cache when context changes
-    	return $this;
-    }
+	/**
+	 * @throws InvalidArgumentException When $viewportHeight is non-finite or <= 0
+	 */
+	public function setViewportHeight(float $viewportHeight): self
+	{
+		$this->viewportHeight = self::validateDimension($viewportHeight, 'viewportHeight');
+		$this->factorCache = [];
+		return $this;
+	}
 
-    /**
-     * Get the viewport height in pixels.
-     *
-     * @return float Viewport height
-     */
-    public function getViewportHeight(): float
-    {
-        return $this->viewportHeight;
-    }
+	public function getToPxFactor(string $unit): float
+	{
+		$key = strtolower($unit);
+		return $this->factorCache[$key] ??= $this->computeFactor($key);
+	}
 
-    /**
-     * Set the viewport height in pixels.
-     *
-     * @param float $viewportHeight Viewport height
-     * @return self
-     */
-    public function setViewportHeight(float $viewportHeight): self
-    {
-    	$this->viewportHeight = $viewportHeight;
-    	$this->factorCache = []; // Clear cache when context changes
-    	return $this;
-    }
+	public function getFromPxFactor(string $unit): float
+	{
+		$key = strtolower($unit);
+		$cacheKey = $key . '_from';
+		if (isset($this->factorCache[$cacheKey])) {
+			return $this->factorCache[$cacheKey];
+		}
 
-    /**
-     * Get conversion factor from unit to pixels.
-     *
-     * @param string $unit The CSS unit
-     * @return float Conversion factor (value * factor = pixels)
-     */
-    public function getToPxFactor(string $unit): float
-    {
-    	if (isset($this->factorCache[$unit])) {
-    		return $this->factorCache[$unit];
-    	}
-   
-    	$factor = $this->__getFactor($unit);
-   
-    	$this->factorCache[$unit] = $factor;
-    	return $factor;
-    }
+		$toPx = $this->getToPxFactor($key);
+		$fromPx = $toPx > 0 ? 1.0 / $toPx : 1.0;
+		$this->factorCache[$cacheKey] = $fromPx;
 
-    /**
-     * Get conversion factor from pixels to unit.
-     *
-     * @param string $unit The CSS unit
-     * @return float Conversion factor (px * factor = unit value)
-     */
-    public function getFromPxFactor(string $unit): float
-    {
-    	$toPx = $this->getToPxFactor($unit);
-    	$fromPx = $toPx > 0 ? 1.0 / $toPx : 1.0;
-    	$this->factorCache[$unit . '_from'] = $fromPx;
-    	return $fromPx;
-    }
+		return $fromPx;
+	}
 
-	private function __getFactor(string $unit): float {
-		$unit = strtolower($unit);
+	private function computeFactor(string $unit): float
+	{
 		return match ($unit) {
 			'px' => 1.0,
-			'pt' => 1.333,
+			'pt' => 96.0 / 72.0,
 			'pc' => 16.0,
 			'in' => 96.0,
-			'cm' => 37.795,
-			'mm' => 3.7795,
+			'cm' => 96.0 / 2.54,
+			'mm' => 96.0 / 25.4,
 			'q' => 96.0 / 101.6,
 			'em', 'rem', 'ic', 'ric' => $this->fontSize,
 			'ex', 'rex', 'ch', 'rch', 'cap', 'rcap' => $this->fontSize / 2.0,
@@ -156,7 +111,16 @@ class CSSContext
 			'vh', 'svh', 'lvh', 'dvh', 'vb', 'svb', 'lvb', 'dvb', 'cqh', 'cqb' => $this->viewportHeight / 100.0,
 			'vmin', 'svmin', 'lvmin', 'dvmin', 'cqmin' => min($this->viewportWidth, $this->viewportHeight) / 100.0,
 			'vmax', 'svmax', 'lvmax', 'dvmax', 'cqmax' => max($this->viewportWidth, $this->viewportHeight) / 100.0,
-			default => 1.0, // Unknown units return as-is
+			default => 1.0,
 		};
+	}
+
+	private static function validateDimension(float $value, string $name): float
+	{
+		if (!is_finite($value) || $value <= 0.0) {
+			throw new InvalidArgumentException(sprintf('CSSContext %s must be a finite positive number.', $name));
+		}
+
+		return $value;
 	}
 }

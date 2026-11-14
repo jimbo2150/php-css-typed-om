@@ -4,28 +4,44 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
-use ArrayIterator;
 use ArrayAccess;
+use ArrayIterator;
 use Countable;
+use Error;
 use InvalidArgumentException;
 use IteratorAggregate;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Traversable;
 
-/** @implements IteratorAggregate<int, CSSTransformComponent> */
+/**
+ * Ordered, mutable list of CSS transform components.
+ *
+ * @implements ArrayAccess<int, CSSTransformComponent>
+ * @implements IteratorAggregate<int, CSSTransformComponent>
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSTransformValue
+ */
 final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Countable, IteratorAggregate
 {
-	/** @param list<CSSTransformComponent> $components */
-	public function __construct(private array $components)
+	/** @var list<CSSTransformComponent> */
+	private array $components;
+
+	/**
+	 * @param list<CSSTransformComponent> $components
+	 * @throws InvalidArgumentException When the list is empty or contains non-component items
+	 */
+	public function __construct(array $components)
 	{
 		if ($components === []) {
 			throw new InvalidArgumentException('A transform list must contain at least one component.');
 		}
+		$normalized = [];
 		foreach ($components as $component) {
 			if (!$component instanceof CSSTransformComponent) {
 				throw new InvalidArgumentException('Transform values contain transform components.');
 			}
+			$normalized[] = $component;
 		}
+		$this->components = $normalized;
 	}
 
 	public static function fromCssText(string $cssText): self
@@ -51,7 +67,7 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 			}
 			$name = strtolower($match[1]);
 			$open = $offset + strlen($match[0]) - 1;
-			$close = CSSSyntaxScanner::findMatchingDelimiter($cssText, $open);
+			$close = CSSSyntaxScanner::findMatchingDelimiter($cssText, $open, $length);
 			if ($close === null) {
 				throw new InvalidArgumentException('Unclosed transform function: ' . $name);
 			}
@@ -146,6 +162,7 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 		foreach ($this->components as $component) {
 			$matrix = CSSTransformComponent::multiplyMatrices($matrix, $component->toMatrix());
 		}
+
 		return $matrix;
 	}
 
@@ -164,7 +181,7 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 		return match ($name) {
 			'length' => $this->getLength(),
 			'is2D' => $this->is2D(),
-			default => throw new \Error('Undefined property: ' . static::class . '::$' . $name),
+			default => throw new Error('Undefined property: ' . static::class . '::$' . $name),
 		};
 	}
 
@@ -207,6 +224,7 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 		if ($class === null) {
 			throw new InvalidArgumentException('Unsupported transform function: ' . $name);
 		}
+
 		return $class;
 	}
 }

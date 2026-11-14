@@ -7,12 +7,19 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 use ArrayAccess;
 use ArrayIterator;
 use Countable;
+use Error;
 use InvalidArgumentException;
 use IteratorAggregate;
+use LogicException;
 use OutOfBoundsException;
 use Traversable;
 
-/** @implements ArrayAccess<int, CSSRule> */
+/**
+ * Ordered collection of CSSRule objects owned by a stylesheet or grouping rule.
+ *
+ * @implements ArrayAccess<int, CSSRule>
+ * @implements IteratorAggregate<int, CSSRule>
+ */
 final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 {
 	/** @var list<CSSRule> */
@@ -60,24 +67,40 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 		throw new InvalidArgumentException('Use deleteRule() to modify a CSSRuleList.');
 	}
 
+	/**
+	 * @throws OutOfBoundsException When $index is outside [0, count]
+	 * @throws LogicException When the list is detached from a stylesheet
+	 */
 	public function insert(int $index, CSSRule $rule): void
 	{
 		if ($index < 0 || $index > count($this->rules)) {
 			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
 		}
 		if ($this->sheet === null) {
-			throw new \LogicException('A detached CSSRuleList cannot be modified.');
+			throw new LogicException('A detached CSSRuleList cannot be modified.');
 		}
 
 		$rule->attach($this->sheet, $this->owner);
-		array_splice($this->rules, $index, 0, [$rule]);
+		if ($index === count($this->rules)) {
+			$this->rules[] = $rule;
+		} else {
+			array_splice($this->rules, $index, 0, [$rule]);
+		}
 	}
 
 	public function append(CSSRule $rule): void
 	{
-		$this->insert(count($this->rules), $rule);
+		if ($this->sheet === null) {
+			throw new LogicException('A detached CSSRuleList cannot be modified.');
+		}
+
+		$rule->attach($this->sheet, $this->owner);
+		$this->rules[] = $rule;
 	}
 
+	/**
+	 * @throws OutOfBoundsException When $index is invalid
+	 */
 	public function remove(int $index): CSSRule
 	{
 		if (!isset($this->rules[$index])) {
@@ -88,6 +111,27 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 		$rule->attach(null, null);
 
 		return $rule;
+	}
+
+	/**
+	 * Replaces all rules in O(N) time while updating parent links.
+	 */
+	public function replaceAll(self $replacement): void
+	{
+		if ($this->sheet === null) {
+			throw new LogicException('A detached CSSRuleList cannot be modified.');
+		}
+
+		foreach ($this->rules as $existing) {
+			$existing->attach(null, null);
+		}
+
+		$next = [];
+		foreach ($replacement->rules as $rule) {
+			$rule->attach($this->sheet, $this->owner);
+			$next[] = $rule;
+		}
+		$this->rules = $next;
 	}
 
 	public function reparent(?CSSStyleSheet $sheet): void
@@ -103,6 +147,6 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 		if ($name === 'length') {
 			return $this->count();
 		}
-		throw new \Error('Undefined property: ' . static::class . '::$' . $name);
+		throw new Error('Undefined property: ' . static::class . '::$' . $name);
 	}
 }

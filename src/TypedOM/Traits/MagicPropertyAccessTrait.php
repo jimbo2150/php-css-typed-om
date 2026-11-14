@@ -42,7 +42,7 @@ trait MagicPropertyAccessTrait
      */
     public function __get(string $name): mixed
     {
-        if (isset($this->properties[$name])) {
+        if (array_key_exists($name, $this->properties)) {
             return $this->properties[$name];
         }
 
@@ -104,7 +104,7 @@ trait MagicPropertyAccessTrait
      */
     public function __isset(string $name): bool
     {
-        return isset($this->properties[$name]) || ($name === 'type' && property_exists($this, 'type'));
+        return array_key_exists($name, $this->properties) || ($name === 'type' && property_exists($this, 'propertyTypes'));
     }
 
     /**

@@ -116,16 +116,19 @@ final class CSSStyleValueParsingTest extends TestCase
 		self::assertInstanceOf(CSSTransformValue::class, $transform->clone());
 	}
 
-	public function testTypedArraysAreIterableAndMutable(): void
+	public function testTypedArraysAreIterableAndRespectMutability(): void
 	{
-		$numericArray = new CSSNumericArray([new CSSUnitValue(1, 'px')]);
-		$numericArray[] = new CSSUnitValue(2, 'px');
+		$numericArray = new CSSNumericArray([new CSSUnitValue(1, 'px'), new CSSUnitValue(2, 'px')]);
 		self::assertCount(2, $numericArray);
 		self::assertSame(2.0, $numericArray[1]->value);
+		self::assertCount(2, iterator_to_array($numericArray));
 
 		$unparsed = CSSUnparsedValue::fromCssText('var(--x) solid');
 		self::assertSame('--x', $unparsed[0]->variable);
 		$unparsed[1] = ' dashed';
 		self::assertSame('var(--x) dashed', (string) $unparsed);
+
+		$this->expectException(InvalidArgumentException::class);
+		$numericArray[] = new CSSUnitValue(3, 'px');
 	}
 }

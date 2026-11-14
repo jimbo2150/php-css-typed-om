@@ -4,31 +4,22 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\Parser;
 
+use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathInvert;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathNegate;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathValue;
 
 /**
- * CSSCalcParser parses CSS calc() expressions and returns CSSNumericValue objects.
- *
- * This parser implements the Shunting-yard algorithm to convert infix notation
- * of mathematical expressions into Reverse Polish Notation (RPN), then evaluates
- * the RPN to build a tree of CSSMathValue objects representing the calculation.
- *
- * Supported operators: +, -, *, /
- * Supports parentheses for grouping.
- * Operands can be numbers with optional CSS units (e.g., 10px, 50%, 2em).
- *
- * @example
- * $result = CSSCalcParser::parse('calc(10px + 5px)');
- * // Returns a CSSMathSum object
+ * Recursive/shunting-yard parser for CSS `calc()` expressions.
  */
 class CSSCalcParser
 {
-	/** @var array<string, array{precedence: int, associativity: string}> Operator precedence and associativity */
-	private const OPERATORS = [
+	/** @var array<string, array{precedence: int, associativity: string}> */
+	private const array OPERATORS = [
 		'+' => ['precedence' => 1, 'associativity' => 'left'],
 		'-' => ['precedence' => 1, 'associativity' => 'left'],
 		'*' => ['precedence' => 2, 'associativity' => 'left'],
@@ -38,30 +29,33 @@ class CSSCalcParser
 	];
 
 	/**
-	 * Parses a CSS calc() expression and returns the corresponding CSSNumericValue.
+	 * Parses a CSS `calc(...)` expression into a CSSMathValue tree.
 	 *
-	 * @param string $calcString The CSS calc() expression to parse (e.g., 'calc(10px + 5px)')
-	 * @return CSSNumericValue The parsed numeric value, which may be a CSSUnitValue or a CSSMathValue
-	 * @throws \InvalidArgumentException If the expression is malformed or contains invalid tokens
+	 * @throws InvalidArgumentException When the expression is malformed, dimensionally incompatible, or exceeds maxMathDepth
 	 */
-	public static function parse(string $calcString): CSSNumericValue
+	public static function parse(string $calcString, ?CSSParserOptions $options = null, int $depth = 0): CSSNumericValue
 	{
+		$options ??= new CSSParserOptions();
+		if ($options->maxMathDepth !== null && $depth > $options->maxMathDepth) {
+			throw new InvalidArgumentException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $options->maxMathDepth));
+		}
+
 		$calcString = trim($calcString);
-		if (!preg_match('/^calc\s*\(/i', $calcString, $wrapper)) {
-			throw new \InvalidArgumentException('Expected a calc() expression.');
+		if (!preg_match('/^calc\s*\(/i', $calcString)) {
+			throw new InvalidArgumentException('Expected a calc() expression.');
 		}
 		$open = strpos($calcString, '(');
-		$close = CSSSyntaxScanner::findMatchingDelimiter($calcString, $open);
+		$close = $open === false ? null : CSSSyntaxScanner::findMatchingDelimiter($calcString, $open);
 		if ($close === null || ($close < strlen($calcString) - 1 && $calcString[$close + 1] === ')')) {
-			throw new \InvalidArgumentException('Mismatched parentheses.');
+			throw new InvalidArgumentException('Mismatched parentheses.');
 		}
 		if ($close !== strlen($calcString) - 1) {
-			throw new \InvalidArgumentException('Invalid expression.');
+			throw new InvalidArgumentException('Invalid expression.');
 		}
+
 		$expression = substr($calcString, $open + 1, $close - $open - 1);
 		$tokens = self::tokenize($expression);
 
-		// Shunting-yard algorithm: Convert infix to Reverse Polish Notation (RPN)
 		$outputQueue = [];
 		$operatorStack = [];
 
@@ -70,80 +64,73 @@ class CSSCalcParser
 				$outputQueue[] = $token;
 			} elseif (isset(self::OPERATORS[$token])) {
 				$op1 = $token;
-				while (
-					!empty($operatorStack) &&
-					($op2 = end($operatorStack)) &&
-					isset(self::OPERATORS[$op2]) &&
-					(
-						('left' === self::OPERATORS[$op1]['associativity'] && self::OPERATORS[$op1]['precedence'] <= self::OPERATORS[$op2]['precedence']) ||
-						('right' === self::OPERATORS[$op1]['associativity'] && self::OPERATORS[$op1]['precedence'] < self::OPERATORS[$op2]['precedence'])
-					)
-				) {
-					$outputQueue[] = array_pop($operatorStack);
+				while ($operatorStack !== []) {
+					$op2 = end($operatorStack);
+					if (
+						isset(self::OPERATORS[$op2]) && (
+							(self::OPERATORS[$op1]['associativity'] === 'left' && self::OPERATORS[$op1]['precedence'] <= self::OPERATORS[$op2]['precedence']) ||
+							(self::OPERATORS[$op1]['associativity'] === 'right' && self::OPERATORS[$op1]['precedence'] < self::OPERATORS[$op2]['precedence'])
+						)
+					) {
+						$outputQueue[] = array_pop($operatorStack);
+					} else {
+						break;
+					}
 				}
 				$operatorStack[] = $op1;
-			} elseif ('(' === $token) {
+			} elseif ($token === '(') {
 				$operatorStack[] = $token;
-			} elseif (')' === $token) {
-				while (!empty($operatorStack) && '(' !== end($operatorStack)) {
+			} elseif ($token === ')') {
+				while ($operatorStack !== [] && end($operatorStack) !== '(') {
 					$outputQueue[] = array_pop($operatorStack);
 				}
-				if (empty($operatorStack)) {
-					throw new \InvalidArgumentException('Mismatched parentheses.');
+				if ($operatorStack === []) {
+					throw new InvalidArgumentException('Mismatched parentheses.');
 				}
-				array_pop($operatorStack); // Pop the '('
+				array_pop($operatorStack);
 			} else {
-				throw new \InvalidArgumentException('Unknown token: '.$token);
+				throw new InvalidArgumentException('Unknown token: ' . $token);
 			}
 		}
 
-		while (!empty($operatorStack)) {
+		while ($operatorStack !== []) {
 			$op = array_pop($operatorStack);
-			if ('(' === $op || ')' === $op) {
-				throw new \InvalidArgumentException('Mismatched parentheses.');
+			if ($op === '(' || $op === ')') {
+				throw new InvalidArgumentException('Mismatched parentheses.');
 			}
 			$outputQueue[] = $op;
 		}
 
-		// Evaluation of RPN: Build the CSSMathValue tree
 		$valueStack = [];
 		foreach ($outputQueue as $token) {
 			if (isset(self::OPERATORS[$token])) {
 				if ($token === 'u-' || $token === 'u+') {
 					if ($valueStack === []) {
-						throw new \InvalidArgumentException('Insufficient operands for operator: ' . substr($token, 1));
+						throw new InvalidArgumentException('Insufficient operands for operator: ' . substr($token, 1));
 					}
 					$value = array_pop($valueStack);
 					$valueStack[] = $token === 'u-' ? new CSSMathNegate([$value]) : $value;
 					continue;
 				}
 				if (count($valueStack) < 2) {
-					throw new \InvalidArgumentException('Insufficient operands for operator: '.$token);
+					throw new InvalidArgumentException('Insufficient operands for operator: ' . $token);
 				}
 				$operand2 = array_pop($valueStack);
 				$operand1 = array_pop($valueStack);
 
-				switch ($token) {
-					case '+':
-						$valueStack[] = new CSSMathSum([$operand1, $operand2]);
-						break;
-					case '-':
-						$valueStack[] = new CSSMathSum([$operand1, new CSSMathNegate([$operand2])]);
-						break;
-					case '*':
-						$valueStack[] = new CSSMathProduct([$operand1, $operand2]);
-						break;
-					case '/':
-						$valueStack[] = new CSSMathProduct([$operand1, new CSSMathInvert([$operand2])]);
-						break;
-				}
-			} else { // Operand
-				$valueStack[] = CSSNumericValue::parse($token);
+				$valueStack[] = match ($token) {
+					'+' => new CSSMathSum([$operand1, $operand2]),
+					'-' => new CSSMathSum([$operand1, new CSSMathNegate([$operand2])]),
+					'*' => new CSSMathProduct([$operand1, $operand2]),
+					'/' => new CSSMathProduct([$operand1, new CSSMathInvert([$operand2])]),
+				};
+			} else {
+				$valueStack[] = CSSNumericValue::parse($token, null, $options, $depth + 1);
 			}
 		}
 
-		if (1 !== count($valueStack)) {
-			throw new \InvalidArgumentException('Invalid expression.');
+		if (count($valueStack) !== 1) {
+			throw new InvalidArgumentException('Invalid expression.');
 		}
 
 		return $valueStack[0];
@@ -162,6 +149,22 @@ class CSSCalcParser
 			$character = $expression[$offset];
 			if (ctype_space($character)) {
 				$offset++;
+				continue;
+			}
+
+			if ($character === '/' && ($offset + 1 < $length) && $expression[$offset + 1] === '*') {
+				$commentEnd = strpos($expression, '*/', $offset + 2);
+				if ($commentEnd === false) {
+					throw new InvalidArgumentException('Unclosed comment in calc() expression.');
+				}
+				$offset = $commentEnd + 2;
+				continue;
+			}
+
+			if (!$expectsOperand && ($character === '+' || $character === '-' || $character === '*' || $character === '/')) {
+				$tokens[] = $character;
+				$offset++;
+				$expectsOperand = true;
 				continue;
 			}
 
@@ -191,7 +194,7 @@ class CSSCalcParser
 				continue;
 			}
 
-			if (str_contains('+-*/', $character)) {
+			if ($character === '+' || $character === '-' || $character === '*' || $character === '/') {
 				$tokens[] = $character;
 				$offset++;
 				$expectsOperand = true;
@@ -208,7 +211,7 @@ class CSSCalcParser
 				if (($expression[$open] ?? '') === '(') {
 					$close = CSSSyntaxScanner::findMatchingDelimiter($expression, $open);
 					if ($close === null) {
-						throw new \InvalidArgumentException('Mismatched parentheses.');
+						throw new InvalidArgumentException('Mismatched parentheses.');
 					}
 					$tokens[] = substr($expression, $offset, $close - $offset + 1);
 					$offset = $close + 1;
@@ -223,7 +226,9 @@ class CSSCalcParser
 
 			$start = $offset++;
 			while ($offset < $length && !ctype_space($expression[$offset])
-				&& !str_contains('()+-*/', $expression[$offset])) {
+				&& $expression[$offset] !== '(' && $expression[$offset] !== ')'
+				&& $expression[$offset] !== '+' && $expression[$offset] !== '-'
+				&& $expression[$offset] !== '*' && $expression[$offset] !== '/') {
 				$offset++;
 			}
 			$tokens[] = substr($expression, $start, $offset - $start);
@@ -235,7 +240,7 @@ class CSSCalcParser
 
 	private static function isOperand(string $token): bool
 	{
-		return (bool) preg_match('/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?(?:[a-zA-Z]+|%)?$/D', $token)
+		return preg_match('/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?(?:[a-zA-Z]+|%)?$/D', $token) === 1
 			|| preg_match('/^[a-zA-Z][a-zA-Z0-9-]*\s*\(/', $token) === 1;
 	}
 }

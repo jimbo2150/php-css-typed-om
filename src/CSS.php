@@ -68,6 +68,7 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
  * @method static CSSUnitValue lvmin(string|int|float $value) Create a lvmin unit value
  * @method static CSSUnitValue lvw(string|int|float $value) Create a lvw unit value
  * @method static CSSUnitValue lch(string|int|float $value) Create a lch unit value
+ * @method static CSSUnitValue rch(string|int|float $value) Create an rch unit value
  * @method static CSSUnitValue rex(string|int|float $value) Create a rex unit value
  * @method static CSSUnitValue ric(string|int|float $value) Create a ric unit value
  * @method static CSSUnitValue svb(string|int|float $value) Create a svb unit value
@@ -96,19 +97,23 @@ abstract class CSS {
 	 * @throws InvalidArgumentException If the value is invalid
 	 */
 	public static function __callStatic(string $name, array $arguments): CSSUnitValue
-    {
-		$lowerName = self::translateUnit(strtolower($name));
-		$unit = CSSUnitEnum::tryFrom($lowerName) ?? CSSUnitEnum::tryFrom($name);
+	{
+		$unit = CSSUnitEnum::tryFromSymbol(self::translateUnit(strtolower($name)))
+			?? CSSUnitEnum::tryFromSymbol($name);
 
 		if ($unit === null) {
 			throw new BadMethodCallException('Static method ' . $name . ' does not exist.');
 		}
 		if (!isset($arguments[0]) || !(is_string($arguments[0]) || is_int($arguments[0]) || is_float($arguments[0])) || !is_numeric($arguments[0])) {
-				throw new InvalidArgumentException('Static method ' . $name . ' requires 1 numeric parameter.');
+			throw new InvalidArgumentException('Static method ' . $name . ' requires 1 numeric parameter.');
 		}
 		$value = is_string($arguments[0]) ? $arguments[0] : (float) $arguments[0];
+		if (!is_finite((float) $value)) {
+			throw new InvalidArgumentException('CSS numeric value must be finite.');
+		}
+
 		return new CSSUnitValue($value, $unit);
-    }
+	}
 
 	/**
 	 * Translates a unit name to its corresponding symbol if mapped, otherwise returns the name unchanged.
@@ -116,59 +121,108 @@ abstract class CSS {
 	 * @param string $name The unit name to translate
 	 * @return string The translated unit symbol or the original name
 	 */
-	public static function translateUnit(string $name): string {
+	public static function translateUnit(string $name): string
+	{
 		return self::UNIT_MAP[$name] ?? $name;
 	}
 
 	/**
-	 * Escapes a value for safe inclusion in CSS strings, handling special characters and null bytes.
+	 * Escapes a string as a CSS identifier according to the CSSOM specification.
 	 *
 	 * @param string|int|float|null $value The value to escape
-	 * @return string The escaped value
+	 * @return string The escaped CSS identifier
 	 */
-	public static function escape(string|int|float|null $value): string {
-		if($value === null) {
-			$value = "\x00";
+	public static function escape(string|int|float|null $value): string
+	{
+		if ($value === null) {
+			return "\u{FFFD}";
 		}
-		$value = (string) $value;
+
+		$source = (string) $value;
+		$length = strlen($source);
+		if ($length === 0) {
+			return '';
+		}
+
 		$output = '';
-		$charArray = preg_split('//u', $value, -1, PREG_SPLIT_NO_EMPTY);
-		foreach($charArray as $index => $char) {
-			if(self::__charIsNull($char)) {
-				$output = preg_replace('/\x00/u', "\u{FFFD}", $char);
-			} else if(
-				(preg_match('/[\x01-\x1f\x7f]/u', $char) === 1) ||
-				($index === 0 && preg_match('/[0-9]/u', $char) === 1) ||
-				(
-					$index === 1 &&
-					preg_match('/[0-9]/u', $char) === 1 &&
-					$charArray[0] === '-'
-				)
-			) {
-				$output .= '\\' . dechex(mb_ord($char)) . ' ';
-			} else if(
-				($index === 1 && $char === '-' && count($charArray) < 3)
-			) {
-				$output .= '\\' . $char;
-			} else if(
-				(preg_match('/([\x80-\x{10FFFF}]|[\-\_0-9a-zA-Z])/u', $char) === 1)
+		$charIndex = 0;
+		$firstIsDash = false;
+		$offset = 0;
+
+		while ($offset < $length) {
+			$byte = ord($source[$offset]);
+			if ($byte < 0x80) {
+				$codepoint = $byte;
+				$char = $source[$offset];
+				$offset++;
+			} else {
+				[$codepoint, $char, $byteLength] = self::decodeUtf8($source, $offset, $length);
+				$offset += $byteLength;
+			}
+
+			if ($charIndex === 0) {
+				$firstIsDash = $codepoint === 0x2D;
+			}
+
+			if ($codepoint === 0x00) {
+				$output .= "\u{FFFD}";
+			} elseif (($codepoint >= 0x01 && $codepoint <= 0x1F) || $codepoint === 0x7F) {
+				$output .= '\\' . dechex($codepoint) . ' ';
+			} elseif ($charIndex === 0 && $codepoint >= 0x30 && $codepoint <= 0x39) {
+				$output .= '\\' . dechex($codepoint) . ' ';
+			} elseif ($charIndex === 1 && $firstIsDash && $codepoint >= 0x30 && $codepoint <= 0x39) {
+				$output .= '\\' . dechex($codepoint) . ' ';
+			} elseif ($charIndex === 0 && $firstIsDash && $offset === $length) {
+				$output .= '\\-';
+			} elseif (
+				$codepoint >= 0x80
+				|| $codepoint === 0x2D
+				|| $codepoint === 0x5F
+				|| ($codepoint >= 0x30 && $codepoint <= 0x39)
+				|| ($codepoint >= 0x41 && $codepoint <= 0x5A)
+				|| ($codepoint >= 0x61 && $codepoint <= 0x7A)
 			) {
 				$output .= $char;
 			} else {
 				$output .= '\\' . $char;
 			}
+
+			$charIndex++;
 		}
-		// Escape escape character
-		return preg_replace('/\\\\(\\\\+)?/u', '\\\\\\\${1}', $output);
+
+		return $output;
 	}
 
-	/**
-	 * Checks if a character is null or contains a null byte.
-	 *
-	 * @param string|null $char The character to check
-	 * @return bool True if the character is null or contains null byte, false otherwise
-	 */
-	private static function __charIsNull(string|null $char): bool {
-		return $char === null || preg_match('/\x00/u', $char) === 1;
+	/** @return array{int, string, int} */
+	private static function decodeUtf8(string $source, int $offset, int $length): array
+	{
+		$b0 = ord($source[$offset]);
+		if ($b0 >= 0xC2 && $b0 <= 0xDF && $offset + 1 < $length) {
+			$b1 = ord($source[$offset + 1]);
+			if (($b1 & 0xC0) === 0x80) {
+				return [(($b0 & 0x1F) << 6) | ($b1 & 0x3F), substr($source, $offset, 2), 2];
+			}
+		} elseif ($b0 >= 0xE0 && $b0 <= 0xEF && $offset + 2 < $length) {
+			$b1 = ord($source[$offset + 1]);
+			$b2 = ord($source[$offset + 2]);
+			$validRange = ($b0 !== 0xE0 || $b1 >= 0xA0) && ($b0 !== 0xED || $b1 <= 0x9F);
+			if ($validRange && ($b1 & 0xC0) === 0x80 && ($b2 & 0xC0) === 0x80) {
+				return [(($b0 & 0x0F) << 12) | (($b1 & 0x3F) << 6) | ($b2 & 0x3F), substr($source, $offset, 3), 3];
+			}
+		} elseif ($b0 >= 0xF0 && $b0 <= 0xF4 && $offset + 3 < $length) {
+			$b1 = ord($source[$offset + 1]);
+			$b2 = ord($source[$offset + 2]);
+			$b3 = ord($source[$offset + 3]);
+			$validRange = ($b0 !== 0xF0 || $b1 >= 0x90) && ($b0 !== 0xF4 || $b1 <= 0x8F);
+			if ($validRange && ($b1 & 0xC0) === 0x80 && ($b2 & 0xC0) === 0x80 && ($b3 & 0xC0) === 0x80) {
+				return [
+					(($b0 & 0x07) << 18) | (($b1 & 0x3F) << 12) | (($b2 & 0x3F) << 6) | ($b3 & 0x3F),
+					substr($source, $offset, 4),
+					4,
+				];
+			}
+		}
+
+		return [0xFFFD, "\u{FFFD}", 1];
 	}
 }

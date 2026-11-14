@@ -621,25 +621,29 @@ class CSSNumericValueTest extends TestCase
     public function testTypeMethod()
     {
         $pxValue = new CSSUnitValue(10, 'px');
-        $this->assertEquals('length', $pxValue->type());
+        $this->assertSame(1, $pxValue->type()->length);
+        $this->assertSame('length', $pxValue->unitType());
 
         $degValue = new CSSUnitValue(90, 'deg');
-        $this->assertEquals('angle', $degValue->type());
+        $this->assertSame(1, $degValue->type()->angle);
 
         $sValue = new CSSUnitValue(2, 's');
-        $this->assertEquals('time', $sValue->type());
+        $this->assertSame(1, $sValue->type()->time);
 
         $hzValue = new CSSUnitValue(100, 'hz');
-        $this->assertEquals('frequency', $hzValue->type());
+        $this->assertSame(1, $hzValue->type()->frequency);
+
+        $khzValue = new CSSUnitValue(2, 'khz');
+        $this->assertSame(1, $khzValue->type()->frequency);
 
         $dpiValue = new CSSUnitValue(300, 'dpi');
-        $this->assertEquals('resolution', $dpiValue->type());
+        $this->assertSame(1, $dpiValue->type()->resolution);
 
         $frValue = new CSSUnitValue(1, 'fr');
-        $this->assertEquals('flex', $frValue->type());
+        $this->assertSame(1, $frValue->type()->flex);
 
         $percentValue = new CSSUnitValue(50, 'percent');
-        $this->assertEquals('percent', $percentValue->type());
+        $this->assertSame(1, $percentValue->type()->percent);
     }
 
     public function testTypeMethodWithNoUnit()
@@ -647,8 +651,8 @@ class CSSNumericValueTest extends TestCase
         $this->expectException(\Exception::class);
         $this->expectExceptionMessage('No unit set');
         $value = new CSSUnitValue(10, 'number');
-  $reflectedProperty = new \ReflectionProperty(CSSUnitValue::class, 'unitObj');
-  $reflectedProperty->setValue($value, null);
-        $value->type();
+        $reflectedProperty = new \ReflectionProperty(CSSUnitValue::class, 'unitObj');
+        $reflectedProperty->setValue($value, null);
+        $value->unitType();
     }
 }

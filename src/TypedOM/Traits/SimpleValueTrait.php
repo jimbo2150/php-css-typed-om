@@ -4,74 +4,55 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Traits;
 
+use InvalidArgumentException;
+
 /**
- * Trait for simple value classes (color, keyword, image).
- * 
- * Provides common functionality for simple CSS values that don't need complex operations.
+ * Trait for numeric/simple Typed OM value properties with finite-value validation.
  */
 trait SimpleValueTrait
 {
-
-    /** @var string|float|null The value */
-    public protected(set) string|float|null $value = null {
+	/** @var mixed The value */
+	public protected(set) mixed $value = null {
 		get {
 			return $this->value;
 		}
 	}
 
-    /**
-     * Set the value.
-     * 
-     * @param mixed $value The new value
-     * @throws \InvalidArgumentException When value type is invalid
-     */
-    protected function setValue(string|float $value): void
-    {
-        $this->validateValue($value);
-        $this->value = $value;
-    }
-   
-    /**
-     * Check if the value is valid.
-     *
-     * @param mixed $value The value to check
-     * @return bool True if valid
-     */
-    protected static function isValueValid(mixed $value): bool {
-		return is_numeric($value);
+	/**
+	 * Set the value after validation.
+	 *
+	 * @throws InvalidArgumentException When value type or finiteness is invalid
+	 */
+	protected function setValue(string|float $value): void
+	{
+		$this->validateValue($value);
+		$this->value = $value;
 	}
 
-    /**
-     * Validate the value type.
-     * 
-     * @param mixed $value The value to validate
-     * @return bool True if valid
-     */
-    protected static function validateValue(mixed $value): bool
-    {
-        if (!static::isValueValid($value)) {
-            throw new \InvalidArgumentException(sprintf(
-                'Invalid value for %s.',
-                static::class
-            ));
-        }
+	protected static function isValueValid(mixed $value): bool
+	{
+		return is_numeric($value) && is_finite((float) $value);
+	}
+
+	/**
+	 * @throws InvalidArgumentException When the value is invalid
+	 */
+	protected static function validateValue(mixed $value): bool
+	{
+		if (!static::isValueValid($value)) {
+			throw new InvalidArgumentException(sprintf('Invalid value for %s.', static::class));
+		}
+
 		return true;
-    }
+	}
 
-    /**
-     * Convert to string representation.
-     */
-    public function __toString(): string
-    {
-        return (string) $this->value;
-    }
+	public function __toString(): string
+	{
+		return (string) $this->value;
+	}
 
-    /**
-     * Clone the value.
-     */
-    public function clone(): static
-    {
-        $clone = clone $this;
-        return $clone;
-    }
+	public function clone(): static
+	{
+		return clone $this;
+	}
 }

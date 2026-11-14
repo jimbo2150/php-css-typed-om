@@ -4,30 +4,42 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
+use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+
+/**
+ * Represents a CSS `@namespace` rule.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSNamespaceRule
+ */
 final class CSSNamespaceRule extends CSSAtRule
 {
 	public function __construct(string $prelude)
 	{
+		if (trim($prelude) === '') {
+			throw new InvalidArgumentException('@namespace requires a namespace URI.');
+		}
 		parent::__construct('namespace', $prelude);
 	}
 
 	public function getPrefix(): string
 	{
-		$parts = preg_split('/\s+/', trim($this->prelude), 2) ?: [];
-		if (count($parts) < 2) {
-			return '';
-		}
-		return $parts[0];
+		$parts = CSSSyntaxScanner::splitTopLevelWhitespace($this->prelude);
+		return count($parts) >= 2 ? $parts[0] : '';
 	}
 
 	public function getNamespaceURI(): string
 	{
-		$prefix = $this->getPrefix();
-		$uri = $prefix === '' ? trim($this->prelude) : trim(substr(trim($this->prelude), strlen($prefix)));
-		if (preg_match('/^url\((.*)\)$/is', $uri, $match)) {
-			$uri = trim($match[1]);
+		$parts = CSSSyntaxScanner::splitTopLevelWhitespace($this->prelude);
+		$uri = count($parts) >= 2 ? $parts[1] : ($parts[0] ?? '');
+		if (strncasecmp($uri, 'url(', 4) === 0 && str_ends_with($uri, ')')) {
+			$uri = trim(substr($uri, 4, -1));
 		}
-		return trim($uri, "\"'");
+		if (strlen($uri) >= 2 && (($uri[0] === '"' && $uri[-1] === '"') || ($uri[0] === "'" && $uri[-1] === "'"))) {
+			return substr($uri, 1, -1);
+		}
+
+		return $uri;
 	}
 
 	public function getType(): int

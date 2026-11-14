@@ -8,6 +8,11 @@ use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 
+/**
+ * Represents CSS `translate()`, `translateX()`, `translateY()`, `translateZ()`, and `translate3d()`.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSTranslate
+ */
 final class CSSTranslate extends CSSTransformComponent
 {
 	private CSSNumericValue $x;
@@ -33,7 +38,7 @@ final class CSSTranslate extends CSSTransformComponent
 		$this->z = $z === null || is_bool($z) ? new CSSUnitValue(0, 'px') : self::numericValue($z, 'px', ['length']);
 		$hasZ = $z !== null && !is_bool($z);
 		$serializedValues = $hasZ ? [$this->x, $this->y, $this->z] : [$this->x, $this->y];
-		$normalizedIs2D = self::scalar($this->z, 'length') === 0.0;
+		$normalizedIs2D = !$hasZ || ($this->z instanceof CSSUnitValue && $this->z->value === 0.0);
 		parent::__construct($hasZ ? 'translate3d' : 'translate', $serializedValues, $is2D ?? $normalizedIs2D);
 	}
 
@@ -42,14 +47,32 @@ final class CSSTranslate extends CSSTransformComponent
 		return $this->x;
 	}
 
+	public function setX(CSSNumericValue $x): void
+	{
+		$this->x = self::numericValue($x, 'px', ['length', 'percent']);
+		$this->syncSerializedValues();
+	}
+
 	public function getY(): CSSNumericValue
 	{
 		return $this->y;
 	}
 
+	public function setY(CSSNumericValue $y): void
+	{
+		$this->y = self::numericValue($y, 'px', ['length', 'percent']);
+		$this->syncSerializedValues();
+	}
+
 	public function getZ(): CSSNumericValue
 	{
 		return $this->z;
+	}
+
+	public function setZ(CSSNumericValue $z): void
+	{
+		$this->z = self::numericValue($z, 'px', ['length']);
+		$this->syncSerializedValues();
 	}
 
 	public function toMatrix(): array
@@ -63,7 +86,7 @@ final class CSSTranslate extends CSSTransformComponent
 
 	public function clone(): static
 	{
-		return new static($this->functionName, $this->values, $this->twoDimensional);
+		return new static($this->x->clone(), $this->y->clone(), $this->twoDimensional ? null : $this->z->clone(), $this->twoDimensional);
 	}
 
 	public function __get(string $name): mixed
@@ -73,6 +96,34 @@ final class CSSTranslate extends CSSTransformComponent
 			'y' => $this->getY(),
 			'z' => $this->getZ(),
 			default => parent::__get($name),
+		};
+	}
+
+	public function __set(string $name, mixed $value): void
+	{
+		if ($name === 'x' && $value instanceof CSSNumericValue) {
+			$this->setX($value);
+			return;
+		}
+		if ($name === 'y' && $value instanceof CSSNumericValue) {
+			$this->setY($value);
+			return;
+		}
+		if ($name === 'z' && $value instanceof CSSNumericValue) {
+			$this->setZ($value);
+			return;
+		}
+		parent::__set($name, $value);
+	}
+
+	private function syncSerializedValues(): void
+	{
+		$this->values = match ($this->functionName) {
+			'translatex' => [$this->x],
+			'translatey' => [$this->y],
+			'translatez' => [$this->z],
+			'translate3d' => [$this->x, $this->y, $this->z],
+			default => [$this->x, $this->y],
 		};
 	}
 

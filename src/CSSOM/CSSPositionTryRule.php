@@ -4,17 +4,26 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
+use InvalidArgumentException;
+
+/**
+ * Represents a CSS `@position-try` fallback rule for anchor positioning.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSPositionTryRule
+ */
 final class CSSPositionTryRule extends CSSAtRule
 {
-	public const int POSITION_TRY_RULE = 21;
-
 	public function __construct(string $name, CSSStyleDeclaration $style)
 	{
+		$normalized = CSSStyleDeclaration::normalizePropertyName($name);
+		if (!str_starts_with($normalized, '--')) {
+			throw new InvalidArgumentException('@position-try requires a dashed identifier starting with "--".');
+		}
 		$descriptors = new CSSPositionTryDescriptors();
 		foreach ($style as $property => $declaration) {
 			$descriptors->setProperty($property, $declaration['value'], $declaration['priority']);
 		}
-		parent::__construct('position-try', $name, $descriptors, true);
+		parent::__construct('position-try', $normalized, $descriptors, true);
 	}
 
 	public function getNameText(): string
@@ -22,7 +31,7 @@ final class CSSPositionTryRule extends CSSAtRule
 		return $this->prelude;
 	}
 
-	public function getStyle(): ?CSSPositionTryDescriptors
+	public function getStyle(): CSSPositionTryDescriptors
 	{
 		return $this->style;
 	}

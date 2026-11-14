@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
+/**
+ * Represents a CSS `@media` rule.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSMediaRule
+ */
 final class CSSMediaRule extends CSSConditionRule
 {
 	private MediaList $media;
@@ -11,7 +16,10 @@ final class CSSMediaRule extends CSSConditionRule
 	public function __construct(string $conditionText)
 	{
 		parent::__construct('media', $conditionText);
-		$this->media = new MediaList($conditionText, fn (string $text) => parent::setConditionText($text));
+		$this->media = new MediaList($conditionText, function (string $text): void {
+			parent::setConditionText($text);
+		});
+		$this->prelude = $this->media->getMediaText();
 	}
 
 	public function getType(): int

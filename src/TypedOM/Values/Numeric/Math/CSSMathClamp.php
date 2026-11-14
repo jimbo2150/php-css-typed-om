@@ -4,14 +4,59 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math;
 
-/** Represents a CSS clamp() calculation. */
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericArray;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
+
+/**
+ * Represents a CSS `clamp(lower, value, upper)` calculation.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSMathClamp
+ */
 final class CSSMathClamp extends CSSMathValue
 {
 	public const ?string operator = 'clamp';
 
-	public function __construct(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue|\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericArray|array $values)
-	{
-		parent::__construct($values);
+	/**
+	 * Accepts either three positional arguments `(lower, value, upper)` per MDN
+	 * or a 3-element `CSSNumericArray|list<CSSNumericValue>`.
+	 */
+	public function __construct(
+		CSSNumericValue|CSSNumericArray|array $lowerOrValues,
+		?CSSNumericValue $value = null,
+		?CSSNumericValue $upper = null,
+	) {
+		if ($value !== null && $upper !== null && $lowerOrValues instanceof CSSNumericValue) {
+			parent::__construct([$lowerOrValues, $value, $upper]);
+		} else {
+			parent::__construct($lowerOrValues);
+		}
 		$this->requireOperandCount(3, 3);
+		$this->validateAdditiveTypes();
+		$this->value = $this->values->values[1];
+	}
+
+	public function getLower(): CSSNumericValue
+	{
+		return $this->values->values[0];
+	}
+
+	public function getValue(): CSSNumericValue
+	{
+		return $this->values->values[1];
+	}
+
+	public function getUpper(): CSSNumericValue
+	{
+		return $this->values->values[2];
+	}
+
+	public function __get(string $name): mixed
+	{
+		return match ($name) {
+			'lower' => $this->getLower(),
+			'value' => $this->getValue(),
+			'upper' => $this->getUpper(),
+			default => parent::__get($name),
+		};
 	}
 }

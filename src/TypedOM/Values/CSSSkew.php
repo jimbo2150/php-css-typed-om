@@ -8,6 +8,11 @@ use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 
+/**
+ * Represents a CSS `skew(ax, ay)` transform component.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSSkew
+ */
 final class CSSSkew extends CSSTransformComponent
 {
 	private CSSNumericValue $ax;
@@ -23,7 +28,7 @@ final class CSSSkew extends CSSTransformComponent
 			}
 			$this->ax = self::numericValue($values[0], 'deg', ['angle']);
 			$this->ay = isset($values[1]) ? self::numericValue($values[1], 'deg', ['angle']) : new CSSUnitValue(0, 'deg');
-			parent::__construct($function, [$this->ax, ...array_slice([$this->ay], 0, isset($values[1]) ? 1 : 0)], true);
+			parent::__construct($function, isset($values[1]) ? [$this->ax, $this->ay] : [$this->ax], true);
 			return;
 		}
 		$this->ax = self::numericValue($axOrFunction, 'deg', ['angle']);
@@ -34,12 +39,27 @@ final class CSSSkew extends CSSTransformComponent
 	public function getAx(): CSSNumericValue { return $this->ax; }
 	public function getAy(): CSSNumericValue { return $this->ay; }
 
+	public function setAx(CSSNumericValue $ax): void
+	{
+		$this->ax = self::numericValue($ax, 'deg', ['angle']);
+		$this->values = [$this->ax, $this->ay];
+	}
+
+	public function setAy(CSSNumericValue $ay): void
+	{
+		$this->ay = self::numericValue($ay, 'deg', ['angle']);
+		$this->values = [$this->ax, $this->ay];
+	}
+
 	public function toMatrix(): array
 	{
 		return self::matrix2d(1.0, tan(self::scalar($this->ay, 'angle')), tan(self::scalar($this->ax, 'angle')), 1.0, 0.0, 0.0);
 	}
 
-	public function clone(): static { return new static($this->functionName, $this->values); }
+	public function clone(): static
+	{
+		return new static($this->ax->clone(), $this->ay->clone());
+	}
 
 	public function __get(string $name): mixed
 	{
@@ -48,5 +68,18 @@ final class CSSSkew extends CSSTransformComponent
 			'ay' => $this->ay,
 			default => parent::__get($name),
 		};
+	}
+
+	public function __set(string $name, mixed $value): void
+	{
+		if ($name === 'ax' && $value instanceof CSSNumericValue) {
+			$this->setAx($value);
+			return;
+		}
+		if ($name === 'ay' && $value instanceof CSSNumericValue) {
+			$this->setAy($value);
+			return;
+		}
+		parent::__set($name, $value);
 	}
 }

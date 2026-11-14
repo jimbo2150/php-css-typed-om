@@ -30,28 +30,21 @@ trait TypeableUnitTrait
 	 * @param string|CSSUnitEnum $unit The unit to set
 	 */
 	protected function setUnit(string|CSSUnitEnum $unit) {
-		if(is_string($unit)) {
+		if (is_string($unit)) {
 			$symbol = CSS::translateUnit(strtolower($unit));
-			$unit = CSSUnitEnum::tryFrom($symbol);
-			if ($unit === null) {
-				foreach (CSSUnitEnum::cases() as $candidate) {
-					if (strcasecmp($candidate->value, $symbol) === 0) {
-						$unit = $candidate;
-						break;
-					}
-				}
-			}
-			if ($unit === null) {
+			$resolved = CSSUnitEnum::tryFromSymbol($symbol);
+			if ($resolved === null) {
 				throw new \InvalidArgumentException('Unsupported CSS unit: ' . $symbol);
 			}
+			$unit = $resolved;
 		}
 		$this->unitObj = $unit;
 	}
 
 	/**
-	 * Get the type of the unit.
+	 * Get the category name of the unit.
 	 *
-	 * @return string The unit type
+	 * @return string|null The unit type
 	 * @throws Exception If no unit is set or unknown type
 	 */
 	public function type(): ?string {

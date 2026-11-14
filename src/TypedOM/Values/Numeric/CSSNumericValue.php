@@ -4,200 +4,138 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 
-use Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext;
-
+use Error;
+use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\CSS;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\LengthTrait;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\SimpleValueTrait;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\TypeableUnitTrait;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathClamp;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathInvert;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMax;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMin;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathClamp;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathNegate;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathInvert;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathValue;
-use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 
 /**
- * Represents a CSS value that can be expressed as a number, or a number and a unit.
- * It is the base class for CSSUnitValue and other future math-related CSS classes.
+ * Base class for CSS Typed OM numeric values (`CSSUnitValue` and `CSSMathValue`).
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSNumericValue
  */
 abstract class CSSNumericValue extends CSSStyleValue
 {
-	use SimpleValueTrait, TypeableUnitTrait, LengthTrait;
+	use SimpleValueTrait, LengthTrait;
+	use TypeableUnitTrait {
+		TypeableUnitTrait::type as public unitType;
+	}
 
-	/**
-	 * CSSNumericValue constructor.
-	 */
-	public function __construct() {
+	/** @var array<string, array<string, float>> */
+	private const array DIMENSION_FACTORS = [
+		'angle' => ['deg' => 1.0, 'rad' => 180.0 / M_PI, 'grad' => 0.9, 'turn' => 360.0],
+		'time' => ['s' => 1.0, 'ms' => 0.001],
+		'frequency' => ['hz' => 1.0, 'khz' => 1000.0],
+		'resolution' => ['dpi' => 1.0, 'dpcm' => 2.54, 'dppx' => 96.0],
+		'flex' => ['fr' => 1.0],
+	];
+
+	public function __construct()
+	{
 	}
 
 	/**
-	 * The parse() method of the CSSNumericValue interface creates a new CSSUnitValue object from a CSS numeric value.
+	 * Parses a CSS numeric value or math expression (`calc()`, `min()`, `max()`, `clamp()`).
 	 *
-	 * @param string $cssText the CSS text to parse
-	 *
-	 * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSNumericValue/parse
+	 * @throws InvalidArgumentException When syntax is invalid, non-finite, dimensionally incompatible, or exceeds maxMathDepth
 	 */
-	public static function parse(string $propertyOrCssText, ?string $cssText = null): static
-	{
+	public static function parse(
+		string $propertyOrCssText,
+		?string $cssText = null,
+		?CSSParserOptions $options = null,
+		int $depth = 0,
+	): self {
 		if ($cssText !== null) {
-			$value = \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue::parse($propertyOrCssText, $cssText);
+			$value = CSSStyleValue::parse($propertyOrCssText, $cssText, $options);
 			if (!$value instanceof self) {
-				throw new \InvalidArgumentException('CSS property value is not numeric.');
+				throw new InvalidArgumentException('CSS property value is not numeric.');
 			}
 			return $value;
 		}
 
-		$cssText = trim($propertyOrCssText);
+		$options ??= new CSSParserOptions();
+		if ($options->maxMathDepth !== null && $depth > $options->maxMathDepth) {
+			throw new InvalidArgumentException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $options->maxMathDepth));
+		}
 
-		if (preg_match('/^(min|max|clamp)\(/i', $cssText, $functionMatch)) {
+		$cssText = trim($propertyOrCssText);
+		if ($cssText === '') {
+			throw new InvalidArgumentException('Invalid CSS numeric value.');
+		}
+
+		if (preg_match('/^(min|max|clamp)\s*\(/i', $cssText, $functionMatch)) {
 			$open = strpos($cssText, '(');
-			$close = CSSSyntaxScanner::findMatchingDelimiter($cssText, $open);
+			$close = $open === false ? null : CSSSyntaxScanner::findMatchingDelimiter($cssText, $open);
 			if ($close !== strlen($cssText) - 1) {
-				throw new \InvalidArgumentException('Invalid CSS math function: ' . $cssText);
+				throw new InvalidArgumentException('Invalid CSS math function: ' . $cssText);
 			}
 
+			$rawArgs = CSSSyntaxScanner::splitTopLevel(substr($cssText, $open + 1, $close - $open - 1), ',');
 			$arguments = array_map(
-				static fn (string $argument): CSSNumericValue => self::parse(trim($argument)),
-				CSSSyntaxScanner::splitTopLevel(substr($cssText, $open + 1, $close - $open - 1), ','),
+				static fn (string $argument): CSSNumericValue => self::parse(trim($argument), null, $options, $depth + 1),
+				$rawArgs,
 			);
 			$function = strtolower($functionMatch[1]);
 			if (($function === 'clamp' && count($arguments) !== 3) || ($function !== 'clamp' && $arguments === [])) {
-				throw new \InvalidArgumentException('Invalid argument count for ' . $function . '().');
+				throw new InvalidArgumentException('Invalid argument count for ' . $function . '().');
 			}
 
 			return match ($function) {
 				'min' => new CSSMathMin($arguments),
 				'max' => new CSSMathMax($arguments),
-				'clamp' => new CSSMathClamp($arguments),
+				'clamp' => new CSSMathClamp($arguments[0], $arguments[1], $arguments[2]),
 			};
 		}
 
-		// Handle calc() expressions
-		if (preg_match('/^calc\(/i', $cssText) && str_ends_with($cssText, ')')) {
-			return CSSCalcParser::parse($cssText);
+		if (preg_match('/^calc\s*\(/i', $cssText) && str_ends_with($cssText, ')')) {
+			return CSSCalcParser::parse($cssText, $options, $depth);
 		}
 
-		// This is a simplified parser. A real one would need a proper tokenizer
-		// and handle calc() expressions.
 		if (preg_match('/^([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)([a-zA-Z%]*)$/D', $cssText, $matches)) {
 			$value = (float) $matches[1];
-			$unit = $matches[2];
-
-			if (empty($unit)) {
-				$unit = 'number';
+			if (!is_finite($value)) {
+				throw new InvalidArgumentException('CSS numeric value must be finite: ' . $cssText);
 			}
-
+			$unit = $matches[2] === '' ? 'number' : $matches[2];
 			return new CSSUnitValue($value, $unit);
 		}
 
-		throw new \InvalidArgumentException('Invalid CSS numeric value: '.$cssText);
+		throw new InvalidArgumentException('Invalid CSS numeric value: ' . $cssText);
+	}
+
+	public function from(string $cssText): self
+	{
+		return self::parse($cssText);
 	}
 
 	/**
-	 * Creates a new CSSUnitValue object from a CSS numeric value.
+	 * Returns the CSSNumericType exponent map of this value per Typed OM.
 	 *
-	 * @param string $cssText the CSS text to parse
+	 * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSNumericValue/type
 	 */
-	public function from(string $cssText): static
+	public function type(): CSSNumericType
 	{
-		return static::parse($cssText);
+		return $this->getNumericType();
 	}
 
-	/**
-	 * Converts the numeric value to the specified unit.
-	 *
-	 * @param string $unit The target unit
-	 * @param CSSContext|null $context Optional context for relative unit conversions (default: new CSSContext())
-	 * @return CSSUnitValue The converted value
-	 */
-	public function to(string $unit, ?CSSContext $context = null): CSSNumericValue
+	public function getType(): CSSNumericType
 	{
-		$context = $context ?? new CSSContext();
-		$targetUnit = self::resolveUnit($unit);
-		$currentCategory = self::numericCategory($this);
-		$targetCategory = $targetUnit->type()?->value ?? 'number';
-		if ($currentCategory !== $targetCategory) {
-			throw new \InvalidArgumentException(sprintf('Cannot convert %s to %s.', $currentCategory, $targetCategory));
-		}
-
-		return self::convertNumericValue($this, $targetUnit, $context);
-	}
-
-	/**
-	 * Converts a value from the given unit to pixels.
-	 *
-	 * @param float $value The value to convert
-	 * @param string $unit The source unit
-	 * @return float The value in pixels
-	 */
-	private static function convertToPx(float $value, string $unit, CSSContext $context): float
-	{
-		$factor = $context->getToPxFactor($unit);
-		return $value * $factor;
-	}
-
-	/**
-	 * Converts a pixel value to the specified unit.
-	 *
-	 * @param float $pxValue The value in pixels
-	 * @param string $unit The target unit
-	 * @return float The converted value
-	 */
-	private static function convertFromPx(float $pxValue, string $unit, CSSContext $context): float
-	{
-		$factor = $context->getFromPxFactor($unit);
-		return $pxValue * $factor;
-	}
-
-	private static function resolveUnit(string $unit): CSSUnitEnum
-	{
-		$symbol = \Jimbo2150\PhpCssTypedOm\CSS::translateUnit(strtolower($unit));
-		$resolved = CSSUnitEnum::tryFrom($symbol);
-		if ($resolved !== null) {
-			return $resolved;
-		}
-		foreach (CSSUnitEnum::cases() as $candidate) {
-			if (strcasecmp($candidate->value, $symbol) === 0) {
-				return $candidate;
-			}
-		}
-		throw new \InvalidArgumentException('Unsupported CSS unit: ' . $unit);
-	}
-
-	private static function numericCategory(CSSNumericValue $value): string
-	{
-		if ($value instanceof CSSUnitValue) {
-			return $value->unitObj?->type()?->value ?? 'number';
-		}
-		if (!$value instanceof CSSMathValue) {
-			return 'unknown';
-		}
-
-		$values = $value->values->values;
-		if ($value instanceof CSSMathNegate || $value instanceof CSSMathInvert) {
-			$category = self::numericCategory($values[0] ?? $value);
-			return $value instanceof CSSMathInvert && $category !== 'number' ? 'inverse-' . $category : $category;
-		}
-		$categories = array_map(self::numericCategory(...), $values);
-		if ($value instanceof CSSMathProduct) {
-			$dimensional = array_values(array_filter($categories, static fn (string $category): bool => $category !== 'number'));
-			return count($dimensional) === 1 ? $dimensional[0] : (count($dimensional) === 0 ? 'number' : 'derived');
-		}
-
-		$categories = array_unique($categories);
-		return count($categories) === 1 ? $categories[0] : 'derived';
-	}
-
-	public function getNumericCategory(): string
-	{
-		return self::numericCategory($this);
+		return $this->getNumericType();
 	}
 
 	public function getNumericType(): CSSNumericType
@@ -213,13 +151,13 @@ abstract class CSSNumericValue extends CSSStyleValue
 		$values = $this->values->values;
 		if ($this instanceof CSSMathNegate) {
 			if (!isset($values[0])) {
-				throw new \InvalidArgumentException('Negation requires a numeric operand.');
+				throw new InvalidArgumentException('Negation requires a numeric operand.');
 			}
 			return $values[0]->getNumericType();
 		}
 		if ($this instanceof CSSMathInvert) {
 			if (!isset($values[0])) {
-				throw new \InvalidArgumentException('Inversion requires a numeric operand.');
+				throw new InvalidArgumentException('Inversion requires a numeric operand.');
 			}
 			return $values[0]->getNumericType()->invert();
 		}
@@ -231,204 +169,165 @@ abstract class CSSNumericValue extends CSSStyleValue
 			return $type;
 		}
 
-		$first = $values[0] ?? null;
-		if ($first === null) {
-			return CSSNumericType::fromDimensions([]);
-		}
-		$type = $first->getNumericType();
-		foreach (array_slice($values, 1) as $value) {
-			if (!$type->equals($value->getNumericType())) {
-				throw new \InvalidArgumentException('CSS math operands have incompatible numeric types.');
-			}
-		}
-		return $type;
+		return self::mergeAdditiveTypes($values);
 	}
 
-	public function getType(): CSSNumericType
+	public function getNumericCategory(): string
 	{
-		return $this->getNumericType();
-	}
-
-	public function __get(string $name): mixed
-	{
-		if ($name === 'type') {
-			return $this->getNumericType();
+		$type = $this->getNumericType();
+		$nonZero = [];
+		foreach ($type->toArray() as $dimension => $exponent) {
+			if ($dimension === 'percentHint') {
+				continue;
+			}
+			if ((int) $exponent !== 0) {
+				$nonZero[$dimension] = (int) $exponent;
+			}
 		}
-		throw new \Error('Undefined property: ' . static::class . '::$' . $name);
-	}
-
-	private static function convertNumericValue(CSSNumericValue $value, CSSUnitEnum $targetUnit, CSSContext $context): CSSNumericValue
-	{
-		if ($value instanceof CSSUnitValue) {
-			$sourceUnit = $value->unitObj;
-			if ($sourceUnit === null) {
-				throw new \InvalidArgumentException('The numeric value has no unit.');
+		if ($nonZero === []) {
+			return 'number';
+		}
+		if (count($nonZero) === 1) {
+			$dimension = array_key_first($nonZero);
+			$exponent = $nonZero[$dimension];
+			if ($exponent === 1) {
+				return $dimension;
 			}
-			if ($sourceUnit === $targetUnit) {
-				return new CSSUnitValue($value->value, $targetUnit);
+			if ($exponent === -1) {
+				return 'inverse-' . $dimension;
 			}
-			$category = $sourceUnit->type()?->value;
-			if ($category === CSSUnitTypeEnum::LENGTH->value) {
-				$base = self::convertToPx($value->value, $sourceUnit->toString(), $context);
-				return new CSSUnitValue(self::convertFromPx($base, $targetUnit->toString(), $context), $targetUnit);
-			}
-			$factors = [
-				'angle' => ['deg' => 1.0, 'rad' => 180 / M_PI, 'grad' => 0.9, 'turn' => 360.0],
-				'time' => ['s' => 1.0, 'ms' => 0.001],
-				'frequency' => ['hz' => 1.0, 'khz' => 1000.0],
-				'resolution' => ['dpi' => 1.0, 'dpcm' => 2.54, 'dppx' => 96.0],
-				'flex' => ['fr' => 1.0],
-			];
-			$categoryFactors = $factors[$category ?? ''] ?? [];
-			$from = $categoryFactors[strtolower($sourceUnit->toString())] ?? null;
-			$to = $categoryFactors[strtolower($targetUnit->toString())] ?? null;
-			if ($from === null || $to === null) {
-				throw new \InvalidArgumentException('Unit conversion is not supported for these units.');
-			}
-			return new CSSUnitValue($value->value * $from / $to, $targetUnit);
 		}
 
-		if ($value instanceof CSSMathNegate) {
-			return new CSSMathNegate([self::convertNumericValue($value->values->values[0], $targetUnit, $context)]);
-		}
-		if ($value instanceof CSSMathInvert) {
-			throw new \InvalidArgumentException('Cannot convert an inverted numeric value to a direct unit.');
-		}
-		if ($value instanceof CSSMathProduct) {
-			$values = $value->values->values;
-			$dimensionalIndexes = [];
-			foreach ($values as $index => $operand) {
-				if (self::numericCategory($operand) !== 'number') {
-					$dimensionalIndexes[] = $index;
-				}
-			}
-			if (count($dimensionalIndexes) !== 1) {
-				throw new \InvalidArgumentException('Only products with a single unit-bearing operand can be converted.');
-			}
-			$index = $dimensionalIndexes[0];
-			$values[$index] = self::convertNumericValue($values[$index], $targetUnit, $context);
-			return new CSSMathProduct($values);
-		}
-
-		$converted = array_map(static fn (CSSNumericValue $operand): CSSNumericValue => self::convertNumericValue($operand, $targetUnit, $context), $value->values->values);
-		return match (true) {
-			$value instanceof CSSMathSum => new CSSMathSum($converted),
-			$value instanceof CSSMathMin => new CSSMathMin($converted),
-			$value instanceof CSSMathMax => new CSSMathMax($converted),
-			$value instanceof CSSMathClamp => new CSSMathClamp($converted),
-			default => throw new \InvalidArgumentException('Unsupported numeric expression conversion.'),
-		};
+		return 'derived';
 	}
 
 	/**
-	 * Converts the current value to each specified unit and returns their sum.
+	 * Converts this numeric value to the specified compatible unit.
 	 *
-	 * @param string ...$units The units to convert to and sum
-	 * @return CSSMathSum A CSSMathSum containing the sum of all converted values
+	 * @throws InvalidArgumentException When converting across incompatible dimensions or unsupported units
+	 */
+	public function to(string $unit, ?CSSContext $context = null): self
+	{
+		$context ??= new CSSContext();
+		$targetUnit = self::resolveUnit($unit);
+		$currentType = $this->getNumericType();
+		$targetDimension = $targetUnit->type()?->value;
+		$expectedType = CSSNumericType::fromDimensions($targetDimension === null ? [] : [$targetDimension => 1]);
+
+		if ($currentType->percentHint !== null) {
+			throw new InvalidArgumentException('Cannot convert a mixed percentage expression directly to a single unit.');
+		}
+		if (!$currentType->equals($expectedType)) {
+			throw new InvalidArgumentException(sprintf(
+				'Cannot convert %s to %s.',
+				$this->getNumericCategory(),
+				$targetDimension ?? 'number',
+			));
+		}
+
+		return self::convertNumericValue($this, $targetUnit, $context);
+	}
+
+	/**
+	 * Converts and groups this value into a CSSMathSum over the requested units.
+	 *
+	 * @throws InvalidArgumentException When any requested unit is incompatible
 	 */
 	public function toSum(string ...$units): CSSMathSum
 	{
 		if ($units === []) {
 			return new CSSMathSum([$this]);
 		}
-		$convertedValues = [];
-		$currentValues = $this->_getCurrentValues();
 
-		// Convert each current value to the corresponding unit
-		foreach ($units as $i => $unit) {
-			$value = $currentValues[$i] ?? $this;
-			$convertedValues[] = $value->to($unit);
+		if ($this instanceof CSSUnitValue) {
+			$convertedValues = [];
+			foreach ($units as $unit) {
+				$convertedValues[] = $this->to($unit);
+			}
+			return new CSSMathSum($convertedValues);
 		}
 
-		// Return CSSMathSum with all converted values
-		return new CSSMathSum($convertedValues);
+		$currentValues = $this->_getCurrentValues();
+		if (count($currentValues) <= count($units)) {
+			$convertedValues = [];
+			foreach ($units as $index => $unit) {
+				$source = $currentValues[$index] ?? $this;
+				$convertedValues[] = $source->to($unit);
+			}
+			return new CSSMathSum($convertedValues);
+		}
+
+		$buckets = [];
+		foreach ($units as $unit) {
+			$resolved = self::resolveUnit($unit);
+			$buckets[$resolved->toString()] = new CSSUnitValue(0.0, $resolved);
+		}
+
+		$primary = array_key_first($buckets);
+		foreach ($currentValues as $term) {
+			$targetKey = $term instanceof CSSUnitValue && isset($buckets[$term->unit]) ? $term->unit : $primary;
+			$converted = $term->to($targetKey);
+			if ($converted instanceof CSSUnitValue) {
+				$buckets[$targetKey] = new CSSUnitValue($buckets[$targetKey]->value + $converted->value, $targetKey);
+			} else {
+				return new CSSMathSum(array_map(static fn (CSSNumericValue $value): CSSNumericValue => $value->to($primary), $currentValues));
+			}
+		}
+
+		return new CSSMathSum(array_values($buckets));
 	}
 
-
-	/**
-	 * Adds the given value to this numeric value.
-	 *
-	 * @param CSSNumericValue|CSSUnitValue $value The value to add
-	 * @return CSSNumericValue The result of the addition
-	 */
-	public function add(CSSNumericValue ...$values): CSSNumericValue
+	public function add(CSSNumericValue|int|float ...$values): self
 	{
-		self::assertHasOperands($values);
-		$this->assertCompatibleAddends($values);
-		return new CSSMathSum([...self::sumOperands($this), ...$values]);
+		$operands = self::normalizeVariadicOperands($values);
+		$all = [...self::sumOperands($this), ...$operands];
+		self::mergeAdditiveTypes($all);
+
+		return new CSSMathSum($all);
 	}
 
-	/**
-	 * Subtracts the given value from this numeric value.
-	 *
-	 * @param CSSNumericValue|CSSUnitValue $value The value to subtract
-	 * @return CSSNumericValue The result of the subtraction
-	 */
-	public function sub(CSSNumericValue ...$values): CSSNumericValue
+	public function sub(CSSNumericValue|int|float ...$values): self
 	{
-		self::assertHasOperands($values);
-		$this->assertCompatibleAddends($values);
-		return new CSSMathSum([...self::sumOperands($this), ...array_map(static fn (CSSNumericValue $value): CSSMathNegate => new CSSMathNegate([$value]), $values)]);
+		$operands = self::normalizeVariadicOperands($values);
+		$negated = array_map(static fn (self $value): CSSMathNegate => new CSSMathNegate([$value]), $operands);
+		$all = [...self::sumOperands($this), ...$negated];
+		self::mergeAdditiveTypes($all);
+
+		return new CSSMathSum($all);
 	}
 
-	/**
-	 * Multiplies this numeric value by the given value.
-	 *
-	 * @param CSSNumericValue|CSSUnitValue $value The multiplier
-	 * @return CSSMathProduct The result of the multiplication
-	 */
-	public function mul(CSSNumericValue ...$values): CSSMathProduct
+	public function mul(CSSNumericValue|int|float ...$values): CSSMathProduct
 	{
-		self::assertHasOperands($values);
-		return new CSSMathProduct([$this, ...$values]);
+		$operands = self::normalizeVariadicOperands($values);
+		return new CSSMathProduct([$this, ...$operands]);
 	}
 
-	/**
-	 * Divides this numeric value by the given value.
-	 *
-	 * @param CSSNumericValue|CSSUnitValue $value The divisor
-	 * @return CSSMathProduct The result of the division
-	 */
-	public function div(CSSNumericValue ...$values): CSSMathProduct
+	public function div(CSSNumericValue|int|float ...$values): CSSMathProduct
 	{
-		self::assertHasOperands($values);
-		return new CSSMathProduct([$this, ...array_map(static fn (CSSNumericValue $value): CSSMathInvert => new CSSMathInvert([$value]), $values)]);
+		$operands = self::normalizeVariadicOperands($values);
+		return new CSSMathProduct([$this, ...array_map(static fn (self $value): CSSMathInvert => new CSSMathInvert([$value]), $operands)]);
 	}
 
-	/**
-	 * Returns the minimum value between this and the given values.
-	 *
-	 * @param CSSNumericArray $values The values to compare
-	 * @return CSSMathMin The minimum value
-	 */
-	public function min(CSSNumericArray|CSSNumericValue ...$values): CSSMathMin
-	{
-		$operands = self::flattenNumericArguments($values);
-		self::assertHasOperands($operands);
-		$this->assertCompatibleAddends($operands);
-		return new CSSMathMin([$this, ...$operands]);
-	}
-
-	/**
-	 * Returns the maximum value between this and the given values.
-	 *
-	 * @param CSSNumericArray $values The values to compare
-	 * @return CSSMathMax The maximum value
-	 */
-	public function max(CSSNumericArray|CSSNumericValue ...$values): CSSMathMax
+	public function min(CSSNumericArray|CSSNumericValue|int|float ...$values): CSSMathMin
 	{
 		$operands = self::flattenNumericArguments($values);
 		self::assertHasOperands($operands);
-		$this->assertCompatibleAddends($operands);
-		return new CSSMathMax([$this, ...$operands]);
+		$all = [$this, ...$operands];
+		self::mergeAdditiveTypes($all);
+
+		return new CSSMathMin($all);
 	}
 
-	/**
-	 * Checks if this numeric value is equal to another.
-	 *
-	 * @param self $numericValue The value to compare
-	 * @return bool True if equal, false otherwise
-	 */
+	public function max(CSSNumericArray|CSSNumericValue|int|float ...$values): CSSMathMax
+	{
+		$operands = self::flattenNumericArguments($values);
+		self::assertHasOperands($operands);
+		$all = [$this, ...$operands];
+		self::mergeAdditiveTypes($all);
+
+		return new CSSMathMax($all);
+	}
+
 	public function equals(self ...$numericValues): bool
 	{
 		foreach ($numericValues as $numericValue) {
@@ -439,62 +338,262 @@ abstract class CSSNumericValue extends CSSStyleValue
 		return true;
 	}
 
-	private function equalsOne(self $numericValue): bool
+	public function __get(string $name): mixed
 	{
-		if ($this instanceof CSSUnitValue && $numericValue instanceof CSSUnitValue) {
-			if ($this->unit === $numericValue->unit) {
-				return abs($this->value - $numericValue->value) < 0.0001;
-			} else {
-				// Check if units are of the same type (e.g., both length)
-				if ($this->type() === $numericValue->type()) {
-					try {
-						$converted = $numericValue->to($this->unit);
-						return abs($this->value - $converted->value) < 0.0001;
-					} catch (\Exception $e) {
-						return false;
-					}
-				} else {
-					return false;
-				}
-			}
-		} else {
-			// For other cases, compare recursively if same type
-			if (get_class($this) === get_class($numericValue)) {
-				$thisValues = $this->_getCurrentValues();
-				$otherValues = $numericValue->_getCurrentValues();
-				if (count($thisValues) === count($otherValues)) {
-					foreach ($thisValues as $i => $value) {
-						if (!$value->equals($otherValues[$i])) {
-							return false;
-						}
-					}
-					return true;
-				}
-			}
-			return false;
+		if ($name === 'type') {
+			return $this->getNumericType();
 		}
+		throw new Error('Undefined property: ' . static::class . '::$' . $name);
+	}
+
+	public function __set(string $name, mixed $value): void
+	{
+		throw new Error('Cannot set property ' . static::class . '::$' . $name);
+	}
+
+	protected static function toNumericValue(self|int|float $value): self
+	{
+		if ($value instanceof self) {
+			return $value;
+		}
+		if (!is_finite((float) $value)) {
+			throw new InvalidArgumentException('CSS numeric operand must be finite.');
+		}
+
+		return new CSSUnitValue((float) $value, 'number');
 	}
 
 	/**
-	 * Gets the current values for this numeric value.
+	 * Merges additive/comparison operand types using Typed OM percentHint rules.
 	 *
-	 * @return array The current values
+	 * @param list<self> $values
+	 * @throws InvalidArgumentException When operands have incompatible dimensions
 	 */
-	protected function _getCurrentValues(): array {
-		return property_exists($this, 'values') && $this->values instanceof \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericArray
+	public static function mergeAdditiveTypes(array $values): CSSNumericType
+	{
+		if ($values === []) {
+			return CSSNumericType::fromDimensions([]);
+		}
+
+		$merged = $values[0]->getNumericType();
+		foreach (array_slice($values, 1) as $value) {
+			$merged = self::addTwoTypes($merged, $value->getNumericType());
+		}
+
+		return $merged;
+	}
+
+	/**
+	 * @return list<self>
+	 */
+	protected function _getCurrentValues(): array
+	{
+		return property_exists($this, 'values') && $this->values instanceof CSSNumericArray
 			? $this->values->values
 			: [$this];
 	}
 
-	/** @param list<CSSNumericValue> $values */
+	private function equalsOne(self $numericValue): bool
+	{
+		if ($this instanceof CSSUnitValue && $numericValue instanceof CSSUnitValue) {
+			if ($this->unit === $numericValue->unit) {
+				return self::floatsNearlyEqual($this->value, $numericValue->value);
+			}
+			if ($this->unitType() === $numericValue->unitType()) {
+				try {
+					$converted = $numericValue->to($this->unit);
+					return $converted instanceof CSSUnitValue && self::floatsNearlyEqual($this->value, $converted->value);
+				} catch (\Throwable) {
+					return false;
+				}
+			}
+			return false;
+		}
+
+		if ($this::class === $numericValue::class) {
+			$thisValues = $this->_getCurrentValues();
+			$otherValues = $numericValue->_getCurrentValues();
+			if (count($thisValues) === count($otherValues)) {
+				foreach ($thisValues as $index => $value) {
+					if (!$value->equals($otherValues[$index])) {
+						return false;
+					}
+				}
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private static function floatsNearlyEqual(float $left, float $right): bool
+	{
+		if (!is_finite($left) || !is_finite($right)) {
+			return false;
+		}
+		$tolerance = max(1e-9, 1e-6 * max(abs($left), abs($right)));
+		return abs($left - $right) <= $tolerance;
+	}
+
+	private static function addTwoTypes(CSSNumericType $left, CSSNumericType $right): CSSNumericType
+	{
+		if ($left->equals($right)) {
+			return $left;
+		}
+
+		$leftBase = self::stripPercentHint($left);
+		$rightBase = self::stripPercentHint($right);
+		$percentOnly = CSSNumericType::fromDimensions(['percent' => 1]);
+
+		if ($leftBase->equals($percentOnly) && $right->percentHint === null && self::isSingleDimension($right, $hint)) {
+			return self::withPercentHint($right, $hint);
+		}
+		if ($rightBase->equals($percentOnly) && $left->percentHint === null && self::isSingleDimension($left, $hint)) {
+			return self::withPercentHint($left, $hint);
+		}
+
+		// Combining e.g. ['length' => 1, 'percentHint' => 'length'] with ['length' => 1]
+		if (($left->percentHint !== null && $right->percentHint === null && $leftBase->equals($rightBase))
+			|| ($right->percentHint !== null && $left->percentHint === null && $leftBase->equals($rightBase))) {
+			return $left->percentHint !== null ? $left : $right;
+		}
+
+		throw new InvalidArgumentException('CSS math operands have incompatible numeric types.');
+	}
+
+	private static function stripPercentHint(CSSNumericType $type): CSSNumericType
+	{
+		$dimensions = [];
+		foreach ($type->toArray() as $key => $value) {
+			if ($key !== 'percentHint') {
+				$dimensions[$key] = $value;
+			}
+		}
+		return CSSNumericType::fromDimensions($dimensions);
+	}
+
+	private static function isSingleDimension(CSSNumericType $type, ?string &$dimensionName): bool
+	{
+		$dimensionName = null;
+		foreach ($type->toArray() as $key => $exponent) {
+			if ($key === 'percentHint' || (int) $exponent === 0) {
+				continue;
+			}
+			if ($dimensionName !== null || (int) $exponent !== 1 || $key === 'percent') {
+				return false;
+			}
+			$dimensionName = $key;
+		}
+		return $dimensionName !== null;
+	}
+
+	private static function withPercentHint(CSSNumericType $type, string $hint): CSSNumericType
+	{
+		$dimensions = $type->toArray();
+		$dimensions['percentHint'] = $hint;
+		return CSSNumericType::fromDimensions($dimensions);
+	}
+
+	private static function convertToPx(float $value, string $unit, CSSContext $context): float
+	{
+		return $value * $context->getToPxFactor($unit);
+	}
+
+	private static function convertFromPx(float $pxValue, string $unit, CSSContext $context): float
+	{
+		return $pxValue * $context->getFromPxFactor($unit);
+	}
+
+	private static function resolveUnit(string $unit): CSSUnitEnum
+	{
+		$symbol = CSS::translateUnit(strtolower($unit));
+		$resolved = CSSUnitEnum::tryFromSymbol($symbol);
+		if ($resolved === null) {
+			throw new InvalidArgumentException('Unsupported CSS unit: ' . $unit);
+		}
+
+		return $resolved;
+	}
+
+	private static function convertNumericValue(self $value, CSSUnitEnum $targetUnit, CSSContext $context): self
+	{
+		if ($value instanceof CSSUnitValue) {
+			$sourceUnit = $value->unitObj;
+			if ($sourceUnit === null) {
+				throw new InvalidArgumentException('The numeric value has no unit.');
+			}
+			if ($sourceUnit === $targetUnit) {
+				return new CSSUnitValue($value->value, $targetUnit);
+			}
+			$category = $sourceUnit->type()?->value;
+			if ($category === CSSUnitTypeEnum::LENGTH->value) {
+				$base = self::convertToPx($value->value, $sourceUnit->toString(), $context);
+				return new CSSUnitValue(self::convertFromPx($base, $targetUnit->toString(), $context), $targetUnit);
+			}
+
+			$categoryFactors = self::DIMENSION_FACTORS[$category ?? ''] ?? [];
+			$from = $categoryFactors[strtolower($sourceUnit->toString())] ?? null;
+			$to = $categoryFactors[strtolower($targetUnit->toString())] ?? null;
+			if ($from === null || $to === null) {
+				throw new InvalidArgumentException('Unit conversion is not supported for these units.');
+			}
+			return new CSSUnitValue($value->value * $from / $to, $targetUnit);
+		}
+
+		if ($value instanceof CSSMathNegate) {
+			return new CSSMathNegate([self::convertNumericValue($value->values->values[0], $targetUnit, $context)]);
+		}
+		if ($value instanceof CSSMathInvert) {
+			throw new InvalidArgumentException('Cannot convert an inverted numeric value to a direct unit.');
+		}
+		if ($value instanceof CSSMathProduct) {
+			$values = $value->values->values;
+			$dimensionalIndexes = [];
+			foreach ($values as $index => $operand) {
+				if ($operand->getNumericCategory() !== 'number') {
+					$dimensionalIndexes[] = $index;
+				}
+			}
+			if (count($dimensionalIndexes) !== 1) {
+				throw new InvalidArgumentException('Only products with a single unit-bearing operand can be converted.');
+			}
+			$index = $dimensionalIndexes[0];
+			$values[$index] = self::convertNumericValue($values[$index], $targetUnit, $context);
+			return new CSSMathProduct($values);
+		}
+
+		$converted = array_map(
+			static fn (self $operand): self => self::convertNumericValue($operand, $targetUnit, $context),
+			$value->values->values,
+		);
+		return match (true) {
+			$value instanceof CSSMathSum => new CSSMathSum($converted),
+			$value instanceof CSSMathMin => new CSSMathMin($converted),
+			$value instanceof CSSMathMax => new CSSMathMax($converted),
+			$value instanceof CSSMathClamp => new CSSMathClamp($converted[0], $converted[1], $converted[2]),
+			default => throw new InvalidArgumentException('Unsupported numeric expression conversion.'),
+		};
+	}
+
+	/** @param list<self|int|float> $values @return list<self> */
+	private static function normalizeVariadicOperands(array $values): array
+	{
+		if ($values === []) {
+			throw new InvalidArgumentException('At least one numeric operand is required.');
+		}
+
+		return array_map(static fn (self|int|float $value): self => self::toNumericValue($value), $values);
+	}
+
+	/** @param list<self> $values */
 	private static function assertHasOperands(array $values): void
 	{
 		if ($values === []) {
-			throw new \InvalidArgumentException('At least one numeric operand is required.');
+			throw new InvalidArgumentException('At least one numeric operand is required.');
 		}
 	}
 
-	/** @param list<CSSNumericArray|CSSNumericValue> $values @return list<CSSNumericValue> */
+	/** @param list<CSSNumericArray|self|int|float> $values @return list<self> */
 	private static function flattenNumericArguments(array $values): array
 	{
 		$result = [];
@@ -502,25 +601,15 @@ abstract class CSSNumericValue extends CSSStyleValue
 			if ($value instanceof CSSNumericArray) {
 				array_push($result, ...$value->values);
 			} else {
-				$result[] = $value;
+				$result[] = self::toNumericValue($value);
 			}
 		}
+
 		return $result;
 	}
 
-	/** @param list<CSSNumericValue> $values */
-	private function assertCompatibleAddends(array $values): void
-	{
-		$expectedType = $this->getNumericType();
-		foreach ($values as $value) {
-			if (!$expectedType->equals($value->getNumericType())) {
-				throw new \InvalidArgumentException('CSS numeric addends must have compatible types.');
-			}
-		}
-	}
-
-	/** @return list<CSSNumericValue> */
-	private static function sumOperands(CSSNumericValue $value): array
+	/** @return list<self> */
+	private static function sumOperands(self $value): array
 	{
 		return $value instanceof CSSMathSum ? $value->values->values : [$value];
 	}

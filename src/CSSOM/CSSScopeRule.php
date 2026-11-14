@@ -1,0 +1,87 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Jimbo2150\PhpCssTypedOm\CSSOM;
+
+use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+
+/**
+ * Represents a CSS `@scope` rule.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSScopeRule
+ */
+final class CSSScopeRule extends CSSGroupingRule
+{
+	private ?string $start = null;
+	private ?string $end = null;
+
+	public function __construct(string $prelude = '')
+	{
+		parent::__construct('scope', $prelude);
+		[$this->start, $this->end] = self::parseBounds($this->prelude);
+	}
+
+	public function getType(): int
+	{
+		return self::SCOPE_RULE;
+	}
+
+	public function getStart(): ?string
+	{
+		return $this->start;
+	}
+
+	public function getEnd(): ?string
+	{
+		return $this->end;
+	}
+
+	public function __get(string $name): mixed
+	{
+		return match ($name) {
+			'start' => $this->start,
+			'end' => $this->end,
+			default => parent::__get($name),
+		};
+	}
+
+	/** @return array{?string, ?string} */
+	private static function parseBounds(string $prelude): array
+	{
+		$prelude = trim($prelude);
+		if ($prelude === '') {
+			return [null, null];
+		}
+
+		$offset = 0;
+		$length = strlen($prelude);
+		$start = null;
+		$end = null;
+
+		if ($prelude[0] === '(') {
+			$close = CSSSyntaxScanner::findMatchingDelimiter($prelude, 0);
+			if ($close === null) {
+				throw new InvalidArgumentException('Unclosed @scope start selector.');
+			}
+			$start = trim(substr($prelude, 1, $close - 1));
+			$offset = $close + 1;
+		}
+
+		$rest = trim(substr($prelude, $offset));
+		if ($rest !== '') {
+			if (!preg_match('/^to\s*\(/i', $rest)) {
+				throw new InvalidArgumentException('Malformed @scope prelude: ' . $prelude);
+			}
+			$open = strpos($rest, '(');
+			$close = $open === false ? null : CSSSyntaxScanner::findMatchingDelimiter($rest, $open);
+			if ($close !== strlen($rest) - 1) {
+				throw new InvalidArgumentException('Malformed @scope end selector.');
+			}
+			$end = trim(substr($rest, $open + 1, $close - $open - 1));
+		}
+
+		return [$start, $end];
+	}
+}

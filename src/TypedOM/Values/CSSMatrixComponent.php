@@ -8,6 +8,11 @@ use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 
+/**
+ * Represents a CSS `matrix()` or `matrix3d()` transform component.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSMatrixComponent
+ */
 final class CSSMatrixComponent extends CSSTransformComponent
 {
 	/** @var list<float> */
@@ -25,8 +30,8 @@ final class CSSMatrixComponent extends CSSTransformComponent
 					}
 					return $value->value;
 				}
-				if (!is_numeric($value)) {
-					throw new InvalidArgumentException('Matrix components must be numeric.');
+				if (!is_numeric($value) || !is_finite((float) $value)) {
+					throw new InvalidArgumentException('Matrix components must be finite numbers.');
 				}
 				return (float) $value;
 			}, $valuesOrIs2D);
@@ -39,23 +44,26 @@ final class CSSMatrixComponent extends CSSTransformComponent
 			return;
 		}
 
-		foreach ($matrixOrFunction as $value) {
-			if (!is_numeric($value)) {
-				throw new InvalidArgumentException('Matrix components must be numeric.');
-			}
-		}
-		$this->matrix = array_map(static fn (mixed $value): float => (float) $value, $matrixOrFunction);
-		if (!in_array(count($this->matrix), [6, 16], true)) {
-			throw new InvalidArgumentException('A matrix requires six or sixteen numeric components.');
-		}
+		$this->matrix = self::validateMatrixArray($matrixOrFunction);
 		$is2D = is_bool($valuesOrIs2D) ? $valuesOrIs2D : count($this->matrix) === 6;
-		parent::__construct(count($this->matrix) === 6 ? 'matrix' : 'matrix3d', array_map(static fn (float $value): string => (string) $value, $this->matrix), $is2D);
+		parent::__construct(
+			count($this->matrix) === 6 ? 'matrix' : 'matrix3d',
+			array_map(static fn (float $value): string => (string) $value, $this->matrix),
+			$is2D,
+		);
 	}
 
 	/** @return list<float> */
 	public function getMatrix(): array
 	{
 		return $this->matrix;
+	}
+
+	/** @param list<float|int|string> $matrix */
+	public function setMatrix(array $matrix): void
+	{
+		$this->matrix = self::validateMatrixArray($matrix);
+		$this->values = array_map(static fn (float $value): string => (string) $value, $this->matrix);
 	}
 
 	public function toMatrix(): array
@@ -65,6 +73,7 @@ final class CSSMatrixComponent extends CSSTransformComponent
 			[$matrix[0], $matrix[1], $matrix[4], $matrix[5], $matrix[12], $matrix[13]] = $this->matrix;
 			return $matrix;
 		}
+
 		return $this->matrix;
 	}
 
@@ -76,5 +85,31 @@ final class CSSMatrixComponent extends CSSTransformComponent
 	public function __get(string $name): mixed
 	{
 		return $name === 'matrix' ? $this->getMatrix() : parent::__get($name);
+	}
+
+	public function __set(string $name, mixed $value): void
+	{
+		if ($name === 'matrix' && is_array($value)) {
+			$this->setMatrix($value);
+			return;
+		}
+		parent::__set($name, $value);
+	}
+
+	/** @param list<mixed> $matrix @return list<float> */
+	private static function validateMatrixArray(array $matrix): array
+	{
+		if (!in_array(count($matrix), [6, 16], true)) {
+			throw new InvalidArgumentException('A matrix requires six or sixteen numeric components.');
+		}
+		$normalized = [];
+		foreach ($matrix as $value) {
+			if (!is_numeric($value) || !is_finite((float) $value)) {
+				throw new InvalidArgumentException('Matrix components must be finite numbers.');
+			}
+			$normalized[] = (float) $value;
+		}
+
+		return $normalized;
 	}
 }

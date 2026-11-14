@@ -4,11 +4,25 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
+use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use LogicException;
+use OutOfBoundsException;
+
+/**
+ * Represents a CSS `@keyframes` rule.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSKeyframesRule
+ */
 final class CSSKeyframesRule extends CSSGroupingRule
 {
+	/**
+	 * @throws InvalidArgumentException When the keyframes name is empty or invalid
+	 */
 	public function __construct(string $name, string $atRuleName = 'keyframes')
 	{
-		parent::__construct($atRuleName, $name);
+		$validated = self::validateName($name);
+		parent::__construct($atRuleName, $validated);
 	}
 
 	public function getNameText(): string
@@ -16,28 +30,40 @@ final class CSSKeyframesRule extends CSSGroupingRule
 		return $this->prelude;
 	}
 
+	/**
+	 * @throws InvalidArgumentException When $name is empty or structurally invalid
+	 */
+	public function setNameText(string $name): void
+	{
+		$this->prelude = self::validateName($name);
+	}
+
 	public function getType(): int
 	{
 		return self::KEYFRAMES_RULE;
 	}
 
-	public function appendRule(string $ruleText): void
+	public function appendRule(string $ruleText, ?CSSParserOptions $options = null): void
 	{
-		$this->insertRule($ruleText);
+		$this->insertRule($ruleText, count($this->getCssRules()), $options);
 	}
 
-	public function insertRule(string $ruleText, ?int $index = null): int
+	public function insertRule(string $ruleText, int $index = 0, ?CSSParserOptions $options = null): int
 	{
 		if ($this->getParentStyleSheet() === null) {
-			throw new \LogicException('A detached keyframes rule cannot insert keyframes.');
+			throw new LogicException('A detached keyframes rule cannot insert keyframes.');
 		}
-		$rule = CSSParser::parseSingleRule($ruleText);
+		if ($index < 0 || $index > count($this->getCssRules())) {
+			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
+		}
+
+		$rule = CSSParser::parseSingleRule($ruleText, $options);
 		if (!$rule instanceof CSSStyleRule) {
-			throw new \InvalidArgumentException('A keyframe rule requires a selector and declaration block.');
+			throw new InvalidArgumentException('A keyframe rule requires a selector and declaration block.');
 		}
+
 		$keyframe = new CSSKeyframeRule($rule->getSelectorText(), $rule->getStyle());
 		$keyframe->setKeyText($rule->getSelectorText());
-		$index ??= count($this->getCssRules());
 		$this->getCssRules()->insert($index, $keyframe);
 
 		return $index;
@@ -49,8 +75,10 @@ final class CSSKeyframesRule extends CSSGroupingRule
 			parent::deleteRule($keyText);
 			return;
 		}
+
+		$target = trim($keyText);
 		foreach ($this->getCssRules() as $index => $rule) {
-			if ($rule instanceof CSSKeyframeRule && strcasecmp($rule->getKeyText(), trim($keyText)) === 0) {
+			if ($rule instanceof CSSKeyframeRule && strcasecmp($rule->getKeyText(), $target) === 0) {
 				$this->getCssRules()->remove($index);
 				return;
 			}
@@ -59,8 +87,9 @@ final class CSSKeyframesRule extends CSSGroupingRule
 
 	public function findRule(string $keyText): ?CSSKeyframeRule
 	{
+		$target = trim($keyText);
 		foreach ($this->getCssRules() as $rule) {
-			if ($rule instanceof CSSKeyframeRule && strcasecmp($rule->getKeyText(), trim($keyText)) === 0) {
+			if ($rule instanceof CSSKeyframeRule && strcasecmp($rule->getKeyText(), $target) === 0) {
 				return $rule;
 			}
 		}
@@ -75,9 +104,20 @@ final class CSSKeyframesRule extends CSSGroupingRule
 	public function __set(string $name, mixed $value): void
 	{
 		if ($name === 'name' && is_string($value)) {
-			$this->prelude = trim($value);
+			$this->setNameText($value);
 			return;
 		}
 		parent::__set($name, $value);
+	}
+
+	private static function validateName(string $name): string
+	{
+		$name = trim($name);
+		if ($name === '') {
+			throw new InvalidArgumentException('Keyframes name cannot be empty.');
+		}
+		CSSSyntaxScanner::assertValidFragment($name, 'Keyframes name', [';', '{', '}', ',']);
+
+		return $name;
 	}
 }

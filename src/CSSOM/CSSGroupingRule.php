@@ -4,16 +4,37 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
+use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use LogicException;
 use OutOfBoundsException;
 
+/**
+ * Base class for CSS rules that contain a nested CSSRuleList.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSGroupingRule
+ */
 class CSSGroupingRule extends CSSRule
 {
 	private CSSRuleList $cssRules;
 
+	/**
+	 * @throws InvalidArgumentException When $name or $prelude contains invalid syntax
+	 */
 	public function __construct(
 		protected readonly string $name,
 		protected string $prelude = '',
 	) {
+		$trimmedName = trim($name);
+		if (!preg_match('/^-?[a-zA-Z_][a-zA-Z0-9_-]*$/D', $trimmedName)) {
+			throw new InvalidArgumentException('Invalid CSS grouping rule name: ' . $name);
+		}
+
+		$this->prelude = trim($prelude);
+		if ($this->prelude !== '') {
+			CSSSyntaxScanner::assertValidFragment($this->prelude, 'CSS rule prelude', [';', '{', '}']);
+		}
+
 		$this->cssRules = new CSSRuleList(null, $this);
 	}
 
@@ -27,39 +48,39 @@ class CSSGroupingRule extends CSSRule
 		return $this->name;
 	}
 
-	public function getConditionText(): string
-	{
-		return $this->prelude;
-	}
-
-	public function setConditionText(string $conditionText): void
-	{
-		$conditionText = trim($conditionText);
-		if (str_contains($conditionText, '{') || str_contains($conditionText, '}')) {
-			throw new \InvalidArgumentException('A CSS condition cannot contain rule braces.');
-		}
-		$this->prelude = $conditionText;
-	}
-
 	public function getCssRules(): CSSRuleList
 	{
 		return $this->cssRules;
 	}
 
-	public function insertRule(string $ruleText, ?int $index = null): int
+	/**
+	 * Validates and inserts a rule into this grouping rule's list atomically.
+	 *
+	 * @throws LogicException When the grouping rule is detached from a stylesheet
+	 * @throws OutOfBoundsException When $index is outside [0, count]
+	 * @throws InvalidArgumentException When $ruleText is malformed or exceeds parser limits
+	 */
+	public function insertRule(string $ruleText, int $index = 0, ?CSSParserOptions $options = null): int
 	{
 		$sheet = $this->getParentStyleSheet();
 		if ($sheet === null) {
-			throw new \LogicException('A detached grouping rule cannot insert rules.');
+			throw new LogicException('A detached grouping rule cannot insert rules.');
+		}
+		if ($index < 0 || $index > count($this->cssRules)) {
+			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
 		}
 
-		$rule = CSSParser::parseSingleRule($ruleText);
-		$index ??= count($this->cssRules);
+		$rule = CSSParser::parseSingleRule($ruleText, $options);
 		$this->cssRules->insert($index, $rule);
 
 		return $index;
 	}
 
+	/**
+	 * Deletes the rule at $index.
+	 *
+	 * @throws OutOfBoundsException When $index is invalid
+	 */
 	public function deleteRule(int $index): void
 	{
 		if ($index < 0 || $index >= count($this->cssRules)) {
@@ -71,9 +92,12 @@ class CSSGroupingRule extends CSSRule
 	public function getCssText(): string
 	{
 		$prelude = $this->prelude === '' ? '' : ' ' . $this->prelude;
-		$rules = array_map(static fn (CSSRule $rule): string => $rule->getCssText(), iterator_to_array($this->cssRules));
-		$body = implode("\n", $rules);
-		return '@' . $this->name . $prelude . ' { ' . $body . ' }';
+		$rules = [];
+		foreach ($this->cssRules as $rule) {
+			$rules[] = $rule->getCssText();
+		}
+
+		return '@' . $this->name . $prelude . ' { ' . implode("\n", $rules) . ' }';
 	}
 
 	public function initializeRules(CSSStyleSheet $sheet): void
@@ -91,7 +115,6 @@ class CSSGroupingRule extends CSSRule
 	{
 		return match ($name) {
 			'cssRules' => $this->getCssRules(),
-			'conditionText' => $this->getConditionText(),
 			default => parent::__get($name),
 		};
 	}

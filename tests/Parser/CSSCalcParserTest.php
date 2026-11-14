@@ -159,43 +159,43 @@ class CSSCalcParserTest extends TestCase
     }
 
 	public function testParseComplex()
-	   {
-	       $input = 'calc(1.5px * 2.5dvw + (2px - 5%))';
-	       $result = CSSCalcParser::parse($input);
+	{
+		$input = 'calc(1.5 * 2.5dvw + (2px - 5%))';
+		$result = CSSCalcParser::parse($input);
 
-	       $this->assertInstanceOf(CSSMathSum::class, $result);
-	       /** @var CSSMathSum $result */
-	       $this->assertEquals(2, $result->length);
+		$this->assertInstanceOf(CSSMathSum::class, $result);
+		/** @var CSSMathSum $result */
+		$this->assertEquals(2, $result->length);
 
-	       // First part: 1.5px * 2.5dvw
-	       $this->assertInstanceOf(CSSMathProduct::class, $result->inner_values[0]);
-	       /** @var CSSMathProduct $product */
-	       $product = $result->inner_values[0];
-	       $this->assertEquals(2, $product->length);
-	       $this->assertInstanceOf(CSSUnitValue::class, $product->inner_values[0]);
-	       $this->assertEquals(1.5, $product->inner_values[0]->value);
-	       $this->assertEquals('px', $product->inner_values[0]->unit);
-	       $this->assertInstanceOf(CSSUnitValue::class, $product->inner_values[1]);
-	       $this->assertEquals(2.5, $product->inner_values[1]->value);
-	       $this->assertEquals('dvw', $product->inner_values[1]->unit);
+		// First part: 1.5 * 2.5dvw
+		$this->assertInstanceOf(CSSMathProduct::class, $result->inner_values[0]);
+		/** @var CSSMathProduct $product */
+		$product = $result->inner_values[0];
+		$this->assertEquals(2, $product->length);
+		$this->assertInstanceOf(CSSUnitValue::class, $product->inner_values[0]);
+		$this->assertEquals(1.5, $product->inner_values[0]->value);
+		$this->assertEquals('', $product->inner_values[0]->unit);
+		$this->assertInstanceOf(CSSUnitValue::class, $product->inner_values[1]);
+		$this->assertEquals(2.5, $product->inner_values[1]->value);
+		$this->assertEquals('dvw', $product->inner_values[1]->unit);
 
-	       // Second part: (2px - 5%)
-	       $this->assertInstanceOf(CSSMathSum::class, $result->inner_values[1]);
-	       /** @var CSSMathSum $sum */
-	       $sum = $result->inner_values[1];
-	       $this->assertEquals(2, $sum->length);
-	       $this->assertInstanceOf(CSSUnitValue::class, $sum->inner_values[0]);
-	       $this->assertEquals(2, $sum->inner_values[0]->value);
-	       $this->assertEquals('px', $sum->inner_values[0]->unit);
-	       $this->assertInstanceOf(CSSMathNegate::class, $sum->inner_values[1]);
-	       /** @var CSSMathNegate $negate */
-	       $negate = $sum->inner_values[1];
-	       $this->assertEquals(1, $negate->length);
-	       $this->assertInstanceOf(CSSUnitValue::class, $negate->inner_values[0]);
-	       $this->assertEquals(5, $negate->inner_values[0]->value);
-	       $this->assertEquals('%', $negate->inner_values[0]->unit);
-	       $this->assertEquals($input, (string) $result);
-	   }
+		// Second part: (2px - 5%)
+		$this->assertInstanceOf(CSSMathSum::class, $result->inner_values[1]);
+		/** @var CSSMathSum $sum */
+		$sum = $result->inner_values[1];
+		$this->assertEquals(2, $sum->length);
+		$this->assertInstanceOf(CSSUnitValue::class, $sum->inner_values[0]);
+		$this->assertEquals(2, $sum->inner_values[0]->value);
+		$this->assertEquals('px', $sum->inner_values[0]->unit);
+		$this->assertInstanceOf(CSSMathNegate::class, $sum->inner_values[1]);
+		/** @var CSSMathNegate $negate */
+		$negate = $sum->inner_values[1];
+		$this->assertEquals(1, $negate->length);
+		$this->assertInstanceOf(CSSUnitValue::class, $negate->inner_values[0]);
+		$this->assertEquals(5, $negate->inner_values[0]->value);
+		$this->assertEquals('%', $negate->inner_values[0]->unit);
+		$this->assertEquals($input, (string) $result);
+	}
 
     public function testParseSingleValue()
     {

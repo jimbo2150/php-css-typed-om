@@ -8,30 +8,39 @@ use Exception;
 use InvalidArgumentException;
 
 /**
- * Enum for CSS unit types.
+ * Enumerates CSS Typed OM numeric dimension names and percentHint.
  */
 enum CSSUnitTypeEnum: string
 {
 	case LENGTH = 'length';
-	case PERCENT = 'percent';
-	case PERCENT_HINT = 'percentHint';
 	case ANGLE = 'angle';
 	case TIME = 'time';
 	case FREQ = 'frequency';
 	case RES = 'resolution';
 	case FLEX = 'flex';
+	case PERCENT = 'percent';
+	case PERCENT_HINT = 'percentHint';
 
-	public function verifyValue(string|int $value): Exception|string {
-		switch(true) {
-			case $this === self::PERCENT_HINT:
-				if(!is_int($value)) {
-					return new InvalidArgumentException("Value for must be an integer.");
-				}
+	/**
+	 * Validates a value assigned to a CSSNumericType property and returns its coerced PHP type.
+	 */
+	public function verifyValue(string|int $value): Exception|string
+	{
+		if ($this === self::PERCENT_HINT) {
+			if (is_int($value)) {
 				return 'int';
+			}
+			$resolved = self::tryFrom($value);
+			if ($resolved !== null && $resolved !== self::PERCENT_HINT) {
+				return 'string';
+			}
+			return new InvalidArgumentException('Invalid percentHint value: ' . $value);
 		}
-		if (is_int($value) || (is_string($value) && preg_match('/^-?\d+$/D', $value))) {
+
+		if (is_int($value) || preg_match('/^-?\d+$/D', $value)) {
 			return 'int';
 		}
+
 		return 'string';
 	}
 }

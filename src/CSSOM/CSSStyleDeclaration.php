@@ -5,18 +5,37 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 use ArrayAccess;
+use ArrayIterator;
 use Countable;
+use Error;
 use InvalidArgumentException;
 use IteratorAggregate;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Traversable;
 
-/** Mutable, ordered CSS declaration block. */
+/**
+ * Mutable, ordered CSS declaration block.
+ *
+ * Explicit setters validate against structural delimiters (`;`, `{`, `}`, unbalanced quotes/comments)
+ * and leave state untouched on failure.
+ *
+ * @implements ArrayAccess<string, string>
+ * @implements IteratorAggregate<string, array{value: string, priority: string}>
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSStyleDeclaration
+ */
 class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 {
 	/** @var array<string, array{value: string, priority: string}> */
 	private array $declarations = [];
 
+	/** @var ?list<string> */
+	private ?array $cachedKeys = null;
+
+	private ?CSSRule $parentRule = null;
+
+	/**
+	 * @throws InvalidArgumentException When $cssText contains invalid declarations
+	 */
 	public function __construct(string $cssText = '')
 	{
 		if ($cssText !== '') {
@@ -24,13 +43,51 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		}
 	}
 
-	/** @param list<string>|null $diagnostics */
+	/**
+	 * Parses a CSS declaration block.
+	 *
+	 * @param list<string>|null $diagnostics Populated with error messages in non-strict mode
+	 * @throws InvalidArgumentException In strict mode when a declaration is invalid
+	 */
 	public static function parse(string $cssText, bool $strict = true, ?array &$diagnostics = null): self
 	{
 		$style = new self();
-		$style->parseInto($cssText, $strict, $diagnostics);
+		$detailed = [];
+		$style->parseInto($cssText, $strict, $detailed, 0);
+		$diagnostics ??= [];
+		foreach ($detailed as $entry) {
+			$diagnostics[] = $entry['message'];
+		}
 
 		return $style;
+	}
+
+	/**
+	 * Parses a declaration block while recording exact byte offsets for diagnostics.
+	 *
+	 * @param list<array{message: string, offset: int}>|null $diagnostics
+	 */
+	public static function parseWithOffsets(
+		string $cssText,
+		bool $strict = true,
+		?array &$diagnostics = null,
+		int $baseOffset = 0,
+	): self {
+		$style = new self();
+		$diagnostics ??= [];
+		$style->parseInto($cssText, $strict, $diagnostics, $baseOffset);
+
+		return $style;
+	}
+
+	public function getParentRule(): ?CSSRule
+	{
+		return $this->parentRule;
+	}
+
+	public function setParentRule(?CSSRule $parentRule): void
+	{
+		$this->parentRule = $parentRule;
 	}
 
 	public function getLength(): int
@@ -40,11 +97,12 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 
 	public function item(int $index): string
 	{
-		if ($index < 0 || $index >= $this->getLength()) {
+		if ($index < 0 || $index >= count($this->declarations)) {
 			return '';
 		}
 
-		return array_keys($this->declarations)[$index];
+		$this->cachedKeys ??= array_keys($this->declarations);
+		return $this->cachedKeys[$index];
 	}
 
 	public function getPropertyValue(string $property): string
@@ -61,6 +119,11 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		return $this->declarations[$name]['priority'] ?? '';
 	}
 
+	/**
+	 * Sets or removes a property declaration atomically.
+	 *
+	 * @throws InvalidArgumentException When the property name, value, or priority is invalid
+	 */
 	public function setProperty(string $property, string $value, string $priority = ''): void
 	{
 		$name = self::normalizePropertyName($property);
@@ -72,17 +135,13 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		$value = trim($value);
 		if ($value === '') {
 			unset($this->declarations[$name]);
+			$this->cachedKeys = null;
 			return;
 		}
-		if (!CSSSyntaxScanner::isBalanced($value)) {
-			throw new InvalidArgumentException('CSS property value has unbalanced syntax.');
-		}
-		$important = CSSSyntaxScanner::findTopLevel($value, '!');
-		if ($important !== null && preg_match('/^!\s*important\s*$/i', substr($value, $important))) {
-			throw new InvalidArgumentException('Pass CSS priority separately instead of including !important in the value.');
-		}
 
+		self::validatePropertyValue($value);
 		$this->declarations[$name] = ['value' => $value, 'priority' => $priority];
+		$this->cachedKeys = null;
 	}
 
 	public function removeProperty(string $property): string
@@ -90,6 +149,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		$name = self::normalizePropertyName($property);
 		$value = $this->declarations[$name]['value'] ?? '';
 		unset($this->declarations[$name]);
+		$this->cachedKeys = null;
 
 		return $value;
 	}
@@ -97,6 +157,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	public function clear(): void
 	{
 		$this->declarations = [];
+		$this->cachedKeys = null;
 	}
 
 	public function getCssText(): string
@@ -110,17 +171,22 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		return implode(' ', $serialized);
 	}
 
+	/**
+	 * Atomically replaces all declarations with the parsed contents of $cssText.
+	 *
+	 * @throws InvalidArgumentException When any declaration is invalid
+	 */
 	public function setCssText(string $cssText): void
 	{
-		$diagnostics = [];
-		$replacement = self::parse($cssText, true, $diagnostics);
+		$replacement = self::parse($cssText, true);
 		$this->declarations = $replacement->declarations;
+		$this->cachedKeys = null;
 	}
 
 	/** @return Traversable<string, array{value: string, priority: string}> */
 	public function getIterator(): Traversable
 	{
-		return new \ArrayIterator($this->declarations);
+		return new ArrayIterator($this->declarations);
 	}
 
 	public function count(): int
@@ -161,13 +227,12 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 
 	public function __get(string $name): mixed
 	{
-		if ($name === 'cssText') {
-			return $this->getCssText();
-		}
-		if ($name === 'length') {
-			return $this->getLength();
-		}
-		return $this->getPropertyValue(self::propertyNameFromAccessor($name));
+		return match ($name) {
+			'cssText' => $this->getCssText(),
+			'length' => $this->getLength(),
+			'parentRule' => $this->getParentRule(),
+			default => $this->getPropertyValue(self::propertyNameFromAccessor($name)),
+		};
 	}
 
 	public function __set(string $name, mixed $value): void
@@ -176,21 +241,57 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			$this->setCssText($value);
 			return;
 		}
+		if ($name === 'length' || $name === 'parentRule') {
+			throw new Error('Cannot set read-only property ' . static::class . '::$' . $name);
+		}
 		if (is_string($value) || is_int($value) || is_float($value)) {
 			$this->setProperty(self::propertyNameFromAccessor($name), (string) $value);
 			return;
 		}
-		throw new \Error('Cannot set property ' . static::class . '::$' . $name);
+		throw new Error('Cannot set property ' . static::class . '::$' . $name);
 	}
 
-	private static function normalizePropertyName(string $property): string
+	/**
+	 * Validates and normalizes a CSS property or custom property name.
+	 *
+	 * @throws InvalidArgumentException When $property is not a valid CSS identifier
+	 */
+	public static function normalizePropertyName(string $property): string
 	{
 		$property = trim($property);
-		if (!preg_match('/^(?:--[^\s:;{}]+|-?[a-zA-Z_][a-zA-Z0-9_-]*)$/D', $property)) {
+		if (CSSSyntaxScanner::hasControlCharacters($property)) {
+			throw new InvalidArgumentException('Invalid CSS property name.');
+		}
+		if (str_starts_with($property, '--')) {
+			if (!preg_match('/^--(?:[-_a-zA-Z0-9]|[^\x00-\x7F]|\\\\(?:[0-9a-fA-F]{1,6}\s?|[^\r\n\f]))+$/uD', $property)) {
+				throw new InvalidArgumentException('Invalid CSS custom property name: ' . $property);
+			}
+			return $property;
+		}
+
+		if (!preg_match('/^-?[a-zA-Z_][a-zA-Z0-9_-]*$/D', $property)) {
 			throw new InvalidArgumentException('Invalid CSS property name: ' . $property);
 		}
 
-		return str_starts_with($property, '--') ? $property : strtolower($property);
+		return strtolower($property);
+	}
+
+	/**
+	 * Validates a CSS property value for structural CSS injection and syntax balance.
+	 *
+	 * @throws InvalidArgumentException When the value contains disallowed structure or !important
+	 */
+	public static function validatePropertyValue(string $value): void
+	{
+		CSSSyntaxScanner::assertValidFragment($value, 'CSS property value', [';', '{', '}']);
+
+		$important = CSSSyntaxScanner::findTopLevel($value, '!');
+		if ($important !== null) {
+			$tail = trim(CSSSyntaxScanner::removeComments(substr($value, $important + 1)));
+			if (strcasecmp($tail, 'important') === 0) {
+				throw new InvalidArgumentException('Pass CSS priority separately instead of including !important in the value.');
+			}
+		}
 	}
 
 	private static function propertyNameFromAccessor(string $name): string
@@ -205,20 +306,39 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		return $name;
 	}
 
-	/** @param list<string>|null $diagnostics */
-	private function parseInto(string $cssText, bool $strict, ?array &$diagnostics): void
+	/** @param list<array{message: string, offset: int}> $diagnostics */
+	private function parseInto(string $cssText, bool $strict, array &$diagnostics, int $baseOffset): void
 	{
-		$diagnostics ??= [];
 		$replacement = [];
-		foreach (CSSSyntaxScanner::splitTopLevel($cssText, ';') as $declaration) {
-			$declaration = trim(CSSSyntaxScanner::removeComments($declaration));
+		$length = strlen($cssText);
+		$offset = 0;
+
+		while ($offset < $length) {
+			$next = CSSSyntaxScanner::findNextTopLevelDelimiter($cssText, [';'], $offset, $length);
+			$segmentEnd = $next !== null ? $next['offset'] : $length;
+			$rawSegment = substr($cssText, $offset, $segmentEnd - $offset);
+			$leadingSpace = strlen($rawSegment) - strlen(ltrim($rawSegment));
+			$segmentOffset = $baseOffset + $offset + $leadingSpace;
+			$offset = $next !== null ? $next['offset'] + 1 : $length;
+
+			if (CSSSyntaxScanner::hasUnclosedCommentOrString($rawSegment)) {
+				self::handleInvalidDeclaration('Unclosed comment or string in CSS declaration.', $segmentOffset, $strict, $diagnostics);
+				continue;
+			}
+
+			$declaration = trim(CSSSyntaxScanner::removeComments($rawSegment));
 			if ($declaration === '') {
+				continue;
+			}
+
+			if (CSSSyntaxScanner::hasControlCharacters($declaration)) {
+				self::handleInvalidDeclaration('Disallowed control characters in CSS declaration.', $segmentOffset, $strict, $diagnostics);
 				continue;
 			}
 
 			$colon = CSSSyntaxScanner::findTopLevel($declaration, ':');
 			if ($colon === null) {
-				self::handleInvalidDeclaration('Missing colon in declaration: ' . $declaration, $strict, $diagnostics);
+				self::handleInvalidDeclaration('Missing colon in declaration: ' . $declaration, $segmentOffset, $strict, $diagnostics);
 				continue;
 			}
 
@@ -227,23 +347,29 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			try {
 				$name = self::normalizePropertyName($property);
 			} catch (InvalidArgumentException $exception) {
-				self::handleInvalidDeclaration($exception->getMessage(), $strict, $diagnostics);
+				self::handleInvalidDeclaration($exception->getMessage(), $segmentOffset, $strict, $diagnostics);
 				continue;
 			}
-			if (!CSSSyntaxScanner::isBalanced($value)) {
-				self::handleInvalidDeclaration('Unbalanced CSS property value: ' . $name, $strict, $diagnostics);
+
+			try {
+				CSSSyntaxScanner::assertValidFragment($value, 'CSS property value', [';', '{', '}']);
+			} catch (InvalidArgumentException $exception) {
+				self::handleInvalidDeclaration($exception->getMessage() . ' (' . $name . ')', $segmentOffset, $strict, $diagnostics);
 				continue;
 			}
 
 			$priority = '';
 			$important = CSSSyntaxScanner::findTopLevel($value, '!');
-			if ($important !== null && preg_match('/^!\s*important\s*$/i', substr($value, $important))) {
-				$priority = 'important';
-				$value = rtrim(substr($value, 0, $important));
+			if ($important !== null) {
+				$tail = trim(CSSSyntaxScanner::removeComments(substr($value, $important + 1)));
+				if (strcasecmp($tail, 'important') === 0) {
+					$priority = 'important';
+					$value = rtrim(substr($value, 0, $important));
+				}
 			}
 
 			if ($value === '' && !str_starts_with($name, '--')) {
-				self::handleInvalidDeclaration('CSS declaration value cannot be empty: ' . $name, $strict, $diagnostics);
+				self::handleInvalidDeclaration('CSS declaration value cannot be empty: ' . $name, $segmentOffset, $strict, $diagnostics);
 				continue;
 			}
 
@@ -255,12 +381,13 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		}
 
 		$this->declarations = $replacement;
+		$this->cachedKeys = null;
 	}
 
-	/** @param list<string> $diagnostics */
-	private static function handleInvalidDeclaration(string $message, bool $strict, array &$diagnostics): void
+	/** @param list<array{message: string, offset: int}> $diagnostics */
+	private static function handleInvalidDeclaration(string $message, int $offset, bool $strict, array &$diagnostics): void
 	{
-		$diagnostics[] = $message;
+		$diagnostics[] = ['message' => $message, 'offset' => $offset];
 		if ($strict) {
 			throw new InvalidArgumentException($message);
 		}

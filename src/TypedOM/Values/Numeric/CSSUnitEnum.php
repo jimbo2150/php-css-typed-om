@@ -79,7 +79,7 @@ enum CSSUnitEnum: string
 
 	// Frequency units
 	case FREQ_Hz = 'hz';
-	case FEQ_kHz = 'khz';
+	case FREQ_kHz = 'khz';
 
 	// Resolution units
 	case RES_dpi = 'dpi';
@@ -120,6 +120,22 @@ enum CSSUnitEnum: string
 			return $parts[1];
 		}
 		return $this->value;
+	}
+
+	/**
+	 * Resolves a CSS unit symbol case-insensitively in O(1) time.
+	 */
+	public static function tryFromSymbol(string $symbol): ?self
+	{
+		static $lookup = null;
+		if ($lookup === null) {
+			$lookup = [];
+			foreach (self::cases() as $case) {
+				$lookup[strtolower($case->value)] = $case;
+			}
+		}
+
+		return $lookup[strtolower($symbol)] ?? null;
 	}
 
 	/**

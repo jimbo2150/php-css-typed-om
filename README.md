@@ -29,11 +29,13 @@ $sheet->insertRule('.notice { display: block }', count($sheet->cssRules));
 echo $sheet->cssText;
 ```
 
-`CSSStyleSheet` supports `parse()`, `cssRules`, `insertRule()`, `deleteRule()`, `replaceSync()`, `cssText`, and parse diagnostics. Rule lists and declarations are ordered and mutable. Declarations support `getPropertyValue()`, `getPropertyPriority()`, `setProperty()`, `removeProperty()`, `item()`, `length`, and `cssText`. `MediaList`, `StyleSheet`, and `StyleSheetList` provide standalone equivalents for media queries and stylesheet metadata.
+`CSSStyleSheet` supports `parse()`, `cssRules`, `insertRule()`, `deleteRule()`, `replaceSync()`, `cssText`, and parse diagnostics. Rule lists and declarations are ordered and mutable. Declarations support `getPropertyValue()`, `getPropertyPriority()`, `setProperty()`, `removeProperty()`, `item()`, `length`, `parentRule`, and `cssText`. `MediaList`, `StyleSheet`, and `StyleSheetList` provide standalone equivalents for media queries and stylesheet metadata.
 
-Stylesheet parsing recovers at malformed declarations/rules and reports `message` and byte `offset` entries through `getParseErrors()`. Direct declaration replacement and rule insertion validate before mutating and throw `InvalidArgumentException` on malformed input. Structured rules serialize in normalized form; unknown at-rules are retained as opaque source.
+Stylesheet parsing recovers at malformed declarations/rules and reports `message` and byte `offset` entries through `getParseErrors()`. Direct declaration replacement and rule insertion validate atomically before mutating and throw `InvalidArgumentException` on malformed or structurally unsafe input. Structured rules serialize in normalized form; unknown at-rules are retained as opaque source.
 
-The parser structures qualified and nested style rules; media, supports, layer, keyframes, starting-style, and other grouping rules; import/namespace rules; page margin boxes; position-try rules; and CSS function rules with parameter and declaration objects. Selector and condition matching is not performed. Import rules retain their URL and media text but do not fetch or attach an imported sheet.
+`CSSParserOptions` enforces configurable resource limits by default (`maxBytes`: 16 MiB, `maxDepth`: 256 nested rule levels, `maxRules`: 100,000 rules, `maxMathDepth`: 256 nested math levels). Stylesheet parsing records a diagnostic and stops safely at boundaries; strict entry points (`insertRule()`, `replaceSync()`, `CSSParser::parseSingleRule()`, and `CSSNumericValue::parse()`) throw `InvalidArgumentException` without mutating existing state. Pass a custom `CSSParserOptions` instance or `CSSParserOptions::unlimited()` to override or disable limits.
+
+The parser structures qualified and nested style rules; media, supports, container, scope, layer, keyframes, starting-style, font-feature-values, and other grouping rules; charset, import, and namespace rules; page rules with nested margin boxes; counter-style, font-face, font-palette-values, position-try, property, and view-transition rules; and CSS function rules with parameter and declaration objects. Selector and condition matching is not performed. Import rules retain their URL, layer, supports condition, and `MediaList` without fetching external sheets.
 
 ## Typed OM Values
 
@@ -44,8 +46,9 @@ use Jimbo2150\PhpCssTypedOm\CSS;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 
 $width = CSSNumericValue::parse('12px');
-echo $width->value; // 12
-echo $width->unit;  // px
+echo $width->value;        // 12
+echo $width->unit;         // px
+echo $width->type->length; // 1
 
 $minimum = CSSNumericValue::parse('clamp(10px, 5vw, 100px)');
 echo $minimum; // clamp(10px, 5vw, 100px)
@@ -53,7 +56,7 @@ echo $minimum; // clamp(10px, 5vw, 100px)
 $height = CSS::em(2);
 ```
 
-Numeric values include unit/type enums and exponent vectors, variadic arithmetic, `calc()`, `min()`, `max()`, and `clamp()`. Same-dimension units convert through a supplied `CSSContext`; cross-dimension conversions are rejected. `CSSContext` uses its supplied font size and viewport dimensions, with estimates for font-metric-relative units and viewport fallbacks for container/dynamic units. These conversions cannot reflect a browser's actual element or font metrics. Unit factories accept numeric strings, integers, and floats.
+Numeric values expose `type()` / `$value->type` returning `CSSNumericType` dimension exponent maps (including `percentHint` when mixing percentages with a dimensional unit), variadic arithmetic, `calc()`, `min()`, `max()`, and `clamp()`, and read-only `CSSNumericArray` collections. Same-dimension units convert using exact CSS absolute factors (`72pt == 96px`, `2.54cm == 96px`, `25.4mm == 96px`) and a supplied `CSSContext` for relative units; cross-dimension and non-finite inputs are rejected. `CSSContext` uses its supplied font size and viewport dimensions, with estimates for font-metric-relative units and viewport fallbacks for container/dynamic units. These conversions cannot reflect a browser's actual element or font metrics. Unit factories accept finite numeric strings, integers, and floats. `CSS::escape()` implements single-backslash CSSOM identifier escaping.
 
 ### Property Values and Maps
 
@@ -68,11 +71,13 @@ $rule = $sheet->cssRules[1];
 $rule->styleMap->set('width', $width);
 ```
 
-Property parsing returns typed numeric, keyword, image, position, and transform values where recognized. Transform values/components are iterable and mutable; `CSSTransformValue::toMatrix()` returns a 16-number, column-major 4x4 matrix. Custom properties are represented as mutable `CSSUnparsedValue` sequences, with `var()` references exposed as `CSSVariableReferenceValue`. Unsupported or property-specific grammars remain available as unparsed source instead of being silently discarded. `StylePropertyMap` and `StylePropertyMapReadOnly` operate on standalone declaration blocks.
+Property parsing returns typed numeric, keyword, image, position, and transform values where recognized. Transform values/components are iterable and mutable; `CSSTransformValue::toMatrix()` returns a 16-number, column-major 4x4 matrix. Custom properties are represented as mutable `CSSUnparsedValue` sequences, with `var()` references exposed as `CSSVariableReferenceValue`. Unsupported or property-specific grammars remain available as unparsed source instead of being silently discarded. `StylePropertyMap` and `StylePropertyMapReadOnly` operate on standalone declaration blocks (`entries()`, `keys()`, `values()`, `forEach()`, variadic `set()`, and `append()`).
 
-## Scope and Limitations
+## Scope, Security, and Limitations
 
 - This package models CSS source and objects; it is not a browser engine.
+- Mutation APIs validate against structural CSS injection (rejecting top-level `;`, `{`, `}`, unbalanced quotes/comments, control bytes, and disallowed rule preludes before mutating state), while preserving valid nested blocks and quoted strings.
+- **Not an HTML sanitizer:** Serialized CSS (`cssText`, `CSSOpaqueRule`, and raw unparsed fragments) is normalized CSS source and is **not** safe to interpolate directly into HTML `<style>` elements or attributes without HTML-context escaping.
 - It does not parse HTML, associate stylesheets with elements, match selectors, calculate the cascade/computed styles, or implement layout/rendering.
 - CSSOM View, viewport/screen geometry, DOM event APIs, and browser-owned objects are out of scope.
 - The parser validates CSS structure, not every property grammar. Unknown valid rules and values are retained; malformed syntax may be recovered with diagnostics.

@@ -4,22 +4,32 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
-use ArrayIterator;
 use ArrayAccess;
+use ArrayIterator;
 use Countable;
+use Error;
 use InvalidArgumentException;
 use IteratorAggregate;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Traversable;
 
-/** @implements IteratorAggregate<int, string|CSSVariableReferenceValue> */
-/** @implements ArrayAccess<int, string|CSSVariableReferenceValue> */
+/**
+ * Represents a sequence of CSS text fragments and `CSSVariableReferenceValue` objects.
+ *
+ * @implements ArrayAccess<int, string|CSSVariableReferenceValue>
+ * @implements IteratorAggregate<int, string|CSSVariableReferenceValue>
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSUnparsedValue
+ */
 final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Countable, IteratorAggregate
 {
 	/** @var list<string|CSSVariableReferenceValue> */
 	private array $values;
 
-	/** @param list<string|CSSVariableReferenceValue>|string $value */
+	/**
+	 * @param list<string|CSSVariableReferenceValue>|string $value
+	 * @throws InvalidArgumentException When an array contains non-string/non-variable fragments
+	 */
 	public function __construct(array|string $value)
 	{
 		if (is_string($value)) {
@@ -27,12 +37,14 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 			return;
 		}
 
+		$normalized = [];
 		foreach ($value as $fragment) {
 			if (!is_string($fragment) && !$fragment instanceof CSSVariableReferenceValue) {
 				throw new InvalidArgumentException('Unparsed values contain only strings and variable references.');
 			}
+			$normalized[] = $fragment;
 		}
-		$this->values = array_values($value);
+		$this->values = $normalized;
 	}
 
 	public static function fromCssText(string $cssText): self
@@ -109,7 +121,7 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 		if ($name === 'length') {
 			return count($this->values);
 		}
-		throw new \Error('Undefined property: ' . static::class . '::$' . $name);
+		throw new Error('Undefined property: ' . static::class . '::$' . $name);
 	}
 
 	/** @return list<string|CSSVariableReferenceValue> */
@@ -125,12 +137,12 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 			if ($quote !== null) {
 				if ($character === '\\') {
 					$offset++;
-			} elseif ($character === $quote) {
+				} elseif ($character === $quote) {
 					$quote = null;
-			}
+				}
 				continue;
 			}
-			if ($character === '/' && ($source[$offset + 1] ?? '') === '*') {
+			if ($character === '/' && ($offset + 1 < $length) && $source[$offset + 1] === '*') {
 				$commentEnd = strpos($source, '*/', $offset + 2);
 				if ($commentEnd === false) {
 					break;
@@ -138,31 +150,52 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 				$offset = $commentEnd + 1;
 				continue;
 			}
+			if ($character === '\\') {
+				$offset++;
+				continue;
+			}
 			if ($character === '"' || $character === "'") {
 				$quote = $character;
 				continue;
 			}
-			if (strncasecmp(substr($source, $offset, 4), 'var(', 4) !== 0) {
+			if (($character !== 'v' && $character !== 'V')
+				|| $offset + 4 > $length
+				|| substr_compare($source, 'var(', $offset, 4, true) !== 0
+			) {
+				continue;
+			}
+			if ($offset > 0 && preg_match('/[a-zA-Z0-9_-]/', $source[$offset - 1]) === 1) {
 				continue;
 			}
 
 			$open = $offset + 3;
-			$close = CSSSyntaxScanner::findMatchingDelimiter($source, $open);
+			$close = CSSSyntaxScanner::findMatchingDelimiter($source, $open, $length);
 			if ($close === null) {
 				continue;
 			}
 			$contents = substr($source, $open + 1, $close - $open - 1);
 			$parts = CSSSyntaxScanner::splitTopLevel($contents, ',');
 			$variable = trim(array_shift($parts) ?? '');
-			if (!preg_match('/^--[a-zA-Z0-9_-]+$/D', $variable)) {
+			try {
+				$normalizedVariable = CSSStyleDeclaration::normalizePropertyName($variable);
+			} catch (InvalidArgumentException) {
+				continue;
+			}
+			if (!str_starts_with($normalizedVariable, '--')) {
+				continue;
+			}
+
+			$fallback = $parts === [] ? null : trim(implode(',', $parts));
+			try {
+				$varRef = new CSSVariableReferenceValue($normalizedVariable, $fallback);
+			} catch (InvalidArgumentException) {
 				continue;
 			}
 
 			if ($offset > $fragmentStart) {
 				$values[] = substr($source, $fragmentStart, $offset - $fragmentStart);
 			}
-			$fallback = $parts === [] ? null : trim(implode(',', $parts));
-			$values[] = new CSSVariableReferenceValue($variable, $fallback);
+			$values[] = $varRef;
 			$offset = $close;
 			$fragmentStart = $close + 1;
 		}
