@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+
 /**
  * Renders CSSOM stylesheets and rules with deterministic formatting.
  *
@@ -33,7 +35,9 @@ final class CSSRenderer
 	private function renderRule(CSSRule $rule, CSSRenderOptions $options, int $depth): string
 	{
 		$serialized = match (true) {
-			$rule instanceof CSSOpaqueRule => $rule->getCssText(),
+			$rule instanceof CSSOpaqueRule => $options->keepComments ?
+				$rule->getCssText() :
+				CSSSyntaxScanner::removeComments($rule->getCssText()),
 			$rule instanceof CSSKeyframesRule => $this->renderGroupingRule($rule, $options, $depth),
 			$rule instanceof CSSPageRule => $this->renderPageRule($rule, $options, $depth),
 			$rule instanceof CSSStyleRule => $this->renderStyleRule($rule, $options, $depth),

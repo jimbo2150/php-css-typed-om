@@ -42,7 +42,50 @@ echo CSSRenderer::render($sheet); // Pretty output (two-space indentation)
 echo CSSRenderer::render($sheet, new CSSRenderOptions(CSSRenderMode::Minified));
 ```
 
-`CSSRenderOptions` accepts an optional `ruleCallback` closure with the signature `function (CSSRule $rule, string $renderedText): string`. It runs after each rule's children are rendered, so transformed child text is included in its parent. Unknown `CSSOpaqueRule` source is preserved verbatim in either mode because its syntax cannot be safely reformatted; minification is best-effort for such rules. Existing `getCssText()` and `cssText` output is unchanged.
+`CSSRenderOptions` accepts an optional `ruleCallback` closure with the signature `function (CSSRule $rule, string $renderedText): string`. It runs after each rule's children are rendered, so transformed child text is included in its parent. This makes it suitable for intercepting and altering output:
+
+```php
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderMode;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderer;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderOptions;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleRule;
+
+// Append a banner comment to every rendered rule.
+$banner = new CSSRenderOptions(
+    mode: CSSRenderMode::Minified,
+    ruleCallback: static function (CSSRule $rule, string $text): string {
+        return "/* $rule->getType() */ $text";
+    },
+);
+echo CSSRenderer::render($sheet, $banner);
+
+// Prefix only top-level style selectors during pretty rendering.
+$prefixed = new CSSRenderOptions(
+    ruleCallback: static function (CSSRule $rule, string $text): string {
+        if ($rule instanceof CSSStyleRule) {
+            $text = str_replace($rule->getSelectorText(), '.theme '.$rule->getSelectorText(), $text, 1);
+        }
+        return $text;
+    },
+);
+echo CSSRenderer::render($sheet, $prefixed);
+```
+
+Set `keepComments` to `false` to strip `/* ... */` comments from `CSSOpaqueRule` output. Comments inside structured declarations are stripped during parsing and cannot be restored by the renderer; they only survive in opaque rules whose syntax is not understood.
+
+```php
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderMode;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderer;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderOptions;
+
+// Retain opaque-rule comments (default).
+echo CSSRenderer::render($opaqueRule);
+
+// Strip opaque-rule comments.
+echo CSSRenderer::render($opaqueRule, new CSSRenderOptions(keepComments: false));
+```
+
+`CSSRenderOptions` defaults to pretty mode with comments retained. Unknown `CSSOpaqueRule` source is preserved verbatim in either mode because its syntax cannot be safely reformatted; minification is best-effort for such rules. Existing `getCssText()` and `cssText` output is unchanged.
 
 Stylesheet parsing recovers at malformed declarations/rules and reports `message` and byte `offset` entries through `getParseErrors()`. Direct declaration replacement and rule insertion validate atomically before mutating and throw `InvalidArgumentException` on malformed or structurally unsafe input. Structured rules serialize in normalized form; unknown at-rules are retained as opaque source.
 

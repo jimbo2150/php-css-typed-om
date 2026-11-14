@@ -169,4 +169,39 @@ CSS);
 		self::assertSame("@future-rule x { arbitrary:  a; }\na { color: red; }", $sheet->getCssText());
 		self::assertSame('a{color:red;}', CSSRenderer::render($sheet->cssRules[1], new CSSRenderOptions(CSSRenderMode::Minified)));
 	}
+
+	public function testKeepCommentsPreservesOpaqueComments(): void
+	{
+		$source = '@future-rule x { /* retained */ arbitrary: a; }';
+		$sheet = CSSStyleSheet::parse($source);
+		$opaque = $sheet->cssRules[0];
+
+		self::assertSame($source, CSSRenderer::render($opaque));
+		self::assertSame($source, CSSRenderer::render($opaque, new CSSRenderOptions(CSSRenderMode::Pretty)));
+		self::assertSame($source, CSSRenderer::render($opaque, new CSSRenderOptions(CSSRenderMode::Minified)));
+	}
+
+	public function testKeepCommentsFalseStripsOpaqueComments(): void
+	{
+		$source = '@future-rule x { /* retained */ arbitrary: a; }';
+		$sheet = CSSStyleSheet::parse($source);
+		$opaque = $sheet->cssRules[0];
+
+		$pretty = CSSRenderer::render($opaque, new CSSRenderOptions(CSSRenderMode::Pretty, null, false));
+		$minified = CSSRenderer::render($opaque, new CSSRenderOptions(CSSRenderMode::Minified, null, false));
+
+		self::assertStringNotContainsString('/* retained */', $pretty);
+		self::assertStringNotContainsString('/* retained */', $minified);
+		self::assertStringContainsString('arbitrary: a;', $pretty);
+		self::assertStringContainsString('arbitrary: a;', $minified);
+	}
+
+	public function testMinifiedStructuredOutputHasNoNewlines(): void
+	{
+		$sheet = CSSStyleSheet::parse('@media screen { a { color: red; &:hover { color: blue; } } }');
+		$minified = CSSRenderer::render($sheet, new CSSRenderOptions(CSSRenderMode::Minified));
+
+		self::assertStringNotContainsString("\n", $minified);
+		self::assertSame([], CSSStyleSheet::parse($minified)->getParseErrors());
+	}
 }
