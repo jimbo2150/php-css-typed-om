@@ -1,0 +1,28 @@
+# `CSSCalcParser`
+
+- **PHP type:** `Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser`
+- **Source:** [`src/Parser/CSSCalcParser.php`](../../../src/Parser/CSSCalcParser.php)
+- **Kind:** class with a static CSS `calc()` parser
+
+Parses supported CSS `calc()` arithmetic expressions into a tree of numeric Typed OM values. It handles parentheses, unary signs, and `+`, `-`, `*`, and `/`, with normal arithmetic precedence. Nested supported math functions are parsed through `CSSNumericValue::parse()`.
+
+## Methods
+
+### `parse(string $calcString, ?CSSParserOptions $options = null, int $depth = 0): CSSNumericValue`
+
+Parses the complete input as one `calc(...)` expression and returns its numeric expression tree. The expression must have matching parentheses, valid tokens, sufficient operands, and dimensionally compatible operations. The configured math nesting limit is checked before parsing.
+
+- `$calcString`: complete CSS `calc()` expression; trailing content after the closing parenthesis is rejected.
+- `$options`: optional [`CSSParserOptions`](../CSSOM/CSSParserOptions.md) controlling parser resource limits. A default options object is used when omitted.
+- `$depth`: current math nesting depth, primarily used by recursive parsing; normally omit it.
+- **Returns:** a `CSSNumericValue` such as a unit value or a math expression node.
+- **Throws:** `InvalidArgumentException` for malformed syntax, invalid numbers, incompatible dimensions, or exceeded `maxMathDepth`.
+
+```php
+use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
+
+$width = CSSCalcParser::parse('calc(100% - 2rem)');
+echo $width; // calc(100% - 2rem)
+```
+
+Prefer `CSSNumericValue::parse()` for general numeric input: it accepts unit values and multiple math-function forms, whereas this parser's direct entry point requires a `calc()` expression.

@@ -2,6 +2,8 @@
 
 A standalone PHP model for parsing and manipulating CSS stylesheets, declarations, and CSS Typed OM values. The package targets PHP 8.4+ and currently has no runtime dependencies.
 
+See the [API interfaces and methods reference](docs/interfaces.md) for a catalog of the public types and their methods.
+
 ## Installation
 
 ```bash
