@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 
@@ -45,11 +46,11 @@ final class CSSPerspective extends CSSTransformComponent
 		$this->values = [$this->length];
 	}
 
-	public function toMatrix(): array
+	public function toMatrix(): DOMMatrix
 	{
 		$matrix = self::identityMatrix();
 		if ($this->length instanceof CSSKeywordValue) {
-			return $matrix;
+			return DOMMatrix::fromElements($matrix, false);
 		}
 		$perspective = self::scalar($this->length, 'length');
 		if (!is_finite($perspective) || $perspective <= 0.0) {
@@ -57,7 +58,7 @@ final class CSSPerspective extends CSSTransformComponent
 		}
 		$matrix[11] = -1.0 / $perspective;
 
-		return $matrix;
+		return DOMMatrix::fromElements($matrix, false);
 	}
 
 	public function clone(): static

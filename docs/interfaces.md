@@ -6,7 +6,12 @@ The documented names and signatures follow the PHP source. Trait pages describe 
 
 ## Root utilities
 
-- [`CSS`](interfaces/CSS.md) — typed CSS unit factories and CSS identifier escaping.
+- [`CSS`](interfaces/CSS.md) — typed CSS unit factories (including `x`), CSS identifier escaping, standalone `supports()`, and `registerProperty()`.
+
+## Geometry
+
+- [`DOMMatrixReadOnly`](interfaces/Geometry/DOMMatrixReadOnly.md) — read-only 4x4 column-major transformation matrix.
+- [`DOMMatrix`](interfaces/Geometry/DOMMatrix.md) — mutable 4x4 transformation matrix.
 
 ## CSS Object Model (CSSOM)
 
@@ -65,6 +70,7 @@ The documented names and signatures follow the PHP source. Trait pages describe 
 - [`CSSPositionTryDescriptors`](interfaces/CSSOM/CSSPositionTryDescriptors.md) — position-try descriptors.
 - [`CSSFunctionDescriptors`](interfaces/CSSOM/CSSFunctionDescriptors.md) — function parameter descriptors.
 - [`MediaList`](interfaces/CSSOM/MediaList.md) — ordered mutable media-query list.
+- [`FontFace`](interfaces/CSSOM/FontFace.md) — standalone font-face metadata and descriptor model.
 
 ## Parser utilities
 
@@ -97,6 +103,18 @@ The documented names and signatures follow the PHP source. Trait pages describe 
 - [`CSSSkewX`](interfaces/TypedOM/CSSSkewX.md) — horizontal skew transform component.
 - [`CSSSkewY`](interfaces/TypedOM/CSSSkewY.md) — vertical skew transform component.
 - [`CSSTranslate`](interfaces/TypedOM/CSSTranslate.md) — translate transform component.
+
+### Color values
+
+- [`CSSColorValue`](interfaces/TypedOM/Color/CSSColorValue.md) — abstract base class for CSS Typed OM colors, parsing, and CSS Color 4 conversions.
+- [`CSSRGB`](interfaces/TypedOM/Color/CSSRGB.md) — sRGB color value using W3C CSS Color 5 percentage channels.
+- [`CSSHSL`](interfaces/TypedOM/Color/CSSHSL.md) — HSL color value.
+- [`CSSHWB`](interfaces/TypedOM/Color/CSSHWB.md) — HWB color value.
+- [`CSSLab`](interfaces/TypedOM/Color/CSSLab.md) — CIE Lab color value.
+- [`CSSLCH`](interfaces/TypedOM/Color/CSSLCH.md) — CIE LCH color value.
+- [`CSSOKLab`](interfaces/TypedOM/Color/CSSOKLab.md) — OKLab color value.
+- [`CSSOKLCH`](interfaces/TypedOM/Color/CSSOKLCH.md) — OKLCH color value.
+- [`CSSColor`](interfaces/TypedOM/Color/CSSColor.md) — generic `color(<colorspace> ...)` value.
 
 ### Numeric values and math
 

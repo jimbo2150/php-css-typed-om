@@ -17,7 +17,7 @@ Magic read-only `name`, `syntax`, `inherits`, and `initialValue` expose the prel
 | `getNameText(): string` | Returns the prelude/name. | `$rule->getNameText();` |
 | `getSyntax(): string` | Returns `syntax` with surrounding whitespace/quotes trimmed, or `''`. | `$rule->getSyntax();` |
 | `getInherits(): bool` | Returns true only when the trimmed descriptor value lowercases to `true`. | `$rule->getInherits();` |
-| `getInitialValue(): string` | Returns `initial-value`, or `''` when absent. | `$rule->getInitialValue();` |
+| `getInitialValue(): ?string` | Returns `initial-value`, or `null` when absent. | `$rule->getInitialValue();` |
 | `__get(string $name): mixed` | Exposes the four named properties and delegates other names to `CSSAtRule::__get()`. | `$rule->initialValue;` |
 
 All inherited public methods are documented on [`CSSAtRule`](CSSAtRule.md) and [`CSSRule`](CSSRule.md).

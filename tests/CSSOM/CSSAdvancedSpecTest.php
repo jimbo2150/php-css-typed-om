@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\Tests\CSSOM;
 
+use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSCharsetRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSContainerRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSCounterStyleRule;
@@ -11,11 +12,16 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFontFeatureValuesRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFontPaletteValuesRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSGroupingRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSImportRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSKeyframeRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSKeyframesRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSMarginRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSNamespaceRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSNestedDeclarations;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPageRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPropertyRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSScopeRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleProperties;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleSheet;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSViewTransitionRule;
@@ -193,5 +199,84 @@ CSS;
 		self::assertSame($card, $card->style->parentRule);
 		self::assertSame('&:focus', $card->cssRules[0]->selectorText);
 		self::assertSame('&:hover', $card->cssRules[1]->selectorText);
+	}
+
+	public function testV2SpecAlignmentsAcrossCssomRulesAndStylesheet(): void
+	{
+		// CSSRule::MARGIN_RULE === 9
+		self::assertSame(9, CSSRule::MARGIN_RULE);
+
+		// CSSStyleSheet constructor init options (string media, disabled, baseURL)
+		$sheet = new CSSStyleSheet(
+			href: 'https://example.test/main.css',
+			title: 'Main',
+			media: 'screen, print',
+			disabled: true,
+			baseURL: 'https://example.test/',
+		);
+		self::assertTrue($sheet->disabled);
+		self::assertSame('screen, print', $sheet->media->mediaText);
+		self::assertSame('https://example.test/', $sheet->baseURL);
+
+		// Container rule handles unnamed not (...) and style(...) queries
+		$containerSheet = CSSStyleSheet::parse(<<<'CSS'
+@container not (width > 400px) { .a { color: red; } }
+@container style(--theme: dark) { .b { color: blue; } }
+@container sidebar style(--compact: 1) { .c { color: green; } }
+CSS);
+		self::assertSame('', $containerSheet->cssRules[0]->containerName);
+		self::assertSame('not (width > 400px)', $containerSheet->cssRules[0]->containerQuery);
+		self::assertSame('', $containerSheet->cssRules[1]->containerName);
+		self::assertSame('style(--theme: dark)', $containerSheet->cssRules[1]->containerQuery);
+		self::assertSame('sidebar', $containerSheet->cssRules[2]->containerName);
+		self::assertSame('style(--compact: 1)', $containerSheet->cssRules[2]->containerQuery);
+
+		// CSSKeyframeRule extends CSSRule directly (not CSSStyleRule), supports `from, to` and `.5%`, rejects `150%`
+		$kfSheet = CSSStyleSheet::parse('@keyframes pulse { from, to { opacity: 0; } .5% { opacity: 1; } }');
+		self::assertSame([], $kfSheet->getParseErrors());
+		/** @var CSSKeyframesRule $keyframes */
+		$keyframes = $kfSheet->cssRules[0];
+		self::assertSame(2, $keyframes->length);
+		$kf = $keyframes->cssRules[0];
+		self::assertInstanceOf(CSSKeyframeRule::class, $kf);
+		self::assertNotInstanceOf(CSSStyleRule::class, $kf);
+		self::assertInstanceOf(CSSStyleProperties::class, $kf->style);
+
+		try {
+			new CSSKeyframeRule('150%');
+			self::fail('Expected out-of-range keyframe percentage to throw.');
+		} catch (InvalidArgumentException) {
+			self::assertTrue(true);
+		}
+
+		try {
+			$keyframes->insertRule('50% { opacity: 0.5; &:hover { color: red; } }');
+			self::fail('Expected nested rule inside keyframe insertRule to throw.');
+		} catch (InvalidArgumentException) {
+			self::assertSame(2, $keyframes->length);
+		}
+
+		// Nullable optional accessors on CSSPropertyRule and CSSImportRule
+		$optSheet = CSSStyleSheet::parse('@import url("base.css") screen; @property --free { syntax: "*"; inherits: true; }');
+		self::assertNull($optSheet->cssRules[0]->supportsText);
+		self::assertNull($optSheet->cssRules[1]->initialValue);
+
+		// CSSNestedDeclarations::getStyle() returns CSSStyleProperties
+		$nestedSheet = CSSStyleSheet::parse('a { color: black; &:hover { color: blue; } color: green; }');
+		/** @var CSSNestedDeclarations $nestedDecl */
+		$nestedDecl = $nestedSheet->cssRules[0]->cssRules[1];
+		self::assertInstanceOf(CSSStyleProperties::class, $nestedDecl->style);
+
+		// CSSFontFeatureValuesMap accepts single int in set() and supports forEach()
+		$ffvSheet = CSSStyleSheet::parse('@font-feature-values "Fira" { @swash { ornate: 1; } }');
+		/** @var CSSFontFeatureValuesRule $ffv */
+		$ffv = $ffvSheet->cssRules[0];
+		$ffv->swash->set('simple', 2);
+		self::assertSame([2], $ffv->swash->get('simple'));
+		$visited = [];
+		$ffv->swash->forEach(static function (array $vals, string $name) use (&$visited): void {
+			$visited[$name] = $vals;
+		});
+		self::assertSame(['ornate' => [1], 'simple' => [2]], $visited);
 	}
 }

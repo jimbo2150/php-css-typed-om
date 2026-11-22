@@ -2,21 +2,22 @@
 
 - **PHP name:** `Jimbo2150\PhpCssTypedOm\CSSOM\CSSKeyframeRule`
 - **Source:** [`src/CSSOM/CSSKeyframeRule.php`](../../../src/CSSOM/CSSKeyframeRule.php)
-- **Purpose:** Style-rule specialization for one keyframe selector list within `@keyframes`.
-- **Inheritance:** `CSSStyleRule` → `CSSGroupingRule` → `CSSRule`; inherited public APIs: [`CSSStyleRule`](CSSStyleRule.md), [`CSSGroupingRule`](CSSGroupingRule.md), [`CSSRule`](CSSRule.md).
+- **Purpose:** Represents one keyframe selector list and its declaration block within `@keyframes`.
+- **Inheritance:** `CSSRule`; inherited public API: [`CSSRule`](CSSRule.md).
 
 ## Properties
 
-Magic `keyText` reads/writes the selector via the keyframe validator. Inherited style-rule properties include `selectorText`, `style`, `styleMap`, and nested `cssRules`.
+Magic `keyText` reads/writes the keyframe selector list (`from`, `to`, or `[0%, 100%]` percentages); magic read-only `style` returns [`CSSStyleProperties`](CSSStyleProperties.md).
 
 ## Public Methods
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `getKeyText(): string` | Returns the selector text. | `$keyframe->getKeyText();` |
-| `setKeyText(string $keyText): void` | Accepts comma-separated `from`, `to`, or numeric percentage selectors; throws `InvalidArgumentException` for invalid/empty text. | `$keyframe->setKeyText('from, 50%');` |
-| `getType(): int` | Returns `CSSRule::KEYFRAME_RULE`. | `$keyframe->getType();` |
-| `__get(string $name): mixed` | Exposes `keyText`, otherwise delegates to `CSSStyleRule::__get()`. | `$keyframe->keyText;` |
-| `__set(string $name, mixed $value): void` | String `keyText` assignments call `setKeyText()`; other writes delegate to `CSSStyleRule::__set()`. | `$keyframe->keyText = 'to';` |
-
-All inherited methods are described in the linked parent pages.
+| `__construct(string $keyText, ?CSSStyleDeclaration $style = null)` | Validates keyframe selector list and wraps `$style` in `CSSStyleProperties` with `$this` as `parentRule`. | `$kf = new CSSKeyframeRule('from, to');` |
+| `getKeyText(): string` | Returns the keyframe selector text. | `$kf->getKeyText();` |
+| `setKeyText(string $keyText): void` | Accepts comma-separated `from`, `to`, or `[0%, 100%]` percentages (including decimals like `.5%`); throws `InvalidArgumentException` otherwise. | `$kf->setKeyText('from, 50%, to');` |
+| `getStyle(): CSSStyleProperties` | Returns the keyframe declaration block. | `$kf->getStyle()->setProperty('opacity', '1');` |
+| `getType(): int` | Returns `CSSRule::KEYFRAME_RULE`. | `$kf->getType();` |
+| `getCssText(): string` | Serializes `keyText { declarations }`. | `$kf->getCssText();` |
+| `__get(string $name): mixed` | Exposes `keyText` and `style`; other names delegate to `CSSRule::__get()`. | `$kf->keyText;` |
+| `__set(string $name, mixed $value): void` | String `keyText` assignments call `setKeyText()`; other writes delegate to `CSSRule::__set()`. | `$kf->keyText = 'to';` |

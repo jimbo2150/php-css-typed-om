@@ -18,7 +18,7 @@ Magic read-only `href`, `media`, `mediaText`, `styleSheet`, `layerName`, and `su
 | `getMedia(): MediaList` | Returns the parsed mutable media list. | `$rule->getMedia()->appendMedium('print');` |
 | `getMediaText(): string` | Returns normalized media-list text. | `$rule->getMediaText();` |
 | `getLayerName(): ?string` | Returns `null` when absent, `''` for bare `layer`, or the name in `layer(name)`. | `$rule->getLayerName();` |
-| `getSupportsText(): string` | Returns text within a parsed `supports(...)`, or `''` when absent. | `$rule->getSupportsText();` |
+| `getSupportsText(): ?string` | Returns text within a parsed `supports(...)`, or `null` when absent. | `$rule->getSupportsText();` |
 | `getType(): int` | Returns `CSSRule::IMPORT_RULE`. | `$rule->getType();` |
 | `getStyleSheet(): ?CSSStyleSheet` | Always returns `null`; this model records import metadata without loading sheets. | `$rule->getStyleSheet();` |
 | `__get(string $name): mixed` | Exposes the six virtual properties above and delegates other names to `CSSAtRule::__get()`. | `$rule->mediaText;` |

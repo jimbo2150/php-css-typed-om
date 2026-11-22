@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use OutOfBoundsException;
 
 /**
@@ -22,15 +23,28 @@ final class CSSStyleSheet extends StyleSheet
 	/** @var list<array{message: string, offset: int}> */
 	private array $parseErrors = [];
 
+	private readonly ?string $baseURL;
+
 	public function __construct(
 		?string $href = null,
 		string $title = '',
-		?MediaList $media = null,
+		MediaList|string|null $media = null,
 		?CSSRule $ownerRule = null,
 		?StyleSheet $parentStyleSheet = null,
+		bool $disabled = false,
+		?string $baseURL = null,
 	) {
-		parent::__construct($href, $title, $media, $ownerRule, $parentStyleSheet);
+		if ($baseURL !== null && CSSSyntaxScanner::hasControlCharacters($baseURL)) {
+			throw new InvalidArgumentException('CSSStyleSheet baseURL cannot contain control characters.');
+		}
+		parent::__construct($href, $title, $media, $ownerRule, $parentStyleSheet, $disabled);
+		$this->baseURL = $baseURL;
 		$this->cssRules = new CSSRuleList($this);
+	}
+
+	public function getBaseURL(): ?string
+	{
+		return $this->baseURL;
 	}
 
 	/**
@@ -126,6 +140,7 @@ final class CSSStyleSheet extends StyleSheet
 			'cssRules' => $this->getCssRules(),
 			'cssText' => $this->getCssText(),
 			'parseErrors' => $this->getParseErrors(),
+			'baseURL' => $this->getBaseURL(),
 			default => parent::__get($name),
 		};
 	}

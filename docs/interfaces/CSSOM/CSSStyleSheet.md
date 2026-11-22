@@ -7,13 +7,14 @@
 
 ## Properties
 
-Magic read-only `cssRules`, `cssText`, and `parseErrors`; stylesheet metadata properties and writable `disabled` are inherited from `StyleSheet`.
+Magic read-only `cssRules`, `cssText`, `parseErrors`, and `baseURL`; stylesheet metadata properties and writable `disabled` are inherited from `StyleSheet`.
 
 ## Public Methods
 
 | Signature | Parameters / behavior | Throws / result | Example |
 |---|---|---|---|
-| `__construct(?string $href = null, string $title = '', ?MediaList $media = null, ?CSSRule $ownerRule = null, ?StyleSheet $parentStyleSheet = null)` | Initializes inherited metadata and an empty `CSSRuleList`. | | `$sheet = new CSSStyleSheet();` |
+| `__construct(?string $href = null, string $title = '', MediaList|string|null $media = null, ?CSSRule $ownerRule = null, ?StyleSheet $parentStyleSheet = null, bool $disabled = false, ?string $baseURL = null)` | Initializes inherited metadata (`media` accepts a `MediaList` or media-query string, `disabled`, and optional `baseURL`) and an empty `CSSRuleList`. Rejects control characters in `$baseURL`. | | `$sheet = new CSSStyleSheet(media: 'screen', disabled: false, baseURL: 'https://example.test/');` |
+| `getBaseURL(): ?string` | Returns the configured base URL or `null`. | | `$sheet->getBaseURL();` |
 | `parse(string $cssText, ?CSSParserOptions $options = null): self` (static) | Parses with recovery and stores diagnostics on returned sheet. | Returns a `CSSStyleSheet`. | `$sheet = CSSStyleSheet::parse('a { color: red }');` |
 | `getCssRules(): CSSRuleList` | Returns the owned mutable list. | | `$sheet->getCssRules();` |
 | `getParseErrors(): array` | Returns ordered `{message, offset}` diagnostics. | | `$sheet->getParseErrors();` |

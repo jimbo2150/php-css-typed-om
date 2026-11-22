@@ -11,11 +11,15 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
  */
 final class CSSFontFaceRule extends CSSAtRule
 {
-	public function __construct(CSSStyleDeclaration $style)
+	public function __construct(?CSSStyleDeclaration $style = null)
 	{
-		$descriptors = new CSSFontFaceDescriptors();
-		foreach ($style as $property => $declaration) {
-			$descriptors->setProperty($property, $declaration['value'], $declaration['priority']);
+		if ($style instanceof CSSFontFaceDescriptors) {
+			$descriptors = $style;
+		} else {
+			$descriptors = new CSSFontFaceDescriptors();
+			foreach ($style ?? [] as $property => $declaration) {
+				$descriptors->setProperty($property, $declaration['value'], $declaration['priority']);
+			}
 		}
 		parent::__construct('font-face', '', $descriptors, true);
 	}

@@ -11,8 +11,11 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
  */
 final class CSSNestedDeclarations extends CSSRule
 {
-	public function __construct(private readonly CSSStyleDeclaration $style)
+	private readonly CSSStyleProperties $style;
+
+	public function __construct(CSSStyleDeclaration $style)
 	{
+		$this->style = CSSStyleProperties::fromDeclaration($style);
 		$this->style->setParentRule($this);
 	}
 
@@ -21,7 +24,7 @@ final class CSSNestedDeclarations extends CSSRule
 		return self::NESTED_DECLARATIONS_RULE;
 	}
 
-	public function getStyle(): CSSStyleDeclaration
+	public function getStyle(): CSSStyleProperties
 	{
 		return $this->style;
 	}

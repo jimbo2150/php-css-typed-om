@@ -5,23 +5,27 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
+use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrixReadOnly;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 
 /**
- * Represents a CSS `matrix()` or `matrix3d()` transform component.
+ * Represents a CSS `matrix()` or `matrix3d()` transform component backed by DOMMatrix.
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSMatrixComponent
  */
 final class CSSMatrixComponent extends CSSTransformComponent
 {
-	/** @var list<float> */
-	private array $matrix;
+	private DOMMatrix $matrix;
 
-	/** @param list<float|int|string>|string $matrixOrFunction */
-	public function __construct(array|string $matrixOrFunction, array|bool|null $valuesOrIs2D = true)
+	/**
+	 * @param DOMMatrixReadOnly|list<float|int|string>|string $matrixOrFunction
+	 * @param list<CSSStyleValue|string>|array{is2D?: bool}|bool|null $valuesOrOptions
+	 */
+	public function __construct(DOMMatrixReadOnly|array|string $matrixOrFunction, array|bool|null $valuesOrOptions = null)
 	{
-		if (is_string($matrixOrFunction) && is_array($valuesOrIs2D)) {
+		if (is_string($matrixOrFunction) && is_array($valuesOrOptions)) {
 			$function = strtolower($matrixOrFunction);
 			$values = array_map(static function (mixed $value): float {
 				if ($value instanceof CSSNumericValue) {
@@ -34,52 +38,75 @@ final class CSSMatrixComponent extends CSSTransformComponent
 					throw new InvalidArgumentException('Matrix components must be finite numbers.');
 				}
 				return (float) $value;
-			}, $valuesOrIs2D);
+			}, $valuesOrOptions);
 			$expectedCount = $function === 'matrix3d' ? 16 : 6;
 			if (!in_array($function, ['matrix', 'matrix3d'], true) || count($values) !== $expectedCount) {
 				throw new InvalidArgumentException('Matrix function has an invalid number of components.');
 			}
-			$this->matrix = $values;
-			parent::__construct($function, array_map(static fn (float $value): string => (string) $value, $values), $function === 'matrix');
+			$this->matrix = new DOMMatrix($values);
+			parent::__construct($function, $this->serializedComponents($function === 'matrix'), $function === 'matrix');
 			return;
 		}
 
-		$this->matrix = self::validateMatrixArray($matrixOrFunction);
-		$is2D = is_bool($valuesOrIs2D) ? $valuesOrIs2D : count($this->matrix) === 6;
-		parent::__construct(
-			count($this->matrix) === 6 ? 'matrix' : 'matrix3d',
-			array_map(static fn (float $value): string => (string) $value, $this->matrix),
-			$is2D,
-		);
-	}
-
-	/** @return list<float> */
-	public function getMatrix(): array
-	{
-		return $this->matrix;
-	}
-
-	/** @param list<float|int|string> $matrix */
-	public function setMatrix(array $matrix): void
-	{
-		$this->matrix = self::validateMatrixArray($matrix);
-		$this->values = array_map(static fn (float $value): string => (string) $value, $this->matrix);
-	}
-
-	public function toMatrix(): array
-	{
-		$matrix = self::identityMatrix();
-		if (count($this->matrix) === 6) {
-			[$matrix[0], $matrix[1], $matrix[4], $matrix[5], $matrix[12], $matrix[13]] = $this->matrix;
-			return $matrix;
+		if (is_string($matrixOrFunction)) {
+			throw new InvalidArgumentException('Invalid CSSMatrixComponent initializer.');
 		}
 
+		$this->matrix = self::normalizeMatrix($matrixOrFunction);
+		$is2D = $this->resolveIs2D($valuesOrOptions, $this->matrix->is2D());
+		parent::__construct($is2D ? 'matrix' : 'matrix3d', $this->serializedComponents($is2D), $is2D);
+	}
+
+	public function getMatrix(): DOMMatrix
+	{
 		return $this->matrix;
+	}
+
+	/** @param DOMMatrixReadOnly|list<float|int|string> $matrix */
+	public function setMatrix(DOMMatrixReadOnly|array $matrix): void
+	{
+		$this->matrix = self::normalizeMatrix($matrix);
+		$this->values = $this->serializedComponents($this->twoDimensional);
+	}
+
+	public function setIs2D(bool $is2D): void
+	{
+		parent::setIs2D($is2D);
+		$this->values = $this->serializedComponents($this->twoDimensional);
+	}
+
+	public function getFunctionName(): string
+	{
+		return $this->twoDimensional ? 'matrix' : 'matrix3d';
+	}
+
+	public function toMatrix(): DOMMatrix
+	{
+		if ($this->twoDimensional) {
+			return DOMMatrix::fromElements(
+				self::matrix2d(
+					$this->matrix->getA(),
+					$this->matrix->getB(),
+					$this->matrix->getC(),
+					$this->matrix->getD(),
+					$this->matrix->getE(),
+					$this->matrix->getF(),
+				),
+				true,
+			);
+		}
+
+		return DOMMatrix::fromElements($this->matrix->toFloat64Array(), false);
 	}
 
 	public function clone(): static
 	{
-		return new static($this->matrix, $this->is2D());
+		return new static(DOMMatrix::fromMatrix($this->matrix), $this->twoDimensional);
+	}
+
+	public function __toString(): string
+	{
+		return $this->getFunctionName() . '(' . implode(', ', $this->serializedComponents($this->twoDimensional)) . ')';
 	}
 
 	public function __get(string $name): mixed
@@ -89,19 +116,24 @@ final class CSSMatrixComponent extends CSSTransformComponent
 
 	public function __set(string $name, mixed $value): void
 	{
-		if ($name === 'matrix' && is_array($value)) {
+		if ($name === 'matrix' && ($value instanceof DOMMatrixReadOnly || is_array($value))) {
 			$this->setMatrix($value);
 			return;
 		}
 		parent::__set($name, $value);
 	}
 
-	/** @param list<mixed> $matrix @return list<float> */
-	private static function validateMatrixArray(array $matrix): array
+	/** @param DOMMatrixReadOnly|list<mixed> $matrix */
+	private static function normalizeMatrix(DOMMatrixReadOnly|array $matrix): DOMMatrix
 	{
+		if ($matrix instanceof DOMMatrixReadOnly) {
+			return DOMMatrix::fromMatrix($matrix);
+		}
+
 		if (!in_array(count($matrix), [6, 16], true)) {
 			throw new InvalidArgumentException('A matrix requires six or sixteen numeric components.');
 		}
+
 		$normalized = [];
 		foreach ($matrix as $value) {
 			if (!is_numeric($value) || !is_finite((float) $value)) {
@@ -110,6 +142,39 @@ final class CSSMatrixComponent extends CSSTransformComponent
 			$normalized[] = (float) $value;
 		}
 
-		return $normalized;
+		return new DOMMatrix($normalized);
+	}
+
+	/** @param array{is2D?: bool}|bool|null $options */
+	private function resolveIs2D(array|bool|null $options, bool $default): bool
+	{
+		if (is_bool($options)) {
+			return $options;
+		}
+		if (is_array($options) && array_key_exists('is2D', $options)) {
+			if (!is_bool($options['is2D'])) {
+				throw new InvalidArgumentException('CSSMatrixComponent options.is2D must be a boolean.');
+			}
+			return $options['is2D'];
+		}
+
+		return $default;
+	}
+
+	/** @return list<string> */
+	private function serializedComponents(bool $is2D): array
+	{
+		$elements = $is2D
+			? [
+				$this->matrix->getA(),
+				$this->matrix->getB(),
+				$this->matrix->getC(),
+				$this->matrix->getD(),
+				$this->matrix->getE(),
+				$this->matrix->getF(),
+			]
+			: $this->matrix->toFloat64Array();
+
+		return array_map(static fn (float $value): string => $value === 0.0 ? '0' : (string) $value, $elements);
 	}
 }

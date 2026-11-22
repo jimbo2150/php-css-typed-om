@@ -47,7 +47,7 @@ final class CSSImportRule extends CSSAtRule
 		return $this->extractTailParts()['layerName'];
 	}
 
-	public function getSupportsText(): string
+	public function getSupportsText(): ?string
 	{
 		return $this->extractTailParts()['supportsText'];
 	}
@@ -75,18 +75,18 @@ final class CSSImportRule extends CSSAtRule
 		};
 	}
 
-	/** @return array{href: string, layerName: ?string, supportsText: string, media: string} */
+	/** @return array{href: string, layerName: ?string, supportsText: ?string, media: string} */
 	private function extractTailParts(): array
 	{
 		$tokens = CSSSyntaxScanner::splitTopLevelWhitespace($this->prelude);
 		if ($tokens === []) {
-			return ['href' => '', 'layerName' => null, 'supportsText' => '', 'media' => ''];
+			return ['href' => '', 'layerName' => null, 'supportsText' => null, 'media' => ''];
 		}
 
 		$urlToken = array_shift($tokens);
 		$href = self::unwrapUrlToken($urlToken);
 		$layerName = null;
-		$supportsText = '';
+		$supportsText = null;
 		$mediaTokens = [];
 
 		foreach ($tokens as $token) {
@@ -98,7 +98,7 @@ final class CSSImportRule extends CSSAtRule
 				$layerName = trim(substr($token, 6, -1));
 				continue;
 			}
-			if (strncasecmp($token, 'supports(', 9) === 0 && str_ends_with($token, ')') && $supportsText === '') {
+			if (strncasecmp($token, 'supports(', 9) === 0 && str_ends_with($token, ')') && $supportsText === null) {
 				$supportsText = trim(substr($token, 9, -1));
 				continue;
 			}

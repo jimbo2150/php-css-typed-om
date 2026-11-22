@@ -17,6 +17,7 @@
 | `PAGE_RULE` | `6` | `@page`. |
 | `KEYFRAMES_RULE` | `7` | `@keyframes`. |
 | `KEYFRAME_RULE` | `8` | Single keyframe. |
+| `MARGIN_RULE` | `9` | Page margin box. |
 | `NAMESPACE_RULE` | `10` | `@namespace`. |
 | `COUNTER_STYLE_RULE` | `11` | `@counter-style`. |
 | `SUPPORTS_RULE` | `12` | `@supports`. |
@@ -29,7 +30,6 @@
 | `STARTING_STYLE_RULE` | `20` | `@starting-style`. |
 | `POSITION_TRY_RULE` | `21` | `@position-try`. |
 | `FUNCTION_DECLARATIONS_RULE` | `22` | Function declaration body. |
-| `MARGIN_RULE` | `23` | Page margin box. |
 | `SCOPE_RULE` | `24` | `@scope`. |
 | `CONTAINER_RULE` | `25` | `@container`. |
 | `VIEW_TRANSITION_RULE` | `26` | `@view-transition`. |

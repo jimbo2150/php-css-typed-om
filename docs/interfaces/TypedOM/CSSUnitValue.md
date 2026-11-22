@@ -11,7 +11,7 @@
 | Name | Type and access |
 |---|---|
 | `value` | Public property declared `mixed`, with a setter hook validating finite numeric values and coercing them to `float`; readable and writable. |
-| `unit` | Inherited from `TypeableUnitTrait`, public read-only `string` unit symbol. |
+| `unit` | Inherited from `TypeableUnitTrait`, public read-only `string` canonical Typed OM unit name (`'number'`, `'percent'`, `'px'`, `'x'`, etc.). |
 | `length` | Inherited public read-only `?int`; normally null because a unit value has no `values` collection. |
 
 No public constants or enum cases. Inherits the `CSSNumericValue` methods `parse`, `from`, `type`, `getType`, `getNumericType`, `getNumericCategory`, `to`, `toSum`, `mul`, `div`, `min`, `max`, `equals`, `mergeAdditiveTypes`, `unitType`, `__get`, `__set`, and inherited `parseAll`; their signatures, behavior, and examples are fully specified in [CSSNumericValue](CSSNumericValue.md#public-api). `add` and `sub` are overridden below. Also inherits `__toString` and `clone` contract but overrides both.

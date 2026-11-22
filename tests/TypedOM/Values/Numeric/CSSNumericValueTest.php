@@ -235,12 +235,12 @@ class CSSNumericValueTest extends TestCase
     public function testEqualsWithConversionError()
     {
         $value1 = new CSSUnitValue(10, 'px');
-        $value2 = $this->getMockBuilder(CSSUnitValue::class)
-            ->setConstructorArgs([10, 'em'])
-            ->onlyMethods(['to'])
-            ->getMock();
-
-        $value2->method('to')->will($this->throwException(new \Exception()));
+        $value2 = new class(10, 'em') extends CSSUnitValue {
+            public function to(string $unit, ?\Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext $context = null): CSSNumericValue
+            {
+                throw new \Exception('Conversion failed');
+            }
+        };
 
         $this->assertFalse($value1->equals($value2));
     }
@@ -404,7 +404,7 @@ class CSSNumericValueTest extends TestCase
         $this->assertEquals('px', $result->inner_values[0]->unit);
         $this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[1]);
         $this->assertEquals(2, $result->inner_values[1]->value);
-        $this->assertEquals('', $result->inner_values[1]->unit);
+        $this->assertEquals('number', $result->inner_values[1]->unit);
     }
 
     public function testMulMethodStringCast()
@@ -432,7 +432,7 @@ class CSSNumericValueTest extends TestCase
         $invert = $result->inner_values[1];
         $this->assertEquals(1, $invert->length);
         $this->assertEquals(2, $invert->inner_values[0]->value);
-        $this->assertEquals('', $invert->inner_values[0]->unit);
+        $this->assertEquals('number', $invert->inner_values[0]->unit);
     }
 
     public function testDivMethodStringCast()
@@ -501,7 +501,7 @@ class CSSNumericValueTest extends TestCase
         $result = CSSNumericValue::parse('123');
         $this->assertInstanceOf(CSSUnitValue::class, $result);
         $this->assertEquals(123, $result->value);
-        $this->assertEquals('', $result->unit);
+        $this->assertEquals('number', $result->unit);
     }
 
     public function testParseWithUnit()
@@ -533,7 +533,7 @@ class CSSNumericValueTest extends TestCase
         $result = CSSNumericValue::parse('50%');
         $this->assertInstanceOf(CSSUnitValue::class, $result);
         $this->assertEquals(50, $result->value);
-        $this->assertEquals('%', $result->unit);
+        $this->assertEquals('percent', $result->unit);
     }
 
     public function testParseTrimmed()

@@ -32,7 +32,7 @@ class CSSStyleRule extends CSSGroupingRule
 		CSSSyntaxScanner::assertValidFragment($selectorText, 'CSS selector', [';', '{', '}']);
 		parent::__construct('style', $selectorText);
 		$this->selectorText = $selectorText;
-		$this->style = $style instanceof CSSStyleProperties ? $style : self::toStyleProperties($style);
+		$this->style = CSSStyleProperties::fromDeclaration($style);
 		$this->style->setParentRule($this);
 	}
 
@@ -123,14 +123,5 @@ class CSSStyleRule extends CSSGroupingRule
 			return;
 		}
 		parent::__set($name, $value);
-	}
-
-	private static function toStyleProperties(?CSSStyleDeclaration $style): CSSStyleProperties
-	{
-		$properties = new CSSStyleProperties();
-		foreach ($style ?? [] as $property => $declaration) {
-			$properties->setProperty($property, $declaration['value'], $declaration['priority']);
-		}
-		return $properties;
 	}
 }

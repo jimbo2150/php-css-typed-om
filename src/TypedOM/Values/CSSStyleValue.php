@@ -7,6 +7,7 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Stringable;
 
@@ -92,6 +93,17 @@ abstract class CSSStyleValue implements Stringable
 				return CSSPositionValue::fromCssText($cssText);
 			} catch (InvalidArgumentException) {
 				// Unsupported position syntax remains available as source text below.
+			}
+		}
+
+		if ($cssText[0] === '#' || preg_match('/^(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\s*\(/i', $cssText)) {
+			try {
+				return CSSColorValue::parse($cssText, null, $options);
+			} catch (InvalidArgumentException $exception) {
+				if (str_contains($exception->getMessage(), 'depth') || str_contains($exception->getMessage(), 'maximum size')) {
+					throw $exception;
+				}
+				// Unsupported/relative/var() color syntax falls through to unparsed value below.
 			}
 		}
 

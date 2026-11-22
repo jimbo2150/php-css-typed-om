@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 
 /**
@@ -38,9 +39,9 @@ final class CSSSkewY extends CSSTransformComponent
 		$this->values = [$this->ay];
 	}
 
-	public function toMatrix(): array
+	public function toMatrix(): DOMMatrix
 	{
-		return self::matrix2d(1.0, tan(self::scalar($this->ay, 'angle')), 0.0, 1.0, 0.0, 0.0);
+		return DOMMatrix::fromElements(self::matrix2d(1.0, tan(self::scalar($this->ay, 'angle')), 0.0, 1.0, 0.0, 0.0), $this->twoDimensional);
 	}
 
 	public function clone(): static { return new static($this->ay->clone()); }

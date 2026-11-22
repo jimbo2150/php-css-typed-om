@@ -43,6 +43,11 @@ final class CSSKeyframesRule extends CSSGroupingRule
 		return self::KEYFRAMES_RULE;
 	}
 
+	public function getLength(): int
+	{
+		return count($this->getCssRules());
+	}
+
 	public function appendRule(string $ruleText, ?CSSParserOptions $options = null): void
 	{
 		$this->insertRule($ruleText, count($this->getCssRules()), $options);
@@ -57,13 +62,7 @@ final class CSSKeyframesRule extends CSSGroupingRule
 			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
 		}
 
-		$rule = CSSParser::parseSingleRule($ruleText, $options);
-		if (!$rule instanceof CSSStyleRule) {
-			throw new InvalidArgumentException('A keyframe rule requires a selector and declaration block.');
-		}
-
-		$keyframe = new CSSKeyframeRule($rule->getSelectorText(), $rule->getStyle());
-		$keyframe->setKeyText($rule->getSelectorText());
+		$keyframe = CSSParser::parseSingleKeyframeRule($ruleText, $options);
 		$this->getCssRules()->insert($index, $keyframe);
 
 		return $index;
@@ -98,7 +97,11 @@ final class CSSKeyframesRule extends CSSGroupingRule
 
 	public function __get(string $name): mixed
 	{
-		return $name === 'name' ? $this->getNameText() : parent::__get($name);
+		return match ($name) {
+			'name' => $this->getNameText(),
+			'length' => $this->getLength(),
+			default => parent::__get($name),
+		};
 	}
 
 	public function __set(string $name, mixed $value): void

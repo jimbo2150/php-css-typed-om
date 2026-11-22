@@ -5,7 +5,11 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\Tests\TypedOM;
 
 use Jimbo2150\PhpCssTypedOm\CSS;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPropertyRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericArray;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMin;
@@ -141,5 +145,113 @@ class CSSTest extends TestCase
 	public function testEscapeNull()
 	{
 		$this->assertEquals("\u{FFFD}", CSS::escape(null));
+	}
+
+	public function testResolutionUnitXAndRejectsInvalidDimensionSyntax(): void
+	{
+		$x = CSS::x(2);
+		self::assertSame('x', $x->unit);
+		self::assertSame('2x', (string) $x);
+		self::assertEqualsWithDelta(2.0, $x->to('dppx')->value, 1e-9);
+		self::assertEqualsWithDelta(192.0, $x->to('dpi')->value, 1e-9);
+		self::assertSame('x', CSSNumericValue::parse('2x')->unit);
+
+		// Invalid CSS dimension syntax like `10number` / `50percent` / `1flex` must be rejected
+		foreach (['10number', '50percent', '1flex'] as $invalid) {
+			try {
+				CSSNumericValue::parse($invalid);
+				self::fail('Expected invalid CSS numeric syntax to throw: ' . $invalid);
+			} catch (InvalidArgumentException) {
+				self::assertTrue(true);
+			}
+		}
+	}
+
+	public function testRegisterPropertyLifecycleAndValidation(): void
+	{
+		CSS::clearRegisteredProperties();
+		try {
+			$rule = CSS::registerProperty([
+				'name' => '--brand-gap',
+				'syntax' => '<length>',
+				'inherits' => false,
+				'initialValue' => '16px',
+			]);
+			self::assertInstanceOf(CSSPropertyRule::class, $rule);
+			self::assertSame('--brand-gap', $rule->name);
+			self::assertSame('<length>', $rule->syntax);
+			self::assertFalse($rule->inherits);
+			self::assertSame('16px', $rule->initialValue);
+			self::assertSame($rule, CSS::getRegisteredProperty('--brand-gap'));
+			self::assertCount(1, CSS::getRegisteredProperties());
+
+			// Universal syntax allows null initialValue
+			$universal = CSS::registerProperty([
+				'name' => '--any-token',
+				'inherits' => true,
+			]);
+			self::assertSame('*', $universal->syntax);
+			self::assertNull($universal->initialValue);
+
+			// Duplicate registration throws
+			try {
+				CSS::registerProperty(['name' => '--brand-gap', 'inherits' => false]);
+				self::fail('Expected duplicate registration to throw.');
+			} catch (InvalidArgumentException) {
+				self::assertTrue(true);
+			}
+
+			// var() in initialValue is rejected
+			try {
+				CSS::registerProperty([
+					'name' => '--bad-var',
+					'syntax' => '<length>',
+					'inherits' => false,
+					'initialValue' => 'var(--brand-gap)',
+				]);
+				self::fail('Expected var() in initialValue to throw.');
+			} catch (InvalidArgumentException) {
+				self::assertTrue(true);
+			}
+
+			// CSSPropertyRule input is validated identically
+			$badRule = new CSSPropertyRule('--bad-rule', new CSSStyleDeclaration('syntax: "<length>"; inherits: maybe;'));
+			try {
+				CSS::registerProperty($badRule);
+				self::fail('Expected invalid CSSPropertyRule to throw.');
+			} catch (InvalidArgumentException) {
+				self::assertTrue(true);
+			}
+
+			self::assertTrue(CSS::unregisterProperty('--brand-gap'));
+			self::assertNull(CSS::getRegisteredProperty('--brand-gap'));
+			self::assertFalse(CSS::unregisterProperty('--brand-gap'));
+		} finally {
+			CSS::clearRegisteredProperties();
+		}
+	}
+
+	public function testSupportsTwoArgAndConditionalOneArg(): void
+	{
+		// 2-arg form
+		self::assertTrue(CSS::supports('display', 'grid'));
+		self::assertTrue(CSS::supports('--custom', '10px'));
+		self::assertFalse(CSS::supports('display', 'grid !important'));
+		self::assertFalse(CSS::supports('not-a-real-css-prop', '1'));
+		self::assertFalse(CSS::supports('display', ''));
+
+		// 1-arg form: bare declarations, parenthesized, !important, boolean combinators, selector()
+		self::assertTrue(CSS::supports('display: grid'));
+		self::assertTrue(CSS::supports('(display: grid !important)'));
+		self::assertTrue(CSS::supports('not (not-a-real-prop: 1)'));
+		self::assertTrue(CSS::supports('(display: grid) and (color: red)'));
+		self::assertTrue(CSS::supports('(not-a-real-prop: 1) or (display: flex)'));
+		self::assertTrue(CSS::supports('selector(:has(> img))'));
+
+		// Malformed or disallowed combinations return false without throwing
+		self::assertFalse(CSS::supports('not(display: grid)'));
+		self::assertFalse(CSS::supports('(display: grid) and (color: red) or (width: 1px)'));
+		self::assertFalse(CSS::supports('selector()'));
+		self::assertFalse(CSS::supports(str_repeat('(', 40) . 'display: grid' . str_repeat(')', 40), null, new CSSParserOptions(maxDepth: 5)));
 	}
 }

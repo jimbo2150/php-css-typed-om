@@ -50,7 +50,7 @@ class CSSUnitValue extends CSSNumericValue implements Stringable
 			if (!is_finite($total)) {
 				throw new InvalidArgumentException('CSS numeric addition overflowed to a non-finite value.');
 			}
-			return new self($total, $this->unit);
+			return new self($total, $this->unitObj ?? $this->unit);
 		}
 		return parent::add(...$normalized);
 	}
@@ -64,14 +64,15 @@ class CSSUnitValue extends CSSNumericValue implements Stringable
 			if (!is_finite($total)) {
 				throw new InvalidArgumentException('CSS numeric subtraction overflowed to a non-finite value.');
 			}
-			return new self($total, $this->unit);
+			return new self($total, $this->unitObj ?? $this->unit);
 		}
 		return parent::sub(...$normalized);
 	}
 
 	public function __toString(): string
 	{
-		return "{$this->value}{$this->unit}";
+		$symbol = $this->unitObj?->toString() ?? '';
+		return "{$this->value}{$symbol}";
 	}
 
 	public function clone(): static

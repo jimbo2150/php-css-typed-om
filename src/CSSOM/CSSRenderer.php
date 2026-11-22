@@ -39,6 +39,7 @@ final class CSSRenderer
 				$rule->getCssText() :
 				CSSSyntaxScanner::removeComments($rule->getCssText()),
 			$rule instanceof CSSKeyframesRule => $this->renderGroupingRule($rule, $options, $depth),
+			$rule instanceof CSSKeyframeRule => $this->renderKeyframeRule($rule, $options, $depth),
 			$rule instanceof CSSPageRule => $this->renderPageRule($rule, $options, $depth),
 			$rule instanceof CSSStyleRule => $this->renderStyleRule($rule, $options, $depth),
 			$rule instanceof CSSFontFeatureValuesRule => $this->renderFontFeatureValuesRule($rule, $options, $depth),
@@ -69,6 +70,17 @@ final class CSSRenderer
 		}
 
 		return $this->renderBlock($this->indent($depth, $options).$rule->getSelectorText(), $body, $depth, $options);
+	}
+
+	private function renderKeyframeRule(CSSKeyframeRule $rule, CSSRenderOptions $options, int $depth): string
+	{
+		$body = [];
+		$declarations = $this->renderDeclarations($rule->getStyle(), $options, $depth + 1);
+		if ('' !== $declarations) {
+			$body[] = $declarations;
+		}
+
+		return $this->renderBlock($this->indent($depth, $options).$rule->getKeyText(), $body, $depth, $options);
 	}
 
 	private function renderPageRule(CSSPageRule $rule, CSSRenderOptions $options, int $depth): string

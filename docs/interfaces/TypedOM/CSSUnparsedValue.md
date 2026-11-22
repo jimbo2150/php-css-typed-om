@@ -13,6 +13,7 @@ No public constants or enum cases. It inherits `parse(string $propertyOrCssText,
 | `__construct` | `public function __construct(array|string $value)`; string input is split around recognized valid `var(--name[, fallback])` references; array input must contain only strings or `CSSVariableReferenceValue`, else `InvalidArgumentException`. Example: `$value = new CSSUnparsedValue('var(--theme, blue) solid');`. |
 | `fromCssText` | `public static function fromCssText(string $cssText): self`; constructs by parsing fragments from CSS text. Example: `$value = CSSUnparsedValue::fromCssText('var(--x)');`. |
 | `getValues` | `public function getValues(): array`; returns the ordered fragment list (`list<string|CSSVariableReferenceValue>`). Example: `$parts = $value->getValues();`. |
+| `keys` / `values` / `entries` / `forEach` | WebIDL iterable helpers returning integer keys, fragments, `[index, fragment]` pairs, or invoking `$callback($fragment, $index, $this)`. |
 | `count` | `public function count(): int`; returns fragment count. Example: `$count = count($value);`. |
 | `offsetExists` | `public function offsetExists(mixed $offset): bool`; true only for an integer index present in the list. Example: `$present = isset($value[0]);`. |
 | `offsetGet` | `public function offsetGet(mixed $offset): string|CSSVariableReferenceValue|null`; returns an integer-indexed fragment or `null` for another/missing index. Example: `$part = $value[0];`. |

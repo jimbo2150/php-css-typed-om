@@ -49,9 +49,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	 * @param list<string>|null $diagnostics Populated with error messages in non-strict mode
 	 * @throws InvalidArgumentException In strict mode when a declaration is invalid
 	 */
-	public static function parse(string $cssText, bool $strict = true, ?array &$diagnostics = null): self
+	public static function parse(string $cssText, bool $strict = true, ?array &$diagnostics = null): static
 	{
-		$style = new self();
+		$style = new static();
 		$detailed = [];
 		$style->parseInto($cssText, $strict, $detailed, 0);
 		$diagnostics ??= [];
@@ -72,12 +72,61 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		bool $strict = true,
 		?array &$diagnostics = null,
 		int $baseOffset = 0,
-	): self {
-		$style = new self();
+	): static {
+		$style = new static();
 		$diagnostics ??= [];
 		$style->parseInto($cssText, $strict, $diagnostics, $baseOffset);
 
 		return $style;
+	}
+
+	/**
+	 * Returns the list of allowed descriptor names if restricted by a subclass, or null if unrestricted.
+	 *
+	 * @return list<string>|null
+	 */
+	public static function getAllowedDescriptors(): ?array
+	{
+		$allowed = static::allowedDescriptors();
+		return $allowed === null ? null : array_keys($allowed);
+	}
+
+	/**
+	 * Override in descriptor subclasses to enforce a strict whitelist of descriptor names.
+	 *
+	 * @return array<string, true>|null
+	 */
+	protected static function allowedDescriptors(): ?array
+	{
+		return null;
+	}
+
+	protected static function allowsCustomProperties(): bool
+	{
+		return true;
+	}
+
+	protected static function allowsImportant(): bool
+	{
+		return true;
+	}
+
+	/**
+	 * @throws InvalidArgumentException When $name is not permitted on this declaration block
+	 */
+	protected static function assertAllowedDescriptor(string $name): void
+	{
+		if (str_starts_with($name, '--')) {
+			if (!static::allowsCustomProperties()) {
+				throw new InvalidArgumentException(sprintf('Custom property "%s" is not allowed in %s.', $name, static::class));
+			}
+			return;
+		}
+
+		$allowed = static::allowedDescriptors();
+		if ($allowed !== null && !isset($allowed[$name])) {
+			throw new InvalidArgumentException(sprintf('Descriptor "%s" is not allowed in %s.', $name, static::class));
+		}
 	}
 
 	public function getParentRule(): ?CSSRule
@@ -127,9 +176,13 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	public function setProperty(string $property, string $value, string $priority = ''): void
 	{
 		$name = self::normalizePropertyName($property);
+		static::assertAllowedDescriptor($name);
 		$priority = strtolower(trim($priority));
 		if ($priority !== '' && $priority !== 'important') {
 			throw new InvalidArgumentException('Priority must be empty or "important".');
+		}
+		if ($priority === 'important' && !static::allowsImportant()) {
+			throw new InvalidArgumentException(sprintf('!important is not allowed in %s.', static::class));
 		}
 
 		$value = trim($value);
@@ -178,7 +231,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	 */
 	public function setCssText(string $cssText): void
 	{
-		$replacement = self::parse($cssText, true);
+		$replacement = static::parse($cssText, true);
 		$this->declarations = $replacement->declarations;
 		$this->cachedKeys = null;
 	}
@@ -346,6 +399,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			$value = trim(substr($declaration, $colon + 1));
 			try {
 				$name = self::normalizePropertyName($property);
+				static::assertAllowedDescriptor($name);
 			} catch (InvalidArgumentException $exception) {
 				self::handleInvalidDeclaration($exception->getMessage(), $segmentOffset, $strict, $diagnostics);
 				continue;
@@ -363,6 +417,15 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			if ($important !== null) {
 				$tail = trim(CSSSyntaxScanner::removeComments(substr($value, $important + 1)));
 				if (strcasecmp($tail, 'important') === 0) {
+					if (!static::allowsImportant()) {
+						self::handleInvalidDeclaration(
+							sprintf('!important is not allowed in %s (%s).', static::class, $name),
+							$segmentOffset,
+							$strict,
+							$diagnostics,
+						);
+						continue;
+					}
 					$priority = 'important';
 					$value = rtrim(substr($value, 0, $important));
 				}

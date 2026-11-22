@@ -6,6 +6,7 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 use Error;
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 
@@ -45,10 +46,9 @@ abstract class CSSTransformComponent extends CSSStyleValue
 		$this->twoDimensional = $is2D;
 	}
 
-	/** @return list<float> 4x4 column-major transformation matrix */
-	public function toMatrix(): array
+	public function toMatrix(): DOMMatrix
 	{
-		return self::identityMatrix();
+		return DOMMatrix::fromElements(self::identityMatrix(), $this->twoDimensional);
 	}
 
 	public function clone(): static

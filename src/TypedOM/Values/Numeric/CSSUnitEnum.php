@@ -85,6 +85,7 @@ enum CSSUnitEnum: string
 	case RES_dpi = 'dpi';
 	case RES_dpcm = 'dpcm';
 	case RES_dppx = 'dppx';
+	case RES_x = 'x';
 
 	// Flex units
 	case FLEX_fr = 'fr';
@@ -110,9 +111,9 @@ enum CSSUnitEnum: string
 	}
 
 	/**
-	 * Returns the string representation of the unit.
+	 * Returns the CSS serialization suffix of the unit (e.g., 'em', '%', '' for number).
 	 *
-	 * @return string The unit string (e.g., 'em', '%').
+	 * @return string The unit suffix used when serializing to CSS text.
 	 */
 	public function toString(): string {
 		$parts = $this->splitType();
@@ -123,7 +124,20 @@ enum CSSUnitEnum: string
 	}
 
 	/**
-	 * Resolves a CSS unit symbol case-insensitively in O(1) time.
+	 * Returns the canonical CSS Typed OM unit name (e.g., 'number', 'percent', 'px', 'x').
+	 */
+	public function toUnitName(): string
+	{
+		return match ($this) {
+			self::NUMBER => 'number',
+			self::PERCENT => 'percent',
+			default => $this->toString(),
+		};
+	}
+
+	/**
+	 * Resolves a CSS dimension syntax suffix case-insensitively in O(1) time.
+	 * Accepts only valid CSS unit suffixes ('', '%', 'px', 'x', ...), not Typed OM names like 'number' or 'percent'.
 	 */
 	public static function tryFromSymbol(string $symbol): ?self
 	{
@@ -136,6 +150,26 @@ enum CSSUnitEnum: string
 		}
 
 		return $lookup[strtolower($symbol)] ?? null;
+	}
+
+	/**
+	 * Resolves either a CSS Typed OM unit name ('number', 'percent', 'flex') or a CSS unit symbol in O(1) time.
+	 */
+	public static function tryFromUnitName(string $unit): ?self
+	{
+		static $lookup = null;
+		if ($lookup === null) {
+			$lookup = [
+				'number' => self::NUMBER,
+				'percent' => self::PERCENT,
+				'flex' => self::FLEX_fr,
+			];
+			foreach (self::cases() as $case) {
+				$lookup[strtolower($case->value)] = $case;
+			}
+		}
+
+		return $lookup[strtolower($unit)] ?? null;
 	}
 
 	/**

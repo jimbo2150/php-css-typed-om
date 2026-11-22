@@ -19,11 +19,13 @@ abstract class StyleSheet
 	public function __construct(
 		private readonly ?string $href = null,
 		private readonly string $title = '',
-		?MediaList $media = null,
+		MediaList|string|null $media = null,
 		private readonly ?CSSRule $ownerRule = null,
 		private readonly ?StyleSheet $parentStyleSheet = null,
+		bool $disabled = false,
 	) {
-		$this->media = $media ?? new MediaList();
+		$this->media = $media instanceof MediaList ? $media : new MediaList($media ?? '');
+		$this->disabled = $disabled;
 	}
 
 	public function getType(): string

@@ -41,7 +41,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 		'angle' => ['deg' => 1.0, 'rad' => 180.0 / M_PI, 'grad' => 0.9, 'turn' => 360.0],
 		'time' => ['s' => 1.0, 'ms' => 0.001],
 		'frequency' => ['hz' => 1.0, 'khz' => 1000.0],
-		'resolution' => ['dpi' => 1.0, 'dpcm' => 2.54, 'dppx' => 96.0],
+		'resolution' => ['dpi' => 1.0, 'dpcm' => 2.54, 'dppx' => 96.0, 'x' => 96.0],
 		'flex' => ['fr' => 1.0],
 	];
 
@@ -111,7 +111,10 @@ abstract class CSSNumericValue extends CSSStyleValue
 			if (!is_finite($value)) {
 				throw new InvalidArgumentException('CSS numeric value must be finite: ' . $cssText);
 			}
-			$unit = $matches[2] === '' ? 'number' : $matches[2];
+			$unit = CSSUnitEnum::tryFromSymbol($matches[2]);
+			if ($unit === null) {
+				throw new InvalidArgumentException('Unsupported CSS unit: ' . $matches[2]);
+			}
 			return new CSSUnitValue($value, $unit);
 		}
 
@@ -260,7 +263,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 		$buckets = [];
 		foreach ($units as $unit) {
 			$resolved = self::resolveUnit($unit);
-			$buckets[$resolved->toString()] = new CSSUnitValue(0.0, $resolved);
+			$buckets[$resolved->toUnitName()] = new CSSUnitValue(0.0, $resolved);
 		}
 
 		$primary = array_key_first($buckets);
@@ -506,8 +509,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 
 	private static function resolveUnit(string $unit): CSSUnitEnum
 	{
-		$symbol = CSS::translateUnit(strtolower($unit));
-		$resolved = CSSUnitEnum::tryFromSymbol($symbol);
+		$resolved = CSSUnitEnum::tryFromUnitName($unit);
 		if ($resolved === null) {
 			throw new InvalidArgumentException('Unsupported CSS unit: ' . $unit);
 		}

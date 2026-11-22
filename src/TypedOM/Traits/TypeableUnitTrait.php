@@ -20,7 +20,7 @@ trait TypeableUnitTrait
 	protected ?CSSUnitEnum $unitObj = null;
     public string $unit {
 		get {
-			return $this->unitObj ? $this->unitObj->toString() : '';
+			return $this->unitObj ? $this->unitObj->toUnitName() : '';
 		}
 	}
 
@@ -31,9 +31,9 @@ trait TypeableUnitTrait
 	 */
 	protected function setUnit(string|CSSUnitEnum $unit) {
 		if (is_string($unit)) {
-			$symbol = CSS::translateUnit(strtolower($unit));
-			$resolved = CSSUnitEnum::tryFromSymbol($symbol);
+			$resolved = CSSUnitEnum::tryFromUnitName($unit);
 			if ($resolved === null) {
+				$symbol = CSS::translateUnit(strtolower($unit));
 				throw new \InvalidArgumentException('Unsupported CSS unit: ' . $symbol);
 			}
 			$unit = $resolved;

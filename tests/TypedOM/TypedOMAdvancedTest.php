@@ -20,6 +20,7 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSTransformValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSTranslate;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericArray;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathClamp;
@@ -145,5 +146,40 @@ final class TypedOMAdvancedTest extends TestCase
 		self::assertSame('myvar(--x) + ', $unparsed[0]);
 		self::assertSame('--y', $unparsed[1]->variable);
 		self::assertSame('1px', (string) $unparsed[1]->fallback);
+	}
+
+	public function testStandaloneCollectionsExposeWebIdlIterableHelpers(): void
+	{
+		$numericArray = new CSSNumericArray([CSS::px(10), CSS::percent(50)]);
+		self::assertNotInstanceOf(CSSNumericValue::class, $numericArray);
+		self::assertSame(2, $numericArray->length);
+		self::assertSame([0, 1], $numericArray->keys());
+		self::assertCount(2, $numericArray->values());
+		self::assertSame(10.0, $numericArray->entries()[0][1]->value);
+		$seen = [];
+		$numericArray->forEach(static function (CSSNumericValue $v, int $i) use (&$seen): void {
+			$seen[$i] = (string) $v;
+		});
+		self::assertSame([0 => '10px', 1 => '50%'], $seen);
+
+		$unparsed = CSSUnparsedValue::fromCssText('1px solid var(--c)');
+		self::assertSame([0, 1], $unparsed->keys());
+		self::assertCount(2, $unparsed->values());
+		self::assertSame('1px solid ', $unparsed->entries()[0][1]);
+		$unparsedSeen = [];
+		$unparsed->forEach(static function (mixed $v, int $i) use (&$unparsedSeen): void {
+			$unparsedSeen[$i] = (string) $v;
+		});
+		self::assertSame([0 => '1px solid ', 1 => 'var(--c)'], $unparsedSeen);
+
+		$transform = new CSSTransformValue([new CSSTranslate(10, 0), new CSSScale(2, 2)]);
+		self::assertSame([0, 1], $transform->keys());
+		self::assertCount(2, $transform->values());
+		self::assertCount(2, $transform->entries());
+		$transformSeen = [];
+		$transform->forEach(static function (mixed $comp, int $i) use (&$transformSeen): void {
+			$transformSeen[$i] = (string) $comp;
+		});
+		self::assertSame([0 => 'translate(10px, 0px)', 1 => 'scale(2, 2)'], $transformSeen);
 	}
 }

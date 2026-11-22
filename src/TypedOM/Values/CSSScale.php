@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 
@@ -61,13 +62,15 @@ final class CSSScale extends CSSTransformComponent
 		$this->syncSerializedValues();
 	}
 
-	public function toMatrix(): array
+	public function toMatrix(): DOMMatrix
 	{
 		$matrix = self::identityMatrix();
 		$matrix[0] = self::scalar($this->x, 'number');
 		$matrix[5] = self::scalar($this->y, 'number');
-		$matrix[10] = self::scalar($this->z, 'number');
-		return $matrix;
+		$z = $this->twoDimensional ? 1.0 : self::scalar($this->z, 'number');
+		$matrix[10] = $z;
+
+		return DOMMatrix::fromElements($matrix, $this->twoDimensional && $z === 1.0);
 	}
 
 	public function clone(): static

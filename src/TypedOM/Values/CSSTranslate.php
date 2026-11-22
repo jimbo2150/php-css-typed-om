@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 
@@ -75,13 +76,15 @@ final class CSSTranslate extends CSSTransformComponent
 		$this->syncSerializedValues();
 	}
 
-	public function toMatrix(): array
+	public function toMatrix(): DOMMatrix
 	{
 		$matrix = self::identityMatrix();
 		$matrix[12] = self::scalar($this->x, 'length');
 		$matrix[13] = self::scalar($this->y, 'length');
-		$matrix[14] = self::scalar($this->z, 'length');
-		return $matrix;
+		$z = $this->twoDimensional ? 0.0 : self::scalar($this->z, 'length');
+		$matrix[14] = $z;
+
+		return DOMMatrix::fromElements($matrix, $this->twoDimensional && $z === 0.0);
 	}
 
 	public function clone(): static

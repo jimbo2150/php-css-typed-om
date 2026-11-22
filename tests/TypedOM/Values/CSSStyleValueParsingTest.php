@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\Tests\TypedOM\Values;
 
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSOKLCH;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSPositionValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSImageValue;
@@ -28,7 +29,8 @@ final class CSSStyleValueParsingTest extends TestCase
 		self::assertInstanceOf(CSSUnitValue::class, CSSStyleValue::parse('width', '12px'));
 		self::assertInstanceOf(CSSUnitValue::class, CSSNumericValue::parse('width', '12px'));
 		self::assertInstanceOf(CSSKeywordValue::class, CSSStyleValue::parse('display', 'block'));
-		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('color', 'oklch(50% 0.2 30)'));
+		self::assertInstanceOf(CSSOKLCH::class, CSSStyleValue::parse('color', 'oklch(50% 0.2 30)'));
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('color', 'color-mix(in srgb, red, blue)'));
 		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('--custom', '12px'));
 		self::assertInstanceOf(CSSKeywordValue::class, CSSStyleValue::parse('background-image', 'inherit'));
 		self::assertInstanceOf(CSSKeywordValue::class, CSSStyleValue::parse('background-image', 'none'));

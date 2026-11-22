@@ -10,6 +10,7 @@ use Countable;
 use Error;
 use InvalidArgumentException;
 use IteratorAggregate;
+use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Traversable;
 
@@ -144,6 +145,39 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 		return $this->components;
 	}
 
+	/** @return list<int> */
+	public function keys(): array
+	{
+		return array_keys($this->components);
+	}
+
+	/** @return list<CSSTransformComponent> */
+	public function values(): array
+	{
+		return array_values($this->components);
+	}
+
+	/** @return list<array{int, CSSTransformComponent}> */
+	public function entries(): array
+	{
+		$entries = [];
+		foreach ($this->components as $index => $component) {
+			$entries[] = [$index, $component];
+		}
+
+		return $entries;
+	}
+
+	/**
+	 * Invokes $callback($component, $index, $this) for each transform component in order.
+	 */
+	public function forEach(callable $callback): void
+	{
+		foreach ($this->components as $index => $component) {
+			$callback($component, $index, $this);
+		}
+	}
+
 	public function is2D(): bool
 	{
 		foreach ($this->components as $component) {
@@ -155,15 +189,19 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 		return true;
 	}
 
-	/** @return list<float> 4x4 column-major transformation matrix */
-	public function toMatrix(): array
+	public function toMatrix(): DOMMatrix
 	{
-		$matrix = CSSTransformComponent::identityMatrix();
+		$matrix = new DOMMatrix();
+		$is2D = true;
 		foreach ($this->components as $component) {
-			$matrix = CSSTransformComponent::multiplyMatrices($matrix, $component->toMatrix());
+			$componentMatrix = $component->toMatrix();
+			$matrix->multiplySelf($componentMatrix);
+			if (!$component->is2D() || !$componentMatrix->is2D()) {
+				$is2D = false;
+			}
 		}
 
-		return $matrix;
+		return DOMMatrix::fromElements($matrix->toFloat64Array(), $is2D);
 	}
 
 	public function clone(): static

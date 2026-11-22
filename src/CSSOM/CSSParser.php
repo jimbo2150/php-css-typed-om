@@ -134,6 +134,33 @@ final class CSSParser
 		return $rule;
 	}
 
+	/**
+	 * Parses a single keyframe rule strictly, rejecting nested blocks.
+	 *
+	 * @throws InvalidArgumentException When the input is not a valid single keyframe rule or exceeds parser limits
+	 */
+	public static function parseSingleKeyframeRule(string $cssText, ?CSSParserOptions $options = null): CSSKeyframeRule
+	{
+		$options ??= new CSSParserOptions();
+		if ($options->maxBytes !== null && strlen($cssText) > $options->maxBytes) {
+			throw new InvalidArgumentException(sprintf('CSS keyframe rule exceeds maximum size of %d bytes.', $options->maxBytes));
+		}
+
+		$sheet = new CSSStyleSheet();
+		$ruleCount = 0;
+		self::parseRuleList($cssText, 0, strlen($cssText), $sheet->getCssRules(), $sheet, true, 0, $options, $ruleCount);
+		if ($sheet->getParseErrors() !== [] || count($sheet->getCssRules()) !== 1) {
+			$message = $sheet->getParseErrors()[0]['message'] ?? 'Exactly one valid CSS keyframe rule is required.';
+			throw new InvalidArgumentException($message);
+		}
+		$rule = $sheet->getCssRules()[0];
+		if (!$rule instanceof CSSKeyframeRule) {
+			throw new InvalidArgumentException('A keyframe rule requires a keyframe selector and declaration block.');
+		}
+
+		return $rule;
+	}
+
 	private static function parseRuleList(
 		string $source,
 		int $start,
@@ -246,13 +273,19 @@ final class CSSParser
 						$sheet->recordParseError($error['message'], $error['offset']);
 					}
 					try {
-						$rule = $keyframes ? new CSSKeyframeRule($prelude, $style) : new CSSStyleRule($prelude, $style);
-						if ($rule instanceof CSSKeyframeRule) {
-							$rule->setKeyText($prelude);
+						if ($keyframes) {
+							if ($nestedContent !== []) {
+								$sheet->recordParseError('Nested rules are not allowed inside a @keyframes block.', $nestedContent[0]['offset']);
+							}
+							$rule = new CSSKeyframeRule($prelude, $style);
+							$rules->append($rule);
+							$ruleCount++;
+						} else {
+							$rule = new CSSStyleRule($prelude, $style);
+							$rules->append($rule);
+							$ruleCount++;
+							self::appendNestedContent($rule, $nestedContent, $source, $sheet, $depth + 1, $options, $ruleCount);
 						}
-						$rules->append($rule);
-						$ruleCount++;
-						self::appendNestedContent($rule, $nestedContent, $source, $sheet, $depth + 1, $options, $ruleCount);
 					} catch (InvalidArgumentException $exception) {
 						$sheet->recordParseError($exception->getMessage(), $ruleStart);
 					}
@@ -274,6 +307,7 @@ final class CSSParser
 	}
 
 	/**
+	 * @param class-string<CSSStyleDeclaration> $declarationClass
 	 * @return array{
 	 *     CSSStyleDeclaration,
 	 *     list<array{start?: int, end?: int, style?: CSSStyleDeclaration, offset: int}>,
@@ -288,8 +322,9 @@ final class CSSParser
 		int $depth,
 		CSSParserOptions $options,
 		int &$ruleCount,
+		string $declarationClass = CSSStyleDeclaration::class,
 	): array {
-		$style = new CSSStyleDeclaration();
+		$style = new $declarationClass();
 		if ($options->maxDepth !== null && $depth > $options->maxDepth) {
 			return [$style, [], [['message' => sprintf('Maximum CSS nesting depth of %d exceeded.', $options->maxDepth), 'offset' => $start]]];
 		}
@@ -307,7 +342,7 @@ final class CSSParser
 			}
 			$delimiter = CSSSyntaxScanner::findNextTopLevelDelimiter($source, [';', '{', '}'], $offset, $end);
 			if ($delimiter === null) {
-				self::mergeDeclarations(substr($source, $offset, $end - $offset), $currentStyle, $diagnostics, $offset);
+				self::mergeDeclarations(substr($source, $offset, $end - $offset), $currentStyle, $diagnostics, $offset, $declarationClass);
 				break;
 			}
 
@@ -317,6 +352,7 @@ final class CSSParser
 					$currentStyle,
 					$diagnostics,
 					$offset,
+					$declarationClass,
 				);
 				$offset = $delimiter['offset'] + 1;
 				continue;
@@ -336,7 +372,7 @@ final class CSSParser
 				}
 				$nestedContent[] = ['start' => $offset, 'end' => $close + 1, 'offset' => $offset];
 				$hasNestedRule = true;
-				$currentStyle = new CSSStyleDeclaration();
+				$currentStyle = new $declarationClass();
 				$offset = $close + 1;
 				continue;
 			}
@@ -402,15 +438,23 @@ final class CSSParser
 		return $descriptors;
 	}
 
-	/** @param list<array{message: string, offset: int}> $diagnostics */
-	private static function mergeDeclarations(string $source, CSSStyleDeclaration $target, array &$diagnostics, int $sourceOffset): void
-	{
+	/**
+	 * @param list<array{message: string, offset: int}> $diagnostics
+	 * @param class-string<CSSStyleDeclaration> $declarationClass
+	 */
+	private static function mergeDeclarations(
+		string $source,
+		CSSStyleDeclaration $target,
+		array &$diagnostics,
+		int $sourceOffset,
+		string $declarationClass = CSSStyleDeclaration::class,
+	): void {
 		if (trim($source) === '') {
 			return;
 		}
 
 		$errors = [];
-		$parsed = CSSStyleDeclaration::parseWithOffsets($source, false, $errors, $sourceOffset);
+		$parsed = $declarationClass::parseWithOffsets($source, false, $errors, $sourceOffset);
 		foreach ($errors as $error) {
 			$diagnostics[] = $error;
 		}
@@ -479,7 +523,12 @@ final class CSSParser
 		if (isset(self::DECLARATION_AT_RULES[$name])) {
 			$declarationErrors = [];
 			$body = substr($source, $bodyStart, $bodyEnd - $bodyStart);
-			$style = CSSStyleDeclaration::parseWithOffsets($body, false, $declarationErrors, $bodyStart);
+			$declarationClass = match ($name) {
+				'font-face' => CSSFontFaceDescriptors::class,
+				'position-try' => CSSPositionTryDescriptors::class,
+				default => CSSStyleDeclaration::class,
+			};
+			$style = $declarationClass::parseWithOffsets($body, false, $declarationErrors, $bodyStart);
 			foreach ($declarationErrors as $error) {
 				$sheet->recordParseError($error['message'], $error['offset']);
 			}
@@ -507,7 +556,16 @@ final class CSSParser
 		CSSParserOptions $options,
 		int &$ruleCount,
 	): CSSPageRule {
-		[$style, $content, $errors] = self::parseStyleBlock($source, $bodyStart, $bodyEnd, $sheet, $depth, $options, $ruleCount);
+		[$style, $content, $errors] = self::parseStyleBlock(
+			$source,
+			$bodyStart,
+			$bodyEnd,
+			$sheet,
+			$depth,
+			$options,
+			$ruleCount,
+			CSSPageDescriptors::class,
+		);
 		foreach ($errors as $error) {
 			$sheet->recordParseError($error['message'], $error['offset']);
 		}

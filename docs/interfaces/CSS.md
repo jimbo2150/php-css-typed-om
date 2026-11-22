@@ -33,9 +33,15 @@ $ratio = CSS::percent('37.5');
 echo $width; // 12px
 ```
 
-Available unit factories (all take one `string|int|float $value` and return `CSSUnitValue`): `percent`, `number`, `flex`, `em`, `ex`, `ch`, `ic`, `rem`, `lh`, `rlh`, `vw`, `vh`, `vi`, `vb`, `vmin`, `vmax`, `cm`, `mm`, `Q`, `in`, `pt`, `pc`, `px`, `deg`, `grad`, `rad`, `turn`, `s`, `ms`, `hz`, `khz`, `dpi`, `dpcm`, `dppx`, `fr`, `cap`, `rcap`, `cqb`, `cqh`, `cqw`, `cqi`, `cqmax`, `cqmin`, `dvb`, `dvh`, `dvi`, `dvmax`, `dvmin`, `dvw`, `lvb`, `lvh`, `lvi`, `lvmax`, `lvmin`, `lvw`, `rch`, `rex`, `ric`, `svb`, `svh`, `svi`, `svmax`, `svmin`, and `svw`. `number` is unitless; `percent` maps to `%`; `flex` and `fr` map to `fr`.
+Available unit factories (all take one `string|int|float $value` and return `CSSUnitValue`): `percent`, `number`, `flex`, `em`, `ex`, `ch`, `ic`, `rem`, `lh`, `rlh`, `vw`, `vh`, `vi`, `vb`, `vmin`, `vmax`, `cm`, `mm`, `Q`, `in`, `pt`, `pc`, `px`, `deg`, `grad`, `rad`, `turn`, `s`, `ms`, `hz`, `khz`, `dpi`, `dpcm`, `dppx`, `x`, `fr`, `cap`, `rcap`, `cqb`, `cqh`, `cqw`, `cqi`, `cqmax`, `cqmin`, `dvb`, `dvh`, `dvi`, `dvmax`, `dvmin`, `dvw`, `lvb`, `lvh`, `lvi`, `lvmax`, `lvmin`, `lvw`, `rch`, `rex`, `ric`, `svb`, `svh`, `svi`, `svmax`, `svmin`, and `svw`. `number` has unit name `'number'` (serializes unitless); `percent` has unit name `'percent'` (serializes `'%'`); `x` preserves `'x'` and converts with `dpi`/`dpcm`/`dppx`; `flex` and `fr` map to `'fr'`.
 
-The source PHPDoc also advertises an `lch()` factory, but no `lch` unit exists in `CSSUnitEnum`; calling `CSS::lch()` therefore throws `BadMethodCallException` at runtime.
+### `registerProperty(array|CSSPropertyRule $definition): CSSPropertyRule`
+
+Registers a custom property (`--*`) in the standalone registry, validating `name`, `syntax`, `inherits`, and computationally independent `initialValue` (required when `syntax !== '*'`, rejecting `var()`). Companion helpers: `getRegisteredProperty(string $name): ?CSSPropertyRule`, `getRegisteredProperties(): array`, `unregisterProperty(string $name): bool`, and `clearRegisteredProperties(): void`.
+
+### `supports(string $propertyOrCondition, ?string $value = null, ?CSSParserOptions $options = null): bool`
+
+Evaluates standalone CSS declaration syntax (2-arg form, rejecting `!important`) or `@supports` boolean condition syntax (1-arg form, supporting bare declarations, `!important`, `not`, `and`, `or`, `selector(...)`, and resource limits from `CSSParserOptions`). Returns `false` on malformed or unrecognized inputs without throwing.
 
 ### `translateUnit(string $name): string`
 

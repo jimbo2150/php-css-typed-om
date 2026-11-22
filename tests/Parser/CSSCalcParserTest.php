@@ -66,7 +66,7 @@ class CSSCalcParserTest extends TestCase
         $this->assertEquals('px', $result->inner_values[0]->unit);
         $this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[1]);
         $this->assertEquals(2, $result->inner_values[1]->value);
-        $this->assertEquals(CSSUnitEnum::NUMBER->value, $result->inner_values[1]->unit);
+        $this->assertEquals('number', $result->inner_values[1]->unit);
         $this->assertEquals($input, (string) $result);
     }
 
@@ -87,7 +87,7 @@ class CSSCalcParserTest extends TestCase
         $this->assertEquals(1, $invert->length);
         $this->assertInstanceOf(CSSUnitValue::class, $invert->inner_values[0]);
         $this->assertEquals(2, $invert->inner_values[0]->value);
-        $this->assertEquals(CSSUnitEnum::NUMBER->value, $invert->inner_values[0]->unit);
+        $this->assertEquals('number', $invert->inner_values[0]->unit);
         $this->assertEquals($input, (string) $result);
     }
 
@@ -174,7 +174,7 @@ class CSSCalcParserTest extends TestCase
 		$this->assertEquals(2, $product->length);
 		$this->assertInstanceOf(CSSUnitValue::class, $product->inner_values[0]);
 		$this->assertEquals(1.5, $product->inner_values[0]->value);
-		$this->assertEquals('', $product->inner_values[0]->unit);
+		$this->assertEquals('number', $product->inner_values[0]->unit);
 		$this->assertInstanceOf(CSSUnitValue::class, $product->inner_values[1]);
 		$this->assertEquals(2.5, $product->inner_values[1]->value);
 		$this->assertEquals('dvw', $product->inner_values[1]->unit);
@@ -193,7 +193,7 @@ class CSSCalcParserTest extends TestCase
 		$this->assertEquals(1, $negate->length);
 		$this->assertInstanceOf(CSSUnitValue::class, $negate->inner_values[0]);
 		$this->assertEquals(5, $negate->inner_values[0]->value);
-		$this->assertEquals('%', $negate->inner_values[0]->unit);
+		$this->assertEquals('percent', $negate->inner_values[0]->unit);
 		$this->assertEquals($input, (string) $result);
 	}
 
@@ -296,7 +296,7 @@ class CSSCalcParserTest extends TestCase
         $this->assertEquals(-1.5, $result->inner_values[0]->value);
         $this->assertEquals('px', $result->inner_values[0]->unit);
         $this->assertEquals(2, $result->inner_values[1]->value);
-        $this->assertEquals(CSSUnitEnum::NUMBER->value, $result->inner_values[1]->unit);
+        $this->assertEquals('number', $result->inner_values[1]->unit);
         $this->assertEquals($input, (string) $result);
     }
 

@@ -19,8 +19,9 @@ No public constants or enum cases. Inherits `parse` and `parseAll` from [CSSStyl
 | `offsetUnset` | `public function offsetUnset(mixed $offset): void`; removes/reindexes an existing element but rejects removal of the final component and invalid indexes with `InvalidArgumentException`. Example: `unset($transforms[0]);`. |
 | `getIterator` | `public function getIterator(): Traversable`; returns an `ArrayIterator` over the components. Example: `foreach ($transforms as $component) { /* inspect */ }`. |
 | `getComponents` | `public function getComponents(): array`; returns the component list (`list<CSSTransformComponent>`). Example: `$items = $transforms->getComponents();`. |
+| `keys` / `values` / `entries` / `forEach` | WebIDL iterable helpers returning integer keys, components, `[index, component]` pairs, or invoking `$callback($component, $index, $this)`. |
 | `is2D` | `public function is2D(): bool`; true only if every component reports 2D. Example: `$twoDimensional = $transforms->is2D();`. |
-| `toMatrix` | `public function toMatrix(): array`; starts with identity and multiplies each component matrix in list order; returns a 16-float column-major matrix. Example: `$matrix = $transforms->toMatrix();`. |
+| `toMatrix` | `public function toMatrix(): DOMMatrix`; starts with identity and multiplies each component `DOMMatrix` in list order, preserving `is2D = false` if any component is 3D. Example: `$matrix = $transforms->toMatrix();`. |
 | `clone` | `public function clone(): static`; deep-clones each component. Example: `$copy = $transforms->clone();`. |
 | `__toString` | `public function __toString(): string`; joins component serialization with spaces. Example: `$css = (string) $transforms;`. |
 | `__get` | `public function __get(string $name): mixed`; exposes virtual read-only `length` and `is2D`; other names throw `Error`. Example: `$length = $transforms->length;`. |

@@ -22,6 +22,7 @@ abstract class CSSRule
 	public const int PAGE_RULE = 6;
 	public const int KEYFRAMES_RULE = 7;
 	public const int KEYFRAME_RULE = 8;
+	public const int MARGIN_RULE = 9;
 	public const int NAMESPACE_RULE = 10;
 	public const int COUNTER_STYLE_RULE = 11;
 	public const int SUPPORTS_RULE = 12;
@@ -34,7 +35,6 @@ abstract class CSSRule
 	public const int STARTING_STYLE_RULE = 20;
 	public const int POSITION_TRY_RULE = 21;
 	public const int FUNCTION_DECLARATIONS_RULE = 22;
-	public const int MARGIN_RULE = 23;
 	public const int SCOPE_RULE = 24;
 	public const int CONTAINER_RULE = 25;
 	public const int VIEW_TRANSITION_RULE = 26;

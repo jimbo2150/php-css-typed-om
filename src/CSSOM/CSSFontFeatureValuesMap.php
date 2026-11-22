@@ -30,16 +30,19 @@ final class CSSFontFeatureValuesMap implements Countable, IteratorAggregate
 	}
 
 	/**
-	 * @param list<int> $values
+	 * @param int|list<int> $values
 	 * @throws InvalidArgumentException When the feature name or values are invalid
 	 */
-	public function set(string $name, array $values): void
+	public function set(string $name, int|array $values): void
 	{
 		$name = trim($name);
 		if ($name === '') {
 			throw new InvalidArgumentException('A non-empty font feature name is required.');
 		}
 		CSSSyntaxScanner::assertValidFragment($name, 'Font feature name', [';', '{', '}', ':']);
+		if (is_int($values)) {
+			$values = [$values];
+		}
 		if ($values === []) {
 			throw new InvalidArgumentException('A font feature value list requires at least one integer.');
 		}
@@ -98,6 +101,16 @@ final class CSSFontFeatureValuesMap implements Countable, IteratorAggregate
 		}
 
 		return $entries;
+	}
+
+	/**
+	 * Invokes $callback($values, $name, $this) for each entry.
+	 */
+	public function forEach(callable $callback): void
+	{
+		foreach ($this->values as $name => $values) {
+			$callback($values, $name, $this);
+		}
 	}
 
 	/** @return Traversable<string, list<int>> */

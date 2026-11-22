@@ -31,7 +31,7 @@ $sheet->insertRule('.notice { display: block }', count($sheet->cssRules));
 echo $sheet->cssText;
 ```
 
-`CSSStyleSheet` supports `parse()`, `cssRules`, `insertRule()`, `deleteRule()`, `replaceSync()`, `cssText`, and parse diagnostics. Rule lists and declarations are ordered and mutable. Declarations support `getPropertyValue()`, `getPropertyPriority()`, `setProperty()`, `removeProperty()`, `item()`, `length`, `parentRule`, and `cssText`. `MediaList`, `StyleSheet`, and `StyleSheetList` provide standalone equivalents for media queries and stylesheet metadata.
+`CSSStyleSheet` supports `parse()`, `cssRules`, `insertRule()`, `deleteRule()`, `replaceSync()`, `cssText`, `baseURL`, constructor `media` (`MediaList|string`), `disabled`, and parse diagnostics. Rule lists and declarations are ordered and mutable. Declarations support `getPropertyValue()`, `getPropertyPriority()`, `setProperty()`, `removeProperty()`, `item()`, `length`, `parentRule`, and `cssText`. Strict descriptor subclasses (`CSSFontFaceDescriptors`, `CSSPageDescriptors`, and `CSSPositionTryDescriptors`) enforce their W3C descriptor whitelists (and disallow `!important` on `@font-face` and `@position-try`), while stylesheet parsing recovers gracefully with byte-offset diagnostics. `MediaList`, `StyleSheet`, `StyleSheetList`, and standalone `FontFace` provide standalone equivalents for media queries, stylesheet metadata, and font-face descriptors.
 
 Use `CSSRenderer` when a readable or compact rendering is needed without changing the existing `cssText` serialization:
 
@@ -114,7 +114,7 @@ echo $minimum; // clamp(10px, 5vw, 100px)
 $height = CSS::em(2);
 ```
 
-Numeric values expose `type()` / `$value->type` returning `CSSNumericType` dimension exponent maps (including `percentHint` when mixing percentages with a dimensional unit), variadic arithmetic, `calc()`, `min()`, `max()`, and `clamp()`, and read-only `CSSNumericArray` collections. Same-dimension units convert using exact CSS absolute factors (`72pt == 96px`, `2.54cm == 96px`, `25.4mm == 96px`) and a supplied `CSSContext` for relative units; cross-dimension and non-finite inputs are rejected. `CSSContext` uses its supplied font size and viewport dimensions, with estimates for font-metric-relative units and viewport fallbacks for container/dynamic units. These conversions cannot reflect a browser's actual element or font metrics. Unit factories accept finite numeric strings, integers, and floats. `CSS::escape()` implements single-backslash CSSOM identifier escaping.
+Numeric values expose `type()` / `$value->type` returning `CSSNumericType` dimension exponent maps (including `percentHint` when mixing percentages with a dimensional unit), variadic arithmetic, `calc()`, `min()`, `max()`, and `clamp()`, and standalone read-only `CSSNumericArray` collections (`entries()`, `keys()`, `values()`, `forEach()`). `CSSUnitValue::$unit` returns canonical Typed OM unit names (`'number'`, `'percent'`, `'px'`, `'x'`, etc.) while string serialization outputs standard CSS (`5`, `50%`, `12px`, `2x`). Same-dimension units convert using exact CSS absolute factors (`72pt == 96px`, `2.54cm == 96px`, `25.4mm == 96px`, `1x == 1dppx == 96dpi`) and a supplied `CSSContext` for relative units; cross-dimension and non-finite inputs are rejected. `CSSContext` uses its supplied font size and viewport dimensions, with estimates for font-metric-relative units and viewport fallbacks for container/dynamic units. These conversions cannot reflect a browser's actual element or font metrics. Unit factories accept finite numeric strings, integers, and floats. `CSS::escape()` implements single-backslash CSSOM identifier escaping, `CSS::registerProperty()` manages a standalone custom-property registry, and `CSS::supports()` evaluates standalone CSS declaration and `@supports` condition syntax.
 
 ### Property Values and Maps
 
@@ -129,7 +129,7 @@ $rule = $sheet->cssRules[1];
 $rule->styleMap->set('width', $width);
 ```
 
-Property parsing returns typed numeric, keyword, image, position, and transform values where recognized. Transform values/components are iterable and mutable; `CSSTransformValue::toMatrix()` returns a 16-number, column-major 4x4 matrix. Custom properties are represented as mutable `CSSUnparsedValue` sequences, with `var()` references exposed as `CSSVariableReferenceValue`. Unsupported or property-specific grammars remain available as unparsed source instead of being silently discarded. `StylePropertyMap` and `StylePropertyMapReadOnly` operate on standalone declaration blocks (`entries()`, `keys()`, `values()`, `forEach()`, variadic `set()`, and `append()`).
+Property parsing returns typed numeric, keyword, color (`CSSColorValue`: `CSSRGB`, `CSSHSL`, `CSSHWB`, `CSSLab`, `CSSLCH`, `CSSOKLab`, `CSSOKLCH`, `CSSColor`), image, position, and transform values where recognized. Transform values/components are iterable and mutable (`entries()`, `keys()`, `values()`, `forEach()`); `CSSTransformValue::toMatrix()` and `CSSTransformComponent::toMatrix()` return a mutable `DOMMatrix` (inheriting from `DOMMatrixReadOnly`, implementing `ArrayAccess` over column-major indices `0..15` and `toFloat64Array()`). Custom properties are represented as mutable `CSSUnparsedValue` sequences, with `var()` references exposed as `CSSVariableReferenceValue`. Unsupported or property-specific grammars (including relative color syntax and `var()` inside colors) remain available as unparsed source instead of being silently discarded. `StylePropertyMap` and `StylePropertyMapReadOnly` operate on standalone declaration blocks (`entries()`, `keys()`, `values()`, `forEach()`, variadic `set()`, and `append()`).
 
 ## Scope, Security, and Limitations
 
@@ -139,7 +139,7 @@ Property parsing returns typed numeric, keyword, image, position, and transform 
 - It does not parse HTML, associate stylesheets with elements, match selectors, calculate the cascade/computed styles, or implement layout/rendering.
 - CSSOM View, viewport/screen geometry, DOM event APIs, and browser-owned objects are out of scope.
 - The parser validates CSS structure, not every property grammar. Unknown valid rules and values are retained; malformed syntax may be recovered with diagnostics.
-- CSS color syntax currently uses the generic unparsed-value fallback.
+- CSS color parsing covers hex (`#rgb`/`#rgba`/`#rrggbb`/`#rrggbbaa`) and functional CSS Color 4 notations (`rgb()`, `hsl()`, `hwb()`, `lab()`, `lch()`, `oklab()`, `oklch()`, `color()`) using the W3C CSS Color 5 Typed OM percentage scale for `CSSRGB`; relative color syntax and `var()` inside colors fall back to `CSSUnparsedValue`.
 - CSS serialization of structured objects is normalized and is not a byte-for-byte stylesheet formatter.
 
 ## Development

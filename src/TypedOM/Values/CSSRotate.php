@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 
@@ -101,11 +102,14 @@ final class CSSRotate extends CSSTransformComponent
 		$this->syncSerializedValues();
 	}
 
-	public function toMatrix(): array
+	public function toMatrix(): DOMMatrix
 	{
 		$angle = self::scalar($this->angle, 'angle');
 		$cos = cos($angle);
 		$sin = sin($angle);
+		if ($this->twoDimensional) {
+			return DOMMatrix::fromElements(self::matrix2d($cos, $sin, -$sin, $cos, 0.0, 0.0), true);
+		}
 		$x = self::scalar($this->x, 'number');
 		$y = self::scalar($this->y, 'number');
 		$z = self::scalar($this->z, 'number');
@@ -128,7 +132,7 @@ final class CSSRotate extends CSSTransformComponent
 		$matrix[9] = $t * $y * $z - $sin * $x;
 		$matrix[10] = $t * $z * $z + $cos;
 
-		return $matrix;
+		return DOMMatrix::fromElements($matrix, false);
 	}
 
 	public function clone(): static

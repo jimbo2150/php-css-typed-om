@@ -13,15 +13,19 @@ use InvalidArgumentException;
  */
 final class CSSPositionTryRule extends CSSAtRule
 {
-	public function __construct(string $name, CSSStyleDeclaration $style)
+	public function __construct(string $name, ?CSSStyleDeclaration $style = null)
 	{
 		$normalized = CSSStyleDeclaration::normalizePropertyName($name);
 		if (!str_starts_with($normalized, '--')) {
 			throw new InvalidArgumentException('@position-try requires a dashed identifier starting with "--".');
 		}
-		$descriptors = new CSSPositionTryDescriptors();
-		foreach ($style as $property => $declaration) {
-			$descriptors->setProperty($property, $declaration['value'], $declaration['priority']);
+		if ($style instanceof CSSPositionTryDescriptors) {
+			$descriptors = $style;
+		} else {
+			$descriptors = new CSSPositionTryDescriptors();
+			foreach ($style ?? [] as $property => $declaration) {
+				$descriptors->setProperty($property, $declaration['value'], $declaration['priority']);
+			}
 		}
 		parent::__construct('position-try', $normalized, $descriptors, true);
 	}

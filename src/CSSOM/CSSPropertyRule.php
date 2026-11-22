@@ -40,9 +40,13 @@ final class CSSPropertyRule extends CSSAtRule
 		return strtolower($this->style?->getPropertyValue('inherits') ?? '') === 'true';
 	}
 
-	public function getInitialValue(): string
+	public function getInitialValue(): ?string
 	{
-		return $this->style?->getPropertyValue('initial-value') ?? '';
+		if ($this->style === null || !isset($this->style['initial-value'])) {
+			return null;
+		}
+
+		return $this->style->getPropertyValue('initial-value');
 	}
 
 	public function __get(string $name): mixed

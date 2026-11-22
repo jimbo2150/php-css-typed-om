@@ -9,8 +9,21 @@ use PHPUnit\Framework\TestCase;
 
 class CSSStyleValueTest extends TestCase
 {
-	public function testClone() {
-		$mockClone = clone ($this->getMockBuilder(CSSStyleValue::class)->getMock());
-		$this->assertInstanceOf(CSSStyleValue::class, $mockClone);
+	public function testClone(): void
+	{
+		$value = new class () extends CSSStyleValue {
+			public function __toString(): string
+			{
+				return 'test';
+			}
+
+			public function clone(): static
+			{
+				return new static();
+			}
+		};
+		$cloned = clone $value;
+		$this->assertInstanceOf(CSSStyleValue::class, $cloned);
+		$this->assertNotSame($value, $cloned);
 	}
 }

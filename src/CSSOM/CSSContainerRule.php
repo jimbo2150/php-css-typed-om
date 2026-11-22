@@ -13,6 +13,20 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
  */
 final class CSSContainerRule extends CSSConditionRule
 {
+	/** @var array<string, true> Keywords disallowed as `<container-name>` per CSS Containment 3 */
+	private const array RESERVED_KEYWORDS = [
+		'none' => true,
+		'and' => true,
+		'not' => true,
+		'or' => true,
+		'initial' => true,
+		'inherit' => true,
+		'unset' => true,
+		'revert' => true,
+		'revert-layer' => true,
+		'default' => true,
+	];
+
 	public function __construct(string $conditionText)
 	{
 		parent::__construct('container', $conditionText);
@@ -48,13 +62,37 @@ final class CSSContainerRule extends CSSConditionRule
 	private function splitPrelude(): array
 	{
 		$prelude = trim($this->prelude);
-		$paren = CSSSyntaxScanner::findTopLevel($prelude, '(');
-		if ($paren === null) {
-			return [$prelude, ''];
+		if ($prelude === '') {
+			return ['', ''];
 		}
 
-		$name = trim(substr($prelude, 0, $paren));
-		$query = trim(substr($prelude, $paren));
-		return [$name, $query];
+		$tokens = CSSSyntaxScanner::splitTopLevelWhitespace($prelude);
+		if ($tokens === []) {
+			return ['', ''];
+		}
+
+		$first = $tokens[0];
+		if (!self::isValidContainerName($first)) {
+			return ['', $prelude];
+		}
+
+		if (count($tokens) === 1) {
+			return [$first, ''];
+		}
+
+		$rest = ltrim(substr($prelude, strlen($first)));
+		return [$first, $rest];
+	}
+
+	private static function isValidContainerName(string $token): bool
+	{
+		if ($token === '' || str_contains($token, '(') || str_contains($token, ')')) {
+			return false;
+		}
+		if (isset(self::RESERVED_KEYWORDS[strtolower($token)])) {
+			return false;
+		}
+
+		return preg_match('/^(?:--|[-_a-zA-Z]|[^\x00-\x7F]|\\\\(?:[0-9a-fA-F]{1,6}\s?|[^\r\n\f]))(?:[-_a-zA-Z0-9]|[^\x00-\x7F]|\\\\(?:[0-9a-fA-F]{1,6}\s?|[^\r\n\f]))*$/uD', $token) === 1;
 	}
 }

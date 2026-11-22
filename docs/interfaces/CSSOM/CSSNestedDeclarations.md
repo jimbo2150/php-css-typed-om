@@ -13,9 +13,9 @@ Magic read-only `style` returns the declaration block. Other CSSRule virtual pro
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(CSSStyleDeclaration $style)` | Stores the declaration block and sets this rule as its parent. | `$rule = new CSSNestedDeclarations(new CSSStyleDeclaration('color: red'));` |
+| `__construct(CSSStyleDeclaration $style)` | Normalizes `$style` into a `CSSStyleProperties` instance and sets this rule as its parent. | `$rule = new CSSNestedDeclarations(new CSSStyleDeclaration('color: red'));` |
 | `getType(): int` | Returns `CSSRule::NESTED_DECLARATIONS_RULE`. | `$rule->getType();` |
-| `getStyle(): CSSStyleDeclaration` | Returns the associated declarations. | `$rule->getStyle()->getPropertyValue('color');` |
+| `getStyle(): CSSStyleProperties` | Returns the associated `CSSStyleProperties` block. | `$rule->getStyle()->getPropertyValue('color');` |
 | `getCssText(): string` | Returns the declaration block's serialized CSS text. | `$rule->getCssText();` |
 | `__get(string $name): mixed` | Exposes `style`; other names delegate to `CSSRule::__get()`. | `$rule->style;` |
 

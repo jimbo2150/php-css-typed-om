@@ -58,6 +58,39 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 		return $this->values;
 	}
 
+	/** @return list<int> */
+	public function keys(): array
+	{
+		return array_keys($this->values);
+	}
+
+	/** @return list<string|CSSVariableReferenceValue> */
+	public function values(): array
+	{
+		return array_values($this->values);
+	}
+
+	/** @return list<array{int, string|CSSVariableReferenceValue}> */
+	public function entries(): array
+	{
+		$entries = [];
+		foreach ($this->values as $index => $value) {
+			$entries[] = [$index, $value];
+		}
+
+		return $entries;
+	}
+
+	/**
+	 * Invokes $callback($value, $index, $this) for each unparsed fragment in order.
+	 */
+	public function forEach(callable $callback): void
+	{
+		foreach ($this->values as $index => $value) {
+			$callback($value, $index, $this);
+		}
+	}
+
 	public function count(): int
 	{
 		return count($this->values);

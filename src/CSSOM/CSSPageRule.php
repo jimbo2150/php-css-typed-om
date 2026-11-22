@@ -17,14 +17,18 @@ final class CSSPageRule extends CSSGroupingRule
 	private CSSPageDescriptors $style;
 
 	/** @param list<CSSMarginRule> $marginRules */
-	public function __construct(string $selector, CSSStyleDeclaration $style, array $marginRules = [])
+	public function __construct(string $selector, ?CSSStyleDeclaration $style = null, array $marginRules = [])
 	{
 		$selector = trim($selector);
 		parent::__construct('page', $selector);
 
-		$descriptors = new CSSPageDescriptors();
-		foreach ($style as $property => $declaration) {
-			$descriptors->setProperty($property, $declaration['value'], $declaration['priority']);
+		if ($style instanceof CSSPageDescriptors) {
+			$descriptors = $style;
+		} else {
+			$descriptors = new CSSPageDescriptors();
+			foreach ($style ?? [] as $property => $declaration) {
+				$descriptors->setProperty($property, $declaration['value'], $declaration['priority']);
+			}
 		}
 		$descriptors->setParentRule($this);
 		$this->style = $descriptors;
