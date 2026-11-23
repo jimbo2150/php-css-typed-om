@@ -13,7 +13,7 @@
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(CSSStyleDeclaration $style)` | Copies each declaration into a new `CSSFontFaceDescriptors` object; produces a block-form `@font-face` rule. | `$rule = new CSSFontFaceRule(new CSSStyleDeclaration('font-family: Demo; src: url(demo.woff2)'));` |
+| `__construct(?CSSStyleDeclaration $style = null)` | Copies each declaration into a new `CSSFontFaceDescriptors` object (or creates an empty one when `null`); produces a block-form `@font-face` rule. | `$rule = new CSSFontFaceRule(new CSSStyleDeclaration('font-family: Demo; src: url(demo.woff2)'));` |
 | `getStyle(): CSSFontFaceDescriptors` | Returns the typed descriptor declaration object. | `$rule->getStyle()->getPropertyValue('font-family');` |
 
 Other inherited public methods are documented on [`CSSAtRule`](CSSAtRule.md) and [`CSSRule`](CSSRule.md).

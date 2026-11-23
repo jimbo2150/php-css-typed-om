@@ -12,7 +12,8 @@ use OutOfBoundsException;
  * Standalone, mutable CSS stylesheet model.
  *
  * Serialization outputs normalized CSS and is not an HTML `<style>` sanitizer;
- * callers embedding serialized CSS into HTML must apply HTML-context escaping.
+ * callers embedding serialized CSS into HTML must apply HTML-context escaping
+ * (or enable `CSSRenderOptions::$escapeHtmlStyleTag` when embedding inside `<style>`).
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSStyleSheet
  */
@@ -24,6 +25,12 @@ final class CSSStyleSheet extends StyleSheet
 	private array $parseErrors = [];
 
 	private readonly ?string $baseURL;
+
+	private int $totalRuleCount = 0;
+
+	private ?int $maxErrors = null;
+
+	private bool $errorsTruncated = false;
 
 	public function __construct(
 		?string $href = null,
@@ -66,10 +73,40 @@ final class CSSStyleSheet extends StyleSheet
 		return $this->parseErrors;
 	}
 
+	/**
+	 * @internal
+	 */
+	public function configureErrorLimit(?int $maxErrors): void
+	{
+		$this->maxErrors = $maxErrors;
+		$this->errorsTruncated = false;
+	}
+
+	/**
+	 * @internal
+	 */
+	public function getTotalRuleCount(): int
+	{
+		return $this->totalRuleCount;
+	}
+
+	/**
+	 * @internal
+	 */
+	public function adjustTotalRuleCount(int $delta): void
+	{
+		$this->totalRuleCount = max(0, $this->totalRuleCount + $delta);
+	}
+
 	public function getCssText(): string
 	{
+		$rules = $this->cssRules->getRulesRaw();
+		if ($rules === []) {
+			return '';
+		}
+
 		$lines = [];
-		foreach ($this->cssRules as $rule) {
+		foreach ($rules as $rule) {
 			$lines[] = $rule->getCssText();
 		}
 
@@ -88,7 +125,7 @@ final class CSSStyleSheet extends StyleSheet
 			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
 		}
 
-		$rule = CSSParser::parseSingleRule($ruleText, $options);
+		$rule = CSSParser::parseSingleRule($ruleText, $options, 0, $this->totalRuleCount);
 		$this->cssRules->insert($index, $rule);
 
 		return $index;
@@ -115,17 +152,25 @@ final class CSSStyleSheet extends StyleSheet
 	public function replaceSync(string $cssText, ?CSSParserOptions $options = null): void
 	{
 		$options ??= new CSSParserOptions();
-		if ($options->maxBytes !== null && strlen($cssText) > $options->maxBytes) {
-			throw new InvalidArgumentException(sprintf('CSS input exceeds maximum size of %d bytes.', $options->maxBytes));
-		}
-
-		$replacement = self::parse($cssText, $options);
+		$replacement = CSSParser::parseStylesheet($cssText, $options, true);
 		$this->cssRules->replaceAll($replacement->getCssRules());
 		$this->parseErrors = $replacement->getParseErrors();
 	}
 
 	public function recordParseError(string $message, int $offset): void
 	{
+		if ($this->maxErrors !== null && count($this->parseErrors) >= $this->maxErrors) {
+			if (!$this->errorsTruncated) {
+				$this->errorsTruncated = true;
+				$this->parseErrors[] = [
+					'message' => sprintf('Maximum parse error limit of %d exceeded; further diagnostics suppressed.', $this->maxErrors),
+					'offset' => $offset,
+				];
+			}
+
+			return;
+		}
+
 		$this->parseErrors[] = ['message' => $message, 'offset' => $offset];
 	}
 
@@ -142,6 +187,15 @@ final class CSSStyleSheet extends StyleSheet
 			'parseErrors' => $this->getParseErrors(),
 			'baseURL' => $this->getBaseURL(),
 			default => parent::__get($name),
+		};
+	}
+
+	public function __isset(string $name): bool
+	{
+		return match ($name) {
+			'cssRules', 'cssText', 'parseErrors' => true,
+			'baseURL' => $this->baseURL !== null,
+			default => parent::__isset($name),
 		};
 	}
 }

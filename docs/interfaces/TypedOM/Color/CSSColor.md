@@ -8,5 +8,5 @@
 ## Properties & Methods
 
 - `PREDEFINED_SPACES`: constant map of supported predefined CSS Color 4 color spaces.
-- Properties: `colorSpace` (`CSSKeywordValue`), `channels` (`list<CSSNumericValue|CSSKeywordValue>`), `alpha` (`CSSNumericValue|CSSKeywordValue`).
-- `__construct($colorSpace, array $channels, $alpha = 1.0)`, `getColorSpace()`, `setColorSpace()`, `getChannels()`, `setChannels()`, `clone(): static`, `__toString(): string`.
+- Properties: `colorSpace` (`CSSKeywordValue` returned as a clone from getter/property), `channels` (`list<CSSNumericValue|CSSKeywordValue>`), `alpha` (`CSSNumericValue|CSSKeywordValue`).
+- `__construct($colorSpace, array $channels, $alpha = 1.0)`, `getColorSpace()`, `setColorSpace()`, `getChannels()`, `setChannels()`, `__clone(): void`, `clone(): static`, `__toString(): string`.

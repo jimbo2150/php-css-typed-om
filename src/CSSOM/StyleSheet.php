@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 use Error;
+use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 
 /**
  * Base metadata model for standalone stylesheets.
@@ -24,6 +26,12 @@ abstract class StyleSheet
 		private readonly ?StyleSheet $parentStyleSheet = null,
 		bool $disabled = false,
 	) {
+		if ($href !== null && CSSSyntaxScanner::hasControlCharacters($href)) {
+			throw new InvalidArgumentException('StyleSheet href cannot contain control characters.');
+		}
+		if (CSSSyntaxScanner::hasControlCharacters($title)) {
+			throw new InvalidArgumentException('StyleSheet title cannot contain control characters.');
+		}
 		$this->media = $media instanceof MediaList ? $media : new MediaList($media ?? '');
 		$this->disabled = $disabled;
 	}
@@ -79,6 +87,17 @@ abstract class StyleSheet
 			'ownerRule' => $this->getOwnerRule(),
 			'parentStyleSheet' => $this->getParentStyleSheet(),
 			default => throw new Error('Undefined property: ' . static::class . '::$' . $name),
+		};
+	}
+
+	public function __isset(string $name): bool
+	{
+		return match ($name) {
+			'type', 'title', 'disabled', 'media' => true,
+			'href' => $this->href !== null,
+			'ownerRule' => $this->ownerRule !== null,
+			'parentStyleSheet' => $this->parentStyleSheet !== null,
+			default => false,
 		};
 	}
 

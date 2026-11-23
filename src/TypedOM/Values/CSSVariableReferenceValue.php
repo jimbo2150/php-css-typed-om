@@ -6,6 +6,8 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 use Error;
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 
@@ -16,16 +18,65 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
  */
 final class CSSVariableReferenceValue extends CSSStyleValue
 {
-	private string $variable;
-	private ?CSSUnparsedValue $fallback;
+	public string $variable {
+		set (string $value) {
+			$normalized = CSSStyleDeclaration::normalizePropertyName($value);
+			if (!str_starts_with($normalized, '--')) {
+				throw new InvalidArgumentException('A custom property name beginning with "--" is required.');
+			}
+			$this->variable = $normalized;
+		}
+	}
+
+	private ?CSSUnparsedValue $fallbackValue = null;
+
+	public ?CSSUnparsedValue $fallback {
+		get => $this->fallbackValue;
+		set (CSSUnparsedValue|string|null $value) {
+			$this->fallbackValue = self::normalizeFallback($value);
+		}
+	}
 
 	/**
 	 * @throws InvalidArgumentException When $variable is not a valid `--*` custom property or $fallback is structurally invalid
 	 */
-	public function __construct(string $variable, CSSUnparsedValue|string|null $fallback = null)
+	public function __construct(
+		string $variable,
+		CSSUnparsedValue|string|null $fallback = null,
+		?CSSParserOptions $options = null,
+		int $depth = 0,
+	) {
+		$options ??= CSSParserOptions::default();
+		if ($options->maxDepth !== null && $depth > $options->maxDepth) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', $options->maxDepth));
+		}
+
+		$this->variable = $variable;
+		$this->fallbackValue = self::normalizeFallback($fallback, $options, $depth);
+	}
+
+	/** @internal */
+	public static function createParsed(string $normalizedVariable, ?CSSUnparsedValue $fallback): self
 	{
-		$this->setVariable($variable);
-		$this->setFallback($fallback);
+		static $ref = null;
+		$ref ??= new \ReflectionClass(self::class);
+		/** @var self $instance */
+		$instance = $ref->newInstanceWithoutConstructor();
+		$instance->variable = $normalizedVariable;
+		$instance->fallbackValue = $fallback;
+		return $instance;
+	}
+
+	/** @internal */
+	public function shallowCloneInternal(): self
+	{
+		return self::createParsed($this->variable, $this->fallbackValue);
+	}
+
+	/** @internal */
+	public function setFallbackInternal(?CSSUnparsedValue $fallback): void
+	{
+		$this->fallbackValue = $fallback;
 	}
 
 	public function getVariable(): string
@@ -38,66 +89,85 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 	 */
 	public function setVariable(string $variable): void
 	{
-		$normalized = CSSStyleDeclaration::normalizePropertyName($variable);
-		if (!str_starts_with($normalized, '--')) {
-			throw new InvalidArgumentException('A custom property name beginning with "--" is required.');
-		}
-		$this->variable = $normalized;
+		$this->variable = $variable;
 	}
 
 	public function getFallback(): ?CSSUnparsedValue
 	{
-		return $this->fallback;
+		return $this->fallbackValue;
 	}
 
 	/**
 	 * @throws InvalidArgumentException When $fallback contains invalid structure or control bytes
 	 */
-	public function setFallback(CSSUnparsedValue|string|null $fallback): void
+	public function setFallback(
+		CSSUnparsedValue|string|null $fallback,
+		?CSSParserOptions $options = null,
+		int $depth = 0,
+	): void {
+		$this->fallbackValue = self::normalizeFallback($fallback, $options, $depth);
+	}
+
+	public function __clone(): void
 	{
-		if ($fallback === null) {
-			$this->fallback = null;
-			return;
+		if ($this->fallbackValue !== null) {
+			$this->fallbackValue = $this->fallbackValue->clone();
 		}
-		if ($fallback instanceof CSSUnparsedValue) {
-			CSSSyntaxScanner::assertValidFragment((string) $fallback, 'CSS variable fallback', [';', '{', '}']);
-			$this->fallback = $fallback;
-			return;
-		}
-		CSSSyntaxScanner::assertValidFragment($fallback, 'CSS variable fallback', [';', '{', '}']);
-		$this->fallback = CSSUnparsedValue::fromCssText($fallback);
 	}
 
 	public function clone(): static
 	{
-		return new static($this->variable, $this->fallback?->clone());
+		return clone $this;
 	}
 
 	public function __toString(): string
 	{
-		$fallback = $this->fallback === null ? '' : ', ' . (string) $this->fallback;
-		return 'var(' . $this->variable . $fallback . ')';
+		if ($this->fallbackValue === null) {
+			return 'var(' . $this->variable . ')';
+		}
+
+		return CSSUnparsedValue::stringifyIteratively(
+			$this->fallbackValue->getValues(),
+			CSSParserOptions::DEFAULT_MAX_BYTES,
+			'var(' . $this->variable . ', ',
+			')',
+		);
 	}
 
 	public function __get(string $name): mixed
 	{
-		return match ($name) {
-			'variable' => $this->getVariable(),
-			'fallback' => $this->getFallback(),
-			default => throw new Error('Undefined property: ' . static::class . '::$' . $name),
-		};
+		throw new Error('Undefined property: ' . static::class . '::$' . $name);
+	}
+
+	public function __isset(string $name): bool
+	{
+		return false;
 	}
 
 	public function __set(string $name, mixed $value): void
 	{
-		if ($name === 'variable' && is_string($value)) {
-			$this->setVariable($value);
-			return;
-		}
-		if ($name === 'fallback' && ($value === null || is_string($value) || $value instanceof CSSUnparsedValue)) {
-			$this->setFallback($value);
-			return;
-		}
 		throw new Error('Cannot set property ' . static::class . '::$' . $name);
+	}
+
+	private static function normalizeFallback(
+		CSSUnparsedValue|string|null $fallback,
+		?CSSParserOptions $options = null,
+		int $depth = 0,
+	): ?CSSUnparsedValue {
+		if ($fallback === null) {
+			return null;
+		}
+		if ($fallback instanceof CSSUnparsedValue) {
+			$options ??= CSSParserOptions::default();
+			$rendered = CSSUnparsedValue::stringifyIteratively($fallback->getValues(), $options->maxBytes);
+			CSSSyntaxScanner::assertValidFragment($rendered, 'CSS variable fallback', [';', '{', '}']);
+			return $fallback->clone();
+		}
+		$options ??= CSSParserOptions::default();
+		if ($options->maxBytes !== null && strlen($fallback) > $options->maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS variable fallback exceeds maximum size of %d bytes.', $options->maxBytes));
+		}
+
+		return CSSUnparsedValue::fromCssText($fallback, $options, $depth);
 	}
 }

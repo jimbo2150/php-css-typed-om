@@ -50,13 +50,14 @@ echo CSSRenderer::render($sheet, new CSSRenderOptions(CSSRenderMode::Minified));
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderMode;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderer;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderOptions;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleRule;
 
 // Append a banner comment to every rendered rule.
 $banner = new CSSRenderOptions(
     mode: CSSRenderMode::Minified,
     ruleCallback: static function (CSSRule $rule, string $text): string {
-        return "/* $rule->getType() */ $text";
+        return "/* {$rule->getType()} */ $text";
     },
 );
 echo CSSRenderer::render($sheet, $banner);
@@ -64,8 +65,13 @@ echo CSSRenderer::render($sheet, $banner);
 // Prefix only top-level style selectors during pretty rendering.
 $prefixed = new CSSRenderOptions(
     ruleCallback: static function (CSSRule $rule, string $text): string {
-        if ($rule instanceof CSSStyleRule) {
-            $text = str_replace($rule->getSelectorText(), '.theme '.$rule->getSelectorText(), $text, 1);
+        if ($rule instanceof CSSStyleRule && $rule->getParentRule() === null) {
+            $text = preg_replace(
+                '/' . preg_quote($rule->getSelectorText(), '/') . '/',
+                '.theme ' . $rule->getSelectorText(),
+                $text,
+                1,
+            ) ?? $text;
         }
         return $text;
     },
@@ -87,11 +93,11 @@ echo CSSRenderer::render($opaqueRule);
 echo CSSRenderer::render($opaqueRule, new CSSRenderOptions(keepComments: false));
 ```
 
-`CSSRenderOptions` defaults to pretty mode with comments retained. Unknown `CSSOpaqueRule` source is preserved verbatim in either mode because its syntax cannot be safely reformatted; minification is best-effort for such rules. Existing `getCssText()` and `cssText` output is unchanged.
+`CSSRenderOptions` defaults to pretty mode with comments retained. Unknown `CSSOpaqueRule` source is preserved verbatim in either mode because its syntax cannot be safely reformatted; minification is best-effort for such rules. Pass `escapeHtmlStyleTag: true` to escape `</style` closing sequences as `<\/style` when embedding CSS inside HTML `<style>` elements. Existing `getCssText()` and `cssText` output is unchanged.
 
 Stylesheet parsing recovers at malformed declarations/rules and reports `message` and byte `offset` entries through `getParseErrors()`. Direct declaration replacement and rule insertion validate atomically before mutating and throw `InvalidArgumentException` on malformed or structurally unsafe input. Structured rules serialize in normalized form; unknown at-rules are retained as opaque source.
 
-`CSSParserOptions` enforces configurable resource limits by default (`maxBytes`: 16 MiB, `maxDepth`: 256 nested rule levels, `maxRules`: 100,000 rules, `maxMathDepth`: 256 nested math levels). Stylesheet parsing records a diagnostic and stops safely at boundaries; strict entry points (`insertRule()`, `replaceSync()`, `CSSParser::parseSingleRule()`, and `CSSNumericValue::parse()`) throw `InvalidArgumentException` without mutating existing state. Pass a custom `CSSParserOptions` instance or `CSSParserOptions::unlimited()` to override or disable limits.
+`CSSParserOptions` enforces configurable resource limits by default (`maxBytes`: 16 MiB, `maxDepth`: 256 nested rule levels, `maxRules`: 100,000 rules, `maxMathDepth`: 256 nested math levels, `maxErrors`: 1,000 diagnostics, `maxDeclarations`: 500,000 declarations). Stylesheet parsing records a diagnostic and stops safely at boundaries; strict entry points (`insertRule()`, `replaceSync()`, `CSSParser::parseSingleRule()`, `CSSNumericValue::parse()`, etc.) throw `CSSParserLimitException` (a subclass of `InvalidArgumentException`) without mutating existing state. Pass a custom `CSSParserOptions` instance or `CSSParserOptions::unlimited()` to override or disable limits.
 
 The parser structures qualified and nested style rules; media, supports, container, scope, layer, keyframes, starting-style, font-feature-values, and other grouping rules; charset, import, and namespace rules; page rules with nested margin boxes; counter-style, font-face, font-palette-values, position-try, property, and view-transition rules; and CSS function rules with parameter and declaration objects. Selector and condition matching is not performed. Import rules retain their URL, layer, supports condition, and `MediaList` without fetching external sheets.
 
@@ -135,7 +141,7 @@ Property parsing returns typed numeric, keyword, color (`CSSColorValue`: `CSSRGB
 
 - This package models CSS source and objects; it is not a browser engine.
 - Mutation APIs validate against structural CSS injection (rejecting top-level `;`, `{`, `}`, unbalanced quotes/comments, control bytes, and disallowed rule preludes before mutating state), while preserving valid nested blocks and quoted strings.
-- **Not an HTML sanitizer:** Serialized CSS (`cssText`, `CSSOpaqueRule`, and raw unparsed fragments) is normalized CSS source and is **not** safe to interpolate directly into HTML `<style>` elements or attributes without HTML-context escaping.
+- **Not an HTML sanitizer:** Serialized CSS (`cssText`, `CSSOpaqueRule`, and raw unparsed fragments) is normalized CSS source and is **not** safe to interpolate directly into HTML `<style>` elements or attributes without HTML-context escaping (for inline `<style>` tags, `CSSRenderer` offers `escapeHtmlStyleTag: true` in `CSSRenderOptions`).
 - It does not parse HTML, associate stylesheets with elements, match selectors, calculate the cascade/computed styles, or implement layout/rendering.
 - CSSOM View, viewport/screen geometry, DOM event APIs, and browser-owned objects are out of scope.
 - The parser validates CSS structure, not every property grammar. Unknown valid rules and values are retained; malformed syntax may be recovered with diagnostics.
@@ -148,6 +154,12 @@ Run the test suite with:
 
 ```bash
 composer test
+```
+
+Run the benchmark suite (with Xdebug disabled and CLI OPcache enabled) with:
+
+```bash
+XDEBUG_MODE=off php -d opcache.enable_cli=1 benchmarks/bench.php
 ```
 
 The test suite covers scanner nesting/escaping, numeric and Typed OM values, declaration and rule mutation, malformed-input recovery, opaque syntax retention, and serialization round trips.

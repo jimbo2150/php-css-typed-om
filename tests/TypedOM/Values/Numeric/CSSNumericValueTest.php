@@ -5,16 +5,16 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\Tests\TypedOM\Values\Numeric;
 
 use Jimbo2150\PhpCssTypedOm\CSS;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericArray;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathInvert;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMin;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMax;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathNegate;
-use PHPUnit\Framework\TestCase;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathInvert;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMax;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMin;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathNegate;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
+use PHPUnit\Framework\TestCase;
 
 class CSSNumericValueTest extends TestCase
 {
@@ -110,17 +110,41 @@ class CSSNumericValueTest extends TestCase
         /** @var CSSMathSum $sum */
         $this->assertEquals(3, $sum->length);
 
-        // First value: px to px (same)
+        // First matching unit absorbs the px value; remaining units are zeroed to preserve total
         $this->assertEquals('px', $sum->inner_values[0]->unit);
         $this->assertEquals(16, $sum->inner_values[0]->value);
 
-        // Second value: px to em
         $this->assertEquals('em', $sum->inner_values[1]->unit);
-        $this->assertEqualsWithDelta(1.0, $sum->inner_values[1]->value, 0.001);
+        $this->assertEqualsWithDelta(0.0, $sum->inner_values[1]->value, 0.001);
 
-        // Third value: px to pt
         $this->assertEquals('pt', $sum->inner_values[2]->unit);
-        $this->assertEqualsWithDelta(12.0, $sum->inner_values[2]->value, 0.01);
+        $this->assertEqualsWithDelta(0.0, $sum->inner_values[2]->value, 0.01);
+    }
+
+    public function testToSumPreservesTotalAcrossFirstMatchingBucketDuplicatesMixedAndNegatedTerms(): void
+    {
+        $converted = CSS::px(16)->toSum('em', 'pt');
+        self::assertCount(2, $converted->values);
+        self::assertSame('em', $converted->values[0]->unit);
+        self::assertEqualsWithDelta(1.0, $converted->values[0]->value, 0.001);
+        self::assertSame('pt', $converted->values[1]->unit);
+        self::assertEqualsWithDelta(0.0, $converted->values[1]->value, 0.001);
+
+        $duplicate = CSS::px(16)->toSum('px', 'px');
+        self::assertCount(1, $duplicate->values);
+        self::assertEqualsWithDelta(16.0, $duplicate->values[0]->value, 0.001);
+
+        $mixed = CSSNumericValue::parse('calc(10px + 2em + 50%)')->toSum('px', 'percent');
+        self::assertCount(2, $mixed->values);
+        self::assertSame('px', $mixed->values[0]->unit);
+        self::assertEqualsWithDelta(42.0, $mixed->values[0]->value, 0.001);
+        self::assertSame('percent', $mixed->values[1]->unit);
+        self::assertEqualsWithDelta(50.0, $mixed->values[1]->value, 0.001);
+
+        $negated = (new CSSMathNegate(CSS::px(10)))->toSum('px');
+        self::assertCount(1, $negated->values);
+        self::assertSame('px', $negated->values[0]->unit);
+        self::assertEqualsWithDelta(-10.0, $negated->values[0]->value, 0.001);
     }
 
 	public function testToSumRejectsIncompatiblePercentConversion(): void
@@ -654,5 +678,47 @@ class CSSNumericValueTest extends TestCase
         $reflectedProperty = new \ReflectionProperty(CSSUnitValue::class, 'unitObj');
         $reflectedProperty->setValue($value, null);
         $value->unitType();
+    }
+
+    public function testConcreteEvaluationAndPercentHintConsistency(): void
+    {
+        $converted = (new CSSUnitValue(2, 'number'))->mul(new CSSUnitValue(3, 'number'))->to('number');
+        $this->assertSame('calc(2 * 3)', (string) $converted);
+        $evaluatedNum = $converted->toSum('number');
+        $this->assertSame(6.0, $evaluatedNum->inner_values[0]->value);
+        $this->assertSame('number', $evaluatedNum->inner_values[0]->unit);
+
+        $sum = (new CSSUnitValue(10, 'px'))->mul(new CSSUnitValue(2, 'number'))->toSum('px');
+        $this->assertCount(1, $sum->inner_values);
+        $this->assertSame(20.0, $sum->inner_values[0]->value);
+        $this->assertSame('px', $sum->inner_values[0]->unit);
+
+        $sumA = new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum([
+            new CSSUnitValue(10, 'px'),
+            new CSSUnitValue(50, 'percent'),
+        ]);
+        $sumB = new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum([
+            new CSSUnitValue(2, 's'),
+            new CSSUnitValue(20, 'percent'),
+        ]);
+
+        try {
+            $sumA->mul($sumB);
+            $this->fail('Expected multiplying conflicting percentHints to throw.');
+        } catch (\InvalidArgumentException) {
+            $this->assertTrue(true);
+        }
+
+        // Eager CSSMathProduct validation rejects conflicting percentHints even before ->type()
+        try {
+            new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct([$sumA, $sumB]);
+            $this->fail('Expected CSSMathProduct constructor with conflicting percentHints to throw.');
+        } catch (\InvalidArgumentException) {
+            $this->assertTrue(true);
+        }
+
+        $neg = new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathNegate(new CSSUnitValue(5, 'px'));
+        $negClone = clone $neg;
+        $this->assertNotSame($neg->value, $negClone->value);
     }
 }

@@ -5,16 +5,16 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\Tests\CSSOM;
 
 use InvalidArgumentException;
-use Jimbo2150\PhpCssTypedOm\CSSOM\CSSMediaRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSImportRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSKeyframeRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSKeyframesRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSLayerBlockRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSLayerStatementRule;
-use Jimbo2150\PhpCssTypedOm\CSSOM\CSSNestedDeclarations;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSMediaRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSNamespaceRule;
-use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSNestedDeclarations;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleProperties;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleSheet;
 use PHPUnit\Framework\TestCase;
 
@@ -191,5 +191,101 @@ final class CSSStyleSheetTest extends TestCase
 		$sheet = CSSStyleSheet::parse($source);
 
 		self::assertSame(strpos($source, 'broken'), $sheet->getParseErrors()[0]['offset']);
+	}
+
+	public function testRuleListEnforcesSingleParentOwnershipAndClearsReplaceAllSource(): void
+	{
+		$sheetA = CSSStyleSheet::parse('a { color: red; }');
+		$sheetB = CSSStyleSheet::parse('b { color: blue; }');
+		$ruleA = $sheetA->cssRules[0];
+
+		try {
+			$sheetB->cssRules->append($ruleA);
+			self::fail('Expected attaching an already-parented rule to throw LogicException.');
+		} catch (\LogicException) {
+			self::assertSame($sheetA, $ruleA->parentStyleSheet);
+		}
+
+		$sheetB->cssRules->replaceAll($sheetA->cssRules);
+		self::assertCount(0, $sheetA->cssRules);
+		self::assertNull($sheetA->cssRules->getRulesRaw()[0] ?? null);
+		self::assertCount(1, $sheetB->cssRules);
+		self::assertSame($sheetB, $ruleA->parentStyleSheet);
+	}
+
+	public function testTrailingTokensNestedKeyframesAndStrictPreludeValidation(): void
+	{
+		$trailingGroup = CSSStyleSheet::parse('@media screen { a { color: red; } trailing }');
+		self::assertNotEmpty($trailingGroup->getParseErrors());
+		self::assertCount(1, $trailingGroup->cssRules[0]->cssRules);
+
+		$trailingFfv = CSSStyleSheet::parse('@font-feature-values Inter { @styleset { alt: 1; } junk }');
+		self::assertNotEmpty($trailingFfv->getParseErrors());
+
+		$nestedKeyframes = CSSStyleSheet::parse('a { @keyframes spin { from { opacity: 0; } } }');
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\CSSOM\CSSOpaqueRule::class, $nestedKeyframes->cssRules[0]->cssRules[0]);
+
+		foreach ([
+			'@starting-style foo { a { color: red; } }',
+			'@font-face bar { font-family: Test; }',
+			'@view-transition baz { navigation: auto; }',
+		] as $badAtRule) {
+			$sheet = CSSStyleSheet::parse($badAtRule);
+			self::assertNotEmpty($sheet->getParseErrors(), 'Expected prelude error for: ' . $badAtRule);
+			self::assertCount(0, $sheet->cssRules);
+		}
+	}
+
+	public function testStrayClosingDelimitersPagePseudoAtIdentKeyframesAndDetachedListGuards(): void
+	{
+		// Stray ')' inside unknown block causes unbalanced error for @unknown without swallowing sibling .next rule
+		$stray = CSSStyleSheet::parse('@unknown { stray) } .next { color: red; }');
+		self::assertNotEmpty($stray->getParseErrors());
+		self::assertCount(1, $stray->cssRules);
+		self::assertSame('.next', $stray->cssRules[0]->selectorText);
+
+		// @page:first without intervening space
+		$page = CSSStyleSheet::parse('@page:first { margin: 1cm; }');
+		self::assertSame([], $page->getParseErrors());
+		self::assertSame(':first', $page->cssRules[0]->selectorText);
+
+		// Invalid at-rule names starting with '@-' or '@-1'
+		foreach (['@- { color: red; }', '@-1 { color: red; }'] as $badAt) {
+			$badSheet = CSSStyleSheet::parse($badAt);
+			self::assertNotEmpty($badSheet->getParseErrors());
+			self::assertCount(0, $badSheet->cssRules);
+		}
+
+		// Statement at-rules inside @keyframes are rejected
+		$kfSheet = CSSStyleSheet::parse('@keyframes fade { @import "a.css"; from { opacity: 0; } }');
+		self::assertNotEmpty($kfSheet->getParseErrors());
+		self::assertCount(1, $kfSheet->cssRules[0]->cssRules);
+
+		// @font-feature-values preserves <feature-value-name> case
+		$ffv = CSSStyleSheet::parse('@font-feature-values Inter { @styleset { PrettyAlt: 1; } }');
+		self::assertSame([], $ffv->getParseErrors());
+		self::assertSame([1], $ffv->cssRules[0]->styleset->get('PrettyAlt'));
+
+		// Owned declarations passed to rule constructors are cloned, never aliased
+		$ownedSheet = CSSStyleSheet::parse('a { color: red; }');
+		$ownedDecl = $ownedSheet->cssRules[0]->style;
+		$pageWithClonedDecl = new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSPageRule(':first', $ownedDecl);
+		self::assertNotSame($ownedDecl, $pageWithClonedDecl->style);
+		self::assertSame($ownedSheet->cssRules[0], $ownedDecl->parentRule);
+
+		// Detached CSSRuleList::remove() / CSSGroupingRule::deleteRule() throw LogicException
+		$detachedMedia = new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSMediaRule('screen');
+		try {
+			$detachedMedia->getCssRules()->remove(0);
+			self::fail('Expected LogicException on detached CSSRuleList::remove().');
+		} catch (\LogicException) {
+			self::assertTrue(true);
+		}
+		try {
+			$detachedMedia->deleteRule(0);
+			self::fail('Expected LogicException on detached CSSGroupingRule::deleteRule().');
+		} catch (\LogicException) {
+			self::assertTrue(true);
+		}
 	}
 }

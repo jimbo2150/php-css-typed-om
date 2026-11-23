@@ -24,7 +24,7 @@ class CSSConditionRule extends CSSGroupingRule
 	 */
 	public function setConditionText(string $conditionText): void
 	{
-		$conditionText = trim($conditionText);
+		$conditionText = CSSSyntaxScanner::trimCssWhitespace($conditionText);
 		if ($conditionText !== '') {
 			CSSSyntaxScanner::assertValidFragment($conditionText, 'CSS condition text', [';', '{', '}']);
 		}
@@ -37,6 +37,11 @@ class CSSConditionRule extends CSSGroupingRule
 			'conditionText' => $this->getConditionText(),
 			default => parent::__get($name),
 		};
+	}
+
+	public function __isset(string $name): bool
+	{
+		return $name === 'conditionText' || parent::__isset($name);
 	}
 
 	public function __set(string $name, mixed $value): void

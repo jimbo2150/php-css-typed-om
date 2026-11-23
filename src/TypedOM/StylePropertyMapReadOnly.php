@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM;
 
-use ArrayIterator;
 use Countable;
 use Error;
+use Generator;
 use IteratorAggregate;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue;
 use Traversable;
 
 /**
@@ -20,26 +23,62 @@ use Traversable;
  */
 class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 {
+	public int $size {
+		get => $this->style->getLength();
+	}
+
 	public function __construct(protected readonly CSSStyleDeclaration $style)
 	{
 	}
 
 	public function get(string $property): ?CSSStyleValue
 	{
-		$values = $this->getAll($property);
-		return $values[0] ?? null;
+		$normalized = CSSStyleDeclaration::normalizePropertyName($property);
+		$declaration = $this->style->getDeclarationsRaw()[$normalized] ?? null;
+		if ($declaration === null) {
+			return null;
+		}
+		$value = $declaration['value'];
+		if ($value === '') {
+			return new CSSUnparsedValue([]);
+		}
+
+		$options = CSSParserOptions::default();
+		if (str_starts_with($normalized, '--')) {
+			return CSSStyleValue::parseValidated($normalized, $value, $options);
+		}
+		$length = strlen($value);
+		$offset = 0;
+		while ($offset < $length) {
+			$comma = CSSSyntaxScanner::findTopLevel($value, ',', $offset, $length);
+			$segmentEnd = $comma ?? $length;
+			$first = trim(substr($value, $offset, $segmentEnd - $offset));
+			if ($first !== '') {
+				return CSSStyleValue::parseValidated($normalized, $first, $options);
+			}
+			$offset = $segmentEnd + 1;
+		}
+
+		return null;
 	}
 
 	/** @return list<CSSStyleValue> */
 	public function getAll(string $property): array
 	{
-		$value = $this->style->getPropertyValue($property);
-		return $value === '' ? [] : CSSStyleValue::parseAll($property, $value);
+		$normalized = CSSStyleDeclaration::normalizePropertyName($property);
+		$declaration = $this->style->getDeclarationsRaw()[$normalized] ?? null;
+		if ($declaration === null) {
+			return [];
+		}
+
+		return $declaration['value'] === ''
+			? [new CSSUnparsedValue([])]
+			: CSSStyleValue::parseAllValidated($normalized, $declaration['value'], CSSParserOptions::default());
 	}
 
 	public function has(string $property): bool
 	{
-		return $this->style->getPropertyValue($property) !== '';
+		return $this->style->offsetExists($property);
 	}
 
 	public function count(): int
@@ -49,7 +88,7 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 
 	public function getSize(): int
 	{
-		return count($this);
+		return $this->style->getLength();
 	}
 
 	public function getStyleDeclaration(): CSSStyleDeclaration
@@ -60,19 +99,18 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 	/** @return list<string> */
 	public function keys(): array
 	{
-		$keys = [];
-		foreach ($this->style as $property => $_declaration) {
-			$keys[] = $property;
-		}
-		return $keys;
+		return array_keys($this->style->getDeclarationsRaw());
 	}
 
 	/** @return list<list<CSSStyleValue>> */
 	public function values(): array
 	{
+		$options = CSSParserOptions::default();
 		$values = [];
-		foreach ($this->style as $property => $declaration) {
-			$values[] = CSSStyleValue::parseAll($property, $declaration['value']);
+		foreach ($this->style->getDeclarationsRaw() as $property => $declaration) {
+			$values[] = $declaration['value'] === ''
+				? [new CSSUnparsedValue([])]
+				: CSSStyleValue::parseAllValidated($property, $declaration['value'], $options);
 		}
 		return $values;
 	}
@@ -80,9 +118,13 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 	/** @return list<array{string, list<CSSStyleValue>}> */
 	public function entries(): array
 	{
+		$options = CSSParserOptions::default();
 		$entries = [];
-		foreach ($this->style as $property => $declaration) {
-			$entries[] = [$property, CSSStyleValue::parseAll($property, $declaration['value'])];
+		foreach ($this->style->getDeclarationsRaw() as $property => $declaration) {
+			$parsed = $declaration['value'] === ''
+				? [new CSSUnparsedValue([])]
+				: CSSStyleValue::parseAllValidated($property, $declaration['value'], $options);
+			$entries[] = [$property, $parsed];
 		}
 		return $entries;
 	}
@@ -92,26 +134,40 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 	 */
 	public function forEach(callable $callback): void
 	{
-		foreach ($this->style as $property => $declaration) {
-			$callback(CSSStyleValue::parseAll($property, $declaration['value']), $property, $this);
+		$options = CSSParserOptions::default();
+		foreach ($this->style->getDeclarationsRaw() as $property => $declaration) {
+			$parsed = $declaration['value'] === ''
+				? [new CSSUnparsedValue([])]
+				: CSSStyleValue::parseAllValidated($property, $declaration['value'], $options);
+			$callback($parsed, $property, $this);
 		}
 	}
 
 	/** @return Traversable<string, list<CSSStyleValue>> */
 	public function getIterator(): Traversable
 	{
-		$map = [];
-		foreach ($this->style as $property => $declaration) {
-			$map[$property] = CSSStyleValue::parseAll($property, $declaration['value']);
-		}
-		return new ArrayIterator($map);
+		return (function (): Generator {
+			$options = CSSParserOptions::default();
+			foreach ($this->style->getDeclarationsRaw() as $property => $declaration) {
+				yield $property => $declaration['value'] === ''
+					? [new CSSUnparsedValue([])]
+					: CSSStyleValue::parseAllValidated($property, $declaration['value'], $options);
+			}
+		})();
 	}
 
 	public function __get(string $name): mixed
 	{
-		if ($name === 'size') {
-			return $this->getSize();
-		}
 		throw new Error('Undefined property: ' . static::class . '::$' . $name);
+	}
+
+	public function __isset(string $name): bool
+	{
+		return false;
+	}
+
+	public function __set(string $name, mixed $value): void
+	{
+		throw new Error('Cannot set property ' . static::class . '::$' . $name);
 	}
 }

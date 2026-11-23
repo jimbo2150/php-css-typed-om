@@ -14,7 +14,7 @@ final class CSSFontFaceRule extends CSSAtRule
 	public function __construct(?CSSStyleDeclaration $style = null)
 	{
 		if ($style instanceof CSSFontFaceDescriptors) {
-			$descriptors = $style;
+			$descriptors = $style->getParentRule() !== null ? clone $style : $style;
 		} else {
 			$descriptors = new CSSFontFaceDescriptors();
 			foreach ($style ?? [] as $property => $declaration) {

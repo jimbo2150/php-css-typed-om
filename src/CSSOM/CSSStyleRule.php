@@ -19,18 +19,20 @@ class CSSStyleRule extends CSSGroupingRule
 {
 	private string $selectorText;
 	private CSSStyleProperties $style;
+	private ?StylePropertyMap $styleMap = null;
 
 	/**
 	 * @throws InvalidArgumentException When $selectorText is empty or invalid
 	 */
 	public function __construct(string $selectorText, ?CSSStyleDeclaration $style = null)
 	{
-		$selectorText = trim($selectorText);
+		$selectorText = CSSSyntaxScanner::trimCssWhitespace($selectorText);
 		if ($selectorText === '') {
 			throw new InvalidArgumentException('A CSS style rule requires a selector.');
 		}
 		CSSSyntaxScanner::assertValidFragment($selectorText, 'CSS selector', [';', '{', '}']);
-		parent::__construct('style', $selectorText);
+		parent::__construct('style');
+		$this->prelude = $selectorText;
 		$this->selectorText = $selectorText;
 		$this->style = CSSStyleProperties::fromDeclaration($style);
 		$this->style->setParentRule($this);
@@ -51,7 +53,7 @@ class CSSStyleRule extends CSSGroupingRule
 	 */
 	public function setSelectorText(string $selectorText): void
 	{
-		$selectorText = trim($selectorText);
+		$selectorText = CSSSyntaxScanner::trimCssWhitespace($selectorText);
 		if ($selectorText === '') {
 			throw new InvalidArgumentException('Invalid CSS selector text.');
 		}
@@ -68,7 +70,7 @@ class CSSStyleRule extends CSSGroupingRule
 
 	public function getStyleMap(): StylePropertyMap
 	{
-		return new StylePropertyMap($this->style);
+		return $this->styleMap ??= new StylePropertyMap($this->style);
 	}
 
 	/**
@@ -80,13 +82,19 @@ class CSSStyleRule extends CSSGroupingRule
 	 */
 	public function insertRule(string $ruleText, int $index = 0, ?CSSParserOptions $options = null): int
 	{
-		if ($this->getParentStyleSheet() === null) {
+		$sheet = $this->getParentStyleSheet();
+		if ($sheet === null) {
 			throw new LogicException('A detached style rule cannot insert nested rules.');
 		}
 		if ($index < 0 || $index > count($this->getCssRules())) {
 			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
 		}
-		$rule = CSSParser::parseSingleNestedRule($ruleText, $options);
+		$rule = CSSParser::parseSingleNestedRule(
+			$ruleText,
+			$options,
+			$this->getNestingDepth(),
+			$sheet->getTotalRuleCount(),
+		);
 		$this->getCssRules()->insert($index, $rule);
 
 		return $index;
@@ -94,16 +102,7 @@ class CSSStyleRule extends CSSGroupingRule
 
 	public function getCssText(): string
 	{
-		$parts = [];
-		$declarations = $this->style->getCssText();
-		if ($declarations !== '') {
-			$parts[] = $declarations;
-		}
-		foreach ($this->getCssRules() as $rule) {
-			$parts[] = $rule->getCssText();
-		}
-
-		return $this->selectorText . ' { ' . implode(' ', $parts) . ' }';
+		return CSSGroupingRule::serializeTreeIteratively($this);
 	}
 
 	public function __get(string $name): mixed
@@ -113,6 +112,14 @@ class CSSStyleRule extends CSSGroupingRule
 			'style' => $this->getStyle(),
 			'styleMap' => $this->getStyleMap(),
 			default => parent::__get($name),
+		};
+	}
+
+	public function __isset(string $name): bool
+	{
+		return match ($name) {
+			'selectorText', 'style', 'styleMap' => true,
+			default => parent::__isset($name),
 		};
 	}
 

@@ -12,9 +12,10 @@
 | `$mode` | `CSSRenderMode`, `CSSRenderMode::Pretty` | Pretty or minified output. |
 | `$ruleCallback` | `?\Closure`, `null` | Optional callback of shape `fn (CSSRule $rule, string $rendered): string`; called after each rule's children are rendered and its return replaces that rule's output. |
 | `$keepComments` | `bool`, `true` | Whether comments in `CSSOpaqueRule` source are retained. Comments removed while parsing structured declarations cannot be restored. |
+| `$escapeHtmlStyleTag` | `bool`, `false` | Whether to escape `</style` closing sequences as `<\/style` in rendered output for safer embedding in HTML `<style>` elements. |
 
 ## Public Methods
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(CSSRenderMode $mode = CSSRenderMode::Pretty, ?\Closure $ruleCallback = null, bool $keepComments = true)` | Initializes readonly formatting options. Callback receives each rule and rendered text, returning replacement text. | `$options = new CSSRenderOptions(CSSRenderMode::Minified);` |
+| `__construct(CSSRenderMode $mode = CSSRenderMode::Pretty, ?\Closure $ruleCallback = null, bool $keepComments = true, bool $escapeHtmlStyleTag = false)` | Initializes readonly formatting options. Callback receives each rule and rendered text, returning replacement text. | `$options = new CSSRenderOptions(CSSRenderMode::Minified);` |

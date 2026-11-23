@@ -15,7 +15,14 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
  */
 final class CSSSkewX extends CSSTransformComponent
 {
-	private CSSNumericValue $ax;
+	private CSSNumericValue $axValue;
+
+	public CSSNumericValue $ax {
+		get => $this->axValue;
+		set (CSSNumericValue|int|float $value) {
+			$this->setAx($value);
+		}
+	}
 
 	public function __construct(CSSNumericValue|int|float|string $valueOrFunction, array|CSSNumericValue|int|float|string|null $values = null)
 	{
@@ -23,40 +30,48 @@ final class CSSSkewX extends CSSTransformComponent
 			if (strtolower($valueOrFunction) !== 'skewx' || count($values) !== 1) {
 				throw new InvalidArgumentException('skewX() requires one angle.');
 			}
-			$this->ax = self::numericValue($values[0], 'deg', ['angle']);
-			parent::__construct('skewx', [$this->ax], true);
+			$this->axValue = self::numericValue($values[0], 'deg', ['angle']);
+			parent::__construct('skewx', [$this->axValue], true);
 			return;
 		}
-		$this->ax = self::numericValue($valueOrFunction, 'deg', ['angle']);
-		parent::__construct('skewx', [$this->ax], true);
+		$this->axValue = self::numericValue($valueOrFunction, 'deg', ['angle']);
+		parent::__construct('skewx', [$this->axValue], true);
 	}
 
-	public function getAx(): CSSNumericValue { return $this->ax; }
+	public function getAx(): CSSNumericValue { return $this->axValue; }
 
-	public function setAx(CSSNumericValue $ax): void
+	public function setAx(CSSNumericValue|int|float $ax): void
 	{
-		$this->ax = self::numericValue($ax, 'deg', ['angle']);
-		$this->values = [$this->ax];
+		$this->axValue = self::numericValue($ax, 'deg', ['angle']);
+		$this->values = [$this->axValue];
+	}
+
+	public function setIs2D(bool $is2D): void
+	{
+		if (!$is2D) {
+			throw new InvalidArgumentException('CSSSkewX cannot be 3D.');
+		}
+		parent::setIs2D(true);
 	}
 
 	public function toMatrix(): DOMMatrix
 	{
-		return DOMMatrix::fromElements(self::matrix2d(1.0, 0.0, tan(self::scalar($this->ax, 'angle')), 1.0, 0.0, 0.0), $this->twoDimensional);
-	}
-
-	public function clone(): static { return new static($this->ax->clone()); }
-
-	public function __get(string $name): mixed
-	{
-		return $name === 'ax' ? $this->ax : parent::__get($name);
-	}
-
-	public function __set(string $name, mixed $value): void
-	{
-		if ($name === 'ax' && $value instanceof CSSNumericValue) {
-			$this->setAx($value);
-			return;
+		$tanX = tan(self::scalar($this->axValue, 'angle'));
+		if (!is_finite($tanX)) {
+			throw new InvalidArgumentException('Skew angle produces a non-finite tangent.');
 		}
-		parent::__set($name, $value);
+
+		return DOMMatrix::fromTrustedElements(self::matrix2d(1.0, 0.0, $tanX, 1.0, 0.0, 0.0), $this->twoDimensional);
+	}
+
+	public function __clone(): void
+	{
+		$this->axValue = $this->axValue->clone();
+		$this->values = [$this->axValue];
+	}
+
+	public function clone(): static
+	{
+		return clone $this;
 	}
 }

@@ -12,23 +12,29 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
  */
 class CSSAtRule extends CSSRule
 {
+	protected readonly string $name;
+	protected string $prelude;
+	protected readonly ?CSSStyleDeclaration $style;
+
 	/**
 	 * @throws InvalidArgumentException When $name or $prelude contains invalid syntax
 	 */
 	public function __construct(
-		protected readonly string $name,
-		protected string $prelude = '',
-		protected readonly ?CSSStyleDeclaration $style = null,
+		string $name,
+		string $prelude = '',
+		?CSSStyleDeclaration $style = null,
 		protected readonly bool $hasBlock = false,
 	) {
-		$trimmedName = trim($name);
+		$trimmedName = CSSSyntaxScanner::trimCssWhitespace($name);
 		if (!preg_match('/^-?[a-zA-Z_][a-zA-Z0-9_-]*$/D', $trimmedName)) {
 			throw new InvalidArgumentException('Invalid CSS at-rule name: ' . $name);
 		}
-		$this->prelude = trim($prelude);
+		$this->name = $trimmedName;
+		$this->prelude = CSSSyntaxScanner::trimCssWhitespace($prelude);
 		if ($this->prelude !== '') {
 			CSSSyntaxScanner::assertValidFragment($this->prelude, 'CSS at-rule prelude', [';', '{', '}']);
 		}
+		$this->style = $style !== null && $style->getParentRule() !== null ? clone $style : $style;
 		$this->style?->setParentRule($this);
 	}
 
@@ -87,6 +93,15 @@ class CSSAtRule extends CSSRule
 			'prelude' => $this->prelude,
 			'style' => $this->style,
 			default => parent::__get($name),
+		};
+	}
+
+	public function __isset(string $name): bool
+	{
+		return match ($name) {
+			'name', 'prelude' => true,
+			'style' => $this->style !== null,
+			default => parent::__isset($name),
 		};
 	}
 }

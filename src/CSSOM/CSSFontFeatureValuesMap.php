@@ -30,12 +30,21 @@ final class CSSFontFeatureValuesMap implements Countable, IteratorAggregate
 	}
 
 	/**
+	 * @internal Direct array access for hot internal loops without entries() copy overhead.
+	 * @return array<string, list<int>>
+	 */
+	public function getEntriesRaw(): array
+	{
+		return $this->values;
+	}
+
+	/**
 	 * @param int|list<int> $values
 	 * @throws InvalidArgumentException When the feature name or values are invalid
 	 */
 	public function set(string $name, int|array $values): void
 	{
-		$name = trim($name);
+		$name = CSSSyntaxScanner::trimCssWhitespace($name);
 		if ($name === '') {
 			throw new InvalidArgumentException('A non-empty font feature name is required.');
 		}
@@ -125,5 +134,10 @@ final class CSSFontFeatureValuesMap implements Countable, IteratorAggregate
 			return $this->getSize();
 		}
 		throw new Error('Undefined property: ' . static::class . '::$' . $name);
+	}
+
+	public function __isset(string $name): bool
+	{
+		return $name === 'size';
 	}
 }

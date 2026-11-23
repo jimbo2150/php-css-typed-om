@@ -26,4 +26,26 @@ final class StylePropertyMapTest extends TestCase
 		$map->delete('width');
 		self::assertFalse($map->has('width'));
 	}
+
+	public function testCustomPropertyAcceptsEmptyValueWhileStandardPropertyAndAppendRejectIt(): void
+	{
+		$map = new StylePropertyMap(new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration());
+		$map->set('--empty', '');
+		$map->set('--empty2', new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue([]));
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue::class, $map->get('--empty'));
+		self::assertSame('', (string) $map->get('--empty'));
+		self::assertSame('', (string) $map->get('--empty2'));
+
+		foreach ([
+			static fn () => $map->set('color', ''),
+			static fn () => $map->append('--empty', ''),
+		] as $badCall) {
+			try {
+				$badCall();
+				self::fail('Expected empty value to throw InvalidArgumentException.');
+			} catch (\InvalidArgumentException) {
+				self::assertTrue(true);
+			}
+		}
+	}
 }

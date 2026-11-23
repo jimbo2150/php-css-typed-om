@@ -21,9 +21,10 @@ Magic read-only `length` returns `count()`. Array writes/unsets are rejected; mu
 | `offsetGet(mixed $offset): ?CSSRule` | Integer offsets use `item()`; other offsets yield `null`. | | `$rule = $list[0];` |
 | `offsetSet(mixed $offset, mixed $value): void` | Always throws `InvalidArgumentException`; use insert/append APIs. | | `$list[] = $rule; // throws` |
 | `offsetUnset(mixed $offset): void` | Always throws `InvalidArgumentException`; use `remove()`. | | `unset($list[0]); // throws` |
-| `insert(int $index, CSSRule $rule): void` | Attaches and inserts at index. Requires attached sheet; valid interval is `[0, count]`. Throws `OutOfBoundsException` or `LogicException`. | | `$list->insert(0, $rule);` |
-| `append(CSSRule $rule): void` | Attaches and appends; throws `LogicException` if detached. | | `$list->append($rule);` |
-| `remove(int $index): CSSRule` | Removes and detaches rule at index; throws `OutOfBoundsException` if absent. | Returns removed rule. | `$removed = $list->remove(0);` |
-| `replaceAll(self $replacement): void` | Detaches old rules, then attaches all replacement rules to this list; throws `LogicException` if detached. | | `$list->replaceAll($replacement);` |
-| `reparent(?CSSStyleSheet $sheet): void` | Changes sheet association and reattaches each contained rule with this list's owner. | | `$list->reparent($sheet);` |
+| `insert(int $index, CSSRule $rule): void` | Attaches and inserts at index. Requires attached sheet, enforces single-parent ownership & ancestor-descendant cycle prevention, and requires `$index` in `[0, count]`. Throws `OutOfBoundsException`, `LogicException`, or `InvalidArgumentException`. | | `$list->insert(0, $rule);` |
+| `append(CSSRule $rule): void` | Attaches and appends in O(1) amortized time; enforces single-parent ownership and throws `LogicException` if detached or already parented. | | `$list->append($rule);` |
+| `appendDetached(CSSRule $rule): void` | Appends into a detached or internal rule list while still rejecting already-parented rules (`LogicException`) and ancestor-descendant cycles (`InvalidArgumentException`). | | `$group->getCssRules()->appendDetached($child);` |
+| `remove(int $index): CSSRule` | Removes and detaches rule at index; requires an attached sheet (throws `LogicException` if detached) or throws `OutOfBoundsException` if absent. | Returns removed rule. | `$removed = $list->remove(0);` |
+| `replaceAll(self $replacement): void` | Detaches old rules, transfers and attaches all replacement rules into this list (emptying `$replacement`), and throws `LogicException` if detached. | | `$list->replaceAll($replacement);` |
+| `reparent(?CSSStyleSheet $sheet): void` | Iteratively updates sheet association and reattaches nested rule subtrees without recursion. | | `$list->reparent($sheet);` |
 | `__get(string $name): mixed` | Supports `length`; unknown names throw `Error`. | | `$list->length;` |

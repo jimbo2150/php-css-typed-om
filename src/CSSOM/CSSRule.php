@@ -57,6 +57,13 @@ abstract class CSSRule
 		return $this->parentRule;
 	}
 
+	/** @internal Updates parent pointers without traversing child subtrees. */
+	public function setParentLinks(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void
+	{
+		$this->parentStyleSheet = $sheet;
+		$this->parentRule = $parentRule;
+	}
+
 	public function attach(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void
 	{
 		$this->parentStyleSheet = $sheet;
@@ -76,6 +83,16 @@ abstract class CSSRule
 			'parentStyleSheet' => $this->getParentStyleSheet(),
 			'parentRule' => $this->getParentRule(),
 			default => throw new Error('Undefined property: ' . static::class . '::$' . $name),
+		};
+	}
+
+	public function __isset(string $name): bool
+	{
+		return match ($name) {
+			'type', 'cssText' => true,
+			'parentStyleSheet' => $this->getParentStyleSheet() !== null,
+			'parentRule' => $this->getParentRule() !== null,
+			default => false,
 		};
 	}
 

@@ -15,8 +15,11 @@ class CSSContext
 	private float $viewportWidth;
 	private float $viewportHeight;
 
-	/** @var array<string, float> Cache for conversion factors */
-	private array $factorCache = [];
+	/** @var array<string, float> Cache for valid length unit to-px conversion factors */
+	private array $toPxFactors = [];
+
+	/** @var array<string, float> Cache for valid length unit from-px conversion factors */
+	private array $fromPxFactors = [];
 
 	/**
 	 * @throws InvalidArgumentException When any context dimension is non-finite or <= 0
@@ -39,7 +42,8 @@ class CSSContext
 	public function setFontSize(float $fontSize): self
 	{
 		$this->fontSize = self::validateDimension($fontSize, 'fontSize');
-		$this->factorCache = [];
+		$this->toPxFactors = [];
+		$this->fromPxFactors = [];
 		return $this;
 	}
 
@@ -54,7 +58,8 @@ class CSSContext
 	public function setViewportWidth(float $viewportWidth): self
 	{
 		$this->viewportWidth = self::validateDimension($viewportWidth, 'viewportWidth');
-		$this->factorCache = [];
+		$this->toPxFactors = [];
+		$this->fromPxFactors = [];
 		return $this;
 	}
 
@@ -69,32 +74,50 @@ class CSSContext
 	public function setViewportHeight(float $viewportHeight): self
 	{
 		$this->viewportHeight = self::validateDimension($viewportHeight, 'viewportHeight');
-		$this->factorCache = [];
+		$this->toPxFactors = [];
+		$this->fromPxFactors = [];
 		return $this;
 	}
 
 	public function getToPxFactor(string $unit): float
 	{
 		$key = strtolower($unit);
-		return $this->factorCache[$key] ??= $this->computeFactor($key);
+		if (isset($this->toPxFactors[$key])) {
+			return $this->toPxFactors[$key];
+		}
+
+		$factor = $this->computeFactor($key);
+		if ($factor === null) {
+			return 1.0;
+		}
+		if (!is_finite($factor) || $factor <= 0.0 || !is_finite(1.0 / $factor)) {
+			throw new InvalidArgumentException(sprintf('Unit conversion factor for "%s" overflows finite precision.', $unit));
+		}
+
+		return $this->toPxFactors[$key] = $factor;
 	}
 
 	public function getFromPxFactor(string $unit): float
 	{
 		$key = strtolower($unit);
-		$cacheKey = $key . '_from';
-		if (isset($this->factorCache[$cacheKey])) {
-			return $this->factorCache[$cacheKey];
+		if (isset($this->fromPxFactors[$key])) {
+			return $this->fromPxFactors[$key];
 		}
 
-		$toPx = $this->getToPxFactor($key);
-		$fromPx = $toPx > 0 ? 1.0 / $toPx : 1.0;
-		$this->factorCache[$cacheKey] = $fromPx;
+		$factor = $this->computeFactor($key);
+		if ($factor === null) {
+			return 1.0;
+		}
+		$inverse = $factor > 0.0 ? 1.0 / $factor : 1.0;
+		if (!is_finite($factor) || $factor <= 0.0 || !is_finite($inverse)) {
+			throw new InvalidArgumentException(sprintf('Unit conversion factor for "%s" overflows finite precision.', $unit));
+		}
 
-		return $fromPx;
+		$this->toPxFactors[$key] ??= $factor;
+		return $this->fromPxFactors[$key] = $inverse;
 	}
 
-	private function computeFactor(string $unit): float
+	private function computeFactor(string $unit): ?float
 	{
 		return match ($unit) {
 			'px' => 1.0,
@@ -111,7 +134,7 @@ class CSSContext
 			'vh', 'svh', 'lvh', 'dvh', 'vb', 'svb', 'lvb', 'dvb', 'cqh', 'cqb' => $this->viewportHeight / 100.0,
 			'vmin', 'svmin', 'lvmin', 'dvmin', 'cqmin' => min($this->viewportWidth, $this->viewportHeight) / 100.0,
 			'vmax', 'svmax', 'lvmax', 'dvmax', 'cqmax' => max($this->viewportWidth, $this->viewportHeight) / 100.0,
-			default => 1.0,
+			default => null,
 		};
 	}
 

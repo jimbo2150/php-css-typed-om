@@ -15,7 +15,7 @@ No public properties, constants, or enum cases. It inherits `parse`, `parseAll`,
 | `getFunctionName` | `public function getFunctionName(): string`; returns the stored function name. Example: `$name = $component->getFunctionName();`. |
 | `is2D` | `public function is2D(): bool`; returns the 2D flag. Example: `$twoDimensional = $component->is2D();`. |
 | `setIs2D` | `public function setIs2D(bool $is2D): void`; changes the 2D flag. Example: `$component->setIs2D(false);`. |
-| `toMatrix` | `public function toMatrix(): array`; base implementation returns a 4x4 identity matrix as a 16-element column-major float list. Concrete components override this where they have matrix behavior. Example: `$matrix = $component->toMatrix();`. |
+| `toMatrix` | `public function toMatrix(): DOMMatrix`; base implementation returns a 4x4 identity `DOMMatrix`. Concrete components override this with their transform matrix behavior. Example: `$matrix = $component->toMatrix();`. |
 | `clone` | `public function clone(): static`; deep-clones CSSStyleValue arguments, copies string arguments, then constructs the same runtime class with stored function name and 2D flag. Example: `$copy = $component->clone();`. |
 | `__toString` | `public function __toString(): string`; emits `functionName(arg, arg)` using the stored list. Example: `$css = (string) $component;`. |
 | `__get` | `public function __get(string $name): mixed`; exposes virtual read-only `is2D`; other names throw `Error`. Example: `$flag = $component->is2D;`. |

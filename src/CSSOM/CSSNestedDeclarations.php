@@ -38,4 +38,9 @@ final class CSSNestedDeclarations extends CSSRule
 	{
 		return $name === 'style' ? $this->style : parent::__get($name);
 	}
+
+	public function __isset(string $name): bool
+	{
+		return $name === 'style' || parent::__isset($name);
+	}
 }

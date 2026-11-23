@@ -17,25 +17,42 @@ final readonly class CSSParserOptions
 	public const int DEFAULT_MAX_DEPTH = 256;
 	public const int DEFAULT_MAX_RULES = 100_000;
 	public const int DEFAULT_MAX_MATH_DEPTH = 256;
+	public const int DEFAULT_MAX_ERRORS = 1_000;
+	public const int DEFAULT_MAX_DECLARATIONS = 500_000;
 
 	public function __construct(
 		public ?int $maxBytes = self::DEFAULT_MAX_BYTES,
 		public ?int $maxDepth = self::DEFAULT_MAX_DEPTH,
 		public ?int $maxRules = self::DEFAULT_MAX_RULES,
 		public ?int $maxMathDepth = self::DEFAULT_MAX_MATH_DEPTH,
+		public ?int $maxErrors = self::DEFAULT_MAX_ERRORS,
+		public ?int $maxDeclarations = self::DEFAULT_MAX_DECLARATIONS,
 	) {
-		foreach (['maxBytes' => $maxBytes, 'maxDepth' => $maxDepth, 'maxRules' => $maxRules, 'maxMathDepth' => $maxMathDepth] as $name => $limit) {
+		foreach ([
+			'maxBytes' => $maxBytes,
+			'maxDepth' => $maxDepth,
+			'maxRules' => $maxRules,
+			'maxMathDepth' => $maxMathDepth,
+			'maxErrors' => $maxErrors,
+			'maxDeclarations' => $maxDeclarations,
+		] as $name => $limit) {
 			if ($limit !== null && $limit < 1) {
 				throw new InvalidArgumentException(sprintf('Parser option "%s" must be a positive integer or null.', $name));
 			}
 		}
 	}
 
+	public static function default(): self
+	{
+		static $default = null;
+		return $default ??= new self();
+	}
+
 	/**
-	 * Creates options with all parser size/depth/rule-count limits disabled.
+	 * Creates options with all parser size/depth/rule/error/declaration-count limits disabled.
 	 */
 	public static function unlimited(): self
 	{
-		return new self(null, null, null, null);
+		return new self(null, null, null, null, null, null);
 	}
 }

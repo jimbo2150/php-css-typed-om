@@ -6,15 +6,37 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color;
 
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
+use ReflectionClass;
 
 /**
  * Represents a CSS `hwb(...)` color value.
  */
 final class CSSHWB extends CSSColorValue
 {
-	private CSSNumericValue|CSSKeywordValue $h;
-	private CSSNumericValue|CSSKeywordValue $w;
-	private CSSNumericValue|CSSKeywordValue $b;
+	private CSSNumericValue|CSSKeywordValue $hValue;
+	private CSSNumericValue|CSSKeywordValue $wValue;
+	private CSSNumericValue|CSSKeywordValue $bValue;
+
+	public CSSNumericValue|CSSKeywordValue $h {
+		get => $this->hValue;
+		set (CSSNumericValue|CSSKeywordValue|int|float $value) {
+			$this->hValue = self::normalizeAngleChannel($value);
+		}
+	}
+
+	public CSSNumericValue|CSSKeywordValue $w {
+		get => $this->wValue;
+		set (CSSNumericValue|CSSKeywordValue|int|float $value) {
+			$this->wValue = self::normalizePercentChannel($value, 1.0);
+		}
+	}
+
+	public CSSNumericValue|CSSKeywordValue $b {
+		get => $this->bValue;
+		set (CSSNumericValue|CSSKeywordValue|int|float $value) {
+			$this->bValue = self::normalizePercentChannel($value, 1.0);
+		}
+	}
 
 	public function __construct(
 		CSSNumericValue|CSSKeywordValue|int|float $h,
@@ -22,29 +44,50 @@ final class CSSHWB extends CSSColorValue
 		CSSNumericValue|CSSKeywordValue|int|float $b,
 		CSSNumericValue|CSSKeywordValue|int|float $alpha = 1.0,
 	) {
-		$this->setH($h);
-		$this->setW($w);
-		$this->setB($b);
-		$this->setAlpha($alpha);
+		$this->hValue = self::normalizeAngleChannel($h);
+		$this->wValue = self::normalizePercentChannel($w, 1.0);
+		$this->bValue = self::normalizePercentChannel($b, 1.0);
+		$this->alphaValue = self::normalizePercentChannel($alpha, 100.0);
 	}
 
-	public function getH(): CSSNumericValue|CSSKeywordValue { return $this->h; }
-	public function getW(): CSSNumericValue|CSSKeywordValue { return $this->w; }
-	public function getB(): CSSNumericValue|CSSKeywordValue { return $this->b; }
+	/**
+	 * @internal Fast factory for already-validated, caller-owned channel objects.
+	 */
+	public static function fromValidated(
+		CSSNumericValue|CSSKeywordValue $h,
+		CSSNumericValue|CSSKeywordValue $w,
+		CSSNumericValue|CSSKeywordValue $b,
+		CSSNumericValue|CSSKeywordValue $alpha,
+	): self {
+		static $reflection = null;
+		$reflection ??= new ReflectionClass(self::class);
+		/** @var self $instance */
+		$instance = $reflection->newInstanceWithoutConstructor();
+		$instance->hValue = $h;
+		$instance->wValue = $w;
+		$instance->bValue = $b;
+		$instance->alphaValue = $alpha;
+
+		return $instance;
+	}
+
+	public function getH(): CSSNumericValue|CSSKeywordValue { return $this->hValue; }
+	public function getW(): CSSNumericValue|CSSKeywordValue { return $this->wValue; }
+	public function getB(): CSSNumericValue|CSSKeywordValue { return $this->bValue; }
 
 	public function setH(CSSNumericValue|CSSKeywordValue|int|float $h): void
 	{
-		$this->h = self::normalizeAngleChannel($h);
+		$this->hValue = self::normalizeAngleChannel($h);
 	}
 
 	public function setW(CSSNumericValue|CSSKeywordValue|int|float $w): void
 	{
-		$this->w = self::normalizePercentChannel($w, 1.0);
+		$this->wValue = self::normalizePercentChannel($w, 1.0);
 	}
 
 	public function setB(CSSNumericValue|CSSKeywordValue|int|float $b): void
 	{
-		$this->b = self::normalizePercentChannel($b, 1.0);
+		$this->bValue = self::normalizePercentChannel($b, 1.0);
 	}
 
 	public function toHWB(): CSSHWB
@@ -52,62 +95,56 @@ final class CSSHWB extends CSSColorValue
 		return $this->clone();
 	}
 
+	public function __clone(): void
+	{
+		$this->hValue = $this->hValue->clone();
+		$this->wValue = $this->wValue->clone();
+		$this->bValue = $this->bValue->clone();
+		$this->alphaValue = $this->alphaValue->clone();
+	}
+
 	public function clone(): static
 	{
-		return new static($this->h->clone(), $this->w->clone(), $this->b->clone(), $this->alpha->clone());
+		return clone $this;
 	}
 
 	public function __toString(): string
 	{
-		return 'hwb(' . $this->h . ' ' . $this->w . ' ' . $this->b . $this->formatAlphaSuffix() . ')';
-	}
-
-	public function __get(string $name): mixed
-	{
-		return match ($name) {
-			'h' => $this->h,
-			'w' => $this->w,
-			'b' => $this->b,
-			default => parent::__get($name),
-		};
-	}
-
-	public function __set(string $name, mixed $value): void
-	{
-		if ($value instanceof CSSNumericValue || $value instanceof CSSKeywordValue || is_int($value) || is_float($value)) {
-			if ($name === 'h') { $this->setH($value); return; }
-			if ($name === 'w') { $this->setW($value); return; }
-			if ($name === 'b') { $this->setB($value); return; }
-		}
-		parent::__set($name, $value);
+		return 'hwb(' . $this->hValue . ' ' . $this->wValue . ' ' . $this->bValue . $this->formatAlphaSuffix() . ')';
 	}
 
 	protected function toSrgbChannels(): array
 	{
-		$w = self::resolvePercentUnit($this->w);
-		$b = self::resolvePercentUnit($this->b);
+		[$r, $g, $b] = $this->toSrgbFloats();
+
+		return [$r, $g, $b, $this->alphaValue->clone()];
+	}
+
+	protected function toXyzD65(): array
+	{
+		[$r, $g, $b] = $this->toSrgbFloats();
+		[$x, $y, $z] = self::linearSrgbToXyzD65(self::srgbToLinear($r), self::srgbToLinear($g), self::srgbToLinear($b));
+
+		return [$x, $y, $z, $this->alphaValue->clone()];
+	}
+
+	/** @return array{float, float, float} */
+	private function toSrgbFloats(): array
+	{
+		$w = self::resolvePercentUnit($this->wValue);
+		$b = self::resolvePercentUnit($this->bValue);
 		if ($w + $b >= 1.0) {
 			$gray = $w / ($w + $b);
-			return [$gray, $gray, $gray, $this->alpha->clone()];
+			return [$gray, $gray, $gray];
 		}
 
-		$hsl = new CSSHSL($this->h->clone(), 100.0, 50.0, $this->alpha->clone());
-		[$r, $g, $bl] = $hsl->toSrgbChannels();
+		[$r, $g, $bl] = self::hslToSrgbFloats(self::resolveAngleDegrees($this->hValue), 1.0, 0.5);
 		$factor = 1.0 - $w - $b;
 
 		return [
 			$r * $factor + $w,
 			$g * $factor + $w,
 			$bl * $factor + $w,
-			$this->alpha->clone(),
 		];
-	}
-
-	protected function toXyzD65(): array
-	{
-		[$r, $g, $b, $alpha] = $this->toSrgbChannels();
-		[$x, $y, $z] = self::linearSrgbToXyzD65(self::srgbToLinear($r), self::srgbToLinear($g), self::srgbToLinear($b));
-
-		return [$x, $y, $z, $alpha];
 	}
 }

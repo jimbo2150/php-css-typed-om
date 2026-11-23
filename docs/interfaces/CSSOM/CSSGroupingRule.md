@@ -19,10 +19,10 @@ Constructor-promoted protected `name` and `prelude` are not public fields. Magic
 | `getPrelude(): string` | Returns the trimmed prelude. | `$rule->getPrelude();` |
 | `getCssRules(): CSSRuleList` | Returns the owned nested rule list. | `$rule->getCssRules();` |
 | `insertRule(string $ruleText, int $index = 0, ?CSSParserOptions $options = null): int` | Parses exactly one rule and inserts it; returns index. Requires attachment to a stylesheet. Throws `LogicException` if detached, `OutOfBoundsException` for invalid index, `InvalidArgumentException` for invalid/over-limit CSS. | `$sheet->insertRule('@media screen {}'); $group = $sheet->getCssRules()[0]; $group->insertRule('a { color: red }');` |
-| `deleteRule(int $index): void` | Removes the rule at index. Throws `OutOfBoundsException` when index is invalid. | `$group->deleteRule(0);` |
-| `getCssText(): string` | Serializes at-rule, prelude, and nested rule text joined by newlines. | `$group->getCssText();` |
-| `initializeRules(CSSStyleSheet $sheet): void` | Associates this grouping rule with a sheet, retaining its current parent rule, and reparents its list. | `$group->initializeRules($sheet);` |
-| `attach(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void` | Updates inherited parent association and reparents nested rules. | `$group->attach($sheet, null);` |
+| `deleteRule(int $index): void` | Removes the rule at index. Requires attachment to a stylesheet (`LogicException` if detached) and valid index (`OutOfBoundsException` if invalid). | `$group->deleteRule(0);` |
+| `getCssText(): string` | Serializes at-rule, prelude, and nested rule text iteratively without recursion; enforces `CSSRenderer::MAX_RENDER_DEPTH`. | `$group->getCssText();` |
+| `initializeRules(CSSStyleSheet $sheet): void` | Associates this grouping rule with a sheet, retaining its current parent rule, and reparents its list iteratively. | `$group->initializeRules($sheet);` |
+| `attach(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void` | Updates inherited parent association and reparents nested subtrees iteratively in O(1) stack depth. | `$group->attach($sheet, null);` |
 | `__get(string $name): mixed` | Exposes `cssRules`; other names delegate to `CSSRule::__get()`. | `$group->cssRules;` |
 
 All additional inherited methods are documented on [`CSSRule`](CSSRule.md).

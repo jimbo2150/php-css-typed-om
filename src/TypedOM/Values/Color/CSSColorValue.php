@@ -6,7 +6,9 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color;
 
 use Error;
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
@@ -20,7 +22,20 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
  */
 abstract class CSSColorValue extends CSSStyleValue
 {
-	protected CSSNumericValue|CSSKeywordValue $alpha;
+	private const float D50_X = 0.3457 / 0.3585;
+	private const float D50_Z = (1.0 - 0.3457 - 0.3585) / 0.3585;
+	private const float LAB_EPSILON = 216.0 / 24389.0;
+	private const float LAB_KAPPA = 24389.0 / 27.0;
+	private const float THIRD = 1.0 / 3.0;
+
+	protected CSSNumericValue|CSSKeywordValue $alphaValue;
+
+	public CSSNumericValue|CSSKeywordValue $alpha {
+		get => $this->alphaValue;
+		set (CSSNumericValue|CSSKeywordValue|int|float $value) {
+			$this->alphaValue = self::normalizePercentChannel($value, 100.0);
+		}
+	}
 
 	/**
 	 * Parses a CSS color value (`#hex`, `rgb()`, `hsl()`, `hwb()`, `lab()`, `lch()`, `oklab()`, `oklch()`, `color()`).
@@ -35,13 +50,14 @@ abstract class CSSColorValue extends CSSStyleValue
 		?string $cssText = null,
 		?CSSParserOptions $options = null,
 	): self {
-		$options ??= new CSSParserOptions();
-		$source = trim($cssText ?? $propertyOrCssText);
+		$options ??= CSSParserOptions::default();
+		$rawSource = $cssText ?? $propertyOrCssText;
+		if ($options->maxBytes !== null && strlen($rawSource) > $options->maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS color value exceeds maximum size of %d bytes.', $options->maxBytes));
+		}
+		$source = CSSSyntaxScanner::trimCssWhitespace($rawSource);
 		if ($source === '') {
 			throw new InvalidArgumentException('CSS color value cannot be empty.');
-		}
-		if ($options->maxBytes !== null && strlen($source) > $options->maxBytes) {
-			throw new InvalidArgumentException(sprintf('CSS color value exceeds maximum size of %d bytes.', $options->maxBytes));
 		}
 		CSSSyntaxScanner::assertValidFragment($source, 'CSS color', [';', '{', '}']);
 
@@ -49,7 +65,7 @@ abstract class CSSColorValue extends CSSStyleValue
 			return self::parseHex($source);
 		}
 
-		if (!preg_match('/^([a-zA-Z][a-zA-Z0-9-]*)\s*\(/', $source, $match)) {
+		if (!preg_match('/^([a-zA-Z][a-zA-Z0-9-]*)\(/', $source, $match)) {
 			throw new InvalidArgumentException('Unsupported CSS color value: ' . $source);
 		}
 		$function = strtolower($match[1]);
@@ -59,7 +75,7 @@ abstract class CSSColorValue extends CSSStyleValue
 			throw new InvalidArgumentException('Invalid CSS color function syntax: ' . $source);
 		}
 
-		$body = trim(substr($source, $open + 1, $close - $open - 1));
+		$body = CSSSyntaxScanner::trimCssWhitespace(self::stripTopLevelComments(substr($source, $open + 1, $close - $open - 1)));
 		if ($body === '' || preg_match('/^from\s+/i', $body) === 1) {
 			throw new InvalidArgumentException('Relative or empty CSS color syntax is not supported as a typed color.');
 		}
@@ -79,18 +95,18 @@ abstract class CSSColorValue extends CSSStyleValue
 
 	public function getAlpha(): CSSNumericValue|CSSKeywordValue
 	{
-		return $this->alpha;
+		return $this->alphaValue;
 	}
 
 	public function setAlpha(CSSNumericValue|CSSKeywordValue|int|float $alpha): void
 	{
-		$this->alpha = self::normalizePercentChannel($alpha, 100.0);
+		$this->alphaValue = self::normalizePercentChannel($alpha, 100.0);
 	}
 
 	public function toRGB(): CSSRGB
 	{
 		[$r, $g, $b, $alpha] = $this->toSrgbChannels();
-		return new CSSRGB(
+		return CSSRGB::fromValidated(
 			new CSSUnitValue($r * 100.0, 'percent'),
 			new CSSUnitValue($g * 100.0, 'percent'),
 			new CSSUnitValue($b * 100.0, 'percent'),
@@ -111,19 +127,10 @@ abstract class CSSColorValue extends CSSStyleValue
 			$s = 0.0;
 		} else {
 			$s = ($l === 0.0 || $l === 1.0) ? 0.0 : ($max - $l) / min($l, 1.0 - $l);
-			if ($max === $r) {
-				$h = 60.0 * fmod(($g - $b) / $delta, 6.0);
-			} elseif ($max === $g) {
-				$h = 60.0 * ((($b - $r) / $delta) + 2.0);
-			} else {
-				$h = 60.0 * ((($r - $g) / $delta) + 4.0);
-			}
-			if ($h < 0.0) {
-				$h += 360.0;
-			}
+			$h = self::rgbToHue($r, $g, $b, $max, $delta);
 		}
 
-		return new CSSHSL(
+		return CSSHSL::fromValidated(
 			new CSSUnitValue($h, 'deg'),
 			new CSSUnitValue($s * 100.0, 'percent'),
 			new CSSUnitValue($l * 100.0, 'percent'),
@@ -137,28 +144,12 @@ abstract class CSSColorValue extends CSSStyleValue
 		$max = max($r, $g, $b);
 		$min = min($r, $g, $b);
 		$delta = $max - $min;
-		$w = $min;
-		$bk = 1.0 - $max;
+		$h = $delta === 0.0 ? 0.0 : self::rgbToHue($r, $g, $b, $max, $delta);
 
-		if ($delta === 0.0) {
-			$h = 0.0;
-		} else {
-			if ($max === $r) {
-				$h = 60.0 * fmod(($g - $b) / $delta, 6.0);
-			} elseif ($max === $g) {
-				$h = 60.0 * ((($b - $r) / $delta) + 2.0);
-			} else {
-				$h = 60.0 * ((($r - $g) / $delta) + 4.0);
-			}
-			if ($h < 0.0) {
-				$h += 360.0;
-			}
-		}
-
-		return new CSSHWB(
+		return CSSHWB::fromValidated(
 			new CSSUnitValue($h, 'deg'),
-			new CSSUnitValue($w * 100.0, 'percent'),
-			new CSSUnitValue($bk * 100.0, 'percent'),
+			new CSSUnitValue($min * 100.0, 'percent'),
+			new CSSUnitValue((1.0 - $max) * 100.0, 'percent'),
 			$alpha,
 		);
 	}
@@ -169,7 +160,7 @@ abstract class CSSColorValue extends CSSStyleValue
 		[$x50, $y50, $z50] = self::xyzD65ToD50($x, $y, $z);
 		[$l, $a, $b] = self::xyzD50ToLab($x50, $y50, $z50);
 
-		return new CSSLab(
+		return CSSLab::fromValidated(
 			new CSSUnitValue($l, 'percent'),
 			new CSSUnitValue($a, 'number'),
 			new CSSUnitValue($b, 'number'),
@@ -179,17 +170,17 @@ abstract class CSSColorValue extends CSSStyleValue
 
 	public function toLCH(): CSSLCH
 	{
-		$lab = $this->toLab();
-		$a = self::resolveLinearChannel($lab->getA(), 125.0);
-		$b = self::resolveLinearChannel($lab->getB(), 125.0);
+		[$x, $y, $z, $alpha] = $this->toXyzD65();
+		[$x50, $y50, $z50] = self::xyzD65ToD50($x, $y, $z);
+		[$l, $a, $b] = self::xyzD50ToLab($x50, $y50, $z50);
 		$c = hypot($a, $b);
 		$h = $c < 1e-12 ? 0.0 : fmod(rad2deg(atan2($b, $a)) + 360.0, 360.0);
 
-		return new CSSLCH(
-			$lab->getL()->clone(),
+		return CSSLCH::fromValidated(
+			new CSSUnitValue($l, 'percent'),
 			new CSSUnitValue($c, 'number'),
 			new CSSUnitValue($h, 'deg'),
-			$lab->getAlpha()->clone(),
+			$alpha,
 		);
 	}
 
@@ -198,7 +189,7 @@ abstract class CSSColorValue extends CSSStyleValue
 		[$x, $y, $z, $alpha] = $this->toXyzD65();
 		[$l, $a, $b] = self::xyzD65ToOklab($x, $y, $z);
 
-		return new CSSOKLab(
+		return CSSOKLab::fromValidated(
 			new CSSUnitValue($l * 100.0, 'percent'),
 			new CSSUnitValue($a, 'number'),
 			new CSSUnitValue($b, 'number'),
@@ -208,23 +199,22 @@ abstract class CSSColorValue extends CSSStyleValue
 
 	public function toOKLCH(): CSSOKLCH
 	{
-		$oklab = $this->toOKLab();
-		$a = self::resolveLinearChannel($oklab->getA(), 0.4);
-		$b = self::resolveLinearChannel($oklab->getB(), 0.4);
+		[$x, $y, $z, $alpha] = $this->toXyzD65();
+		[$l, $a, $b] = self::xyzD65ToOklab($x, $y, $z);
 		$c = hypot($a, $b);
 		$h = $c < 1e-12 ? 0.0 : fmod(rad2deg(atan2($b, $a)) + 360.0, 360.0);
 
-		return new CSSOKLCH(
-			$oklab->getL()->clone(),
+		return CSSOKLCH::fromValidated(
+			new CSSUnitValue($l * 100.0, 'percent'),
 			new CSSUnitValue($c, 'number'),
 			new CSSUnitValue($h, 'deg'),
-			$oklab->getAlpha()->clone(),
+			$alpha,
 		);
 	}
 
 	public function to(string $colorSpace): self
 	{
-		$space = strtolower(trim($colorSpace));
+		$space = strtolower(CSSSyntaxScanner::trimCssWhitespace($colorSpace));
 		return match ($space) {
 			'rgb', 'rgba' => $this->toRGB(),
 			'hsl', 'hsla' => $this->toHSL(),
@@ -240,20 +230,16 @@ abstract class CSSColorValue extends CSSStyleValue
 
 	public function __get(string $name): mixed
 	{
-		if ($name === 'alpha') {
-			return $this->alpha;
-		}
-
 		throw new Error('Undefined property: ' . static::class . '::$' . $name);
+	}
+
+	public function __isset(string $name): bool
+	{
+		return false;
 	}
 
 	public function __set(string $name, mixed $value): void
 	{
-		if ($name === 'alpha' && ($value instanceof CSSNumericValue || $value instanceof CSSKeywordValue || is_int($value) || is_float($value))) {
-			$this->setAlpha($value);
-			return;
-		}
-
 		throw new Error('Cannot set property ' . static::class . '::$' . $name);
 	}
 
@@ -282,33 +268,65 @@ abstract class CSSColorValue extends CSSStyleValue
 
 	protected function toPredefinedColor(string $space): CSSColor
 	{
-		[$x, $y, $z, $alpha] = $this->toXyzD65();
-		$channels = match ($space) {
-			'xyz', 'xyz-d65' => [$x, $y, $z],
-			'xyz-d50' => self::xyzD65ToD50($x, $y, $z),
-			'srgb-linear' => self::xyzD65ToLinearSrgb($x, $y, $z),
-			'srgb' => array_map(self::linearToSrgb(...), self::xyzD65ToLinearSrgb($x, $y, $z)),
-			'display-p3' => array_map(self::linearToSrgb(...), self::xyzD65ToLinearDisplayP3($x, $y, $z)),
-			'a98-rgb' => array_map(self::linearToA98(...), self::xyzD65ToLinearA98($x, $y, $z)),
-			'prophoto-rgb' => array_map(self::linearToProphoto(...), self::xyzD50ToLinearProphoto(...self::xyzD65ToD50($x, $y, $z))),
-			'rec2020' => array_map(self::linearToRec2020(...), self::xyzD65ToLinearRec2020($x, $y, $z)),
-			default => throw new InvalidArgumentException('Unsupported predefined color space: ' . $space),
-		};
+		if ($this instanceof CSSColor && $this->getColorSpace()->getValue() === $space) {
+			return $this->clone();
+		}
 
-		return new CSSColor(
-			$space,
-			array_map(static fn (float $v): CSSUnitValue => new CSSUnitValue($v, 'number'), $channels),
+		[$x, $y, $z, $alpha] = $this->toXyzD65();
+		switch ($space) {
+			case 'xyz':
+			case 'xyz-d65':
+				$channels = [$x, $y, $z];
+				break;
+			case 'xyz-d50':
+				$channels = self::xyzD65ToD50($x, $y, $z);
+				break;
+			case 'srgb-linear':
+				$channels = self::xyzD65ToLinearSrgb($x, $y, $z);
+				break;
+			case 'srgb':
+				[$c0, $c1, $c2] = self::xyzD65ToLinearSrgb($x, $y, $z);
+				$channels = [self::linearToSrgb($c0), self::linearToSrgb($c1), self::linearToSrgb($c2)];
+				break;
+			case 'display-p3':
+				[$c0, $c1, $c2] = self::xyzD65ToLinearDisplayP3($x, $y, $z);
+				$channels = [self::linearToSrgb($c0), self::linearToSrgb($c1), self::linearToSrgb($c2)];
+				break;
+			case 'a98-rgb':
+				[$c0, $c1, $c2] = self::xyzD65ToLinearA98($x, $y, $z);
+				$channels = [self::linearToA98($c0), self::linearToA98($c1), self::linearToA98($c2)];
+				break;
+			case 'prophoto-rgb':
+				[$x50, $y50, $z50] = self::xyzD65ToD50($x, $y, $z);
+				[$c0, $c1, $c2] = self::xyzD50ToLinearProphoto($x50, $y50, $z50);
+				$channels = [self::linearToProphoto($c0), self::linearToProphoto($c1), self::linearToProphoto($c2)];
+				break;
+			case 'rec2020':
+				[$c0, $c1, $c2] = self::xyzD65ToLinearRec2020($x, $y, $z);
+				$channels = [self::linearToRec2020($c0), self::linearToRec2020($c1), self::linearToRec2020($c2)];
+				break;
+			default:
+				throw new InvalidArgumentException('Unsupported predefined color space: ' . $space);
+		}
+
+		return CSSColor::fromValidated(
+			new CSSKeywordValue($space),
+			[
+				new CSSUnitValue($channels[0], 'number'),
+				new CSSUnitValue($channels[1], 'number'),
+				new CSSUnitValue($channels[2], 'number'),
+			],
 			$alpha,
 		);
 	}
 
 	protected function formatAlphaSuffix(): string
 	{
-		if ($this->alpha instanceof CSSUnitValue && $this->alpha->unit === 'percent' && abs($this->alpha->value - 100.0) < 1e-9) {
+		if ($this->alphaValue instanceof CSSUnitValue && $this->alphaValue->unit === 'percent' && abs($this->alphaValue->value - 100.0) < 1e-9) {
 			return '';
 		}
 
-		return ' / ' . (string) $this->alpha;
+		return ' / ' . (string) $this->alphaValue;
 	}
 
 	protected static function normalizeNoneKeyword(CSSKeywordValue $keyword): CSSKeywordValue
@@ -348,8 +366,11 @@ abstract class CSSColorValue extends CSSStyleValue
 		}
 
 		$category = $value->getNumericCategory();
-		if (!in_array($category, ['number', 'percent'], true)) {
+		if ($value->getNumericTypeInternal()->percentHint !== null || !in_array($category, ['number', 'percent'], true)) {
 			throw new InvalidArgumentException('Color channel math expression must be a number or percentage.');
+		}
+		if ($category === 'number' && $numberScale !== 1.0) {
+			return $value->clone()->mul(new CSSUnitValue($numberScale, 'percent'));
 		}
 
 		return $value->clone();
@@ -377,7 +398,7 @@ abstract class CSSColorValue extends CSSStyleValue
 		}
 
 		$category = $value->getNumericCategory();
-		if (!in_array($category, ['angle', 'number'], true)) {
+		if ($value->getNumericTypeInternal()->percentHint !== null || !in_array($category, ['angle', 'number'], true)) {
 			throw new InvalidArgumentException('Hue channel math expression must be an angle or number.');
 		}
 
@@ -397,7 +418,7 @@ abstract class CSSColorValue extends CSSStyleValue
 		}
 
 		$category = $value->getNumericCategory();
-		if (!in_array($category, ['number', 'percent'], true)) {
+		if ($value->getNumericTypeInternal()->percentHint !== null || !in_array($category, ['number', 'percent'], true)) {
 			throw new InvalidArgumentException('Color channel must be a number, percentage, or "none".');
 		}
 
@@ -626,9 +647,9 @@ abstract class CSSColorValue extends CSSStyleValue
 	protected static function xyzD65ToD50(float $x, float $y, float $z): array
 	{
 		return [
-			1.0479298208405488 * $x + 0.022946793341019088 * $y - 0.05019222954313557 * $z,
-			0.029627815688159344 * $x + 0.990434484573249 * $y - 0.01707382502938514 * $z,
-			-0.009243058152591178 * $x + 0.015055144896577895 * $y + 0.7518742899580008 * $z,
+			1.0479297925449969 * $x + 0.022946870601609708 * $y - 0.05019226628920527 * $z,
+			0.029627808770055993 * $x + 0.99043442675388005 * $y - 0.017073799063418826 * $z,
+			-0.0092430406462045145 * $x + 0.015055191490298145 * $y + 0.75187428142813717 * $z,
 		];
 	}
 
@@ -636,23 +657,49 @@ abstract class CSSColorValue extends CSSStyleValue
 	protected static function xyzD50ToD65(float $x, float $y, float $z): array
 	{
 		return [
-			0.9554734527042182 * $x - 0.023098536874261423 * $y + 0.0632593086610217 * $z,
-			-0.028369706963208136 * $x + 1.0099954580058226 * $y + 0.021041398966943008 * $z,
-			0.012314001688319899 * $x - 0.020507696433477912 * $y + 1.3303659366080753 * $z,
+			0.95547342148807513 * $x - 0.023098454948764682 * $y + 0.063259243200570692 * $z,
+			-0.028369709333863756 * $x + 1.0099953980813043 * $y + 0.021041441191917323 * $z,
+			0.012314014864481991 * $x - 0.020507649298898964 * $y + 1.3303659262421241 * $z,
 		];
+	}
+
+	/** @return array{float, float, float} */
+	protected static function hslToSrgbFloats(float $h, float $s, float $l): array
+	{
+		$h = fmod(fmod($h, 360.0) + 360.0, 360.0);
+		$hOver30 = $h / 30.0;
+		$a = $s * min($l, 1.0 - $l);
+
+		$k0 = fmod($hOver30, 12.0);
+		$k8 = fmod(8.0 + $hOver30, 12.0);
+		$k4 = fmod(4.0 + $hOver30, 12.0);
+
+		return [
+			$l - $a * max(-1.0, min($k0 - 3.0, 9.0 - $k0, 1.0)),
+			$l - $a * max(-1.0, min($k8 - 3.0, 9.0 - $k8, 1.0)),
+			$l - $a * max(-1.0, min($k4 - 3.0, 9.0 - $k4, 1.0)),
+		];
+	}
+
+	private static function rgbToHue(float $r, float $g, float $b, float $max, float $delta): float
+	{
+		if ($max === $r) {
+			$h = 60.0 * fmod(($g - $b) / $delta, 6.0);
+		} elseif ($max === $g) {
+			$h = 60.0 * ((($b - $r) / $delta) + 2.0);
+		} else {
+			$h = 60.0 * ((($r - $g) / $delta) + 4.0);
+		}
+
+		return $h < 0.0 ? $h + 360.0 : $h;
 	}
 
 	/** @return array{float, float, float} */
 	protected static function xyzD50ToLab(float $x, float $y, float $z): array
 	{
-		$d50 = [0.3457 / 0.3585, 1.0, (1.0 - 0.3457 - 0.3585) / 0.3585];
-		$epsilon = 216.0 / 24389.0;
-		$kappa = 24389.0 / 27.0;
-
-		$f = static fn (float $v): float => $v > $epsilon ? ($v ** (1.0 / 3.0)) : ($kappa * $v + 16.0) / 116.0;
-		$fx = $f($x / $d50[0]);
-		$fy = $f($y / $d50[1]);
-		$fz = $f($z / $d50[2]);
+		$fx = self::labF($x / self::D50_X);
+		$fy = self::labF($y);
+		$fz = self::labF($z / self::D50_Z);
 
 		return [
 			116.0 * $fy - 16.0,
@@ -664,19 +711,17 @@ abstract class CSSColorValue extends CSSStyleValue
 	/** @return array{float, float, float} */
 	protected static function labToXyzD50(float $l, float $a, float $b): array
 	{
-		$d50 = [0.3457 / 0.3585, 1.0, (1.0 - 0.3457 - 0.3585) / 0.3585];
-		$epsilon = 216.0 / 24389.0;
-		$kappa = 24389.0 / 27.0;
-
 		$fy = ($l + 16.0) / 116.0;
 		$fx = $a / 500.0 + $fy;
 		$fz = $fy - $b / 200.0;
 
-		$xr = ($fx ** 3) > $epsilon ? ($fx ** 3) : (116.0 * $fx - 16.0) / $kappa;
-		$yr = $l > $kappa * $epsilon ? ((($l + 16.0) / 116.0) ** 3) : $l / $kappa;
-		$zr = ($fz ** 3) > $epsilon ? ($fz ** 3) : (116.0 * $fz - 16.0) / $kappa;
+		$fx3 = $fx * $fx * $fx;
+		$fz3 = $fz * $fz * $fz;
+		$xr = $fx3 > self::LAB_EPSILON ? $fx3 : (116.0 * $fx - 16.0) / self::LAB_KAPPA;
+		$yr = $l > (self::LAB_KAPPA * self::LAB_EPSILON) ? $fy * $fy * $fy : $l / self::LAB_KAPPA;
+		$zr = $fz3 > self::LAB_EPSILON ? $fz3 : (116.0 * $fz - 16.0) / self::LAB_KAPPA;
 
-		return [$xr * $d50[0], $yr * $d50[1], $zr * $d50[2]];
+		return [$xr * self::D50_X, $yr, $zr * self::D50_Z];
 	}
 
 	/** @return array{float, float, float} */
@@ -686,16 +731,25 @@ abstract class CSSColorValue extends CSSStyleValue
 		$m = 0.0329836539323885 * $x + 0.9292868615863434 * $y + 0.0361446663506424 * $z;
 		$s = 0.0481771893596242 * $x + 0.2642395317527308 * $y + 0.6335478284694309 * $z;
 
-		$cbrt = static fn (float $v): float => $v < 0.0 ? -((-$v) ** (1.0 / 3.0)) : ($v ** (1.0 / 3.0));
-		$l_ = $cbrt($l);
-		$m_ = $cbrt($m);
-		$s_ = $cbrt($s);
+		$l_ = self::cbrtFloat($l);
+		$m_ = self::cbrtFloat($m);
+		$s_ = self::cbrtFloat($s);
 
 		return [
 			0.2104542683093140 * $l_ + 0.7936177747023054 * $m_ - 0.0040720430116193 * $s_,
 			1.9779985324311684 * $l_ - 2.4285922420485799 * $m_ + 0.4505937096174110 * $s_,
 			0.0259040424655478 * $l_ + 0.7827717124575296 * $m_ - 0.8086757549230774 * $s_,
 		];
+	}
+
+	private static function labF(float $v): float
+	{
+		return $v > self::LAB_EPSILON ? ($v ** self::THIRD) : (self::LAB_KAPPA * $v + 16.0) / 116.0;
+	}
+
+	private static function cbrtFloat(float $v): float
+	{
+		return $v < 0.0 ? -((-$v) ** self::THIRD) : ($v ** self::THIRD);
 	}
 
 	/** @return array{float, float, float} */
@@ -736,12 +790,79 @@ abstract class CSSColorValue extends CSSStyleValue
 			$a = $len === 8 ? hexdec(substr($digits, 6, 2)) : 255;
 		}
 
-		return new CSSRGB(
+		return CSSRGB::fromValidated(
 			new CSSUnitValue(($r / 255.0) * 100.0, 'percent'),
 			new CSSUnitValue(($g / 255.0) * 100.0, 'percent'),
 			new CSSUnitValue(($b / 255.0) * 100.0, 'percent'),
 			new CSSUnitValue(($a / 255.0) * 100.0, 'percent'),
 		);
+	}
+
+	/**
+	 * Strips top-level CSS comments outside nested `(...)`/`[...]` so inner invalid comments remain intact for downstream parsers.
+	 */
+	private static function stripTopLevelComments(string $body): string
+	{
+		if (!str_contains($body, '/*')) {
+			return $body;
+		}
+
+		$len = strlen($body);
+		$depth = 0;
+		$quote = '';
+		$out = '';
+		$chunkStart = 0;
+		$i = 0;
+
+		while ($i < $len) {
+			$ch = $body[$i];
+			if ($quote !== '') {
+				if ($ch === '\\') {
+					$i += 2;
+					continue;
+				}
+				if ($ch === $quote) {
+					$quote = '';
+				}
+				$i++;
+				continue;
+			}
+
+			if ($ch === '"' || $ch === "'") {
+				$quote = $ch;
+				$i++;
+				continue;
+			}
+			if ($ch === '(' || $ch === '[') {
+				$depth++;
+				$i++;
+				continue;
+			}
+			if ($ch === ')' || $ch === ']') {
+				if ($depth > 0) {
+					$depth--;
+				}
+				$i++;
+				continue;
+			}
+			if ($ch === '/' && $i + 1 < $len && $body[$i + 1] === '*') {
+				$end = strpos($body, '*/', $i + 2);
+				$commentEnd = $end === false ? $len : $end + 2;
+				if ($depth === 0) {
+					$out .= substr($body, $chunkStart, $i - $chunkStart) . ' ';
+					$chunkStart = $commentEnd;
+				}
+				$i = $commentEnd;
+				continue;
+			}
+			$i++;
+		}
+
+		if ($chunkStart === 0) {
+			return $body;
+		}
+
+		return $out . substr($body, $chunkStart);
 	}
 
 	/**
@@ -751,36 +872,38 @@ abstract class CSSColorValue extends CSSStyleValue
 	 */
 	private static function splitColorArguments(string $body, bool $allowLegacyComma): array
 	{
-		$commaParts = CSSSyntaxScanner::splitTopLevel($body, ',');
-		$slashParts = CSSSyntaxScanner::splitTopLevel($body, '/');
+		$commaParts = str_contains($body, ',') ? CSSSyntaxScanner::splitTopLevel($body, ',') : [$body];
 
 		if (count($commaParts) > 1) {
-			if (!$allowLegacyComma || count($slashParts) > 1) {
+			if (!$allowLegacyComma || (str_contains($body, '/') && count(CSSSyntaxScanner::splitTopLevel($body, '/')) > 1)) {
 				throw new InvalidArgumentException('Invalid comma syntax in CSS color function.');
 			}
-			$trimmed = array_map('trim', $commaParts);
-			foreach ($trimmed as $part) {
-				if ($part === '') {
+			$trimmed = [];
+			foreach ($commaParts as $part) {
+				$clean = CSSSyntaxScanner::trimCssWhitespace($part);
+				if ($clean === '') {
 					throw new InvalidArgumentException('Empty component in CSS color function.');
 				}
+				$trimmed[] = $clean;
 			}
 			if (count($trimmed) === 3) {
 				return [$trimmed, null, true];
 			}
 			if (count($trimmed) === 4) {
-				return [array_slice($trimmed, 0, 3), $trimmed[3], true];
+				return [[$trimmed[0], $trimmed[1], $trimmed[2]], $trimmed[3], true];
 			}
 			throw new InvalidArgumentException('Invalid argument count in legacy CSS color function.');
 		}
 
+		$slashParts = str_contains($body, '/') ? CSSSyntaxScanner::splitTopLevel($body, '/') : [$body];
 		if (count($slashParts) > 2) {
 			throw new InvalidArgumentException('Too many "/" separators in CSS color function.');
 		}
 
-		$channels = CSSSyntaxScanner::splitTopLevelWhitespace(trim($slashParts[0]));
+		$channels = CSSSyntaxScanner::splitTopLevelWhitespace(CSSSyntaxScanner::trimCssWhitespace($slashParts[0]));
 		$alpha = null;
 		if (count($slashParts) === 2) {
-			$alphaTokens = CSSSyntaxScanner::splitTopLevelWhitespace(trim($slashParts[1]));
+			$alphaTokens = CSSSyntaxScanner::splitTopLevelWhitespace(CSSSyntaxScanner::trimCssWhitespace($slashParts[1]));
 			if (count($alphaTokens) !== 1) {
 				throw new InvalidArgumentException('Invalid alpha component in CSS color function.');
 			}
@@ -795,7 +918,7 @@ abstract class CSSColorValue extends CSSStyleValue
 		bool $allowNone,
 		CSSParserOptions $options,
 	): CSSNumericValue|CSSKeywordValue {
-		$token = trim($token);
+		$token = CSSSyntaxScanner::trimCssWhitespace($token);
 		if ($token === '') {
 			throw new InvalidArgumentException('Empty color component.');
 		}
@@ -835,15 +958,16 @@ abstract class CSSColorValue extends CSSStyleValue
 				$parsed[] = $component;
 			} else {
 				$category = $component->getNumericCategory();
-				if (!in_array($category, ['number', 'percent'], true)) {
+				if ($component->getNumericTypeInternal()->percentHint !== null || !in_array($category, ['number', 'percent'], true)) {
 					throw new InvalidArgumentException('rgb() math channel must be a number or percentage.');
 				}
 				if ($category === 'percent') {
 					$seenPercent = true;
+					$parsed[] = $component;
 				} else {
 					$seenNumber = true;
+					$parsed[] = $component->mul(new CSSUnitValue(100.0 / 255.0, 'percent'));
 				}
-				$parsed[] = $component;
 			}
 		}
 
@@ -855,7 +979,7 @@ abstract class CSSColorValue extends CSSStyleValue
 			? new CSSUnitValue(100.0, 'percent')
 			: self::normalizePercentChannel(self::parseComponentToken($alphaToken, !$legacy, $options), 100.0);
 
-		return new CSSRGB($parsed[0], $parsed[1], $parsed[2], $alpha);
+		return CSSRGB::fromValidated($parsed[0], $parsed[1], $parsed[2], $alpha);
 	}
 
 	private static function parseHslFunction(string $body, CSSParserOptions $options): CSSHSL
@@ -880,7 +1004,7 @@ abstract class CSSColorValue extends CSSStyleValue
 			? new CSSUnitValue(100.0, 'percent')
 			: self::normalizePercentChannel(self::parseComponentToken($alphaToken, !$legacy, $options), 100.0);
 
-		return new CSSHSL($h, $s, $l, $alpha);
+		return CSSHSL::fromValidated($h, $s, $l, $alpha);
 	}
 
 	private static function parseHwbFunction(string $body, CSSParserOptions $options): CSSHWB
@@ -897,7 +1021,7 @@ abstract class CSSColorValue extends CSSStyleValue
 			? new CSSUnitValue(100.0, 'percent')
 			: self::normalizePercentChannel(self::parseComponentToken($alphaToken, true, $options), 100.0);
 
-		return new CSSHWB($h, $w, $b, $alpha);
+		return CSSHWB::fromValidated($h, $w, $b, $alpha);
 	}
 
 	private static function parseLabFunction(string $body, CSSParserOptions $options): CSSLab
@@ -914,7 +1038,7 @@ abstract class CSSColorValue extends CSSStyleValue
 			? new CSSUnitValue(100.0, 'percent')
 			: self::normalizePercentChannel(self::parseComponentToken($alphaToken, true, $options), 100.0);
 
-		return new CSSLab($l, $a, $b, $alpha);
+		return CSSLab::fromValidated($l, $a, $b, $alpha);
 	}
 
 	private static function parseLchFunction(string $body, CSSParserOptions $options): CSSLCH
@@ -931,7 +1055,7 @@ abstract class CSSColorValue extends CSSStyleValue
 			? new CSSUnitValue(100.0, 'percent')
 			: self::normalizePercentChannel(self::parseComponentToken($alphaToken, true, $options), 100.0);
 
-		return new CSSLCH($l, $c, $h, $alpha);
+		return CSSLCH::fromValidated($l, $c, $h, $alpha);
 	}
 
 	private static function parseOklabFunction(string $body, CSSParserOptions $options): CSSOKLab
@@ -948,7 +1072,7 @@ abstract class CSSColorValue extends CSSStyleValue
 			? new CSSUnitValue(100.0, 'percent')
 			: self::normalizePercentChannel(self::parseComponentToken($alphaToken, true, $options), 100.0);
 
-		return new CSSOKLab($l, $a, $b, $alpha);
+		return CSSOKLab::fromValidated($l, $a, $b, $alpha);
 	}
 
 	private static function parseOklchFunction(string $body, CSSParserOptions $options): CSSOKLCH
@@ -965,7 +1089,7 @@ abstract class CSSColorValue extends CSSStyleValue
 			? new CSSUnitValue(100.0, 'percent')
 			: self::normalizePercentChannel(self::parseComponentToken($alphaToken, true, $options), 100.0);
 
-		return new CSSOKLCH($l, $c, $h, $alpha);
+		return CSSOKLCH::fromValidated($l, $c, $h, $alpha);
 	}
 
 	private static function parseColorFunction(string $body, CSSParserOptions $options): CSSColor
@@ -975,15 +1099,27 @@ abstract class CSSColorValue extends CSSStyleValue
 			throw new InvalidArgumentException('color() requires a color space and at least one channel.');
 		}
 
-		$space = array_shift($tokens);
-		$channels = array_map(
-			static fn (string $token): CSSNumericValue|CSSKeywordValue => self::normalizeNumberOrPercentChannel(self::parseComponentToken($token, true, $options)),
-			$tokens,
-		);
+		$rawSpace = CSSSyntaxScanner::trimCssWhitespace(array_shift($tokens));
+		if (str_starts_with($rawSpace, '--')) {
+			$space = new CSSKeywordValue(CSSStyleDeclaration::normalizePropertyName($rawSpace));
+		} else {
+			$lower = strtolower($rawSpace);
+			if (!isset(CSSColor::PREDEFINED_SPACES[$lower])) {
+				throw new InvalidArgumentException('Unsupported CSS color space: ' . $rawSpace);
+			}
+			if (count($tokens) !== 3) {
+				throw new InvalidArgumentException(sprintf('Predefined color space "%s" requires exactly 3 channels.', $lower));
+			}
+			$space = new CSSKeywordValue($lower);
+		}
+		$channels = [];
+		foreach ($tokens as $token) {
+			$channels[] = self::normalizeNumberOrPercentChannel(self::parseComponentToken($token, true, $options));
+		}
 		$alpha = $alphaToken === null
 			? new CSSUnitValue(100.0, 'percent')
 			: self::normalizePercentChannel(self::parseComponentToken($alphaToken, true, $options), 100.0);
 
-		return new CSSColor($space, $channels, $alpha);
+		return CSSColor::fromValidated($space, $channels, $alpha);
 	}
 }

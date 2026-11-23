@@ -5,12 +5,11 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\Tests\Parser;
 
 use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathNegate;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathInvert;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathNegate;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
 use PHPUnit\Framework\TestCase;
 
 class CSSCalcParserTest extends TestCase
@@ -351,5 +350,57 @@ class CSSCalcParserTest extends TestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         CSSCalcParser::parse('calc(10px + 2px) junk');
+    }
+
+    public function testMathInvertParenthesizesInnerExpressionInProductAndHandlesLongSumChain(): void
+    {
+        $invertSum = new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathInvert(
+            new CSSMathSum([new CSSUnitValue(10, 'px'), new CSSUnitValue(5, 'px')]),
+        );
+        $product = new CSSMathProduct([new CSSUnitValue(2, 'number'), $invertSum]);
+        $this->assertSame('calc(2 / (10px + 5px))', (string) $product);
+
+        $doubleInvert = new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathInvert($invertSum);
+        $this->assertSame('calc(1 / (1 / (10px + 5px)))', (string) $doubleInvert);
+
+        $terms = [];
+        for ($i = 1; $i <= 200; $i++) {
+            $terms[] = $i . 'px';
+        }
+        $longCalc = 'calc(' . implode(' + ', $terms) . ')';
+        $parsed = CSSCalcParser::parse($longCalc);
+        $this->assertInstanceOf(CSSMathSum::class, $parsed);
+        $this->assertCount(200, $parsed->inner_values);
+
+        $multiPercent = CSSCalcParser::parse('calc(10px + 50% + 20%)');
+        $this->assertInstanceOf(CSSMathSum::class, $multiPercent);
+        $this->assertSame('length', $multiPercent->type()->percentHint);
+
+        $clamped = \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue::parse('clamp(10px, 50%, 80%)');
+        $this->assertSame('length', $clamped->type()->percentHint);
+    }
+
+    public function testRejectsMalformedOperatorsDotsSpacesAndCommentsWhileSupportingDepth256(): void
+    {
+        foreach ([
+            'calc(10.px)',
+            'calc (10px)',
+            'calc(10px +/*c*/5px)',
+        ] as $invalid) {
+            try {
+                CSSCalcParser::parse($invalid);
+                $this->fail('Expected invalid calc expression to throw: ' . $invalid);
+            } catch (\InvalidArgumentException) {
+                $this->assertTrue(true);
+            }
+        }
+
+        $minWithComment = \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue::parse('min(10px /*c*/, 20px)');
+        $this->assertSame('min(10px, 20px)', (string) $minWithComment);
+
+        $deepCalc = 'calc(' . str_repeat('(', 254) . '10px + 5px' . str_repeat(')', 254) . ')';
+        $parsedDeep = CSSCalcParser::parse($deepCalc);
+        $this->assertInstanceOf(CSSMathSum::class, $parsedDeep);
+        $this->assertSame('calc(10px + 5px)', (string) $parsedDeep);
     }
 }

@@ -62,7 +62,13 @@ final class CSSKeyframesRule extends CSSGroupingRule
 			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
 		}
 
-		$keyframe = CSSParser::parseSingleKeyframeRule($ruleText, $options);
+		$sheet = $this->getParentStyleSheet();
+		$keyframe = CSSParser::parseSingleKeyframeRule(
+			$ruleText,
+			$options,
+			$this->getNestingDepth(),
+			$sheet->getTotalRuleCount(),
+		);
 		$this->getCssRules()->insert($index, $keyframe);
 
 		return $index;
@@ -75,7 +81,7 @@ final class CSSKeyframesRule extends CSSGroupingRule
 			return;
 		}
 
-		$target = trim($keyText);
+		$target = CSSSyntaxScanner::trimCssWhitespace($keyText);
 		foreach ($this->getCssRules() as $index => $rule) {
 			if ($rule instanceof CSSKeyframeRule && strcasecmp($rule->getKeyText(), $target) === 0) {
 				$this->getCssRules()->remove($index);
@@ -86,7 +92,7 @@ final class CSSKeyframesRule extends CSSGroupingRule
 
 	public function findRule(string $keyText): ?CSSKeyframeRule
 	{
-		$target = trim($keyText);
+		$target = CSSSyntaxScanner::trimCssWhitespace($keyText);
 		foreach ($this->getCssRules() as $rule) {
 			if ($rule instanceof CSSKeyframeRule && strcasecmp($rule->getKeyText(), $target) === 0) {
 				return $rule;
@@ -104,6 +110,11 @@ final class CSSKeyframesRule extends CSSGroupingRule
 		};
 	}
 
+	public function __isset(string $name): bool
+	{
+		return $name === 'name' || $name === 'length' || parent::__isset($name);
+	}
+
 	public function __set(string $name, mixed $value): void
 	{
 		if ($name === 'name' && is_string($value)) {
@@ -115,7 +126,7 @@ final class CSSKeyframesRule extends CSSGroupingRule
 
 	private static function validateName(string $name): string
 	{
-		$name = trim($name);
+		$name = CSSSyntaxScanner::trimCssWhitespace($name);
 		if ($name === '') {
 			throw new InvalidArgumentException('Keyframes name cannot be empty.');
 		}

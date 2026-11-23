@@ -18,6 +18,7 @@ The documented names and signatures follow the PHP source. Trait pages describe 
 ### Stylesheets, parsing, and rendering
 
 - [`CSSParser`](interfaces/CSSOM/CSSParser.md) — stylesheet and single-rule parsing entry points.
+- [`CSSParserLimitException`](interfaces/CSSOM/CSSParserLimitException.md) — exception thrown when parser or renderer resource limits are exceeded.
 - [`CSSParserOptions`](interfaces/CSSOM/CSSParserOptions.md) — parser resource-limit configuration.
 - [`CSSRenderer`](interfaces/CSSOM/CSSRenderer.md) — pretty and compact CSS rendering.
 - [`CSSRenderMode`](interfaces/CSSOM/CSSRenderMode.md) — renderer output mode enum.
@@ -138,12 +139,7 @@ The documented names and signatures follow the PHP source. Trait pages describe 
 Traits are listed because their methods become available on classes that use them; their pages describe the methods they contribute and their expectations of the consuming class.
 
 - [`LengthTrait`](interfaces/TypedOM/LengthTrait.md)
-- [`MagicPropertyAccessTrait`](interfaces/TypedOM/MagicPropertyAccessTrait.md)
-- [`MathOperationsTrait`](interfaces/TypedOM/MathOperationsTrait.md)
 - [`MultiValueArrayTrait`](interfaces/TypedOM/MultiValueArrayTrait.md)
 - [`MultiValueTrait`](interfaces/TypedOM/MultiValueTrait.md)
 - [`SimpleValueTrait`](interfaces/TypedOM/SimpleValueTrait.md)
-- [`TransformComponentTrait`](interfaces/TypedOM/TransformComponentTrait.md)
 - [`TypeableUnitTrait`](interfaces/TypedOM/TypeableUnitTrait.md)
-- [`CSSMathOperationTrait`](interfaces/TypedOM/CSSMathOperationTrait.md)
-- [`CSSMathOperatorTrait`](interfaces/TypedOM/CSSMathOperatorTrait.md)

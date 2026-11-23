@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\CSS;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
@@ -18,32 +20,41 @@ use Stringable;
  */
 abstract class CSSStyleValue implements Stringable
 {
-	/** @var array<string, list<string>> */
+	/** @var array<string, true> */
+	private const array GLOBAL_KEYWORDS = [
+		'inherit' => true,
+		'initial' => true,
+		'unset' => true,
+		'revert' => true,
+		'revert-layer' => true,
+	];
+
+	/** @var array<string, array<string, true>> */
 	private const array PROPERTY_KEYWORDS = [
-		'display' => ['block', 'contents', 'flex', 'flow', 'flow-root', 'grid', 'inline', 'inline-block', 'inline-flex', 'inline-grid', 'inline-table', 'list-item', 'none', 'ruby', 'table'],
-		'position' => ['absolute', 'fixed', 'relative', 'static', 'sticky'],
-		'width' => ['auto', 'fit-content', 'max-content', 'min-content', 'stretch'],
-		'height' => ['auto', 'fit-content', 'max-content', 'min-content', 'stretch'],
-		'min-width' => ['auto', 'fit-content', 'max-content', 'min-content', 'stretch'],
-		'max-width' => ['none', 'fit-content', 'max-content', 'min-content', 'stretch'],
-		'min-height' => ['auto', 'fit-content', 'max-content', 'min-content', 'stretch'],
-		'max-height' => ['none', 'fit-content', 'max-content', 'min-content', 'stretch'],
-		'inline-size' => ['auto', 'fit-content', 'max-content', 'min-content', 'stretch'],
-		'block-size' => ['auto', 'fit-content', 'max-content', 'min-content', 'stretch'],
-		'overflow' => ['auto', 'clip', 'hidden', 'scroll', 'visible'],
-		'overflow-x' => ['auto', 'clip', 'hidden', 'scroll', 'visible'],
-		'overflow-y' => ['auto', 'clip', 'hidden', 'scroll', 'visible'],
-		'visibility' => ['collapse', 'hidden', 'visible'],
-		'float' => ['inline-end', 'inline-start', 'left', 'none', 'right'],
-		'clear' => ['both', 'inline-end', 'inline-start', 'left', 'none', 'right'],
-		'box-sizing' => ['border-box', 'content-box'],
-		'transform' => ['none'],
-		'background-image' => ['none'],
-		'mask-image' => ['none'],
-		'border-style' => ['dashed', 'dotted', 'double', 'groove', 'hidden', 'inset', 'none', 'outset', 'ridge', 'solid'],
-		'text-align' => ['center', 'end', 'justify', 'left', 'match-parent', 'right', 'start'],
-		'justify-content' => ['center', 'end', 'flex-end', 'flex-start', 'left', 'normal', 'right', 'space-around', 'space-between', 'space-evenly', 'start', 'stretch'],
-		'align-items' => ['baseline', 'center', 'end', 'flex-end', 'flex-start', 'normal', 'self-end', 'self-start', 'start', 'stretch'],
+		'display' => ['block' => true, 'contents' => true, 'flex' => true, 'flow' => true, 'flow-root' => true, 'grid' => true, 'inline' => true, 'inline-block' => true, 'inline-flex' => true, 'inline-grid' => true, 'inline-table' => true, 'list-item' => true, 'none' => true, 'ruby' => true, 'table' => true],
+		'position' => ['absolute' => true, 'fixed' => true, 'relative' => true, 'static' => true, 'sticky' => true],
+		'width' => ['auto' => true, 'fit-content' => true, 'max-content' => true, 'min-content' => true, 'stretch' => true],
+		'height' => ['auto' => true, 'fit-content' => true, 'max-content' => true, 'min-content' => true, 'stretch' => true],
+		'min-width' => ['auto' => true, 'fit-content' => true, 'max-content' => true, 'min-content' => true, 'stretch' => true],
+		'max-width' => ['none' => true, 'fit-content' => true, 'max-content' => true, 'min-content' => true, 'stretch' => true],
+		'min-height' => ['auto' => true, 'fit-content' => true, 'max-content' => true, 'min-content' => true, 'stretch' => true],
+		'max-height' => ['none' => true, 'fit-content' => true, 'max-content' => true, 'min-content' => true, 'stretch' => true],
+		'inline-size' => ['auto' => true, 'fit-content' => true, 'max-content' => true, 'min-content' => true, 'stretch' => true],
+		'block-size' => ['auto' => true, 'fit-content' => true, 'max-content' => true, 'min-content' => true, 'stretch' => true],
+		'overflow' => ['auto' => true, 'clip' => true, 'hidden' => true, 'scroll' => true, 'visible' => true],
+		'overflow-x' => ['auto' => true, 'clip' => true, 'hidden' => true, 'scroll' => true, 'visible' => true],
+		'overflow-y' => ['auto' => true, 'clip' => true, 'hidden' => true, 'scroll' => true, 'visible' => true],
+		'visibility' => ['collapse' => true, 'hidden' => true, 'visible' => true],
+		'float' => ['inline-end' => true, 'inline-start' => true, 'left' => true, 'none' => true, 'right' => true],
+		'clear' => ['both' => true, 'inline-end' => true, 'inline-start' => true, 'left' => true, 'none' => true, 'right' => true],
+		'box-sizing' => ['border-box' => true, 'content-box' => true],
+		'transform' => ['none' => true],
+		'background-image' => ['none' => true],
+		'mask-image' => ['none' => true],
+		'border-style' => ['dashed' => true, 'dotted' => true, 'double' => true, 'groove' => true, 'hidden' => true, 'inset' => true, 'none' => true, 'outset' => true, 'ridge' => true, 'solid' => true],
+		'text-align' => ['center' => true, 'end' => true, 'justify' => true, 'left' => true, 'match-parent' => true, 'right' => true, 'start' => true],
+		'justify-content' => ['center' => true, 'end' => true, 'flex-end' => true, 'flex-start' => true, 'left' => true, 'normal' => true, 'right' => true, 'space-around' => true, 'space-between' => true, 'space-evenly' => true, 'start' => true, 'stretch' => true],
+		'align-items' => ['baseline' => true, 'center' => true, 'end' => true, 'flex-end' => true, 'flex-start' => true, 'normal' => true, 'self-end' => true, 'self-start' => true, 'start' => true, 'stretch' => true],
 	];
 
 	public function __construct()
@@ -58,68 +69,20 @@ abstract class CSSStyleValue implements Stringable
 	 */
 	public static function parse(string $propertyOrCssText, ?string $cssText = null, ?CSSParserOptions $options = null): CSSStyleValue
 	{
-		$property = $cssText === null ? '' : strtolower(trim($propertyOrCssText));
-		$cssText = trim($cssText ?? $propertyOrCssText);
-		if ($cssText === '') {
+		$options ??= CSSParserOptions::default();
+		$property = $cssText === null ? '' : strtolower(CSSSyntaxScanner::trimCssWhitespace($propertyOrCssText));
+		$raw = $cssText ?? $propertyOrCssText;
+		if ($options->maxBytes !== null && strlen($raw) > $options->maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS value exceeds maximum size of %d bytes.', $options->maxBytes));
+		}
+
+		$trimmed = CSSSyntaxScanner::trimCssWhitespace($raw);
+		if ($trimmed === '') {
 			throw new InvalidArgumentException('CSS value cannot be empty.');
 		}
-		CSSSyntaxScanner::assertValidFragment($cssText, 'CSS value', [';', '{', '}']);
+		CSSSyntaxScanner::assertValidFragment($trimmed, 'CSS value', [';', '{', '}']);
 
-		if (in_array(strtolower($cssText), ['inherit', 'initial', 'unset', 'revert', 'revert-layer'], true)) {
-			return new CSSKeywordValue(strtolower($cssText));
-		}
-		if (str_starts_with($property, '--')) {
-			return CSSUnparsedValue::fromCssText($cssText);
-		}
-
-		if ($property === 'transform' || in_array($property, ['translate', 'rotate', 'scale'], true)) {
-			try {
-				return CSSTransformValue::fromCssText($cssText);
-			} catch (InvalidArgumentException) {
-				// Retain values outside the supported transform grammar as unparsed values.
-			}
-		}
-
-		if (preg_match('/^(?:url|image|image-set|cross-fade|paint|element|(?:repeating-)?(?:linear|radial|conic)-gradient)\(/i', $cssText)) {
-			try {
-				return new CSSImageValue($cssText);
-			} catch (InvalidArgumentException) {
-				// Fall through to generic unparsed value when extra trailing tokens are present.
-			}
-		}
-
-		if (in_array($property, ['object-position', 'background-position'], true)) {
-			try {
-				return CSSPositionValue::fromCssText($cssText);
-			} catch (InvalidArgumentException) {
-				// Unsupported position syntax remains available as source text below.
-			}
-		}
-
-		if ($cssText[0] === '#' || preg_match('/^(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\s*\(/i', $cssText)) {
-			try {
-				return CSSColorValue::parse($cssText, null, $options);
-			} catch (InvalidArgumentException $exception) {
-				if (str_contains($exception->getMessage(), 'depth') || str_contains($exception->getMessage(), 'maximum size')) {
-					throw $exception;
-				}
-				// Unsupported/relative/var() color syntax falls through to unparsed value below.
-			}
-		}
-
-		try {
-			return CSSNumericValue::parse($cssText, null, $options);
-		} catch (InvalidArgumentException $exception) {
-			if (str_contains($exception->getMessage(), 'depth') || str_contains($exception->getMessage(), 'maximum size')) {
-				throw $exception;
-			}
-		}
-
-		if (self::isKnownPropertyKeyword($property, $cssText)) {
-			return new CSSKeywordValue($cssText);
-		}
-
-		return CSSUnparsedValue::fromCssText($cssText);
+		return self::parseValidated($property, $trimmed, $options);
 	}
 
 	/**
@@ -130,13 +93,37 @@ abstract class CSSStyleValue implements Stringable
 	 */
 	public static function parseAll(string $property, string $cssText, ?CSSParserOptions $options = null): array
 	{
+		$options ??= CSSParserOptions::default();
+		if ($options->maxBytes !== null && strlen($cssText) > $options->maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS value list exceeds maximum size of %d bytes.', $options->maxBytes));
+		}
 		CSSSyntaxScanner::assertValidFragment($cssText, 'CSS value list', [';', '{', '}']);
 
+		$normalizedProp = strtolower(CSSSyntaxScanner::trimCssWhitespace($property));
+
+		return self::parseAllValidated($normalizedProp, $cssText, $options);
+	}
+
+	/**
+	 * @internal Parses an already-fragment-validated value list without re-scanning for balanced delimiters/control bytes.
+	 * @return list<CSSStyleValue>
+	 * @throws InvalidArgumentException When the value list is empty or invalid
+	 */
+	public static function parseAllValidated(string $normalizedProperty, string $validatedCssText, CSSParserOptions $options): array
+	{
+		if (str_starts_with($normalizedProperty, '--')) {
+			$trimmed = CSSSyntaxScanner::trimCssWhitespace($validatedCssText);
+			if ($trimmed === '') {
+				throw new InvalidArgumentException('CSS value list cannot be empty.');
+			}
+			return [self::parseValidated($normalizedProperty, $trimmed, $options)];
+		}
+
 		$values = [];
-		foreach (CSSSyntaxScanner::splitTopLevel($cssText, ',') as $value) {
-			$value = trim($value);
+		foreach (CSSSyntaxScanner::splitTopLevel($validatedCssText, ',') as $value) {
+			$value = CSSSyntaxScanner::trimCssWhitespace($value);
 			if ($value !== '') {
-				$values[] = self::parse($property, $value, $options);
+				$values[] = self::parseValidated($normalizedProperty, $value, $options);
 			}
 		}
 
@@ -147,12 +134,73 @@ abstract class CSSStyleValue implements Stringable
 		return $values;
 	}
 
+	/**
+	 * @internal Parses a trimmed, already-fragment-validated value into a Typed OM object.
+	 */
+	public static function parseValidated(string $normalizedProperty, string $trimmedValue, CSSParserOptions $options): CSSStyleValue
+	{
+		$lower = strtolower($trimmedValue);
+		if (isset(self::GLOBAL_KEYWORDS[$lower])) {
+			return new CSSKeywordValue($lower);
+		}
+		if (str_starts_with($normalizedProperty, '--')) {
+			return CSSUnparsedValue::fromCssText($trimmedValue, $options);
+		}
+		if (isset(self::PROPERTY_KEYWORDS[$normalizedProperty][$lower])) {
+			return new CSSKeywordValue($trimmedValue);
+		}
+
+		if ($normalizedProperty === 'transform' || $normalizedProperty === 'translate' || $normalizedProperty === 'rotate' || $normalizedProperty === 'scale') {
+			try {
+				return CSSTransformValue::fromCssText($trimmedValue, $options);
+			} catch (CSSParserLimitException $e) {
+				throw $e;
+			} catch (InvalidArgumentException) {
+				// Retain values outside the supported transform grammar as unparsed values.
+			}
+		}
+
+		if (str_contains($trimmedValue, '(')
+			&& preg_match('/^(url|image|image-set|cross-fade|paint|element|(?:repeating-)?(?:linear|radial|conic)-gradient)\(/i', $trimmedValue, $imgMatch)
+			&& (strtolower($imgMatch[1]) === 'url' || !CSS::hasVarReference($trimmedValue))
+		) {
+			try {
+				return new CSSImageValue($trimmedValue);
+			} catch (InvalidArgumentException) {
+				// Fall through to generic unparsed value when extra trailing tokens are present.
+			}
+		}
+
+		if ($normalizedProperty === 'object-position' || $normalizedProperty === 'background-position') {
+			try {
+				return CSSPositionValue::fromCssText($trimmedValue, $options);
+			} catch (CSSParserLimitException $e) {
+				throw $e;
+			} catch (InvalidArgumentException) {
+				// Unsupported position syntax remains available as source text below.
+			}
+		}
+
+		$c0 = $trimmedValue[0];
+		if ($c0 === '#' || (str_contains($trimmedValue, '(') && preg_match('/^(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/i', $trimmedValue))) {
+			try {
+				return CSSColorValue::parse($trimmedValue, null, $options);
+			} catch (CSSParserLimitException $e) {
+				throw $e;
+			} catch (InvalidArgumentException) {
+				// Unsupported/relative/var() color syntax falls through to unparsed value below.
+			}
+		}
+
+		$numeric = CSSNumericValue::tryParse($trimmedValue, $options);
+		if ($numeric !== null) {
+			return $numeric;
+		}
+
+		return CSSUnparsedValue::fromCssText($trimmedValue, $options);
+	}
+
 	abstract public function __toString(): string;
 
 	abstract public function clone(): static;
-
-	private static function isKnownPropertyKeyword(string $property, string $value): bool
-	{
-		return in_array(strtolower($value), self::PROPERTY_KEYWORDS[$property] ?? [], true);
-	}
 }

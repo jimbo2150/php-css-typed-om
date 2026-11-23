@@ -8,58 +8,38 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericArray;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 
 /**
- * Trait for simple value classes (color, keyword, image).
- * 
- * Provides common functionality for simple CSS values that don't need complex operations.
+ * Trait for multi-operand CSS math expression classes (`CSSMathValue` hierarchy).
  */
 trait MultiValueTrait
 {
+	public protected(set) CSSNumericArray $values;
 
-	/** @var CSSNumericArray */
-    public protected(set) CSSNumericArray $values {
-		get {
-			return $this->values;
-		}
-	}
-
-	/** @var array<CSSNumericValue> */
-	   public private(set) array $inner_values {
-		get {
-			return $this->values->values;
-		}
-		set {
-
-		}
+	/** @var list<CSSNumericValue> */
+	public array $inner_values {
+		get => $this->values->values;
 	}
 
 	/**
-	 * Constructor for MultiValueTrait.
-	 *
-	 * @param CSSNumericValue|CSSNumericArray|array $value The value to initialize with
+	 * @param CSSNumericValue|CSSNumericArray|list<CSSNumericValue> $value The value to initialize with
 	 */
-	public function __construct(CSSNumericValue|CSSNumericArray|array $value) {
-		if($value instanceof CSSNumericArray) {
+	public function __construct(CSSNumericValue|CSSNumericArray|array $value)
+	{
+		if ($value instanceof CSSNumericArray) {
 			$this->values = $value;
-		} else if($value instanceof CSSNumericValue) {
+		} elseif ($value instanceof CSSNumericValue) {
 			$this->values = new CSSNumericArray([$value]);
 		} else {
 			$this->values = new CSSNumericArray($value);
 		}
 	}
 
-    /**
-     * Convert to string representation.
-     */
-    public function __toString(): string
-    {
-        return (string) $this->values;
-    }
+	public function __toString(): string
+	{
+		return (string) $this->values;
+	}
 
-    /**
-     * Clone the value.
-     */
-    public function clone(): static
-    {
-        return new static(clone $this->values);
-    }
+	public function clone(): static
+	{
+		return new static($this->values->clone());
+	}
 }

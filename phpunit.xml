@@ -1,8 +1,22 @@
 <phpunit bootstrap="vendor/autoload.php"
-	displayDetailsOnTestsThatTriggerWarnings="true">
+	displayDetailsOnTestsThatTriggerWarnings="true"
+	displayDetailsOnTestsThatTriggerDeprecations="true"
+	failOnWarning="true"
+	failOnDeprecation="true"
+	failOnRisky="true">
 	<testsuites>
-		<testsuite name="Tests">
-			<directory>tests</directory>
+		<testsuite name="Unit">
+			<directory>tests/CSSOM</directory>
+			<directory>tests/Geometry</directory>
+			<directory>tests/Parser</directory>
+			<directory>tests/Support</directory>
+			<directory>tests/TypedOM</directory>
+		</testsuite>
+		<testsuite name="Security">
+			<directory>tests/Security</directory>
+		</testsuite>
+		<testsuite name="Fuzz">
+			<directory>tests/Fuzz</directory>
 		</testsuite>
 	</testsuites>
 	<source>

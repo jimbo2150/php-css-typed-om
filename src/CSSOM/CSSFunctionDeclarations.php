@@ -11,8 +11,11 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
  */
 final class CSSFunctionDeclarations extends CSSRule
 {
-	public function __construct(private readonly CSSFunctionDescriptors $style)
+	private readonly CSSFunctionDescriptors $style;
+
+	public function __construct(CSSFunctionDescriptors $style)
 	{
+		$this->style = $style->getParentRule() !== null ? clone $style : $style;
 		$this->style->setParentRule($this);
 	}
 
@@ -34,5 +37,10 @@ final class CSSFunctionDeclarations extends CSSRule
 	public function __get(string $name): mixed
 	{
 		return $name === 'style' ? $this->getStyle() : parent::__get($name);
+	}
+
+	public function __isset(string $name): bool
+	{
+		return $name === 'style' || parent::__isset($name);
 	}
 }

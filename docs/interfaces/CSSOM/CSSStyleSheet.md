@@ -18,6 +18,7 @@ Magic read-only `cssRules`, `cssText`, `parseErrors`, and `baseURL`; stylesheet 
 | `parse(string $cssText, ?CSSParserOptions $options = null): self` (static) | Parses with recovery and stores diagnostics on returned sheet. | Returns a `CSSStyleSheet`. | `$sheet = CSSStyleSheet::parse('a { color: red }');` |
 | `getCssRules(): CSSRuleList` | Returns the owned mutable list. | | `$sheet->getCssRules();` |
 | `getParseErrors(): array` | Returns ordered `{message, offset}` diagnostics. | | `$sheet->getParseErrors();` |
+| `getTotalRuleCount(): int` | Returns total number of tracked rules across top-level and nested rule trees. | | `$sheet->getTotalRuleCount();` |
 | `getCssText(): string` | Joins each rule's CSS text with newlines. | | `$sheet->getCssText();` |
 | `insertRule(string $ruleText, int $index = 0, ?CSSParserOptions $options = null): int` | Strictly parses exactly one rule, inserts at index, and returns index. Throws `OutOfBoundsException` for invalid index or `InvalidArgumentException` for malformed/over-limit CSS; no mutation occurs before parsing succeeds. | | `$sheet->insertRule('a { color: red }');` |
 | `deleteRule(int $index = 0): void` | Removes rule at index. Throws `OutOfBoundsException` when invalid. | | `$sheet->deleteRule(0);` |

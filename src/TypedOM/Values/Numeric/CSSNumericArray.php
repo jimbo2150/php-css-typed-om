@@ -100,13 +100,28 @@ class CSSNumericArray implements ArrayAccess, Countable, IteratorAggregate, Stri
 		throw new Error('Undefined property: ' . static::class . '::$' . $name);
 	}
 
+	public function __isset(string $name): bool
+	{
+		return false;
+	}
+
 	public function __set(string $name, mixed $value): void
 	{
 		throw new Error('Cannot set property ' . static::class . '::$' . $name);
 	}
 
+	public function __clone(): void
+	{
+		$cloned = [];
+		$visits = 0;
+		foreach ($this->values as $value) {
+			$cloned[] = CSSNumericValue::cloneTreeIteratively($value, $visits);
+		}
+		$this->values = $cloned;
+	}
+
 	public function clone(): static
 	{
-		return new static(array_map(static fn (CSSNumericValue $value): CSSNumericValue => $value->clone(), $this->values));
+		return clone $this;
 	}
 }

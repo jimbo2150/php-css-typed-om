@@ -152,4 +152,64 @@ final class DOMMatrixTest extends TestCase
 		$this->expectException(InvalidArgumentException::class);
 		new DOMMatrix('translate(10px); body { color: red }');
 	}
+
+	public function testFlipXFlipYAndAtomicSelfMutationOnOverflow(): void
+	{
+		$base = new DOMMatrix([2, 0, 0, 3, 10, 20]);
+		$flippedX = $base->flipX();
+		$flippedY = $base->flipY();
+
+		self::assertSame(-2.0, $flippedX->a);
+		self::assertSame(3.0, $flippedX->d);
+		self::assertSame(10.0, $flippedX->e);
+		self::assertSame(2.0, $flippedY->a);
+		self::assertSame(-3.0, $flippedY->d);
+
+		$huge = new DOMMatrix([1e308, 0, 0, 1e308, 0, 0]);
+		try {
+			$huge->scaleSelf(10.0, 10.0, 1.0, 5.0, 6.0, 0.0);
+			self::fail('Expected scaleSelf overflow to throw.');
+		} catch (InvalidArgumentException) {
+			self::assertSame(1e308, $huge->a);
+			self::assertSame(0.0, $huge->e);
+			self::assertSame(0.0, $huge->f);
+		}
+	}
+
+	public function testExtremeAxisRotation3DOperationsAndSerialization(): void
+	{
+		$hugeRot = (new DOMMatrix())->rotateAxisAngle(1e200, 0.0, 0.0, 90.0);
+		self::assertEqualsWithDelta(0.0, $hugeRot->m22, 1e-12);
+		self::assertEqualsWithDelta(1.0, $hugeRot->m23, 1e-12);
+
+		$tinyRot = (new DOMMatrix())->rotateAxisAngle(0.0, 1e-200, 0.0, 90.0);
+		self::assertEqualsWithDelta(0.0, $tinyRot->m11, 1e-12);
+		self::assertEqualsWithDelta(-1.0, $tinyRot->m13, 1e-12);
+
+		$m3d = (new DOMMatrix())
+			->translate(1.0, 2.0, 3.0)
+			->scale(2.0, 3.0, 4.0)
+			->skewX(15.0)
+			->skewY(10.0);
+		self::assertFalse($m3d->is2D);
+		$array = $m3d->toFloat64Array();
+		self::assertCount(16, $array);
+		$json = $m3d->toJSON();
+		self::assertSame($m3d->m41, $json['m41']);
+		self::assertFalse($json['is2D']);
+	}
+
+	public function testTinyScaleInversionAndFromMatrixIsIdentityHandling(): void
+	{
+		$tiny = (new DOMMatrix())->scaleSelf(1e-8);
+		$inv = $tiny->invertSelf();
+		self::assertEqualsWithDelta(1e8, $inv->a, 1e-4);
+
+		$fromDict = DOMMatrixReadOnly::fromMatrix(['m33' => 1, 'isIdentity' => true]);
+		self::assertTrue($fromDict->is2D);
+		self::assertTrue($fromDict->isIdentity);
+
+		$this->expectException(InvalidArgumentException::class);
+		DOMMatrixReadOnly::fromMatrix(['isIdentity' => 'yes']);
+	}
 }

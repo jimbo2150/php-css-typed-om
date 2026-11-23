@@ -42,7 +42,7 @@ class DOMMatrix extends DOMMatrixReadOnly
 	public function multiplySelf(DOMMatrixReadOnly|array $other): self
 	{
 		$rhs = $other instanceof DOMMatrixReadOnly ? $other : new DOMMatrixReadOnly($other);
-		$this->elements = self::multiplyElements($this->elements, $rhs->elements);
+		$this->elements = self::multiplyElements($this->elements, $rhs->elements, $this->is2D, $rhs->is2D);
 		if (!$rhs->is2D) {
 			$this->is2D = false;
 		}
@@ -54,7 +54,7 @@ class DOMMatrix extends DOMMatrixReadOnly
 	public function preMultiplySelf(DOMMatrixReadOnly|array $other): self
 	{
 		$lhs = $other instanceof DOMMatrixReadOnly ? $other : new DOMMatrixReadOnly($other);
-		$this->elements = self::multiplyElements($lhs->elements, $this->elements);
+		$this->elements = self::multiplyElements($lhs->elements, $this->elements, $lhs->is2D, $this->is2D);
 		if (!$lhs->is2D) {
 			$this->is2D = false;
 		}
@@ -67,14 +67,11 @@ class DOMMatrix extends DOMMatrixReadOnly
 		$tx = self::assertFinite($tx, 'tx');
 		$ty = self::assertFinite($ty, 'ty');
 		$tz = self::assertFinite($tz, 'tz');
-		$translation = self::identityElements();
-		$translation[12] = $tx;
-		$translation[13] = $ty;
-		$translation[14] = $tz;
-		$this->elements = self::multiplyElements($this->elements, $translation);
-		if ($tz !== 0.0) {
-			$this->is2D = false;
-		}
+		$next = $this->elements;
+		$nextIs2D = $this->is2D;
+		self::applyTranslateElements($next, $nextIs2D, $tx, $ty, $tz);
+		$this->elements = $next;
+		$this->is2D = $nextIs2D;
 
 		return $this;
 	}
@@ -94,23 +91,35 @@ class DOMMatrix extends DOMMatrixReadOnly
 		$originY = self::assertFinite($originY, 'originY');
 		$originZ = self::assertFinite($originZ, 'originZ');
 
+		$next = $this->elements;
+		$nextIs2D = $this->is2D;
 		$hasOrigin = $originX !== 0.0 || $originY !== 0.0 || $originZ !== 0.0;
 		if ($hasOrigin) {
-			$this->translateSelf($originX, $originY, $originZ);
+			self::applyTranslateElements($next, $nextIs2D, $originX, $originY, $originZ);
 		}
 
-		$scale = self::identityElements();
-		$scale[0] = $scaleX;
-		$scale[5] = $scaleY;
-		$scale[10] = $scaleZ;
-		$this->elements = self::multiplyElements($this->elements, $scale);
+		if ($nextIs2D && $scaleZ === 1.0) {
+			$next[0] = self::assertFinite($next[0] * $scaleX, 'm11');
+			$next[1] = self::assertFinite($next[1] * $scaleX, 'm12');
+			$next[4] = self::assertFinite($next[4] * $scaleY, 'm21');
+			$next[5] = self::assertFinite($next[5] * $scaleY, 'm22');
+		} else {
+			for ($r = 0; $r < 4; $r++) {
+				$next[$r] = self::assertFinite($next[$r] * $scaleX, 'scale');
+				$next[4 + $r] = self::assertFinite($next[4 + $r] * $scaleY, 'scale');
+				$next[8 + $r] = self::assertFinite($next[8 + $r] * $scaleZ, 'scale');
+			}
+		}
 
 		if ($hasOrigin) {
-			$this->translateSelf(-$originX, -$originY, -$originZ);
+			self::applyTranslateElements($next, $nextIs2D, -$originX, -$originY, -$originZ);
 		}
 		if ($scaleZ !== 1.0 || $originZ !== 0.0) {
-			$this->is2D = false;
+			$nextIs2D = false;
 		}
+
+		$this->elements = $next;
+		$this->is2D = $nextIs2D;
 
 		return $this;
 	}
@@ -142,27 +151,35 @@ class DOMMatrix extends DOMMatrixReadOnly
 			$rad = deg2rad($rotX);
 			$cos = cos($rad);
 			$sin = sin($rad);
-			$rotation = self::identityElements();
-			$rotation[0] = $cos;
-			$rotation[1] = $sin;
-			$rotation[4] = -$sin;
-			$rotation[5] = $cos;
-			$this->elements = self::multiplyElements($this->elements, $rotation);
+			$next = $this->elements;
+			$rows = $this->is2D ? 2 : 4;
+			for ($r = 0; $r < $rows; $r++) {
+				$c0 = $next[$r];
+				$c1 = $next[4 + $r];
+				$next[$r] = self::assertFinite($c0 * $cos + $c1 * $sin, 'rotate');
+				$next[4 + $r] = self::assertFinite(-$c0 * $sin + $c1 * $cos, 'rotate');
+			}
+			$this->elements = $next;
 			return $this;
 		}
 
 		$rotY = self::assertFinite($rotY ?? 0.0, 'rotY');
 		$rotZ = self::assertFinite($rotZ ?? 0.0, 'rotZ');
 
+		$next = $this->elements;
+		$nextIs2D = $this->is2D;
 		if ($rotZ !== 0.0) {
-			$this->rotateAxisAngleSelf(0.0, 0.0, 1.0, $rotZ);
+			self::applyRotateAxisAngleElements($next, $nextIs2D, 0.0, 0.0, 1.0, $rotZ);
 		}
 		if ($rotY !== 0.0) {
-			$this->rotateAxisAngleSelf(0.0, 1.0, 0.0, $rotY);
+			self::applyRotateAxisAngleElements($next, $nextIs2D, 0.0, 1.0, 0.0, $rotY);
 		}
 		if ($rotX !== 0.0) {
-			$this->rotateAxisAngleSelf(1.0, 0.0, 0.0, $rotX);
+			self::applyRotateAxisAngleElements($next, $nextIs2D, 1.0, 0.0, 0.0, $rotX);
 		}
+
+		$this->elements = $next;
+		$this->is2D = $nextIs2D;
 
 		return $this;
 	}
@@ -180,18 +197,84 @@ class DOMMatrix extends DOMMatrixReadOnly
 
 	public function rotateAxisAngleSelf(float $x = 0.0, float $y = 0.0, float $z = 0.0, float $angle = 0.0): self
 	{
+		$next = $this->elements;
+		$nextIs2D = $this->is2D;
+		self::applyRotateAxisAngleElements($next, $nextIs2D, $x, $y, $z, $angle);
+		$this->elements = $next;
+		$this->is2D = $nextIs2D;
+
+		return $this;
+	}
+
+	public function skewXSelf(float $sx = 0.0): self
+	{
+		$tan = self::assertFinite(tan(deg2rad(self::assertFinite($sx, 'sx'))), 'tan(sx)');
+		$next = $this->elements;
+		$rows = $this->is2D ? 2 : 4;
+		for ($r = 0; $r < $rows; $r++) {
+			$next[4 + $r] = self::assertFinite($next[4 + $r] + $next[$r] * $tan, 'skewX');
+		}
+		$this->elements = $next;
+
+		return $this;
+	}
+
+	public function skewYSelf(float $sy = 0.0): self
+	{
+		$tan = self::assertFinite(tan(deg2rad(self::assertFinite($sy, 'sy'))), 'tan(sy)');
+		$next = $this->elements;
+		$rows = $this->is2D ? 2 : 4;
+		for ($r = 0; $r < $rows; $r++) {
+			$next[$r] = self::assertFinite($next[$r] + $next[4 + $r] * $tan, 'skewY');
+		}
+		$this->elements = $next;
+
+		return $this;
+	}
+
+	/** @param list<float> $elements */
+	private static function applyTranslateElements(array &$elements, bool &$is2D, float $tx, float $ty, float $tz): void
+	{
+		if ($is2D && $tz === 0.0) {
+			$elements[12] = self::assertFinite($elements[0] * $tx + $elements[4] * $ty + $elements[12], 'm41');
+			$elements[13] = self::assertFinite($elements[1] * $tx + $elements[5] * $ty + $elements[13], 'm42');
+			return;
+		}
+
+		$elements[12] = self::assertFinite($elements[0] * $tx + $elements[4] * $ty + $elements[8] * $tz + $elements[12], 'm41');
+		$elements[13] = self::assertFinite($elements[1] * $tx + $elements[5] * $ty + $elements[9] * $tz + $elements[13], 'm42');
+		$elements[14] = self::assertFinite($elements[2] * $tx + $elements[6] * $ty + $elements[10] * $tz + $elements[14], 'm43');
+		$elements[15] = self::assertFinite($elements[3] * $tx + $elements[7] * $ty + $elements[11] * $tz + $elements[15], 'm44');
+		if ($tz !== 0.0) {
+			$is2D = false;
+		}
+	}
+
+	/** @param list<float> $elements */
+	private static function applyRotateAxisAngleElements(
+		array &$elements,
+		bool &$is2D,
+		float $x,
+		float $y,
+		float $z,
+		float $angle,
+	): void {
 		$x = self::assertFinite($x, 'x');
 		$y = self::assertFinite($y, 'y');
 		$z = self::assertFinite($z, 'z');
 		$angle = self::assertFinite($angle, 'angle');
 
-		$length = sqrt($x * $x + $y * $y + $z * $z);
-		if ($length === 0.0) {
-			return $this;
+		$maxAxis = max(abs($x), abs($y), abs($z));
+		if ($maxAxis === 0.0) {
+			return;
 		}
-		$x /= $length;
-		$y /= $length;
-		$z /= $length;
+		$nx = $x / $maxAxis;
+		$ny = $y / $maxAxis;
+		$nz = $z / $maxAxis;
+		$length = sqrt($nx * $nx + $ny * $ny + $nz * $nz);
+		$x = $nx / $length;
+		$y = $ny / $length;
+		$z = $nz / $length;
 
 		$rad = deg2rad($angle);
 		$cos = cos($rad);
@@ -209,32 +292,10 @@ class DOMMatrix extends DOMMatrixReadOnly
 		$rotation[9] = $t * $y * $z - $sin * $x;
 		$rotation[10] = $t * $z * $z + $cos;
 
-		$this->elements = self::multiplyElements($this->elements, $rotation);
+		$elements = self::multiplyElements($elements, $rotation);
 		if ($x !== 0.0 || $y !== 0.0) {
-			$this->is2D = false;
+			$is2D = false;
 		}
-
-		return $this;
-	}
-
-	public function skewXSelf(float $sx = 0.0): self
-	{
-		$sx = self::assertFinite($sx, 'sx');
-		$skew = self::identityElements();
-		$skew[4] = self::assertFinite(tan(deg2rad($sx)), 'tan(sx)');
-		$this->elements = self::multiplyElements($this->elements, $skew);
-
-		return $this;
-	}
-
-	public function skewYSelf(float $sy = 0.0): self
-	{
-		$sy = self::assertFinite($sy, 'sy');
-		$skew = self::identityElements();
-		$skew[1] = self::assertFinite(tan(deg2rad($sy)), 'tan(sy)');
-		$this->elements = self::multiplyElements($this->elements, $skew);
-
-		return $this;
 	}
 
 	/**
@@ -253,7 +314,7 @@ class DOMMatrix extends DOMMatrixReadOnly
 			$f = $this->elements[13];
 
 			$det = $a * $d - $b * $c;
-			if (!is_finite($det) || abs($det) < 1e-15) {
+			if (!is_finite($det) || $det === 0.0) {
 				throw new InvalidArgumentException('Matrix is singular and cannot be inverted.');
 			}
 
@@ -310,7 +371,7 @@ class DOMMatrix extends DOMMatrixReadOnly
 			+ $m[4] * $m[2] * $m[9] + $m[8] * $m[1] * $m[6] - $m[8] * $m[2] * $m[5];
 
 		$det = $m[0] * $inv[0] + $m[1] * $inv[4] + $m[2] * $inv[8] + $m[3] * $inv[12];
-		if (!is_finite($det) || abs($det) < 1e-15) {
+		if (!is_finite($det) || $det === 0.0) {
 			throw new InvalidArgumentException('Matrix is singular and cannot be inverted.');
 		}
 

@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\Tests\CSSOM;
 
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFontFaceRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFunctionDeclarations;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFunctionRule;
-use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFontFaceRule;
-use Jimbo2150\PhpCssTypedOm\CSSOM\CSSMediaRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSMarginRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSMediaRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPageRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPositionTryRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPropertyRule;

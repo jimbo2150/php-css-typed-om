@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 
 /**
  * Represents a CSS `@property` custom property registration rule.
@@ -16,8 +17,11 @@ final class CSSPropertyRule extends CSSAtRule
 	/**
 	 * @throws InvalidArgumentException When $name is not a valid custom property identifier
 	 */
-	public function __construct(string $name, CSSStyleDeclaration $descriptors)
-	{
+	public function __construct(
+		string $name,
+		CSSStyleDeclaration $descriptors,
+		private readonly bool $hasEmptyInitialValue = false,
+	) {
 		$normalized = CSSStyleDeclaration::normalizePropertyName($name);
 		if (!str_starts_with($normalized, '--')) {
 			throw new InvalidArgumentException('@property requires a custom property name starting with "--".');
@@ -32,7 +36,7 @@ final class CSSPropertyRule extends CSSAtRule
 
 	public function getSyntax(): string
 	{
-		return trim($this->style?->getPropertyValue('syntax') ?? '', " \t\n\r\0\x0B\"'");
+		return trim($this->style?->getPropertyValue('syntax') ?? '', " \t\n\r\f\"'");
 	}
 
 	public function getInherits(): bool
@@ -42,11 +46,26 @@ final class CSSPropertyRule extends CSSAtRule
 
 	public function getInitialValue(): ?string
 	{
-		if ($this->style === null || !isset($this->style['initial-value'])) {
-			return null;
+		if ($this->style === null) {
+			return $this->hasEmptyInitialValue ? '' : null;
+		}
+		if (!isset($this->style['initial-value'])) {
+			return $this->hasEmptyInitialValue ? '' : null;
 		}
 
 		return $this->style->getPropertyValue('initial-value');
+	}
+
+	public function getCssText(): string
+	{
+		if (!$this->hasEmptyInitialValue || ($this->style !== null && isset($this->style['initial-value']))) {
+			return parent::getCssText();
+		}
+		$body = $this->style?->getCssText() ?? '';
+		$extra = 'initial-value: ;';
+		$content = $body === '' ? $extra : $body . ' ' . $extra;
+
+		return '@' . $this->name . ' ' . CSSSyntaxScanner::trimCssWhitespace($this->prelude) . ' { ' . $content . ' }';
 	}
 
 	public function __get(string $name): mixed
@@ -57,6 +76,15 @@ final class CSSPropertyRule extends CSSAtRule
 			'inherits' => $this->getInherits(),
 			'initialValue' => $this->getInitialValue(),
 			default => parent::__get($name),
+		};
+	}
+
+	public function __isset(string $name): bool
+	{
+		return match ($name) {
+			'name', 'syntax', 'inherits' => true,
+			'initialValue' => $this->getInitialValue() !== null,
+			default => parent::__isset($name),
 		};
 	}
 }

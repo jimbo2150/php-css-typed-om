@@ -79,4 +79,9 @@ final class StyleSheetList implements ArrayAccess, Countable, IteratorAggregate
 		}
 		throw new Error('Undefined property: ' . static::class . '::$' . $name);
 	}
+
+	public function __isset(string $name): bool
+	{
+		return $name === 'length';
+	}
 }

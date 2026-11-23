@@ -1,20 +1,24 @@
 <?php
 
 $finder = (new PhpCsFixer\Finder())->
-	in(__DIR__)->
-	exclude('var')
-;
+	in([
+		__DIR__ . '/src',
+		__DIR__ . '/tests',
+		__DIR__ . '/benchmarks',
+	]);
 
 return (new PhpCsFixer\Config())->
 	setRules([
-		'@Symfony' => true,
+		'array_syntax' => ['syntax' => 'short'],
+		'declare_strict_types' => true,
+		'no_extra_blank_lines' => ['tokens' => ['extra', 'use']],
+		'no_leading_import_slash' => true,
+		'no_trailing_whitespace' => true,
 		'no_unused_imports' => true,
-		'operator_linebreak' => ['position' => 'end'],
-		'phpdoc_to_comment' => false,
-		'class_definition' => [
-			'single_line' => false,
-		],
+		'no_whitespace_in_blank_line' => true,
+		'ordered_imports' => ['sort_algorithm' => 'alpha'],
+		'single_blank_line_at_eof' => true,
 	])->
+	setRiskyAllowed(true)->
 	setFinder($finder)->
-	setIndent("\t")
-;
+	setIndent("\t");

@@ -4,7 +4,7 @@
 - **Source:** [`src/Parser/CSSCalcParser.php`](../../../src/Parser/CSSCalcParser.php)
 - **Kind:** class with a static CSS `calc()` parser
 
-Parses supported CSS `calc()` arithmetic expressions into a tree of numeric Typed OM values. It handles parentheses, unary signs, and `+`, `-`, `*`, and `/`, with normal arithmetic precedence. Nested supported math functions are parsed through `CSSNumericValue::parse()`.
+Parses supported CSS `calc()` arithmetic expressions iteratively into a tree of numeric Typed OM values without recursion across parenthesized groups. It handles parentheses, unary signs, and `+`, `-`, `*`, and `/`, with normal arithmetic precedence. Nested supported math functions are parsed through `CSSNumericValue::parse()`.
 
 ## Methods
 
@@ -24,5 +24,11 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
 $width = CSSCalcParser::parse('calc(100% - 2rem)');
 echo $width; // calc(100% - 2rem)
 ```
+
+### `parseExpression(string $expression, ?CSSParserOptions $options = null, int $depth = 0): CSSNumericValue`
+
+Parses an inner `<calc-sum>` expression (without the outer `calc(...)` wrapper) under the same limit and dimensional validation rules.
+
+- **Throws:** `InvalidArgumentException` / `CSSParserLimitException` on invalid tokens, dimensions, or exceeded limits.
 
 Prefer `CSSNumericValue::parse()` for general numeric input: it accepts unit values and multiple math-function forms, whereas this parser's direct entry point requires a `calc()` expression.

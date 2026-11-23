@@ -52,7 +52,7 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 		$media = [];
 		$seen = [];
 		foreach (CSSSyntaxScanner::splitTopLevel($mediaText, ',') as $medium) {
-			$medium = trim($medium);
+			$medium = CSSSyntaxScanner::trimCssWhitespace($medium);
 			if ($medium === '') {
 				continue;
 			}
@@ -76,7 +76,7 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 	 */
 	public function appendMedium(string $medium): void
 	{
-		$medium = trim($medium);
+		$medium = CSSSyntaxScanner::trimCssWhitespace($medium);
 		if ($medium === '') {
 			throw new InvalidArgumentException('A single non-empty media query is required.');
 		}
@@ -97,7 +97,7 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 	 */
 	public function deleteMedium(string $medium): void
 	{
-		$medium = trim($medium);
+		$medium = CSSSyntaxScanner::trimCssWhitespace($medium);
 		foreach ($this->media as $index => $existing) {
 			if (strcasecmp($existing, $medium) === 0) {
 				$nextMedia = $this->media;
@@ -112,7 +112,7 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 
 	public function contains(string $medium): bool
 	{
-		$needle = trim($medium);
+		$needle = CSSSyntaxScanner::trimCssWhitespace($medium);
 		foreach ($this->media as $existing) {
 			if (strcasecmp($existing, $needle) === 0) {
 				return true;
@@ -169,6 +169,11 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 			'length' => $this->count(),
 			default => throw new Error('Undefined property: ' . static::class . '::$' . $name),
 		};
+	}
+
+	public function __isset(string $name): bool
+	{
+		return $name === 'mediaText' || $name === 'length';
 	}
 
 	public function __set(string $name, mixed $value): void

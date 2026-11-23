@@ -30,7 +30,7 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 
 	public function __construct(string $fontFamily)
 	{
-		$fontFamily = trim($fontFamily);
+		$fontFamily = CSSSyntaxScanner::trimCssWhitespace($fontFamily);
 		if ($fontFamily === '') {
 			throw new InvalidArgumentException('@font-feature-values requires a font-family list.');
 		}
@@ -49,7 +49,7 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 
 	public function setFontFamily(string $fontFamily): void
 	{
-		$fontFamily = trim($fontFamily);
+		$fontFamily = CSSSyntaxScanner::trimCssWhitespace($fontFamily);
 		if ($fontFamily === '') {
 			throw new InvalidArgumentException('@font-feature-values requires a font-family list.');
 		}
@@ -59,7 +59,7 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 
 	public function getFeatureMap(string $featureType): CSSFontFeatureValuesMap
 	{
-		$featureType = strtolower(trim($featureType));
+		$featureType = strtolower(CSSSyntaxScanner::trimCssWhitespace($featureType));
 		if (!preg_match('/^[a-zA-Z][a-zA-Z0-9-]*$/D', $featureType)) {
 			throw new InvalidArgumentException('Invalid font feature value category.');
 		}
@@ -74,23 +74,7 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 
 	public function getCssText(): string
 	{
-		$blocks = [];
-		foreach ($this->featureMaps as $category => $map) {
-			if (count($map) === 0) {
-				continue;
-			}
-			$declarations = [];
-			foreach ($map as $name => $values) {
-				$declarations[] = $name . ': ' . implode(' ', $values) . ';';
-			}
-			$blocks[] = '@' . $category . ' { ' . implode(' ', $declarations) . ' }';
-		}
-
-		foreach ($this->getCssRules() as $rule) {
-			$blocks[] = $rule->getCssText();
-		}
-
-		return '@font-feature-values ' . $this->prelude . ' { ' . implode(' ', $blocks) . ' }';
+		return CSSGroupingRule::serializeTreeIteratively($this);
 	}
 
 	public function __get(string $name): mixed
@@ -103,6 +87,13 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 		}
 
 		return parent::__get($name);
+	}
+
+	public function __isset(string $name): bool
+	{
+		return $name === 'fontFamily'
+			|| isset(self::FEATURE_ACCESSORS[$name])
+			|| parent::__isset($name);
 	}
 
 	public function __set(string $name, mixed $value): void

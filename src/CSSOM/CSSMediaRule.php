@@ -46,4 +46,9 @@ final class CSSMediaRule extends CSSConditionRule
 	{
 		return $name === 'media' ? $this->getMedia() : parent::__get($name);
 	}
+
+	public function __isset(string $name): bool
+	{
+		return $name === 'media' || parent::__isset($name);
+	}
 }

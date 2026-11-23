@@ -6,12 +6,12 @@
 
 ## Public API
 
-No public constants or enum cases. Inherited `parse`/`parseAll` are documented in [CSSStyleValue](CSSStyleValue.md#public-api).
+No public constants or enum cases. Declares PHP 8.4 property-hooked `public CSSStyleValue $x` and `public CSSStyleValue $y`. Inherited `parse`/`parseAll` are documented in [CSSStyleValue](CSSStyleValue.md#public-api).
 
 | Method/property | Signature and behavior |
 |---|---|
 | `__construct` | `public function __construct(CSSStyleValue $x, CSSStyleValue $y)`; accepts numeric length/percentage/derived values, or `left`/`right`/`center` on x and `top`/`bottom`/`center` on y. Throws `InvalidArgumentException` for incompatible coordinates. Example: `$position = new CSSPositionValue(CSSNumericValue::parse('25%'), new CSSKeywordValue('center'));`. |
-| `fromCssText` | `public static function fromCssText(string $cssText): self`; parses one- or two-component text, fills the omitted coordinate with `center`, normalizes valid vertical-first keyword ordering, and rejects invalid syntax/axis order with `InvalidArgumentException`. Example: `$position = CSSPositionValue::fromCssText('top right');`. |
+| `fromCssText` | `public static function fromCssText(string $cssText, ?CSSParserOptions $options = null): self`; enforces `$options->maxBytes`, rejects control characters, parses one- or two-component text (normalizing unitless `0` to `0px` and respecting CSS whitespace), fills the omitted coordinate with `center`, normalizes valid vertical-first keyword ordering (including `'center left'` and `'center right'`), and rejects invalid syntax/axis order with `InvalidArgumentException`. Example: `$position = CSSPositionValue::fromCssText('top right');`. |
 | `getX` | `public function getX(): CSSStyleValue`; returns the x coordinate. Example: `$x = $position->getX();`. |
 | `setX` | `public function setX(CSSStyleValue $x): void`; validates and replaces x; throws `InvalidArgumentException` if not a length/percentage-compatible numeric value or x keyword. Example: `$position->setX(new CSSKeywordValue('left'));`. |
 | `getY` | `public function getY(): CSSStyleValue`; returns the y coordinate. Example: `$y = $position->getY();`. |

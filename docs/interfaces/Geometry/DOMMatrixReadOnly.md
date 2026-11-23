@@ -11,10 +11,10 @@ Read-only magic properties: `a`, `b`, `c`, `d`, `e`, `f`, `m11`..`m44`, `is2D`, 
 
 ## Public Methods
 
-- `__construct(DOMMatrixReadOnly|array|string|null $init = null)` — accepts `null` (identity), a `DOMMatrixReadOnly`, a 6- or 16-element numeric list, a `DOMMatrixInit` dictionary array (`a..f`, `m11..m44`, `is2D`), or a CSS transform string (`''` / `'none'` yield 2D identity).
+- `__construct(DOMMatrixReadOnly|array|string|null $init = null)` — accepts `null` (identity), a `DOMMatrixReadOnly`, a 6- or 16-element numeric list, a `DOMMatrixInit` dictionary array (`a..f`, `m11..m44`, `is2D`, optional bool `isIdentity`), or a CSS transform string (`''` / `'none'` yield 2D identity) pre-checked against `CSSParserOptions::default()->maxBytes`. Determines `is2D` from `$explicitIs2D ?? elementsAre2D`.
 - `fromMatrix(DOMMatrixReadOnly|array $other = []): static`
 - `fromFloat32Array(array $values): static`, `fromFloat64Array(array $values): static`, `fromElements(array $elements, bool $is2D): static`
-- Immutable operations returning [`DOMMatrix`](DOMMatrix.md): `translate()`, `scale()`, `scaleNonUniform()`, `scale3d()`, `rotate()`, `rotateFromVector()`, `rotateAxisAngle()`, `skewX()`, `skewY()`, `multiply()`, `flipX()`, `flipY()`, `inverse()` (throws `InvalidArgumentException` on singular matrix).
+- Immutable operations returning [`DOMMatrix`](DOMMatrix.md): `translate()`, `scale()`, `scaleNonUniform()`, `scale3d()`, `rotate()`, `rotateFromVector()`, `rotateAxisAngle()` (magnitude pre-scaled to avoid overflow/underflow), `skewX()`, `skewY()`, `multiply()`, `flipX()`, `flipY()`, `inverse()` (throws `InvalidArgumentException` on singular matrix).
 - `transformPoint(array $point = []): array` — returns `['x' => float, 'y' => float, 'z' => float, 'w' => float]`.
 - `toFloat32Array(): array`, `toFloat64Array(): array`, `toJSON(): array`, `__toString(): string` (`matrix(...)` or `matrix3d(...)`).
 - `ArrayAccess` allows reading indices `0..15`; writes throw `InvalidArgumentException`.

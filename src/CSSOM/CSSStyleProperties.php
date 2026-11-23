@@ -14,12 +14,14 @@ final class CSSStyleProperties extends CSSStyleDeclaration
 	public static function fromDeclaration(?CSSStyleDeclaration $style): self
 	{
 		if ($style instanceof self) {
-			return $style;
+			return $style->getParentRule() !== null ? clone $style : $style;
 		}
 
 		$properties = new self();
-		foreach ($style ?? [] as $property => $declaration) {
-			$properties->setProperty($property, $declaration['value'], $declaration['priority']);
+		if ($style !== null) {
+			foreach ($style->getDeclarationsRaw() as $property => $declaration) {
+				$properties->setValidatedProperty($property, $declaration['value'], $declaration['priority']);
+			}
 		}
 
 		return $properties;

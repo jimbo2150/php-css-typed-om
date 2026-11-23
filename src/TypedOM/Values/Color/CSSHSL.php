@@ -6,15 +6,37 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color;
 
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
+use ReflectionClass;
 
 /**
  * Represents a CSS `hsl(...)` color value.
  */
 final class CSSHSL extends CSSColorValue
 {
-	private CSSNumericValue|CSSKeywordValue $h;
-	private CSSNumericValue|CSSKeywordValue $s;
-	private CSSNumericValue|CSSKeywordValue $l;
+	private CSSNumericValue|CSSKeywordValue $hValue;
+	private CSSNumericValue|CSSKeywordValue $sValue;
+	private CSSNumericValue|CSSKeywordValue $lValue;
+
+	public CSSNumericValue|CSSKeywordValue $h {
+		get => $this->hValue;
+		set (CSSNumericValue|CSSKeywordValue|int|float $value) {
+			$this->hValue = self::normalizeAngleChannel($value);
+		}
+	}
+
+	public CSSNumericValue|CSSKeywordValue $s {
+		get => $this->sValue;
+		set (CSSNumericValue|CSSKeywordValue|int|float $value) {
+			$this->sValue = self::normalizePercentChannel($value, 1.0);
+		}
+	}
+
+	public CSSNumericValue|CSSKeywordValue $l {
+		get => $this->lValue;
+		set (CSSNumericValue|CSSKeywordValue|int|float $value) {
+			$this->lValue = self::normalizePercentChannel($value, 1.0);
+		}
+	}
 
 	public function __construct(
 		CSSNumericValue|CSSKeywordValue|int|float $h,
@@ -22,29 +44,50 @@ final class CSSHSL extends CSSColorValue
 		CSSNumericValue|CSSKeywordValue|int|float $l,
 		CSSNumericValue|CSSKeywordValue|int|float $alpha = 1.0,
 	) {
-		$this->setH($h);
-		$this->setS($s);
-		$this->setL($l);
-		$this->setAlpha($alpha);
+		$this->hValue = self::normalizeAngleChannel($h);
+		$this->sValue = self::normalizePercentChannel($s, 1.0);
+		$this->lValue = self::normalizePercentChannel($l, 1.0);
+		$this->alphaValue = self::normalizePercentChannel($alpha, 100.0);
 	}
 
-	public function getH(): CSSNumericValue|CSSKeywordValue { return $this->h; }
-	public function getS(): CSSNumericValue|CSSKeywordValue { return $this->s; }
-	public function getL(): CSSNumericValue|CSSKeywordValue { return $this->l; }
+	/**
+	 * @internal Fast factory for already-validated, caller-owned channel objects.
+	 */
+	public static function fromValidated(
+		CSSNumericValue|CSSKeywordValue $h,
+		CSSNumericValue|CSSKeywordValue $s,
+		CSSNumericValue|CSSKeywordValue $l,
+		CSSNumericValue|CSSKeywordValue $alpha,
+	): self {
+		static $reflection = null;
+		$reflection ??= new ReflectionClass(self::class);
+		/** @var self $instance */
+		$instance = $reflection->newInstanceWithoutConstructor();
+		$instance->hValue = $h;
+		$instance->sValue = $s;
+		$instance->lValue = $l;
+		$instance->alphaValue = $alpha;
+
+		return $instance;
+	}
+
+	public function getH(): CSSNumericValue|CSSKeywordValue { return $this->hValue; }
+	public function getS(): CSSNumericValue|CSSKeywordValue { return $this->sValue; }
+	public function getL(): CSSNumericValue|CSSKeywordValue { return $this->lValue; }
 
 	public function setH(CSSNumericValue|CSSKeywordValue|int|float $h): void
 	{
-		$this->h = self::normalizeAngleChannel($h);
+		$this->hValue = self::normalizeAngleChannel($h);
 	}
 
 	public function setS(CSSNumericValue|CSSKeywordValue|int|float $s): void
 	{
-		$this->s = self::normalizePercentChannel($s, 1.0);
+		$this->sValue = self::normalizePercentChannel($s, 1.0);
 	}
 
 	public function setL(CSSNumericValue|CSSKeywordValue|int|float $l): void
 	{
-		$this->l = self::normalizePercentChannel($l, 1.0);
+		$this->lValue = self::normalizePercentChannel($l, 1.0);
 	}
 
 	public function toHSL(): CSSHSL
@@ -52,56 +95,44 @@ final class CSSHSL extends CSSColorValue
 		return $this->clone();
 	}
 
+	public function __clone(): void
+	{
+		$this->hValue = $this->hValue->clone();
+		$this->sValue = $this->sValue->clone();
+		$this->lValue = $this->lValue->clone();
+		$this->alphaValue = $this->alphaValue->clone();
+	}
+
 	public function clone(): static
 	{
-		return new static($this->h->clone(), $this->s->clone(), $this->l->clone(), $this->alpha->clone());
+		return clone $this;
 	}
 
 	public function __toString(): string
 	{
-		return 'hsl(' . $this->h . ' ' . $this->s . ' ' . $this->l . $this->formatAlphaSuffix() . ')';
-	}
-
-	public function __get(string $name): mixed
-	{
-		return match ($name) {
-			'h' => $this->h,
-			's' => $this->s,
-			'l' => $this->l,
-			default => parent::__get($name),
-		};
-	}
-
-	public function __set(string $name, mixed $value): void
-	{
-		if ($value instanceof CSSNumericValue || $value instanceof CSSKeywordValue || is_int($value) || is_float($value)) {
-			if ($name === 'h') { $this->setH($value); return; }
-			if ($name === 's') { $this->setS($value); return; }
-			if ($name === 'l') { $this->setL($value); return; }
-		}
-		parent::__set($name, $value);
+		return 'hsl(' . $this->hValue . ' ' . $this->sValue . ' ' . $this->lValue . $this->formatAlphaSuffix() . ')';
 	}
 
 	protected function toSrgbChannels(): array
 	{
-		$h = fmod(fmod(self::resolveAngleDegrees($this->h), 360.0) + 360.0, 360.0);
-		$s = self::resolvePercentUnit($this->s);
-		$l = self::resolvePercentUnit($this->l);
+		[$r, $g, $b] = self::hslToSrgbFloats(
+			self::resolveAngleDegrees($this->hValue),
+			self::resolvePercentUnit($this->sValue),
+			self::resolvePercentUnit($this->lValue),
+		);
 
-		$f = static function (float $n) use ($h, $s, $l): float {
-			$k = fmod($n + $h / 30.0, 12.0);
-			$a = $s * min($l, 1.0 - $l);
-			return $l - $a * max(-1.0, min($k - 3.0, 9.0 - $k, 1.0));
-		};
-
-		return [$f(0.0), $f(8.0), $f(4.0), $this->alpha->clone()];
+		return [$r, $g, $b, $this->alphaValue->clone()];
 	}
 
 	protected function toXyzD65(): array
 	{
-		[$r, $g, $b, $alpha] = $this->toSrgbChannels();
+		[$r, $g, $b] = self::hslToSrgbFloats(
+			self::resolveAngleDegrees($this->hValue),
+			self::resolvePercentUnit($this->sValue),
+			self::resolvePercentUnit($this->lValue),
+		);
 		[$x, $y, $z] = self::linearSrgbToXyzD65(self::srgbToLinear($r), self::srgbToLinear($g), self::srgbToLinear($b));
 
-		return [$x, $y, $z, $alpha];
+		return [$x, $y, $z, $this->alphaValue->clone()];
 	}
 }

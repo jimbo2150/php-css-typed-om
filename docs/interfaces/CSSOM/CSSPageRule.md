@@ -13,7 +13,7 @@ Magic read-only `selectorText` and `style`; `selectorText` accepts string assign
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(string $selector, CSSStyleDeclaration $style, array $marginRules = [])` | `$marginRules` is a list of `CSSMarginRule`; copies declarations to `CSSPageDescriptors`. Provided margin rules are initialized through a temporary sheet, appended, then detached. | `$page = new CSSPageRule(':first', new CSSStyleDeclaration('size: A4'));` |
+| `__construct(string $selector, ?CSSStyleDeclaration $style = null, array $marginRules = [])` | `$style` defaults to an empty `CSSPageDescriptors` (if an already-owned declaration is supplied, it is cloned rather than aliased); `$marginRules` is a list of `CSSMarginRule` copies initialized cleanly. | `$page = new CSSPageRule(':first', new CSSStyleDeclaration('size: A4'));` |
 | `getType(): int` | Returns `CSSRule::PAGE_RULE`. | `$page->getType();` |
 | `getStyle(): CSSPageDescriptors` | Returns page descriptor declarations. | `$page->getStyle()->getPropertyValue('size');` |
 | `getMarginRules(): array` | Returns nested rules that are instances of `CSSMarginRule`, in list order. | `$page->getMarginRules();` |

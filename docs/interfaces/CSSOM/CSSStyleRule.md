@@ -20,7 +20,7 @@ Magic `selectorText` reads/writes the selector; `style` returns `CSSStylePropert
 | `getStyle(): CSSStyleProperties` | Returns the live typed declaration block. | `$rule->getStyle()->setProperty('color', 'blue');` |
 | `getStyleMap(): StylePropertyMap` | Creates a new `StylePropertyMap` backed by the same style declarations. | `$map = $rule->getStyleMap();` |
 | `insertRule(string $ruleText, int $index = 0, ?CSSParserOptions $options = null): int` | Parses and inserts one nested rule; requires attached stylesheet. Returns index. Throws `LogicException` if detached, `OutOfBoundsException` for invalid index, `InvalidArgumentException` for parse/limit failures. | `$rule->insertRule('&:hover { color: blue }');` |
-| `getCssText(): string` | Serializes selector and declaration/nested-rule content in one block. | `$rule->getCssText();` |
+| `getCssText(): string` | Serializes selector and declaration/nested-rule content iteratively via `CSSGroupingRule`, enforcing `CSSRenderer::MAX_RENDER_DEPTH`. | `$rule->getCssText();` |
 | `__get(string $name): mixed` | Exposes `selectorText`, `style`, and `styleMap`; other names delegate to `CSSGroupingRule::__get()`. | `$rule->styleMap;` |
 | `__set(string $name, mixed $value): void` | String selector assignment uses `setSelectorText()`; other writes delegate to parent magic setter. | `$rule->selectorText = '.panel';` |
 

@@ -10,7 +10,7 @@ No public constants or enum cases. It inherits `parse(string $propertyOrCssText,
 
 | Method/property | Signature and behavior |
 |---|---|
-| `__construct` | `public function __construct(string $variable, CSSUnparsedValue|string|null $fallback = null)`; normalizes/validates a custom-property name and validates an optional fallback. Throws `InvalidArgumentException` for a non-custom-property name or structurally invalid fallback. Example: `$ref = new CSSVariableReferenceValue('--accent', 'teal');`. |
+| `__construct` | `public function __construct(string $variable, CSSUnparsedValue|string|null $fallback = null, ?CSSParserOptions $options = null, int $depth = 0)`; normalizes/validates a custom-property name and validates an optional fallback under `$options` (`maxDepth`, `maxBytes`). Throws `InvalidArgumentException` for a non-custom-property name or structurally invalid fallback, or `CSSParserLimitException` on limit exhaustion. Example: `$ref = new CSSVariableReferenceValue('--accent', 'teal');`. |
 | `getVariable` | `public function getVariable(): string`; returns the normalized custom-property name. Example: `$name = $ref->getVariable();`. |
 | `setVariable` | `public function setVariable(string $variable): void`; normalizes the name and requires the `--` prefix; throws `InvalidArgumentException` otherwise. Example: `$ref->setVariable('--brand-color');`. |
 | `getFallback` | `public function getFallback(): ?CSSUnparsedValue`; returns the fallback or `null`. Example: `$fallback = $ref->getFallback();`. |

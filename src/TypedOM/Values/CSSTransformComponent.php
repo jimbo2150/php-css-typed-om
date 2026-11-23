@@ -6,7 +6,10 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 use Error;
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
+use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrixReadOnly;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericType;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 
@@ -17,9 +20,24 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
  */
 abstract class CSSTransformComponent extends CSSStyleValue
 {
+	/** @var list<float> */
+	protected const array IDENTITY_MATRIX = [
+		1.0, 0.0, 0.0, 0.0,
+		0.0, 1.0, 0.0, 0.0,
+		0.0, 0.0, 1.0, 0.0,
+		0.0, 0.0, 0.0, 1.0,
+	];
+
+	public bool $is2D {
+		get => $this->twoDimensional;
+		set (bool $value) {
+			$this->setIs2D($value);
+		}
+	}
+
 	/** @param list<CSSStyleValue|string> $values */
 	public function __construct(
-		protected readonly string $functionName,
+		protected string $functionName,
 		protected array $values,
 		protected bool $twoDimensional = true,
 	) {
@@ -48,45 +66,46 @@ abstract class CSSTransformComponent extends CSSStyleValue
 
 	public function toMatrix(): DOMMatrix
 	{
-		return DOMMatrix::fromElements(self::identityMatrix(), $this->twoDimensional);
+		return DOMMatrix::fromTrustedElements(self::IDENTITY_MATRIX, $this->twoDimensional);
 	}
 
 	public function clone(): static
 	{
-		$values = array_map(
-			static fn (CSSStyleValue|string $value): CSSStyleValue|string => $value instanceof CSSStyleValue ? $value->clone() : $value,
-			$this->values,
-		);
+		$values = [];
+		foreach ($this->values as $value) {
+			$values[] = $value instanceof CSSStyleValue ? $value->clone() : $value;
+		}
 		return new static($this->functionName, $values, $this->twoDimensional);
 	}
 
 	public function __toString(): string
 	{
-		$values = array_map(static fn (CSSStyleValue|string $value): string => (string) $value, $this->values);
-		return $this->functionName . '(' . implode(', ', $values) . ')';
+		$parts = [];
+		foreach ($this->values as $value) {
+			$parts[] = (string) $value;
+		}
+		return $this->functionName . '(' . implode(', ', $parts) . ')';
 	}
 
 	public function __get(string $name): mixed
 	{
-		return match ($name) {
-			'is2D' => $this->is2D(),
-			default => throw new Error('Undefined property: ' . static::class . '::$' . $name),
-		};
+		throw new Error('Undefined property: ' . static::class . '::$' . $name);
+	}
+
+	public function __isset(string $name): bool
+	{
+		return false;
 	}
 
 	public function __set(string $name, mixed $value): void
 	{
-		if ($name === 'is2D' && is_bool($value)) {
-			$this->setIs2D($value);
-			return;
-		}
 		throw new Error('Cannot set property ' . static::class . '::$' . $name);
 	}
 
 	/** @return list<float> */
 	public static function identityMatrix(): array
 	{
-		return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+		return self::IDENTITY_MATRIX;
 	}
 
 	/** @return list<float> */
@@ -98,21 +117,16 @@ abstract class CSSTransformComponent extends CSSStyleValue
 	/** @param list<float> $left @param list<float> $right @return list<float> */
 	public static function multiplyMatrices(array $left, array $right): array
 	{
-		$result = array_fill(0, 16, 0.0);
-		for ($column = 0; $column < 4; $column++) {
-			for ($row = 0; $row < 4; $row++) {
-				for ($inner = 0; $inner < 4; $inner++) {
-					$result[$column * 4 + $row] += $left[$inner * 4 + $row] * $right[$column * 4 + $inner];
-				}
-			}
-		}
-
-		return $result;
+		return DOMMatrixReadOnly::multiplyElements($left, $right);
 	}
 
 	/** @param list<string> $expectedCategories */
-	protected static function numericValue(mixed $value, string $defaultUnit = 'number', array $expectedCategories = []): CSSNumericValue
-	{
+	protected static function numericValue(
+		mixed $value,
+		string $defaultUnit = 'number',
+		array $expectedCategories = [],
+		?CSSParserOptions $options = null,
+	): CSSNumericValue {
 		if ($value instanceof CSSNumericValue) {
 			$numeric = $value;
 		} elseif ($value instanceof CSSStyleValue) {
@@ -120,16 +134,18 @@ abstract class CSSTransformComponent extends CSSStyleValue
 		} elseif (is_int($value) || is_float($value)) {
 			$numeric = new CSSUnitValue((float) $value, $defaultUnit);
 		} elseif (is_string($value)) {
-			$numeric = CSSNumericValue::parse($value);
+			$numeric = CSSNumericValue::parse($value, null, $options);
 		} else {
 			throw new InvalidArgumentException('Transform component arguments must be numeric values.');
 		}
 
 		if ($expectedCategories !== []) {
-			$type = $numeric->getNumericType();
-			$category = $numeric->getNumericCategory();
-			$hintMatches = $type->percentHint !== null && in_array($type->percentHint, $expectedCategories, true);
-			if (!$hintMatches && !in_array($category, $expectedCategories, true)) {
+			$type = $numeric->getNumericTypeInternal();
+			$category = self::categoryForType($type);
+			$categoryValid = in_array($category, $expectedCategories, true);
+			$hintValid = $type->percentHint === null
+				|| (in_array('percent', $expectedCategories, true) && in_array($type->percentHint, $expectedCategories, true));
+			if (!$categoryValid || !$hintValid) {
 				throw new InvalidArgumentException('Transform component argument has an incompatible numeric type.');
 			}
 		}
@@ -145,25 +161,56 @@ abstract class CSSTransformComponent extends CSSStyleValue
 		$unit = $value->unit;
 		$type = $value->unitType();
 		$compatible = $expectedType === 'number'
-			? $type === null && in_array($unit, ['', 'number'], true)
+			? $type === null && ($unit === '' || $unit === 'number')
 			: $type === $expectedType;
 		if (!$compatible) {
 			throw new InvalidArgumentException('Transform component value has an incompatible unit.');
 		}
 
 		if ($expectedType === 'length' && $unit !== 'px') {
-			return $value->to('px')->value;
-		}
-		if ($expectedType === 'angle') {
-			return $value->value * match (strtolower($unit)) {
+			$result = $value->to('px')->value;
+		} elseif ($expectedType === 'angle') {
+			$result = $value->value * match (strtolower($unit)) {
 				'rad' => 1.0,
 				'grad' => M_PI / 200.0,
 				'turn' => 2.0 * M_PI,
 				'deg' => M_PI / 180.0,
 				default => throw new InvalidArgumentException('Expected an angle unit.'),
 			};
+		} else {
+			$result = $value->value;
 		}
 
-		return $value->value;
+		if (!is_finite($result)) {
+			throw new InvalidArgumentException('Transform component value must be finite.');
+		}
+
+		return $result;
+	}
+
+	private static function categoryForType(CSSNumericType $type): string
+	{
+		$nonZeroDimension = null;
+		$nonZeroExponent = 0;
+		foreach (['length' => $type->length, 'angle' => $type->angle, 'time' => $type->time, 'frequency' => $type->frequency, 'resolution' => $type->resolution, 'flex' => $type->flex, 'percent' => $type->percent] as $dim => $exp) {
+			if ($exp !== 0) {
+				if ($nonZeroDimension !== null) {
+					return 'derived';
+				}
+				$nonZeroDimension = $dim;
+				$nonZeroExponent = $exp;
+			}
+		}
+		if ($nonZeroDimension === null) {
+			return 'number';
+		}
+		if ($nonZeroExponent === 1) {
+			return $nonZeroDimension;
+		}
+		if ($nonZeroExponent === -1) {
+			return 'inverse-' . $nonZeroDimension;
+		}
+
+		return 'derived';
 	}
 }

@@ -37,16 +37,16 @@ final class CSSKeyframeRule extends CSSRule
 	 */
 	public function setKeyText(string $keyText): void
 	{
-		$keyText = trim($keyText);
+		$keyText = CSSSyntaxScanner::trimCssWhitespace($keyText);
 		if ($keyText === '') {
 			throw new InvalidArgumentException('Invalid keyframe selector text.');
 		}
 		CSSSyntaxScanner::assertValidFragment($keyText, 'Keyframe selector', [';', '{', '}']);
-		if (!preg_match('/^(?:from|to|(?:\d+(?:\.\d+)?|\.\d+)%)(?:\s*,\s*(?:from|to|(?:\d+(?:\.\d+)?|\.\d+)%))*$/iD', $keyText)) {
+		if (!preg_match('/^(?:from|to|(?:\d+(?:\.\d+)?|\.\d+)%)(?:[ \t\n\r\f]*,[ \t\n\r\f]*(?:from|to|(?:\d+(?:\.\d+)?|\.\d+)%))*$/iD', $keyText)) {
 			throw new InvalidArgumentException('Invalid keyframe selector text.');
 		}
 		foreach (explode(',', $keyText) as $part) {
-			$token = trim($part);
+			$token = CSSSyntaxScanner::trimCssWhitespace($part);
 			if (str_ends_with($token, '%')) {
 				$percentage = (float) substr($token, 0, -1);
 				if (!is_finite($percentage) || $percentage < 0.0 || $percentage > 100.0) {
@@ -80,6 +80,11 @@ final class CSSKeyframeRule extends CSSRule
 			'style' => $this->getStyle(),
 			default => parent::__get($name),
 		};
+	}
+
+	public function __isset(string $name): bool
+	{
+		return $name === 'keyText' || $name === 'style' || parent::__isset($name);
 	}
 
 	public function __set(string $name, mixed $value): void

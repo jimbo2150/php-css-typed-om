@@ -14,9 +14,11 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
  */
 final class CSSFunctionRule extends CSSGroupingRule
 {
+	private readonly string $functionName;
+
 	/** @param list<array{name: string, type: string, defaultValue: ?string}> $parameters */
 	public function __construct(
-		private readonly string $functionName,
+		string $functionName,
 		string $prelude = '',
 		private readonly array $parameters = [],
 		private readonly string $functionReturnType = '*',
@@ -25,6 +27,7 @@ final class CSSFunctionRule extends CSSGroupingRule
 		if (!str_starts_with($validatedName, '--')) {
 			throw new InvalidArgumentException('@function name must begin with "--".');
 		}
+		$this->functionName = $validatedName;
 		parent::__construct('function', $prelude === '' ? $validatedName : $prelude);
 	}
 
@@ -35,12 +38,12 @@ final class CSSFunctionRule extends CSSGroupingRule
 	 */
 	public static function fromPrelude(string $prelude): self
 	{
-		$prelude = trim($prelude);
+		$prelude = CSSSyntaxScanner::trimCssWhitespace($prelude);
 		$open = strpos($prelude, '(');
 		if ($open === false) {
 			throw new InvalidArgumentException('Malformed @function name or parameter list.');
 		}
-		$name = trim(substr($prelude, 0, $open));
+		$name = CSSSyntaxScanner::trimCssWhitespace(substr($prelude, 0, $open));
 		$normalizedName = CSSStyleDeclaration::normalizePropertyName($name);
 		if (!str_starts_with($normalizedName, '--')) {
 			throw new InvalidArgumentException('Malformed @function name or parameter list.');
@@ -52,7 +55,7 @@ final class CSSFunctionRule extends CSSGroupingRule
 		}
 
 		$parameters = self::parseParameters(substr($prelude, $open + 1, $close - $open - 1));
-		$returnTail = trim(substr($prelude, $close + 1));
+		$returnTail = CSSSyntaxScanner::trimCssWhitespace(substr($prelude, $close + 1));
 		$returnType = '*';
 		if ($returnTail !== '') {
 			if (!preg_match('/^returns\s+(<[^>]+>|\*)$/iD', $returnTail, $match)) {
@@ -95,20 +98,28 @@ final class CSSFunctionRule extends CSSGroupingRule
 		};
 	}
 
+	public function __isset(string $name): bool
+	{
+		return match ($name) {
+			'name', 'returnType' => true,
+			default => parent::__isset($name),
+		};
+	}
+
 	/** @return list<array{name: string, type: string, defaultValue: ?string}> */
 	private static function parseParameters(string $source): array
 	{
-		if (trim($source) === '') {
+		if (CSSSyntaxScanner::trimCssWhitespace($source) === '') {
 			return [];
 		}
 
 		$parameters = [];
 		foreach (CSSSyntaxScanner::splitTopLevel($source, ',') as $parameter) {
 			$colon = CSSSyntaxScanner::findTopLevel($parameter, ':');
-			$declaration = $colon === null ? trim($parameter) : trim(substr($parameter, 0, $colon));
-			$defaultValue = $colon === null ? null : trim(substr($parameter, $colon + 1));
+			$declaration = $colon === null ? CSSSyntaxScanner::trimCssWhitespace($parameter) : CSSSyntaxScanner::trimCssWhitespace(substr($parameter, 0, $colon));
+			$defaultValue = $colon === null ? null : CSSSyntaxScanner::trimCssWhitespace(substr($parameter, $colon + 1));
 			if (!preg_match('/^(--[a-zA-Z0-9_-]+)(?:\s+(<[^>]+>|\*))?$/D', $declaration, $match)) {
-				throw new InvalidArgumentException('Malformed @function parameter: ' . trim($parameter));
+				throw new InvalidArgumentException('Malformed @function parameter: ' . CSSSyntaxScanner::trimCssWhitespace($parameter));
 			}
 			if ($defaultValue !== null) {
 				if ($defaultValue === '') {

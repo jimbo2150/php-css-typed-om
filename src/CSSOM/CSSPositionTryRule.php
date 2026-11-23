@@ -20,7 +20,7 @@ final class CSSPositionTryRule extends CSSAtRule
 			throw new InvalidArgumentException('@position-try requires a dashed identifier starting with "--".');
 		}
 		if ($style instanceof CSSPositionTryDescriptors) {
-			$descriptors = $style;
+			$descriptors = $style->getParentRule() !== null ? clone $style : $style;
 		} else {
 			$descriptors = new CSSPositionTryDescriptors();
 			foreach ($style ?? [] as $property => $declaration) {
@@ -48,5 +48,10 @@ final class CSSPositionTryRule extends CSSAtRule
 	public function __get(string $name): mixed
 	{
 		return $name === 'name' ? $this->getNameText() : parent::__get($name);
+	}
+
+	public function __isset(string $name): bool
+	{
+		return $name === 'name' || parent::__isset($name);
 	}
 }

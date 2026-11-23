@@ -88,4 +88,46 @@ final class CSSStyleDeclarationTest extends TestCase
 		self::assertSame('left', $style->getPropertyValue('float'));
 		self::assertSame('red', $style->backgroundColor);
 	}
+
+	public function testIssetCachedStyleMapAndImportMediaSync(): void
+	{
+		$sheet = \Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleSheet::parse('@import url("tokens.css") screen; .card { color: red; --empty: ; }');
+		$importRule = $sheet->cssRules[0];
+		self::assertTrue(isset($sheet->cssRules));
+		self::assertTrue(isset($importRule->cssText));
+		self::assertTrue(isset($importRule->media));
+
+		$importRule->media->appendMedium('print');
+		self::assertSame('@import url("tokens.css") screen, print;', $importRule->cssText);
+
+		$card = $sheet->cssRules[1];
+		self::assertSame($card->styleMap, $card->styleMap);
+		$card->styleMap->set('margin', '10px 20px');
+		$card->styleMap->set('background-image', 'url(a.png), url(b.png)');
+		$card->style->setProperty('padding', '4px', 'important');
+		$card->styleMap->append('padding', '8px');
+		self::assertSame('4px, 8px', $card->style->getPropertyValue('padding'));
+		self::assertSame('important', $card->style->getPropertyPriority('padding'));
+		self::assertSame('', (string) $card->styleMap->get('--empty'));
+		self::assertSame('10px 20px', (string) $card->styleMap->get('margin'));
+		self::assertSame('url(a.png)', (string) $card->styleMap->get('background-image'));
+	}
+
+	public function testPreservesVerticalTabAndCustomPropertyCommasWhileSupportingGlobalKeywords(): void
+	{
+		$sheet = \Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleSheet::parse("a {\x0Bmargin: 0; color: blue; }\nb {\fmargin: 4px; }");
+		self::assertNotEmpty($sheet->getParseErrors());
+		self::assertSame('4px', $sheet->cssRules[1]->style->getPropertyValue('margin'));
+
+		$cleanStyle = CSSStyleDeclaration::parse("--font-stack: Inter, sans-serif; --reset: inherit;");
+		$map = new \Jimbo2150\PhpCssTypedOm\TypedOM\StylePropertyMap($cleanStyle);
+
+		self::assertSame(['Inter, sans-serif'], array_map('strval', $map->getAll('--font-stack')));
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue::class, $map->get('--reset'));
+		self::assertSame('inherit', (string) $map->get('--reset'));
+
+		$this->expectException(\Error::class);
+		/** @phpstan-ignore-next-line */
+		$map->unknownProp;
+	}
 }

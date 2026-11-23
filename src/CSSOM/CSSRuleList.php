@@ -41,6 +41,39 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 		return $this->rules[$index] ?? null;
 	}
 
+	/**
+	 * @internal Direct array access for hot internal loops without ArrayIterator overhead.
+	 * @return list<CSSRule>
+	 */
+	public function getRulesRaw(): array
+	{
+		return $this->rules;
+	}
+
+	/**
+	 * @internal Counts a rule and all its nested descendant rules.
+	 */
+	public static function countSubtreeRules(CSSRule $rule): int
+	{
+		if (!$rule instanceof CSSGroupingRule) {
+			return 1;
+		}
+
+		$total = 0;
+		$stack = [$rule];
+		while ($stack !== []) {
+			$current = array_pop($stack);
+			$total++;
+			if ($current instanceof CSSGroupingRule) {
+				foreach ($current->getCssRules()->getRulesRaw() as $child) {
+					$stack[] = $child;
+				}
+			}
+		}
+
+		return $total;
+	}
+
 	/** @return Traversable<int, CSSRule> */
 	public function getIterator(): Traversable
 	{
@@ -54,7 +87,7 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 
 	public function offsetGet(mixed $offset): ?CSSRule
 	{
-		return is_int($offset) ? $this->item($offset) : null;
+		return is_int($offset) ? ($this->rules[$offset] ?? null) : null;
 	}
 
 	public function offsetSet(mixed $offset, mixed $value): void
@@ -70,6 +103,7 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 	/**
 	 * @throws OutOfBoundsException When $index is outside [0, count]
 	 * @throws LogicException When the list is detached from a stylesheet
+	 * @throws InvalidArgumentException When inserting $rule would create a rule-tree cycle
 	 */
 	public function insert(int $index, CSSRule $rule): void
 	{
@@ -79,42 +113,105 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 		if ($this->sheet === null) {
 			throw new LogicException('A detached CSSRuleList cannot be modified.');
 		}
+		if ($rule->getParentStyleSheet() !== null || $rule->getParentRule() !== null) {
+			throw new InvalidArgumentException('Cannot insert a CSSRule that already belongs to a parent.');
+		}
+		$this->assertNoCycle($rule);
 
+		$delta = self::countSubtreeRules($rule);
 		$rule->attach($this->sheet, $this->owner);
 		if ($index === count($this->rules)) {
 			$this->rules[] = $rule;
 		} else {
 			array_splice($this->rules, $index, 0, [$rule]);
 		}
+		$this->sheet->adjustTotalRuleCount($delta);
 	}
 
+	/**
+	 * @throws LogicException When the list is detached from a stylesheet
+	 * @throws InvalidArgumentException When appending $rule would create a rule-tree cycle or reparent an attached rule
+	 */
 	public function append(CSSRule $rule): void
 	{
 		if ($this->sheet === null) {
 			throw new LogicException('A detached CSSRuleList cannot be modified.');
 		}
+		if ($rule->getParentStyleSheet() !== null || $rule->getParentRule() !== null) {
+			throw new InvalidArgumentException('Cannot append a CSSRule that already belongs to a parent.');
+		}
+		$this->assertNoCycle($rule);
 
+		$delta = self::countSubtreeRules($rule);
 		$rule->attach($this->sheet, $this->owner);
+		$this->rules[] = $rule;
+		$this->sheet->adjustTotalRuleCount($delta);
+	}
+
+	/** @internal */
+	public function getSheetInternal(): ?CSSStyleSheet
+	{
+		return $this->sheet;
+	}
+
+	/** @internal */
+	public function setSheetInternal(?CSSStyleSheet $sheet): void
+	{
+		$this->sheet = $sheet;
+	}
+
+	/** @internal */
+	public function getOwnerInternal(): ?CSSGroupingRule
+	{
+		return $this->owner;
+	}
+
+	/**
+	 * @internal Builds detached grouping/style rule subtrees during parsing before a single top-level attach.
+	 */
+	public function appendDetached(CSSRule $rule): void
+	{
+		if ($this->sheet !== null) {
+			throw new LogicException('appendDetached() requires a detached CSSRuleList.');
+		}
+		if ($rule->getParentStyleSheet() !== null || $rule->getParentRule() !== null) {
+			throw new InvalidArgumentException('Cannot append a CSSRule that already belongs to a parent.');
+		}
+		$this->assertNoCycle($rule);
+
+		$rule->attach(null, $this->owner);
 		$this->rules[] = $rule;
 	}
 
 	/**
+	 * @throws LogicException When called on a detached rule list
 	 * @throws OutOfBoundsException When $index is invalid
 	 */
 	public function remove(int $index): CSSRule
 	{
+		if ($this->sheet === null) {
+			throw new LogicException('A detached CSSRuleList cannot be modified.');
+		}
 		if (!isset($this->rules[$index])) {
 			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
 		}
 
-		[$rule] = array_splice($this->rules, $index, 1);
+		if ($index === count($this->rules) - 1) {
+			$rule = array_pop($this->rules);
+		} else {
+			[$rule] = array_splice($this->rules, $index, 1);
+		}
+		$delta = self::countSubtreeRules($rule);
 		$rule->attach(null, null);
+		$this->sheet->adjustTotalRuleCount(-$delta);
 
 		return $rule;
 	}
 
 	/**
-	 * Replaces all rules in O(N) time while updating parent links.
+	 * Replaces all rules in O(N) time while updating parent links and sheet rule counts.
+	 *
+	 * @throws InvalidArgumentException When any replacement rule would create a rule-tree cycle or is already attached to this sheet
 	 */
 	public function replaceAll(self $replacement): void
 	{
@@ -122,23 +219,48 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 			throw new LogicException('A detached CSSRuleList cannot be modified.');
 		}
 
+		foreach ($replacement->rules as $rule) {
+			if ($rule->getParentStyleSheet() === $this->sheet || $rule->getParentRule() !== null) {
+				throw new InvalidArgumentException('Cannot move already-owned CSSRule instances into replaceAll().');
+			}
+			$this->assertNoCycle($rule);
+		}
+
+		$removedCount = 0;
 		foreach ($this->rules as $existing) {
+			$removedCount += self::countSubtreeRules($existing);
 			$existing->attach(null, null);
 		}
 
 		$next = [];
+		$addedCount = 0;
 		foreach ($replacement->rules as $rule) {
+			$addedCount += self::countSubtreeRules($rule);
 			$rule->attach($this->sheet, $this->owner);
 			$next[] = $rule;
 		}
+		$replacement->rules = [];
+		$replacement->sheet?->adjustTotalRuleCount(-$addedCount);
 		$this->rules = $next;
+		$this->sheet->adjustTotalRuleCount($addedCount - $removedCount);
 	}
 
 	public function reparent(?CSSStyleSheet $sheet): void
 	{
-		$this->sheet = $sheet;
-		foreach ($this->rules as $rule) {
-			$rule->attach($sheet, $this->owner);
+		$stack = [$this];
+		while ($stack !== []) {
+			$list = array_pop($stack);
+			$list->sheet = $sheet;
+			$owner = $list->owner;
+			foreach ($list->rules as $rule) {
+				$rule->setParentLinks($sheet, $owner);
+				if ($rule instanceof CSSGroupingRule) {
+					$childList = $rule->getCssRules();
+					if ($childList->sheet !== $sheet) {
+						$stack[] = $childList;
+					}
+				}
+			}
 		}
 	}
 
@@ -148,5 +270,21 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 			return $this->count();
 		}
 		throw new Error('Undefined property: ' . static::class . '::$' . $name);
+	}
+
+	public function __isset(string $name): bool
+	{
+		return $name === 'length';
+	}
+
+	private function assertNoCycle(CSSRule $candidate): void
+	{
+		$ancestor = $this->owner;
+		while ($ancestor !== null) {
+			if ($ancestor === $candidate) {
+				throw new InvalidArgumentException('Cannot insert an ancestor rule into its own descendant CSSRuleList.');
+			}
+			$ancestor = $ancestor->getParentRule();
+		}
 	}
 }

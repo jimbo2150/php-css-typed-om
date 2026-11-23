@@ -160,4 +160,105 @@ final class CSSColorValueTest extends TestCase
 		$this->expectException(InvalidArgumentException::class);
 		$mathRgb->toLab();
 	}
+
+	public function testScaledRgbMathChannelsColorSpaceValidationAndPropertyHooks(): void
+	{
+		$calcRgb = CSSColorValue::parse('rgb(calc(255 * 0.5) 0 0)');
+		self::assertInstanceOf(CSSRGB::class, $calcRgb);
+		self::assertSame('percent', $calcRgb->r->getNumericCategory());
+		self::assertTrue(isset($calcRgb->r, $calcRgb->alpha));
+
+		$lch = CSSColorValue::parse('lch(50% 40 120deg)');
+		$lchRgb = $lch->toRGB();
+		self::assertEqualsWithDelta(38.756, $lchRgb->r->value, 0.05);
+		$lchRoundTrip = $lchRgb->toLCH();
+		self::assertEqualsWithDelta(50.0, $lchRoundTrip->l->value, 0.05);
+		self::assertEqualsWithDelta(40.0, $lchRoundTrip->c->value, 0.05);
+		self::assertEqualsWithDelta(120.0, $lchRoundTrip->h->value, 0.05);
+
+		$oklch = CSSColorValue::parse('oklch(70% 0.1 150deg)');
+		$oklchRgb = $oklch->toRGB();
+		self::assertEqualsWithDelta(43.626, $oklchRgb->r->value, 0.05);
+		$oklchRoundTrip = $oklchRgb->toOKLCH();
+		self::assertEqualsWithDelta(70.0, $oklchRoundTrip->l->value, 0.05);
+		self::assertEqualsWithDelta(0.1, $oklchRoundTrip->c->value, 0.01);
+		self::assertEqualsWithDelta(150.0, $oklchRoundTrip->h->value, 0.1);
+
+		$hwbRgb = CSSColorValue::parse('hwb(120deg 20% 20%)')->toRGB();
+		self::assertEqualsWithDelta(20.0, $hwbRgb->r->value, 0.01);
+		self::assertEqualsWithDelta(80.0, $hwbRgb->g->value, 0.01);
+
+		$custom3 = new CSSColor('--tri', [0.1, 0.2, 0.3]);
+		$spaceRef = $custom3->colorSpace;
+		self::assertSame('--tri', $spaceRef->value);
+		$custom3->colorSpace = 'srgb';
+		self::assertSame('srgb', $custom3->colorSpace->value);
+		self::assertSame('--tri', $spaceRef->value);
+
+		$clonedRgb = clone CSSColorValue::parse('rgb(10 20 30 / 0.5)');
+		self::assertInstanceOf(CSSRGB::class, $clonedRgb);
+
+		$custom4 = new CSSColor('--quad', [0.1, 0.2, 0.3, 0.4]);
+		$this->expectException(InvalidArgumentException::class);
+		$custom4->colorSpace = 'srgb';
+	}
+
+	public function testBradfordWhitepointExactRoundTripCommentBoundariesAndMathScaling(): void
+	{
+		// Exact W3C D65 whitepoint maps to exact W3C D50 whitepoint
+		$d65 = new CSSColor('xyz-d65', [0.3127 / 0.3290, 1.0, (1.0 - 0.3127 - 0.3290) / 0.3290]);
+		/** @var CSSColor $d50 */
+		$d50 = $d65->to('xyz-d50');
+		self::assertEqualsWithDelta(0.3457 / 0.3585, $d50->channels[0]->value, 1e-12);
+		self::assertEqualsWithDelta(1.0, $d50->channels[1]->value, 1e-12);
+		self::assertEqualsWithDelta((1.0 - 0.3457 - 0.3585) / 0.3585, $d50->channels[2]->value, 1e-12);
+
+		// Short-circuit toPredefinedColor preserves original channels (including none / percent)
+		$origSrgb = CSSColorValue::parse('color(srgb 10% 0.2 none)');
+		$sameSrgb = $origSrgb->to('srgb');
+		self::assertSame('color(srgb 10% 0.2 none)', (string) $sameSrgb);
+		self::assertNotSame($origSrgb, $sameSrgb);
+
+		// Whitespace before '(' rejected; comments inside rgb() separate tokens; inner calc(10% +/*c*/5%) still rejected
+		$commentRgb = CSSColorValue::parse('rgb(100%/*c*/0% 0%)');
+		self::assertSame('rgb(100% 0% 0%)', (string) $commentRgb);
+		foreach ([
+			'rgb (1 2 3)',
+			'rgb(calc(10% +/*c*/5%) 0% 0%)',
+		] as $badColor) {
+			try {
+				CSSColorValue::parse($badColor);
+				self::fail('Expected invalid color syntax to throw: ' . $badColor);
+			} catch (InvalidArgumentException) {
+				self::assertTrue(true);
+			}
+		}
+
+		// Number-typed CSSMathValue channels scale to percent where appropriate and reject percentHint
+		$numMath = \Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser::parse('calc(0.2 + 0.3)');
+		$scaledRgb = new CSSRGB($numMath, 0, 0, $numMath);
+		self::assertSame('percent', $scaledRgb->r->getNumericCategory());
+		self::assertSame('percent', $scaledRgb->alpha->getNumericCategory());
+		$parsedOklabMath = CSSColorValue::parse('oklab(calc(0.2 + 0.3) 0 0 / calc(0.2 + 0.3))');
+		self::assertSame('percent', $parsedOklabMath->l->getNumericCategory());
+		self::assertSame('percent', $parsedOklabMath->alpha->getNumericCategory());
+
+		try {
+			new CSSRGB(
+				new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct([
+					CSSNumericValue::parse('1'),
+					new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum([
+						CSSNumericValue::parse('10px'),
+						CSSNumericValue::parse('20%'),
+					]),
+					new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathInvert([CSSNumericValue::parse('10px')]),
+				]),
+				0,
+				0,
+			);
+			self::fail('Expected percentHint-bearing channel to throw.');
+		} catch (InvalidArgumentException) {
+			self::assertTrue(true);
+		}
+	}
 }

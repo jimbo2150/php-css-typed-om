@@ -47,10 +47,19 @@ final class CSSScopeRule extends CSSGroupingRule
 		};
 	}
 
+	public function __isset(string $name): bool
+	{
+		return match ($name) {
+			'start' => $this->start !== null,
+			'end' => $this->end !== null,
+			default => parent::__isset($name),
+		};
+	}
+
 	/** @return array{?string, ?string} */
 	private static function parseBounds(string $prelude): array
 	{
-		$prelude = trim($prelude);
+		$prelude = CSSSyntaxScanner::trimCssWhitespace($prelude);
 		if ($prelude === '') {
 			return [null, null];
 		}
@@ -65,11 +74,11 @@ final class CSSScopeRule extends CSSGroupingRule
 			if ($close === null) {
 				throw new InvalidArgumentException('Unclosed @scope start selector.');
 			}
-			$start = trim(substr($prelude, 1, $close - 1));
+			$start = CSSSyntaxScanner::trimCssWhitespace(substr($prelude, 1, $close - 1));
 			$offset = $close + 1;
 		}
 
-		$rest = trim(substr($prelude, $offset));
+		$rest = CSSSyntaxScanner::trimCssWhitespace(substr($prelude, $offset));
 		if ($rest !== '') {
 			if (!preg_match('/^to\s*\(/i', $rest)) {
 				throw new InvalidArgumentException('Malformed @scope prelude: ' . $prelude);
@@ -79,7 +88,7 @@ final class CSSScopeRule extends CSSGroupingRule
 			if ($close !== strlen($rest) - 1) {
 				throw new InvalidArgumentException('Malformed @scope end selector.');
 			}
-			$end = trim(substr($rest, $open + 1, $close - $open - 1));
+			$end = CSSSyntaxScanner::trimCssWhitespace(substr($rest, $open + 1, $close - $open - 1));
 		}
 
 		return [$start, $end];

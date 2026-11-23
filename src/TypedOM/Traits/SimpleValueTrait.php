@@ -7,16 +7,12 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Traits;
 use InvalidArgumentException;
 
 /**
- * Trait for numeric/simple Typed OM value properties with finite-value validation.
+ * Trait for numeric Typed OM value properties with finite-value validation.
  */
 trait SimpleValueTrait
 {
 	/** @var mixed The value */
-	public protected(set) mixed $value = null {
-		get {
-			return $this->value;
-		}
-	}
+	public protected(set) mixed $value = null;
 
 	/**
 	 * Set the value after validation.

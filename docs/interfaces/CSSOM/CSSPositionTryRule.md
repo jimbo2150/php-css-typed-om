@@ -13,7 +13,7 @@ Magic read-only `name` returns the custom dashed rule name and `style` returns `
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(string $name, CSSStyleDeclaration $style)` | Normalizes and requires a name beginning `--`; copies declarations into `CSSPositionTryDescriptors`. Throws `InvalidArgumentException` for a non-custom-property name. | `$rule = new CSSPositionTryRule('--flip', new CSSStyleDeclaration('top: anchor(bottom)'));` |
+| `__construct(string $name, ?CSSStyleDeclaration $style = null)` | Normalizes and requires a name beginning `--`; copies declarations into `CSSPositionTryDescriptors` (or creates empty descriptors when `null`). Throws `InvalidArgumentException` for a non-custom-property name. | `$rule = new CSSPositionTryRule('--flip', new CSSStyleDeclaration('top: anchor(bottom)'));` |
 | `getNameText(): string` | Returns the custom name from the prelude. | `$rule->getNameText();` |
 | `getStyle(): CSSPositionTryDescriptors` | Returns the typed descriptor block. | `$rule->getStyle();` |
 | `getType(): int` | Returns `CSSRule::POSITION_TRY_RULE`. | `$rule->getType();` |

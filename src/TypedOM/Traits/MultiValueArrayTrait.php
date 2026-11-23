@@ -9,36 +9,26 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericArray;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 
 /**
- * Trait for simple value classes (color, keyword, image).
- * 
- * Provides common functionality for simple CSS values that don't need complex operations.
+ * Trait for array-backed numeric collection classes (`CSSNumericArray`).
  */
 trait MultiValueArrayTrait
 {
-
-	/** @var array<CSSNumericValue> */
-    public protected(set) array $values = [] {
-		get {
-			return $this->values;
-		}
-	}
+	/** @var list<CSSNumericValue> */
+	public protected(set) array $values = [];
 
 	/**
-	 * Constructor for MultiValueArrayTrait.
-	 *
-	 * @param CSSNumericValue|CSSNumericArray|array $value The value to initialize with
+	 * @param CSSNumericValue|CSSNumericArray|list<CSSNumericValue> $value The value to initialize with
 	 */
-	public function __construct(CSSNumericValue|CSSNumericArray|array $value) {
+	public function __construct(CSSNumericValue|CSSNumericArray|array $value)
+	{
 		if ($value instanceof CSSNumericArray) {
 			$this->values = $value->values;
-		} else if ($value instanceof CSSNumericValue) {
-			$values = $this->values;
-			$values[] = $value;
-			$this->values = $values;
+		} elseif ($value instanceof CSSNumericValue) {
+			$this->values = [$value];
 		} else {
-			$values = $this->values;
-			foreach($value as $entry) {
-				if(!($entry instanceof CSSNumericValue)) {
+			$values = [];
+			foreach ($value as $entry) {
+				if (!$entry instanceof CSSNumericValue) {
 					throw new InvalidArgumentException('All values must be of type ' . CSSNumericValue::class);
 				}
 				$values[] = $entry;
@@ -47,11 +37,8 @@ trait MultiValueArrayTrait
 		}
 	}
 
-    /**
-     * Convert to string representation.
-     */
-    public function __toString(): string
-    {
-        return implode(', ', $this->values);
-    }
+	public function __toString(): string
+	{
+		return implode(', ', $this->values);
+	}
 }

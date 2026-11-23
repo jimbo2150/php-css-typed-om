@@ -16,6 +16,14 @@ final class CSSMathClamp extends CSSMathValue
 {
 	public const ?string operator = 'clamp';
 
+	public CSSNumericValue $lower {
+		get => $this->values->values[0];
+	}
+
+	public CSSNumericValue $upper {
+		get => $this->values->values[2];
+	}
+
 	/**
 	 * Accepts either three positional arguments `(lower, value, upper)` per MDN
 	 * or a 3-element `CSSNumericArray|list<CSSNumericValue>`.
@@ -48,15 +56,5 @@ final class CSSMathClamp extends CSSMathValue
 	public function getUpper(): CSSNumericValue
 	{
 		return $this->values->values[2];
-	}
-
-	public function __get(string $name): mixed
-	{
-		return match ($name) {
-			'lower' => $this->getLower(),
-			'value' => $this->getValue(),
-			'upper' => $this->getUpper(),
-			default => parent::__get($name),
-		};
 	}
 }

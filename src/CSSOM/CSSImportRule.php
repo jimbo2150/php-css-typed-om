@@ -16,20 +16,36 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 final class CSSImportRule extends CSSAtRule
 {
 	private MediaList $media;
+	private string $urlToken;
+	private string $href;
+	private ?string $layerName;
+	private ?string $supportsText;
+	private bool $initializing = true;
 
 	public function __construct(string $prelude)
 	{
-		$trimmed = trim($prelude);
+		$trimmed = CSSSyntaxScanner::trimCssWhitespace($prelude);
 		if ($trimmed === '') {
 			throw new InvalidArgumentException('@import requires a URL.');
 		}
 		parent::__construct('import', $trimmed);
-		$this->media = new MediaList($this->extractTailParts()['media']);
+
+		$parts = self::parseTailParts($this->prelude);
+		$this->urlToken = $parts['urlToken'];
+		$this->href = $parts['href'];
+		$this->layerName = $parts['layerName'];
+		$this->supportsText = $parts['supportsText'];
+		$this->media = new MediaList($parts['media'], function (string $mediaText): void {
+			if (!$this->initializing) {
+				$this->rebuildPrelude($mediaText);
+			}
+		});
+		$this->initializing = false;
 	}
 
 	public function getHref(): string
 	{
-		return $this->extractTailParts()['href'];
+		return $this->href;
 	}
 
 	public function getMedia(): MediaList
@@ -44,12 +60,12 @@ final class CSSImportRule extends CSSAtRule
 
 	public function getLayerName(): ?string
 	{
-		return $this->extractTailParts()['layerName'];
+		return $this->layerName;
 	}
 
 	public function getSupportsText(): ?string
 	{
-		return $this->extractTailParts()['supportsText'];
+		return $this->supportsText;
 	}
 
 	public function getType(): int
@@ -65,47 +81,102 @@ final class CSSImportRule extends CSSAtRule
 	public function __get(string $name): mixed
 	{
 		return match ($name) {
-			'href' => $this->getHref(),
-			'media' => $this->getMedia(),
-			'mediaText' => $this->getMediaText(),
-			'styleSheet' => $this->getStyleSheet(),
-			'layerName' => $this->getLayerName(),
-			'supportsText' => $this->getSupportsText(),
+			'href' => $this->href,
+			'media' => $this->media,
+			'mediaText' => $this->media->getMediaText(),
+			'styleSheet' => null,
+			'layerName' => $this->layerName,
+			'supportsText' => $this->supportsText,
 			default => parent::__get($name),
 		};
 	}
 
-	/** @return array{href: string, layerName: ?string, supportsText: ?string, media: string} */
-	private function extractTailParts(): array
+	public function __isset(string $name): bool
 	{
-		$tokens = CSSSyntaxScanner::splitTopLevelWhitespace($this->prelude);
-		if ($tokens === []) {
-			return ['href' => '', 'layerName' => null, 'supportsText' => null, 'media' => ''];
+		return match ($name) {
+			'href', 'media', 'mediaText' => true,
+			'styleSheet' => false,
+			'layerName' => $this->layerName !== null,
+			'supportsText' => $this->supportsText !== null,
+			default => parent::__isset($name),
+		};
+	}
+
+	private function rebuildPrelude(string $mediaText): void
+	{
+		$parts = [$this->urlToken];
+		if ($this->layerName !== null) {
+			$parts[] = $this->layerName === '' ? 'layer' : 'layer(' . $this->layerName . ')';
+		}
+		if ($this->supportsText !== null) {
+			$parts[] = 'supports(' . $this->supportsText . ')';
+		}
+		if ($mediaText !== '') {
+			$parts[] = $mediaText;
+		}
+		$this->prelude = implode(' ', $parts);
+	}
+
+	/** @return array{urlToken: string, href: string, layerName: ?string, supportsText: ?string, media: string} */
+	private static function parseTailParts(string $prelude): array
+	{
+		$prelude = CSSSyntaxScanner::trimCssWhitespace($prelude);
+		$length = strlen($prelude);
+		if ($length === 0) {
+			return ['urlToken' => '', 'href' => '', 'layerName' => null, 'supportsText' => null, 'media' => ''];
 		}
 
-		$urlToken = array_shift($tokens);
+		// Extract leading <string-token> or url(...) without requiring whitespace before subsequent tokens.
+		$pos = 0;
+		$ch = $prelude[0];
+		if ($ch === '"' || $ch === "'") {
+			$valid = false;
+			$strEnd = CSSSyntaxScanner::scanQuotedStringEnd($prelude, 0, $length, $valid);
+			$pos = $valid ? $strEnd + 1 : $length;
+		} elseif ($length >= 4 && substr_compare($prelude, 'url(', 0, 4, true) === 0) {
+			$urlEnd = CSSSyntaxScanner::findMatchingUrlEnd($prelude, 3, $length);
+			$pos = $urlEnd !== null ? $urlEnd + 1 : $length;
+		}
+
+		if ($pos > 0) {
+			$urlToken = substr($prelude, 0, $pos);
+			$tail = CSSSyntaxScanner::trimCssWhitespace(substr($prelude, $pos));
+			$tokens = $tail === '' ? [] : CSSSyntaxScanner::splitTopLevelWhitespace($tail);
+		} else {
+			$tokens = CSSSyntaxScanner::splitTopLevelWhitespace($prelude);
+			$urlToken = array_shift($tokens);
+		}
+
 		$href = self::unwrapUrlToken($urlToken);
 		$layerName = null;
 		$supportsText = null;
 		$mediaTokens = [];
+		$inMedia = false;
 
 		foreach ($tokens as $token) {
-			if (strcasecmp($token, 'layer') === 0 && $layerName === null) {
-				$layerName = '';
+			if (!$inMedia && $supportsText === null && $layerName === null) {
+				if (strcasecmp($token, 'layer') === 0) {
+					$layerName = '';
+					continue;
+				}
+				if (strncasecmp($token, 'layer(', 6) === 0 && str_ends_with($token, ')')) {
+					$layerName = CSSSyntaxScanner::trimCssWhitespace(substr($token, 6, -1));
+					continue;
+				}
+			}
+			if (!$inMedia && $supportsText === null && strncasecmp($token, 'supports(', 9) === 0 && str_ends_with($token, ')')) {
+				$supportsText = CSSSyntaxScanner::trimCssWhitespace(substr($token, 9, -1));
 				continue;
 			}
-			if (strncasecmp($token, 'layer(', 6) === 0 && str_ends_with($token, ')') && $layerName === null) {
-				$layerName = trim(substr($token, 6, -1));
-				continue;
+			if ($supportsText !== null && (strcasecmp($token, 'layer') === 0 || (strncasecmp($token, 'layer(', 6) === 0 && str_ends_with($token, ')')))) {
+				throw new InvalidArgumentException('CSS @import layer() must precede supports().');
 			}
-			if (strncasecmp($token, 'supports(', 9) === 0 && str_ends_with($token, ')') && $supportsText === null) {
-				$supportsText = trim(substr($token, 9, -1));
-				continue;
-			}
+			$inMedia = true;
 			$mediaTokens[] = $token;
 		}
 
 		return [
+			'urlToken' => $urlToken,
 			'href' => $href,
 			'layerName' => $layerName,
 			'supportsText' => $supportsText,
@@ -116,7 +187,7 @@ final class CSSImportRule extends CSSAtRule
 	private static function unwrapUrlToken(string $token): string
 	{
 		if (strncasecmp($token, 'url(', 4) === 0 && str_ends_with($token, ')')) {
-			$token = trim(substr($token, 4, -1));
+			$token = CSSSyntaxScanner::trimCssWhitespace(substr($token, 4, -1));
 		}
 
 		if (strlen($token) >= 2 && (($token[0] === '"' && $token[-1] === '"') || ($token[0] === "'" && $token[-1] === "'"))) {

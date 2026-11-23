@@ -25,4 +25,9 @@ final class CSSLayerBlockRule extends CSSGroupingRule
 	{
 		return $name === 'name' ? $this->getNameText() : parent::__get($name);
 	}
+
+	public function __isset(string $name): bool
+	{
+		return $name === 'name' || parent::__isset($name);
+	}
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\Tests\CSSOM;
 
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFontFeatureValuesRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSOpaqueRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderer;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderMode;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderOptions;
@@ -215,5 +216,54 @@ CSS);
 		self::assertStringContainsString('@media screen{p,', $minified);
 		self::assertStringContainsString('div{color:blue;}}', $minified);
 		self::assertSame([], CSSStyleSheet::parse($minified)->getParseErrors());
+	}
+
+	public function testRendersEmptyPrettyBlocksDescendantNewlinesOmittedCallbacksAndNestedOpaque(): void
+	{
+		$sheet = CSSStyleSheet::parse("a {}\ndiv\nspan { color: red; }\n@media screen { @unknown-nested { x: 1; } }");
+		self::assertSame([], $sheet->getParseErrors());
+
+		$pretty = CSSRenderer::render($sheet);
+		self::assertStringContainsString("a {}\n", $pretty);
+		self::assertStringContainsString("  @unknown-nested { x: 1; }\n}", $pretty);
+
+		$minified = CSSRenderer::render($sheet, new CSSRenderOptions(CSSRenderMode::Minified));
+		self::assertStringContainsString('a{}div span{color:red;}', $minified);
+
+		$filtered = CSSRenderer::render($sheet, new CSSRenderOptions(
+			ruleCallback: static fn ($rule, string $text): string => $rule instanceof CSSOpaqueRule ? '' : $text,
+		));
+		self::assertSame("a {}\ndiv\nspan {\n  color: red;\n}\n@media screen {}", $filtered);
+	}
+
+	public function testMinifiedPreservesHexEscapeTerminatingWhitespaceAndEscapesStyleCloseTag(): void
+	{
+		$sheet = CSSStyleSheet::parse(".a\\2f  b { content: \"</style>\"; }");
+		self::assertSame([], $sheet->getParseErrors());
+
+		$minified = CSSRenderer::render($sheet, new CSSRenderOptions(CSSRenderMode::Minified, escapeHtmlStyleTag: true));
+		self::assertSame('.a\2f  b{content:"<\/style>";}', $minified);
+
+		$edgeSheet = CSSStyleSheet::parse(".a\\2f\r\nb[title=\u{00E9}url(a   b)] { color: red; }");
+		self::assertSame([], $edgeSheet->getParseErrors());
+		$edgeMinified = CSSRenderer::render($edgeSheet, new CSSRenderOptions(CSSRenderMode::Minified));
+		self::assertSame('.a\2f b[title=éurl(a b)]{color:red;}', $edgeMinified);
+	}
+
+	public function testHandlesDepth256AndPreservesSelectorCommentBoundariesInMinify(): void
+	{
+		$deepCss = str_repeat('@media screen {', 255) . 'a { color: red; }' . str_repeat('}', 255);
+		$deepSheet = CSSStyleSheet::parse($deepCss);
+		self::assertSame([], $deepSheet->getParseErrors());
+		self::assertStringContainsString('color: red;', $deepSheet->getCssText());
+		self::assertStringContainsString('a{color:red;}', CSSRenderer::render($deepSheet, new CSSRenderOptions(CSSRenderMode::Minified)));
+
+		$deepStyleCss = str_repeat('a { ', 256) . 'color: red;' . str_repeat('}', 256);
+		$deepStyleSheet = CSSStyleSheet::parse($deepStyleCss);
+		self::assertSame([], $deepStyleSheet->getParseErrors());
+		self::assertStringContainsString('color: red;', $deepStyleSheet->getCssText());
+
+		$commentSel = CSSStyleSheet::parse('div/*c*/span { color: red; }');
+		self::assertSame('div span{color:red;}', CSSRenderer::render($commentSel, new CSSRenderOptions(CSSRenderMode::Minified, keepComments: false)));
 	}
 }

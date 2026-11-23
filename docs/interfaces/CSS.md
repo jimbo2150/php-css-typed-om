@@ -41,7 +41,7 @@ Registers a custom property (`--*`) in the standalone registry, validating `name
 
 ### `supports(string $propertyOrCondition, ?string $value = null, ?CSSParserOptions $options = null): bool`
 
-Evaluates standalone CSS declaration syntax (2-arg form, rejecting `!important`) or `@supports` boolean condition syntax (1-arg form, supporting bare declarations, `!important`, `not`, `and`, `or`, `selector(...)`, and resource limits from `CSSParserOptions`). Returns `false` on malformed or unrecognized inputs without throwing.
+Evaluates standalone CSS declaration syntax (2-arg form, rejecting `!important`) or `@supports` boolean condition syntax (1-arg form, supporting bare declarations, `!important`, `not`, `and`, `or`, strict `selector(...)` with no space before `(`, and resource limits from `CSSParserOptions`, returning `false` whenever `maxDepth` or balance checks fail). Returns `false` on malformed or unrecognized inputs without throwing.
 
 ### `translateUnit(string $name): string`
 

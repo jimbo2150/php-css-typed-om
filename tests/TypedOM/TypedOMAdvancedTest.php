@@ -39,9 +39,12 @@ final class TypedOMAdvancedTest extends TestCase
 		self::assertEqualsWithDelta(96.0, CSS::mm(25.4)->to('px')->value, 1e-9);
 		self::assertEqualsWithDelta(2000.0, CSS::khz(2)->to('hz')->value, 1e-9);
 
-		$noSpaces = CSSNumericValue::parse('calc(10px+5px)');
-		self::assertInstanceOf(CSSMathSum::class, $noSpaces);
-		self::assertSame('calc(10px + 5px)', (string) $noSpaces);
+		try {
+			CSSNumericValue::parse('calc(10px+5px)');
+			self::fail('Expected InvalidArgumentException when binary + lacks surrounding whitespace.');
+		} catch (\InvalidArgumentException) {
+			self::addToAssertionCount(1);
+		}
 
 		$withComments = CSSNumericValue::parse('calc(/* lead */ 10px + /* mid */ 5px)');
 		self::assertSame('calc(10px + 5px)', (string) $withComments);
@@ -112,7 +115,6 @@ final class TypedOMAdvancedTest extends TestCase
 
 		$perspective = new CSSPerspective(200);
 		self::assertEqualsWithDelta(-0.005, $perspective->toMatrix()[11], 1e-9);
-		self::assertSame(CSSTransformValue::class, CSSTransformValue::class);
 		self::assertSame(1.0, (new CSSPerspective('none'))->toMatrix()[0]);
 
 		$matrix = new CSSMatrixComponent([1, 0, 0, 1, 15, 25]);
@@ -181,5 +183,137 @@ final class TypedOMAdvancedTest extends TestCase
 			$transformSeen[$i] = (string) $comp;
 		});
 		self::assertSame([0 => 'translate(10px, 0px)', 1 => 'scale(2, 2)'], $transformSeen);
+	}
+
+	public function testTransformIndependenceCloningMatrixSyncAndPerspectiveNone(): void
+	{
+		$scale = new CSSScale(2);
+		self::assertNotSame($scale->x, $scale->y);
+		$scaleClone = $scale->clone();
+		$scaleClone->x->value = 5;
+		self::assertSame(2.0, $scale->x->value);
+		self::assertSame(2.0, $scaleClone->y->value);
+
+		$rotateX = new CSSRotate('rotateX', ['45deg']);
+		$rotateClone = $rotateX->clone();
+		self::assertFalse($rotateClone->is2D);
+		self::assertSame('rotatex(45deg)', (string) $rotateClone);
+
+		$translate = new CSSTranslate(CSS::px(10), CSS::px(20));
+		$translate->z = CSS::px(30);
+		self::assertFalse($translate->is2D);
+		self::assertSame('translate3d(10px, 20px, 30px)', (string) $translate);
+
+		$matrixComp = new CSSMatrixComponent([1, 0, 0, 1, 0, 0]);
+		$matrixComp->matrix->e = 42.0;
+		self::assertSame('42', $matrixComp->getValues()[4]);
+
+		$parsed = CSSTransformValue::fromCssText('perspective(none)');
+		self::assertInstanceOf(CSSPerspective::class, $parsed[0]);
+		self::assertSame('perspective(none)', (string) $parsed);
+
+		$tx = CSSTransformValue::fromCssText('translateX(10px)')[0];
+		self::assertInstanceOf(CSSTranslate::class, $tx);
+		$tx->y = CSS::px(25);
+		self::assertSame('translate(10px, 25px)', (string) $tx);
+
+		$sx = CSSTransformValue::fromCssText('scaleX(2)')[0];
+		self::assertInstanceOf(CSSScale::class, $sx);
+		$sx->y = 3;
+		self::assertSame('scale(2, 3)', (string) $sx);
+
+		$rot = new CSSRotate(CSS::deg(30));
+		$rot->x = 1;
+		self::assertFalse($rot->is2D);
+		self::assertSame('rotate3d(1, 0, 1, 30deg)', (string) $rot);
+
+		$unparsed = new CSSUnparsedValue('url("a)b") var(--x, 1px)');
+		self::assertCount(2, $unparsed);
+		$unparsedClone = clone $unparsed;
+		self::assertNotSame($unparsed[1], $unparsedClone[1]);
+	}
+
+	public function testW3cTransformPositionImageAndCloneCompliance(): void
+	{
+		// Three-argument translate/scale always set is2D = false even with zero z / unit scaleZ
+		$t3 = new CSSTranslate(CSS::px(10), CSS::px(20), CSS::px(0));
+		self::assertFalse($t3->is2D);
+		$s3 = new CSSScale(2, 3, 1);
+		self::assertFalse($s3->is2D);
+
+		// Negative canonical axis on CSSRotate promotes z-axis rotation to 3D and rejects zero axis
+		$negZRot = new CSSRotate(0, 0, -1, CSS::deg(45));
+		self::assertFalse($negZRot->is2D);
+		self::assertSame('rotate3d(0, 0, -1, 45deg)', (string) $negZRot);
+
+		try {
+			new CSSRotate(0, 0, 0, CSS::deg(45));
+			self::fail('Expected zero rotation axis to throw.');
+		} catch (\InvalidArgumentException) {
+			self::assertTrue(true);
+		}
+
+		// Two-keyword CSSPositionValue('center left') resolves x=left, y=center
+		$pos = CSSStyleValue::parse('object-position', 'center left');
+		self::assertInstanceOf(CSSPositionValue::class, $pos);
+		self::assertSame('left', (string) $pos->x);
+		self::assertSame('center', (string) $pos->y);
+
+		// Non-url() images with var() fall back to CSSUnparsedValue
+		$gradVar = CSSStyleValue::parse('background-image', 'linear-gradient(var(--a), red)');
+		self::assertInstanceOf(CSSUnparsedValue::class, $gradVar);
+
+		// Transform component setters reject compatible dimensions with incompatible percentHint
+		$tx = new CSSTranslate(CSS::px(1), CSS::px(2));
+		foreach ([
+			new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum([
+				CSS::s(1),
+				CSS::percent(10),
+			]),
+			new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct([
+				CSS::px(1),
+				new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum([CSS::s(1), CSS::percent(10)]),
+				new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathInvert([CSS::s(1)]),
+			]),
+		] as $badPercentHint) {
+			try {
+				$tx->x = $badPercentHint;
+				self::fail('Expected incompatible percentHint math value to be rejected on CSSTranslate::$x.');
+			} catch (\InvalidArgumentException) {
+				self::assertTrue(true);
+			}
+		}
+
+		// CSSTranslate & CSSScale preserve 1-arg serialization on __clone()
+		$singleTranslateClone = clone new CSSTranslate('translate', [CSS::px(10)]);
+		self::assertSame('translate(10px)', (string) $singleTranslateClone);
+		$singleScaleClone = clone new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSScale('scale', [2]);
+		self::assertSame('scale(2)', (string) $singleScaleClone);
+
+		// CSSPositionValue accepts unitless 0 (normalized to 0px) and rejects control characters
+		$zeroPos = CSSPositionValue::fromCssText('0 50%');
+		self::assertSame('0px 50%', (string) $zeroPos);
+		try {
+			CSSPositionValue::fromCssText("0\x00 0");
+			self::fail('Expected control character in CSSPositionValue to throw.');
+		} catch (\InvalidArgumentException) {
+			self::assertTrue(true);
+		}
+
+		// CSSImageValue rejects declaration/block delimiters inside non-url() functions, allows ';' in url()
+		$dataUrl = new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSImageValue('url("data:text/css;utf8,a")');
+		self::assertSame('url("data:text/css;utf8,a")', (string) $dataUrl);
+		try {
+			new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSImageValue('linear-gradient(red; blue)');
+			self::fail('Expected ";" inside linear-gradient() to throw.');
+		} catch (\InvalidArgumentException) {
+			self::assertTrue(true);
+		}
+
+		// CSSTransformValue comments & clone deep-copy
+		$trList = CSSTransformValue::fromCssText('/* lead */ translateX(10px) /* mid */ scale(2)');
+		self::assertCount(2, $trList);
+		$trClone = clone $trList;
+		self::assertNotSame($trList[0], $trClone[0]);
 	}
 }

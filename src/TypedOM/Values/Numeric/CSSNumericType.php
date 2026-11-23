@@ -53,6 +53,18 @@ class CSSNumericType
 	}
 
 	/**
+	 * @internal Fast path for already-validated dimension maps.
+	 * @param array<string, int|string> $dimensions
+	 */
+	public static function fromValidatedDimensions(array $dimensions): self
+	{
+		$type = new self();
+		$type->dimensions = $dimensions;
+
+		return $type;
+	}
+
+	/**
 	 * Sets a numeric type dimension exponent or percentHint.
 	 *
 	 * @throws \ValueError When $key is not a valid numeric dimension
@@ -95,25 +107,50 @@ class CSSNumericType
 		return $this->dimensions;
 	}
 
+	public function applyPercentHint(string $hint): self
+	{
+		$dimensions = $this->dimensions;
+		if (isset($dimensions['percent'])) {
+			$newExp = (int) ($dimensions[$hint] ?? 0) + (int) $dimensions['percent'];
+			unset($dimensions['percent']);
+			if ($newExp === 0) {
+				unset($dimensions[$hint]);
+			} else {
+				$dimensions[$hint] = $newExp;
+			}
+		}
+		$dimensions['percentHint'] = $hint;
+
+		return self::fromValidatedDimensions($dimensions);
+	}
+
 	public function multiply(self $other): self
 	{
+		$leftHint = $this->dimensions['percentHint'] ?? null;
+		$rightHint = $other->dimensions['percentHint'] ?? null;
+		if ($leftHint !== null && $rightHint !== null && $leftHint !== $rightHint) {
+			throw new \InvalidArgumentException('Cannot multiply numeric types with conflicting percent hints.');
+		}
+		$hint = $leftHint ?? $rightHint;
+		$left = ($leftHint === null && $hint !== null) ? $this->applyPercentHint((string) $hint) : $this;
+		$right = ($rightHint === null && $hint !== null) ? $other->applyPercentHint((string) $hint) : $other;
+
 		$dimensions = [];
 		foreach (self::allowedProperties as $dimension) {
 			if ($dimension === 'percentHint') {
 				continue;
 			}
-			$sum = (int) ($this->dimensions[$dimension] ?? 0) + (int) ($other->dimensions[$dimension] ?? 0);
+			$sum = (int) ($left->dimensions[$dimension] ?? 0) + (int) ($right->dimensions[$dimension] ?? 0);
 			if ($sum !== 0) {
 				$dimensions[$dimension] = $sum;
 			}
 		}
 
-		$hint = $this->dimensions['percentHint'] ?? ($other->dimensions['percentHint'] ?? null);
 		if ($hint !== null) {
 			$dimensions['percentHint'] = $hint;
 		}
 
-		return new self($dimensions);
+		return self::fromValidatedDimensions($dimensions);
 	}
 
 	public function invert(): self
@@ -124,14 +161,20 @@ class CSSNumericType
 				$dimensions['percentHint'] = $exponent;
 				continue;
 			}
-			$dimensions[$dimension] = -(int) $exponent;
+			$intVal = -(int) $exponent;
+			if ($intVal !== 0) {
+				$dimensions[$dimension] = $intVal;
+			}
 		}
 
-		return new self($dimensions);
+		return self::fromValidatedDimensions($dimensions);
 	}
 
 	public function equals(self $other): bool
 	{
+		if ($this === $other) {
+			return true;
+		}
 		foreach (self::allowedProperties as $dimension) {
 			if ($dimension === 'percentHint') {
 				if (($this->dimensions['percentHint'] ?? null) !== ($other->dimensions['percentHint'] ?? null)) {

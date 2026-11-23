@@ -114,6 +114,18 @@ abstract class CSS
 	/** @var array<string, CSSPropertyRule> Standalone custom property registry */
 	private static array $registeredProperties = [];
 
+	public static function px(string|int|float|null $value = null): CSSUnitValue { return self::unitFactory($value, CSSUnitEnum::LENGTH_px, 'px'); }
+	public static function em(string|int|float|null $value = null): CSSUnitValue { return self::unitFactory($value, CSSUnitEnum::LENGTH_em, 'em'); }
+	public static function rem(string|int|float|null $value = null): CSSUnitValue { return self::unitFactory($value, CSSUnitEnum::LENGTH_rem, 'rem'); }
+	public static function percent(string|int|float|null $value = null): CSSUnitValue { return self::unitFactory($value, CSSUnitEnum::PERCENT, 'percent'); }
+	public static function number(string|int|float|null $value = null): CSSUnitValue { return self::unitFactory($value, CSSUnitEnum::NUMBER, 'number'); }
+	public static function deg(string|int|float|null $value = null): CSSUnitValue { return self::unitFactory($value, CSSUnitEnum::ANGLE_deg, 'deg'); }
+	public static function s(string|int|float|null $value = null): CSSUnitValue { return self::unitFactory($value, CSSUnitEnum::TIME_s, 's'); }
+	public static function ms(string|int|float|null $value = null): CSSUnitValue { return self::unitFactory($value, CSSUnitEnum::TIME_ms, 'ms'); }
+	public static function vh(string|int|float|null $value = null): CSSUnitValue { return self::unitFactory($value, CSSUnitEnum::LENGTH_vh, 'vh'); }
+	public static function vw(string|int|float|null $value = null): CSSUnitValue { return self::unitFactory($value, CSSUnitEnum::LENGTH_vw, 'vw'); }
+	public static function fr(string|int|float|null $value = null): CSSUnitValue { return self::unitFactory($value, CSSUnitEnum::FLEX_fr, 'fr'); }
+
 	/**
 	 * Magic method for static calls to create CSS unit values.
 	 *
@@ -130,11 +142,23 @@ abstract class CSS
 		if ($unit === null) {
 			throw new BadMethodCallException('Static method ' . $name . ' does not exist.');
 		}
-		if (!isset($arguments[0]) || !(is_string($arguments[0]) || is_int($arguments[0]) || is_float($arguments[0])) || !is_numeric($arguments[0])) {
-			throw new InvalidArgumentException('Static method ' . $name . ' requires 1 numeric parameter.');
+
+		return self::unitFactory($arguments[0] ?? null, $unit, $name);
+	}
+
+	private static function unitFactory(mixed $rawValue, CSSUnitEnum $unit, string $methodName): CSSUnitValue
+	{
+		if ($rawValue === null || !(is_string($rawValue) || is_int($rawValue) || is_float($rawValue))) {
+			throw new InvalidArgumentException('Static method ' . $methodName . ' requires 1 numeric parameter.');
 		}
-		$value = is_string($arguments[0]) ? $arguments[0] : (float) $arguments[0];
-		if (!is_finite((float) $value)) {
+		if (is_string($rawValue) && CSSSyntaxScanner::hasControlCharacters($rawValue)) {
+			throw new InvalidArgumentException('CSS numeric value contains disallowed control characters.');
+		}
+		if (!is_numeric($rawValue)) {
+			throw new InvalidArgumentException('Static method ' . $methodName . ' requires 1 numeric parameter.');
+		}
+		$value = (float) $rawValue;
+		if (!is_finite($value)) {
 			throw new InvalidArgumentException('CSS numeric value must be finite.');
 		}
 
@@ -192,18 +216,18 @@ abstract class CSS
 			throw new InvalidArgumentException(sprintf('Custom property "%s" is already registered.', $name));
 		}
 
-		$syntax = trim($syntax);
+		$syntax = CSSSyntaxScanner::trimCssWhitespace($syntax);
 		self::validatePropertySyntax($syntax);
 
-		if ($syntax !== '*' && ($initialValue === null || trim($initialValue) === '')) {
+		if ($syntax !== '*' && ($initialValue === null || CSSSyntaxScanner::trimCssWhitespace($initialValue) === '')) {
 			throw new InvalidArgumentException('Non-universal custom property syntax requires a non-empty initialValue.');
 		}
 
 		if ($initialValue !== null) {
-			$trimmedInitial = trim($initialValue);
+			$trimmedInitial = CSSSyntaxScanner::trimCssWhitespace($initialValue);
 			if ($trimmedInitial !== '') {
 				CSSStyleDeclaration::validatePropertyValue($trimmedInitial);
-				if (preg_match('/(?:^|[^a-zA-Z0-9_-])var\s*\(/i', $trimmedInitial) === 1) {
+				if (self::hasVarReference($trimmedInitial)) {
 					throw new InvalidArgumentException('Registered custom property initialValue cannot contain var() references.');
 				}
 			}
@@ -213,11 +237,12 @@ abstract class CSS
 		$descriptors = new CSSStyleDeclaration();
 		$descriptors->setProperty('syntax', '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $syntax) . '"');
 		$descriptors->setProperty('inherits', $inherits ? 'true' : 'false');
-		if ($initialValue !== null) {
+		$hasEmptyInitialValue = $initialValue === '';
+		if ($initialValue !== null && !$hasEmptyInitialValue) {
 			$descriptors->setProperty('initial-value', $initialValue);
 		}
 
-		$rule = new CSSPropertyRule($name, $descriptors);
+		$rule = new CSSPropertyRule($name, $descriptors, $hasEmptyInitialValue);
 		self::$registeredProperties[$name] = $rule;
 
 		return $rule;
@@ -225,7 +250,7 @@ abstract class CSS
 
 	public static function getRegisteredProperty(string $name): ?CSSPropertyRule
 	{
-		return self::$registeredProperties[trim($name)] ?? null;
+		return self::$registeredProperties[CSSSyntaxScanner::trimCssWhitespace($name)] ?? null;
 	}
 
 	/** @return array<string, CSSPropertyRule> */
@@ -236,7 +261,7 @@ abstract class CSS
 
 	public static function unregisterProperty(string $name): bool
 	{
-		$key = trim($name);
+		$key = CSSSyntaxScanner::trimCssWhitespace($name);
 		if (!isset(self::$registeredProperties[$key])) {
 			return false;
 		}
@@ -261,7 +286,7 @@ abstract class CSS
 		?string $value = null,
 		?CSSParserOptions $options = null,
 	): bool {
-		$options ??= new CSSParserOptions();
+		$options ??= CSSParserOptions::default();
 		if ($options->maxBytes !== null) {
 			if (strlen($propertyOrCondition) > $options->maxBytes || ($value !== null && strlen($value) > $options->maxBytes)) {
 				return false;
@@ -272,12 +297,16 @@ abstract class CSS
 			return self::supportsDeclaration($propertyOrCondition, $value, false);
 		}
 
-		$condition = trim($propertyOrCondition);
-		if ($condition === '' || CSSSyntaxScanner::hasControlCharacters($condition) || !CSSSyntaxScanner::isBalanced($condition)) {
+		$rawCondition = CSSSyntaxScanner::trimCssWhitespace($propertyOrCondition);
+		if ($rawCondition === '' || CSSSyntaxScanner::hasControlCharacters($rawCondition) || !CSSSyntaxScanner::isBalanced($rawCondition)) {
+			return false;
+		}
+		$condition = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($rawCondition));
+		if ($condition === '') {
 			return false;
 		}
 
-		return self::evaluateSupportsCondition($condition, 0, $options->maxDepth ?? CSSParserOptions::DEFAULT_MAX_DEPTH);
+		return self::evaluateSupportsConditionIterative($condition, $options->maxDepth) === true;
 	}
 
 	/**
@@ -354,17 +383,22 @@ abstract class CSS
 		}
 
 		foreach (explode('|', $syntax) as $component) {
-			$component = trim($component);
+			$component = CSSSyntaxScanner::trimCssWhitespace($component);
 			if ($component === '') {
 				throw new InvalidArgumentException('Invalid custom property syntax definition: ' . $syntax);
 			}
 			$base = rtrim($component, '+#');
-			if (strlen($component) - strlen($base) > 1) {
+			$multiplierCount = strlen($component) - strlen($base);
+			if ($multiplierCount > 1) {
 				throw new InvalidArgumentException('Invalid custom property syntax multiplier: ' . $component);
 			}
 			if (str_starts_with($base, '<') && str_ends_with($base, '>')) {
-				if (!isset(self::PROPERTY_SYNTAX_TYPES[strtolower($base)])) {
+				$lowerBase = strtolower($base);
+				if (!isset(self::PROPERTY_SYNTAX_TYPES[$lowerBase])) {
 					throw new InvalidArgumentException('Unsupported custom property syntax type: ' . $base);
+				}
+				if ($multiplierCount > 0 && $lowerBase === '<transform-list>') {
+					throw new InvalidArgumentException('CSS syntax <transform-list> cannot have a multiplier: ' . $component);
 				}
 				continue;
 			}
@@ -382,14 +416,15 @@ abstract class CSS
 			return false;
 		}
 
-		$trimmed = trim(CSSSyntaxScanner::removeComments($value));
+		$rawValue = CSSSyntaxScanner::trimCssWhitespace($value);
+		if ($rawValue !== '' && (CSSSyntaxScanner::hasControlCharacters($rawValue) || !CSSSyntaxScanner::isBalanced($rawValue))) {
+			return false;
+		}
+		$trimmed = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($rawValue));
 		if ($allowImportant) {
-			$bang = CSSSyntaxScanner::findTopLevel($trimmed, '!');
+			$bang = CSSSyntaxScanner::findLastTopLevelImportant($trimmed);
 			if ($bang !== null) {
-				$tail = trim(CSSSyntaxScanner::removeComments(substr($trimmed, $bang + 1)));
-				if (strcasecmp($tail, 'important') === 0) {
-					$trimmed = rtrim(substr($trimmed, 0, $bang));
-				}
+				$trimmed = rtrim(substr($trimmed, 0, $bang), CSSSyntaxScanner::CSS_WHITESPACE);
 			}
 		}
 
@@ -412,200 +447,400 @@ abstract class CSS
 		return CSSStandardProperties::isKnown($normalized);
 	}
 
-	private static function evaluateSupportsCondition(string $condition, int $depth, int $maxDepth): bool
+	/** @internal */
+	public static function hasVarReference(string $source): bool
 	{
-		if ($depth > $maxDepth) {
-			return false;
-		}
-		$condition = trim(CSSSyntaxScanner::removeComments($condition));
-		if ($condition === '') {
-			return false;
-		}
+		$clean = CSSSyntaxScanner::removeComments($source);
+		$length = strlen($clean);
+		$offset = 0;
 
-		// Bare declaration form: CSS.supports('display: grid')
-		if ($condition[0] !== '(' && stripos($condition, 'not ') !== 0 && stripos($condition, 'selector(') !== 0) {
-			$colon = CSSSyntaxScanner::findTopLevel($condition, ':');
-			if ($colon !== null) {
-				return self::supportsDeclaration(
-					substr($condition, 0, $colon),
-					substr($condition, $colon + 1),
-					true,
-				);
-			}
-			return false;
-		}
-
-		// Unary negation: `not <supports-in-parens>` (whitespace required after `not`)
-		if (preg_match('/^not\s+(.+)$/isD', $condition, $match) === 1) {
-			$operand = trim($match[1]);
-			if (!self::isSupportsInParens($operand)) {
-				return false;
-			}
-			return !self::evaluateSupportsInParens($operand, $depth + 1, $maxDepth);
-		}
-
-		$tokens = self::splitSupportsClauses($condition);
-		if ($tokens === null || $tokens === []) {
-			return false;
-		}
-
-		if (count($tokens) === 1) {
-			return self::evaluateSupportsInParens($tokens[0], $depth + 1, $maxDepth);
-		}
-
-		$operator = null;
-		$clauses = [];
-		for ($i = 0; $i < count($tokens); $i++) {
-			if ($i % 2 === 0) {
-				$clauses[] = $tokens[$i];
-			} else {
-				$op = strtolower($tokens[$i]);
-				if ($op !== 'and' && $op !== 'or') {
-					return false;
+		while ($offset < $length) {
+			$char = $clean[$offset];
+			if ($char === '"' || $char === "'") {
+				$quote = $char;
+				$offset++;
+				while ($offset < $length) {
+					$step = $clean[$offset];
+					if ($step === '\\') {
+						$offset += ($offset + 1 < $length && $clean[$offset + 1] === "\r" && ($clean[$offset + 2] ?? '') === "\n") ? 3 : 2;
+						continue;
+					}
+					$offset++;
+					if ($step === $quote) {
+						break;
+					}
 				}
-				if ($operator !== null && $operator !== $op) {
-					// CSS Conditional Rules forbids mixing `and` and `or` at the same parenthetical level.
-					return false;
+				continue;
+			}
+
+			// Scan identifier/function name including CSS escapes
+			$isIdentStart = ($char >= 'a' && $char <= 'z')
+				|| ($char >= 'A' && $char <= 'Z')
+				|| $char === '_'
+				|| $char === '-'
+				|| $char === '\\'
+				|| ord($char) >= 0x80;
+
+			if ($isIdentStart) {
+				$start = $offset;
+				while ($offset < $length) {
+					$c = $clean[$offset];
+					if ($c === '\\') {
+						$hexLen = strspn($clean, '0123456789abcdefABCDEF', $offset + 1, 6);
+						if ($hexLen > 0) {
+							$offset += 1 + $hexLen;
+							if ($offset < $length) {
+								$ws = $clean[$offset];
+								if ($ws === "\r" && ($clean[$offset + 1] ?? '') === "\n") {
+									$offset += 2;
+								} elseif ($ws === ' ' || $ws === "\t" || $ws === "\n" || $ws === "\r" || $ws === "\f") {
+									$offset++;
+								}
+							}
+							continue;
+						}
+						$offset += ($offset + 1 < $length && $clean[$offset + 1] === "\r" && ($clean[$offset + 2] ?? '') === "\n") ? 3 : 2;
+						continue;
+					}
+					if (($c >= 'a' && $c <= 'z') || ($c >= 'A' && $c <= 'Z') || ($c >= '0' && $c <= '9') || $c === '_' || $c === '-' || ord($c) >= 0x80) {
+						$offset++;
+						continue;
+					}
+					break;
 				}
-				$operator = $op;
-			}
-		}
-
-		if (count($tokens) % 2 === 0 || $operator === null) {
-			return false;
-		}
-
-		foreach ($clauses as $clause) {
-			if (!self::isSupportsInParens($clause)) {
-				return false;
-			}
-		}
-
-		if ($operator === 'and') {
-			foreach ($clauses as $clause) {
-				if (!self::evaluateSupportsInParens($clause, $depth + 1, $maxDepth)) {
-					return false;
+				if ($offset < $length && $clean[$offset] === '(') {
+					$ident = substr($clean, $start, $offset - $start);
+					$decoded = str_contains($ident, '\\') ? CSSSyntaxScanner::decodeCssIdentEscapes($ident) : $ident;
+					if (strcasecmp($decoded, 'var') === 0) {
+						return true;
+					}
 				}
+				continue;
 			}
-			return true;
-		}
 
-		foreach ($clauses as $clause) {
-			if (self::evaluateSupportsInParens($clause, $depth + 1, $maxDepth)) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	private static function isSupportsInParens(string $token): bool
-	{
-		$token = trim($token);
-		if ($token === '') {
-			return false;
-		}
-		if ($token[0] === '(') {
-			return CSSSyntaxScanner::findMatchingDelimiter($token, 0) === strlen($token) - 1;
-		}
-		if (preg_match('/^selector\s*\(/i', $token) === 1) {
-			$open = strpos($token, '(');
-			return $open !== false && CSSSyntaxScanner::findMatchingDelimiter($token, $open) === strlen($token) - 1;
-		}
-
-		return false;
-	}
-
-	private static function evaluateSupportsInParens(string $token, int $depth, int $maxDepth): bool
-	{
-		if ($depth > $maxDepth || !self::isSupportsInParens($token)) {
-			return false;
-		}
-
-		$token = trim($token);
-		if (preg_match('/^selector\s*\(/i', $token) === 1) {
-			$open = strpos($token, '(');
-			$inner = trim(substr($token, $open + 1, -1));
-			if ($inner === '') {
-				return false;
-			}
-			try {
-				CSSSyntaxScanner::assertValidFragment($inner, 'CSS selector', [';', '{', '}']);
-			} catch (InvalidArgumentException) {
-				return false;
-			}
-			return true;
-		}
-
-		$inner = trim(substr($token, 1, -1));
-		if ($inner === '') {
-			return false;
-		}
-
-		// If inner starts with a grouping condition or selector(...) or `not `, evaluate recursively.
-		if ($inner[0] === '(' || preg_match('/^(?:not\s+|selector\s*\()/i', $inner) === 1) {
-			return self::evaluateSupportsCondition($inner, $depth + 1, $maxDepth);
-		}
-
-		$colon = CSSSyntaxScanner::findTopLevel($inner, ':');
-		if ($colon !== null) {
-			return self::supportsDeclaration(
-				substr($inner, 0, $colon),
-				substr($inner, $colon + 1),
-				true,
-			);
+			$offset++;
 		}
 
 		return false;
 	}
 
 	/**
-	 * Splits top-level `@supports` clauses and combinators (`and` / `or`).
-	 *
-	 * @return list<string>|null
+	 * Iterative slice-based evaluator for `@supports` conditions (O(1) PHP stack frames, zero per-level substr).
 	 */
-	private static function splitSupportsClauses(string $condition): ?array
+	private static function evaluateSupportsConditionIterative(string $source, ?int $maxDepth): ?bool
+	{
+		// Frame modes:
+		// 0 = EVAL_CONDITION(start, end, depth, targetKind, targetIdx)
+		// 1 = COMBINATOR_STEP(operator: 'and'|'or', clauses: list<array{int,int}>, nextIndex, depth, targetKind, targetIdx)
+		// 2 = APPLY_NOT(sourceValIdx, targetKind, targetIdx)
+		$slots = [null]; // index 0 = root result (?bool)
+		$stack = [[0, 0, strlen($source), 0, 0]]; // mode, start, end, depth, slotIdx
+
+		while ($stack !== []) {
+			$frame = array_pop($stack);
+			$mode = $frame[0];
+
+			if ($mode === 2) {
+				[, $srcSlot, $destSlot] = $frame;
+				$val = $slots[$srcSlot];
+				$slots[$destSlot] = $val === null ? null : !$val;
+				continue;
+			}
+
+			if ($mode === 1) {
+				[, $op, $clauses, $idx, $depth, $childSlot, $destSlot] = $frame;
+				$childVal = $slots[$childSlot];
+				if ($childVal === null) {
+					$slots[$destSlot] = null;
+					continue;
+				}
+				if ($op === 'and' && !$childVal) {
+					$slots[$destSlot] = false;
+					continue;
+				}
+				if ($op === 'or' && $childVal) {
+					$slots[$destSlot] = true;
+					continue;
+				}
+				if ($idx >= count($clauses)) {
+					$slots[$destSlot] = $op === 'and';
+					continue;
+				}
+				[$cStart, $cEnd] = $clauses[$idx];
+				$nextSlot = count($slots);
+				$slots[] = null;
+				$stack[] = [1, $op, $clauses, $idx + 1, $depth, $nextSlot, $destSlot];
+				self::pushSupportsInParens($source, $cStart, $cEnd, $depth, $nextSlot, $maxDepth, $slots, $stack);
+				continue;
+			}
+
+			// mode === 0: EVAL_CONDITION
+			[, $start, $end, $depth, $destSlot] = $frame;
+			if ($maxDepth !== null && $depth > $maxDepth) {
+				$slots[$destSlot] = null;
+				continue;
+			}
+			self::trimSlice($source, $start, $end);
+			if ($start >= $end) {
+				$slots[$destSlot] = false;
+				continue;
+			}
+
+			$c0 = $source[$start];
+			$startsNot = $end - $start >= 4 && strncasecmp(substr($source, $start, 3), 'not', 3) === 0
+				&& str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$start + 3]);
+			$startsSelector = $end - $start >= 9 && substr_compare($source, 'selector(', $start, 9, true) === 0;
+
+			if ($c0 !== '(' && !$startsNot && !$startsSelector) {
+				$colon = CSSSyntaxScanner::findTopLevel($source, ':', $start, $end);
+				if ($colon !== null) {
+					$slots[$destSlot] = self::supportsDeclaration(
+						substr($source, $start, $colon - $start),
+						substr($source, $colon + 1, $end - ($colon + 1)),
+						true,
+					);
+				} else {
+					$slots[$destSlot] = false;
+				}
+				continue;
+			}
+
+			if ($startsNot) {
+				$opStart = $start + 4;
+				$opEnd = $end;
+				self::trimSlice($source, $opStart, $opEnd);
+				if (!self::isSupportsInParensSlice($source, $opStart, $opEnd)) {
+					$slots[$destSlot] = false;
+					continue;
+				}
+				$innerSlot = count($slots);
+				$slots[] = null;
+				$stack[] = [2, $innerSlot, $destSlot];
+				self::pushSupportsInParens($source, $opStart, $opEnd, $depth, $innerSlot, $maxDepth, $slots, $stack);
+				continue;
+			}
+
+			$tokens = self::splitSupportsClausesSlice($source, $start, $end);
+			if ($tokens === null || $tokens === []) {
+				$slots[$destSlot] = false;
+				continue;
+			}
+
+			if (count($tokens) === 1) {
+				if (!is_array($tokens[0])) {
+					$slots[$destSlot] = false;
+					continue;
+				}
+				self::pushSupportsInParens($source, $tokens[0][0], $tokens[0][1], $depth, $destSlot, $maxDepth, $slots, $stack);
+				continue;
+			}
+
+			$tokenCount = count($tokens);
+			if ($tokenCount % 2 === 0) {
+				$slots[$destSlot] = false;
+				continue;
+			}
+
+			$operator = null;
+			$clauses = [];
+			$validCombo = true;
+			for ($i = 0; $i < $tokenCount; $i++) {
+				if ($i % 2 === 0) {
+					if (!is_array($tokens[$i])) {
+						$validCombo = false;
+						break;
+					}
+					$clauses[] = $tokens[$i];
+				} else {
+					if (!is_string($tokens[$i])) {
+						$validCombo = false;
+						break;
+					}
+					$op = $tokens[$i];
+					if ($operator !== null && $operator !== $op) {
+						$validCombo = false;
+						break;
+					}
+					$operator = $op;
+				}
+			}
+
+			if (!$validCombo || $operator === null || $clauses === []) {
+				$slots[$destSlot] = false;
+				continue;
+			}
+
+			$firstSlot = count($slots);
+			$slots[] = null;
+			$stack[] = [1, $operator, $clauses, 1, $depth, $firstSlot, $destSlot];
+			self::pushSupportsInParens($source, $clauses[0][0], $clauses[0][1], $depth, $firstSlot, $maxDepth, $slots, $stack);
+		}
+
+		return $slots[0];
+	}
+
+	/**
+	 * @param array<int, ?bool> $slots
+	 * @param list<array<int, mixed>> $stack
+	 */
+	private static function pushSupportsInParens(
+		string $source,
+		int $start,
+		int $end,
+		int $depth,
+		int $destSlot,
+		?int $maxDepth,
+		array &$slots,
+		array &$stack,
+	): void {
+		if ($maxDepth !== null && $depth > $maxDepth) {
+			$slots[$destSlot] = null;
+			return;
+		}
+		self::trimSlice($source, $start, $end);
+		if ($start >= $end) {
+			$slots[$destSlot] = false;
+			return;
+		}
+		if ($end - $start >= 9 && substr_compare($source, 'selector(', $start, 9, true) === 0) {
+			$open = $start + 8;
+			$close = CSSSyntaxScanner::findMatchingDelimiter($source, $open, $end);
+			if ($close !== $end - 1) {
+				$slots[$destSlot] = false;
+				return;
+			}
+			$innerStart = $open + 1;
+			$innerEnd = $close;
+			self::trimSlice($source, $innerStart, $innerEnd);
+			if ($innerStart >= $innerEnd) {
+				$slots[$destSlot] = false;
+				return;
+			}
+			try {
+				CSSSyntaxScanner::assertValidFragment(substr($source, $innerStart, $innerEnd - $innerStart), 'CSS selector', [';', '{', '}']);
+			} catch (InvalidArgumentException) {
+				$slots[$destSlot] = false;
+				return;
+			}
+			$slots[$destSlot] = true;
+			return;
+		}
+
+		if ($source[$start] !== '(' || $source[$end - 1] !== ')') {
+			$slots[$destSlot] = false;
+			return;
+		}
+		$innerStart = $start + 1;
+		$innerEnd = $end - 1;
+		self::trimSlice($source, $innerStart, $innerEnd);
+		if ($innerStart >= $innerEnd) {
+			$slots[$destSlot] = false;
+			return;
+		}
+
+		$isGroupOrNot = $source[$innerStart] === '('
+			|| ($innerEnd - $innerStart >= 4 && strncasecmp(substr($source, $innerStart, 3), 'not', 3) === 0 && str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$innerStart + 3]))
+			|| ($innerEnd - $innerStart >= 9 && substr_compare($source, 'selector(', $innerStart, 9, true) === 0);
+
+		if ($isGroupOrNot) {
+			$stack[] = [0, $innerStart, $innerEnd, $depth + 1, $destSlot];
+			return;
+		}
+
+		if ($maxDepth !== null && ($depth + 1) > $maxDepth) {
+			$slots[$destSlot] = null;
+			return;
+		}
+
+		$colon = CSSSyntaxScanner::findTopLevel($source, ':', $innerStart, $innerEnd);
+		if ($colon !== null) {
+			$slots[$destSlot] = self::supportsDeclaration(
+				substr($source, $innerStart, $colon - $innerStart),
+				substr($source, $colon + 1, $innerEnd - ($colon + 1)),
+				true,
+			);
+			return;
+		}
+
+		$slots[$destSlot] = false;
+	}
+
+	private static function trimSlice(string $source, int &$start, int &$end): void
+	{
+		while ($start < $end && str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$start])) {
+			$start++;
+		}
+		while ($end > $start && str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$end - 1])) {
+			$end--;
+		}
+	}
+
+	private static function isSupportsInParensSlice(string $source, int $start, int $end): bool
+	{
+		self::trimSlice($source, $start, $end);
+		if ($start >= $end) {
+			return false;
+		}
+		if ($source[$start] === '(') {
+			return CSSSyntaxScanner::findMatchingDelimiter($source, $start, $end) === $end - 1;
+		}
+		if ($end - $start >= 9 && substr_compare($source, 'selector(', $start, 9, true) === 0) {
+			$open = $start + 8;
+			return CSSSyntaxScanner::findMatchingDelimiter($source, $open, $end) === $end - 1;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Splits top-level `@supports` clauses and combinators (`and` / `or`) over a byte slice.
+	 *
+	 * @return list<array{0: int, 1: int}|string>|null
+	 */
+	private static function splitSupportsClausesSlice(string $source, int $start, int $end): ?array
 	{
 		$tokens = [];
-		$length = strlen($condition);
-		$offset = 0;
+		$offset = $start;
 
-		while ($offset < $length) {
-			while ($offset < $length && ctype_space($condition[$offset])) {
-				$offset++;
-			}
-			if ($offset >= $length) {
+		while ($offset < $end) {
+			$offset += strspn($source, CSSSyntaxScanner::CSS_WHITESPACE, $offset, $end - $offset);
+			if ($offset >= $end) {
 				break;
 			}
 
-			if ($condition[$offset] === '(') {
-				$close = CSSSyntaxScanner::findMatchingDelimiter($condition, $offset, $length);
-				if ($close === null) {
+			if ($source[$offset] === '(') {
+				$close = CSSSyntaxScanner::findMatchingDelimiter($source, $offset, $end);
+				if ($close === null || $close >= $end) {
 					return null;
 				}
-				$tokens[] = substr($condition, $offset, $close - $offset + 1);
+				$tokens[] = [$offset, $close + 1];
 				$offset = $close + 1;
 				continue;
 			}
 
-			if (preg_match('/\Gselector\s*\(/i', $condition, $match, 0, $offset) === 1) {
-				$open = $offset + strlen($match[0]) - 1;
-				$close = CSSSyntaxScanner::findMatchingDelimiter($condition, $open, $length);
-				if ($close === null) {
+			if ($end - $offset >= 9 && substr_compare($source, 'selector(', $offset, 9, true) === 0) {
+				$open = $offset + 8;
+				$close = CSSSyntaxScanner::findMatchingDelimiter($source, $open, $end);
+				if ($close === null || $close >= $end) {
 					return null;
 				}
-				$tokens[] = substr($condition, $offset, $close - $offset + 1);
+				$tokens[] = [$offset, $close + 1];
 				$offset = $close + 1;
 				continue;
 			}
 
-			if (preg_match('/\G(and|or)(?=\s|\()/i', $condition, $match, 0, $offset) === 1) {
-				$after = $offset + strlen($match[1]);
-				// CSS Conditional Rules requires whitespace around `and`/`or` keywords.
-				if ($after >= $length || !ctype_space($condition[$after])) {
-					return null;
-				}
-				$tokens[] = strtolower($match[1]);
-				$offset = $after;
+			if ($end - $offset >= 4 && substr_compare($source, 'and', $offset, 3, true) === 0
+				&& str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$offset + 3])
+			) {
+				$tokens[] = 'and';
+				$offset += 3;
+				continue;
+			}
+			if ($end - $offset >= 3 && substr_compare($source, 'or', $offset, 2, true) === 0
+				&& str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$offset + 2])
+			) {
+				$tokens[] = 'or';
+				$offset += 2;
 				continue;
 			}
 

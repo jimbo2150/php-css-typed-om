@@ -16,10 +16,38 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
  */
 final class CSSRotate extends CSSTransformComponent
 {
-	private CSSNumericValue $x;
-	private CSSNumericValue $y;
-	private CSSNumericValue $z;
-	private CSSNumericValue $angle;
+	private CSSNumericValue $xValue;
+	private CSSNumericValue $yValue;
+	private CSSNumericValue $zValue;
+	private CSSNumericValue $angleValue;
+
+	public CSSNumericValue $angle {
+		get => $this->angleValue;
+		set (CSSNumericValue|int|float $value) {
+			$this->setAngle($value);
+		}
+	}
+
+	public CSSNumericValue $x {
+		get => $this->xValue;
+		set (CSSNumericValue|int|float $value) {
+			$this->setX($value);
+		}
+	}
+
+	public CSSNumericValue $y {
+		get => $this->yValue;
+		set (CSSNumericValue|int|float $value) {
+			$this->setY($value);
+		}
+	}
+
+	public CSSNumericValue $z {
+		get => $this->zValue;
+		set (CSSNumericValue|int|float $value) {
+			$this->setZ($value);
+		}
+	}
 
 	public function __construct(
 		CSSNumericValue|int|float|string $angleOrFunction,
@@ -29,160 +57,158 @@ final class CSSRotate extends CSSTransformComponent
 	) {
 		if (is_string($angleOrFunction) && is_array($valuesOrY)) {
 			$function = strtolower($angleOrFunction);
-			[$this->x, $this->y, $this->z, $this->angle, $serialized, $is2D] = self::parseFunction($function, array_values($valuesOrY));
-			self::assertNonZeroAxis($this->x, $this->y, $this->z);
+			[$this->xValue, $this->yValue, $this->zValue, $this->angleValue, $serialized, $is2D] = self::parseFunction($function, array_values($valuesOrY));
+			self::assertNonZeroAxis($this->xValue, $this->yValue, $this->zValue);
 			parent::__construct($function, $serialized, $is2D);
 			return;
 		}
 
 		if ($angle !== null) {
-			$this->x = self::numericValue($angleOrFunction, 'number', ['number']);
-			$this->y = self::numericValue($valuesOrY ?? 0, 'number', ['number']);
-			$this->z = self::numericValue($z ?? 0, 'number', ['number']);
-			$this->angle = self::numericValue($angle, 'deg', ['angle']);
-			self::assertNonZeroAxis($this->x, $this->y, $this->z);
-			parent::__construct('rotate3d', [$this->x, $this->y, $this->z, $this->angle], false);
+			$this->xValue = self::numericValue($angleOrFunction, 'number', ['number']);
+			$this->yValue = self::numericValue($valuesOrY ?? 0, 'number', ['number']);
+			$this->zValue = self::numericValue($z ?? 0, 'number', ['number']);
+			$this->angleValue = self::numericValue($angle, 'deg', ['angle']);
+			self::assertNonZeroAxis($this->xValue, $this->yValue, $this->zValue);
+			parent::__construct('rotate3d', [$this->xValue, $this->yValue, $this->zValue, $this->angleValue], false);
 			return;
 		}
 
-		$this->x = new CSSUnitValue(0, 'number');
-		$this->y = new CSSUnitValue(0, 'number');
-		$this->z = new CSSUnitValue(1, 'number');
-		$this->angle = self::numericValue($angleOrFunction, 'deg', ['angle']);
-		parent::__construct('rotate', [$this->angle], true);
+		$this->xValue = new CSSUnitValue(0, 'number');
+		$this->yValue = new CSSUnitValue(0, 'number');
+		$this->zValue = new CSSUnitValue(1, 'number');
+		$this->angleValue = self::numericValue($angleOrFunction, 'deg', ['angle']);
+		parent::__construct('rotate', [$this->angleValue], true);
 	}
 
-	public function getAngle(): CSSNumericValue
-	{
-		return $this->angle;
-	}
+	public function getAngle(): CSSNumericValue { return $this->angleValue; }
+	public function getX(): CSSNumericValue { return $this->xValue; }
+	public function getY(): CSSNumericValue { return $this->yValue; }
+	public function getZ(): CSSNumericValue { return $this->zValue; }
 
-	public function setAngle(CSSNumericValue $angle): void
+	public function setAngle(CSSNumericValue|int|float $angle): void
 	{
-		$this->angle = self::numericValue($angle, 'deg', ['angle']);
+		$this->angleValue = self::numericValue($angle, 'deg', ['angle']);
 		$this->syncSerializedValues();
 	}
 
-	public function getX(): CSSNumericValue
-	{
-		return $this->x;
-	}
-
-	public function setX(CSSNumericValue $x): void
+	public function setX(CSSNumericValue|int|float $x): void
 	{
 		$next = self::numericValue($x, 'number', ['number']);
-		self::assertNonZeroAxis($next, $this->y, $this->z);
-		$this->x = $next;
+		self::assertNonZeroAxis($next, $this->yValue, $this->zValue);
+		$this->xValue = $next;
+		$this->promoteAxisFunction();
 		$this->syncSerializedValues();
 	}
 
-	public function getY(): CSSNumericValue
-	{
-		return $this->y;
-	}
-
-	public function setY(CSSNumericValue $y): void
+	public function setY(CSSNumericValue|int|float $y): void
 	{
 		$next = self::numericValue($y, 'number', ['number']);
-		self::assertNonZeroAxis($this->x, $next, $this->z);
-		$this->y = $next;
+		self::assertNonZeroAxis($this->xValue, $next, $this->zValue);
+		$this->yValue = $next;
+		$this->promoteAxisFunction();
 		$this->syncSerializedValues();
 	}
 
-	public function getZ(): CSSNumericValue
-	{
-		return $this->z;
-	}
-
-	public function setZ(CSSNumericValue $z): void
+	public function setZ(CSSNumericValue|int|float $z): void
 	{
 		$next = self::numericValue($z, 'number', ['number']);
-		self::assertNonZeroAxis($this->x, $this->y, $next);
-		$this->z = $next;
+		self::assertNonZeroAxis($this->xValue, $this->yValue, $next);
+		$this->zValue = $next;
+		$this->promoteAxisFunction();
+		$this->syncSerializedValues();
+	}
+
+	public function setIs2D(bool $is2D): void
+	{
+		parent::setIs2D($is2D);
+		if ($is2D) {
+			if (
+				$this->functionName === 'rotate3d'
+				|| $this->functionName === 'rotatez'
+				|| $this->functionName === 'rotatex'
+				|| $this->functionName === 'rotatey'
+			) {
+				$this->functionName = 'rotate';
+			}
+		} elseif ($this->functionName === 'rotate') {
+			$this->functionName = 'rotate3d';
+		}
 		$this->syncSerializedValues();
 	}
 
 	public function toMatrix(): DOMMatrix
 	{
-		$angle = self::scalar($this->angle, 'angle');
-		$cos = cos($angle);
-		$sin = sin($angle);
+		$angleRad = self::scalar($this->angleValue, 'angle');
 		if ($this->twoDimensional) {
-			return DOMMatrix::fromElements(self::matrix2d($cos, $sin, -$sin, $cos, 0.0, 0.0), true);
+			$cos = cos($angleRad);
+			$sin = sin($angleRad);
+			return DOMMatrix::fromTrustedElements(self::matrix2d($cos, $sin, -$sin, $cos, 0.0, 0.0), true);
 		}
-		$x = self::scalar($this->x, 'number');
-		$y = self::scalar($this->y, 'number');
-		$z = self::scalar($this->z, 'number');
-		$axisLength = sqrt($x * $x + $y * $y + $z * $z);
-		if ($axisLength === 0.0) {
-			throw new InvalidArgumentException('A rotation axis cannot be zero.');
-		}
-		$x /= $axisLength;
-		$y /= $axisLength;
-		$z /= $axisLength;
-		$t = 1.0 - $cos;
-		$matrix = self::identityMatrix();
-		$matrix[0] = $t * $x * $x + $cos;
-		$matrix[1] = $t * $x * $y + $sin * $z;
-		$matrix[2] = $t * $x * $z - $sin * $y;
-		$matrix[4] = $t * $x * $y - $sin * $z;
-		$matrix[5] = $t * $y * $y + $cos;
-		$matrix[6] = $t * $y * $z + $sin * $x;
-		$matrix[8] = $t * $x * $z + $sin * $y;
-		$matrix[9] = $t * $y * $z - $sin * $x;
-		$matrix[10] = $t * $z * $z + $cos;
 
-		return DOMMatrix::fromElements($matrix, false);
+		$x = self::scalar($this->xValue, 'number');
+		$y = self::scalar($this->yValue, 'number');
+		$z = self::scalar($this->zValue, 'number');
+		$maxAxis = max(abs($x), abs($y), abs($z));
+		if ($maxAxis === 0.0) {
+			throw new InvalidArgumentException('A rotation axis must be finite and non-zero.');
+		}
+		$nx = $x / $maxAxis;
+		$ny = $y / $maxAxis;
+		$nz = $z / $maxAxis;
+
+		$matrix = (new DOMMatrix())->rotateAxisAngleSelf($nx, $ny, $nz, rad2deg($angleRad));
+		return DOMMatrix::fromTrustedElements($matrix->toFloat64Array(), false);
+	}
+
+	public function __clone(): void
+	{
+		$this->xValue = $this->xValue->clone();
+		$this->yValue = $this->yValue->clone();
+		$this->zValue = $this->zValue->clone();
+		$this->angleValue = $this->angleValue->clone();
+		$this->syncSerializedValues();
 	}
 
 	public function clone(): static
 	{
-		return new static($this->functionName, $this->values);
-	}
-
-	public function __get(string $name): mixed
-	{
-		return match ($name) {
-			'angle' => $this->angle,
-			'x' => $this->x,
-			'y' => $this->y,
-			'z' => $this->z,
-			default => parent::__get($name),
-		};
-	}
-
-	public function __set(string $name, mixed $value): void
-	{
-		if ($name === 'angle' && $value instanceof CSSNumericValue) {
-			$this->setAngle($value);
-			return;
-		}
-		if ($name === 'x' && $value instanceof CSSNumericValue) {
-			$this->setX($value);
-			return;
-		}
-		if ($name === 'y' && $value instanceof CSSNumericValue) {
-			$this->setY($value);
-			return;
-		}
-		if ($name === 'z' && $value instanceof CSSNumericValue) {
-			$this->setZ($value);
-			return;
-		}
-		parent::__set($name, $value);
+		return clone $this;
 	}
 
 	private function syncSerializedValues(): void
 	{
 		$this->values = $this->functionName === 'rotate3d'
-			? [$this->x, $this->y, $this->z, $this->angle]
-			: [$this->angle];
+			? [$this->xValue, $this->yValue, $this->zValue, $this->angleValue]
+			: [$this->angleValue];
+	}
+
+	private function promoteAxisFunction(): void
+	{
+		$matchesCanonical = match ($this->functionName) {
+			'rotate', 'rotatez' => self::isZeroNumeric($this->xValue) && self::isZeroNumeric($this->yValue) && self::isPositiveNumeric($this->zValue),
+			'rotatex' => self::isPositiveNumeric($this->xValue) && self::isZeroNumeric($this->yValue) && self::isZeroNumeric($this->zValue),
+			'rotatey' => self::isZeroNumeric($this->xValue) && self::isPositiveNumeric($this->yValue) && self::isZeroNumeric($this->zValue),
+			default => true,
+		};
+		if (!$matchesCanonical) {
+			$this->functionName = 'rotate3d';
+			$this->twoDimensional = false;
+		}
+	}
+
+	private static function isZeroNumeric(CSSNumericValue $value): bool
+	{
+		return $value instanceof CSSUnitValue && $value->value === 0.0;
+	}
+
+	private static function isPositiveNumeric(CSSNumericValue $value): bool
+	{
+		return $value instanceof CSSUnitValue && $value->value > 0.0;
 	}
 
 	private static function assertNonZeroAxis(CSSNumericValue $x, CSSNumericValue $y, CSSNumericValue $z): void
 	{
 		if ($x instanceof CSSUnitValue && $y instanceof CSSUnitValue && $z instanceof CSSUnitValue) {
-			if (($x->value * $x->value + $y->value * $y->value + $z->value * $z->value) === 0.0) {
+			if ($x->value === 0.0 && $y->value === 0.0 && $z->value === 0.0) {
 				throw new InvalidArgumentException('A rotation axis cannot be zero.');
 			}
 		}
@@ -191,12 +217,11 @@ final class CSSRotate extends CSSTransformComponent
 	/** @param list<CSSStyleValue|string> $arguments @return array{CSSNumericValue, CSSNumericValue, CSSNumericValue, CSSNumericValue, list<CSSNumericValue>, bool} */
 	private static function parseFunction(string $function, array $arguments): array
 	{
-		$zero = new CSSUnitValue(0, 'number');
-		$one = new CSSUnitValue(1, 'number');
-		$x = $zero;
-		$y = $zero;
-		$z = $one;
+		$x = null;
+		$y = null;
+		$z = null;
 		$is2D = false;
+
 		if ($function === 'rotate') {
 			if (count($arguments) !== 1) {
 				throw new InvalidArgumentException('rotate() requires one angle.');
@@ -215,16 +240,16 @@ final class CSSRotate extends CSSTransformComponent
 				throw new InvalidArgumentException('rotateX() requires one angle.');
 			}
 			$angle = self::numericValue($arguments[0], 'deg', ['angle']);
-			$x = $one;
-			$z = $zero;
+			$x = new CSSUnitValue(1, 'number');
+			$z = new CSSUnitValue(0, 'number');
 			$serialized = [$angle];
 		} elseif ($function === 'rotatey') {
 			if (count($arguments) !== 1) {
 				throw new InvalidArgumentException('rotateY() requires one angle.');
 			}
 			$angle = self::numericValue($arguments[0], 'deg', ['angle']);
-			$y = $one;
-			$z = $zero;
+			$y = new CSSUnitValue(1, 'number');
+			$z = new CSSUnitValue(0, 'number');
 			$serialized = [$angle];
 		} elseif ($function === 'rotate3d') {
 			if (count($arguments) !== 4) {
@@ -239,6 +264,13 @@ final class CSSRotate extends CSSTransformComponent
 			throw new InvalidArgumentException('Unsupported rotation function: ' . $function);
 		}
 
-		return [$x, $y, $z, $angle, $serialized, $is2D];
+		return [
+			$x ?? new CSSUnitValue(0, 'number'),
+			$y ?? new CSSUnitValue(0, 'number'),
+			$z ?? new CSSUnitValue(1, 'number'),
+			$angle,
+			$serialized,
+			$is2D,
+		];
 	}
 }

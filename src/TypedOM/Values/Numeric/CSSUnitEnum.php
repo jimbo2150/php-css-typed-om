@@ -6,12 +6,9 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 
 /**
  * Enum representing CSS units for numeric values.
- * This enum defines various CSS units categorized by type (e.g., length, angle, time).
- * Each case corresponds to a specific unit string used in CSS.
  */
 enum CSSUnitEnum: string
 {
-
 	// Number and percent units
 	case NUMBER = '';
 	case PERCENT = '%';
@@ -91,36 +88,32 @@ enum CSSUnitEnum: string
 	case FLEX_fr = 'fr';
 
 	/**
-	 * Returns the type of the CSS unit.
-	 *
-	 * @return CSSUnitTypeEnum|null The unit type or null if not found.
+	 * Returns the type of the CSS unit in O(1) without array allocation.
 	 */
-	public function type(): ?CSSUnitTypeEnum {
-		[$type] = $this->splitType();
-		return match ($type) {
-			'LENGTH' => CSSUnitTypeEnum::LENGTH,
-			'PERCENT' => CSSUnitTypeEnum::PERCENT,
-			'PERCENT_HINT' => CSSUnitTypeEnum::PERCENT_HINT,
-			'ANGLE' => CSSUnitTypeEnum::ANGLE,
-			'TIME' => CSSUnitTypeEnum::TIME,
-			'FREQ' => CSSUnitTypeEnum::FREQ,
-			'REZ', 'RES' => CSSUnitTypeEnum::RES,
-			'FLEX' => CSSUnitTypeEnum::FLEX,
-			default => null,
+	public function type(): ?CSSUnitTypeEnum
+	{
+		return match ($this) {
+			self::NUMBER => null,
+			self::PERCENT => CSSUnitTypeEnum::PERCENT,
+			self::ANGLE_deg, self::ANGLE_grad, self::ANGLE_rad, self::ANGLE_turn => CSSUnitTypeEnum::ANGLE,
+			self::TIME_s, self::TIME_ms => CSSUnitTypeEnum::TIME,
+			self::FREQ_Hz, self::FREQ_kHz => CSSUnitTypeEnum::FREQ,
+			self::RES_dpi, self::RES_dpcm, self::RES_dppx, self::RES_x => CSSUnitTypeEnum::RES,
+			self::FLEX_fr => CSSUnitTypeEnum::FLEX,
+			default => CSSUnitTypeEnum::LENGTH,
 		};
 	}
 
 	/**
 	 * Returns the CSS serialization suffix of the unit (e.g., 'em', '%', '' for number).
-	 *
-	 * @return string The unit suffix used when serializing to CSS text.
 	 */
-	public function toString(): string {
-		$parts = $this->splitType();
-		if(count($parts) > 1) {
-			return $parts[1];
-		}
-		return $this->value;
+	public function toString(): string
+	{
+		return match ($this) {
+			self::FREQ_Hz => 'Hz',
+			self::FREQ_kHz => 'kHz',
+			default => $this->value,
+		};
 	}
 
 	/**
@@ -131,7 +124,9 @@ enum CSSUnitEnum: string
 		return match ($this) {
 			self::NUMBER => 'number',
 			self::PERCENT => 'percent',
-			default => $this->toString(),
+			self::FREQ_Hz => 'Hz',
+			self::FREQ_kHz => 'kHz',
+			default => $this->value,
 		};
 	}
 
@@ -170,14 +165,5 @@ enum CSSUnitEnum: string
 		}
 
 		return $lookup[strtolower($unit)] ?? null;
-	}
-
-	/**
-	 * Splits the enum name by '_' to extract type and unit.
-	 *
-	 * @return array The parts of the name.
-	 */
-	private function splitType(): array {
-		return explode('_', $this->name);
 	}
 }

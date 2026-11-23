@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use RuntimeException;
 
 /**
  * Renders CSSOM stylesheets and rules with deterministic formatting.
@@ -14,186 +15,719 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 final class CSSRenderer
 {
 	private const string INDENT = '  ';
+	public const int MAX_RENDER_DEPTH = 512;
+
+	private const int FRAME_ENTER = 0;
+	private const int FRAME_CLOSE = 1;
+
+	/** @var array<int, string> */
+	private static array $indentCache = [0 => ''];
 
 	public static function render(CSSStyleSheet|CSSRule $source, ?CSSRenderOptions $options = null): string
 	{
 		$options ??= new CSSRenderOptions();
-		$renderer = new self();
+		$pretty = $options->mode === CSSRenderMode::Pretty;
+		$callback = $options->ruleCallback;
+		$hasCallback = $callback !== null;
 
+		$chunks = [];
+		// Each open container entry holds ['emitted' => bool]; index 0 represents top-level output.
+		$openContainers = [['emitted' => false]];
+		/** @var list<list<string>> $bufferStack */
+		$bufferStack = $hasCallback ? [&$chunks] : [];
+
+		$workStack = [];
 		if ($source instanceof CSSStyleSheet) {
-			$rules = [];
-			foreach ($source->getCssRules() as $rule) {
-				$rules[] = $renderer->renderRule($rule, $options, 0);
+			$rules = $source->getCssRules()->getRulesRaw();
+			for ($i = count($rules) - 1; $i >= 0; $i--) {
+				$workStack[] = [self::FRAME_ENTER, $rules[$i], 0];
 			}
-
-			return implode(CSSRenderMode::Pretty === $options->mode ? "\n" : '', $rules);
+		} else {
+			$workStack[] = [self::FRAME_ENTER, $source, 0];
 		}
 
-		return $renderer->renderRule($source, $options, 0);
-	}
+		while ($workStack !== []) {
+			$frame = array_pop($workStack);
+			if ($frame[0] === self::FRAME_CLOSE) {
+				[, $closeRule, $depth, $openIdx, $header, $sepIdx] = $frame;
+				$selfState = array_pop($openContainers);
+				$selfEmitted = $selfState['emitted'];
+				$parentIdx = array_key_last($openContainers);
 
-	private function renderRule(CSSRule $rule, CSSRenderOptions $options, int $depth): string
-	{
-		$serialized = match (true) {
-			$rule instanceof CSSOpaqueRule => $options->keepComments ?
-				$rule->getCssText() :
-				CSSSyntaxScanner::removeComments($rule->getCssText()),
-			$rule instanceof CSSKeyframesRule => $this->renderGroupingRule($rule, $options, $depth),
-			$rule instanceof CSSKeyframeRule => $this->renderKeyframeRule($rule, $options, $depth),
-			$rule instanceof CSSPageRule => $this->renderPageRule($rule, $options, $depth),
-			$rule instanceof CSSStyleRule => $this->renderStyleRule($rule, $options, $depth),
-			$rule instanceof CSSFontFeatureValuesRule => $this->renderFontFeatureValuesRule($rule, $options, $depth),
-			$rule instanceof CSSGroupingRule => $this->renderGroupingRule($rule, $options, $depth),
-			$rule instanceof CSSAtRule => $this->renderAtRule($rule, $options, $depth),
-			$rule instanceof CSSNestedDeclarations => $this->renderDeclarations($rule->getStyle(), $options, $depth),
-			$rule instanceof CSSFunctionDeclarations => $this->renderDeclarations($rule->getStyle(), $options, $depth),
-			default => $this->indent($depth, $options).$rule->getCssText(),
-		};
-
-		if (null !== $options->ruleCallback) {
-			$serialized = ($options->ruleCallback)($rule, $serialized);
-		}
-
-		return $serialized;
-	}
-
-	private function renderStyleRule(CSSStyleRule $rule, CSSRenderOptions $options, int $depth): string
-	{
-		$body = [];
-		$declarations = $this->renderDeclarations($rule->getStyle(), $options, $depth + 1);
-		if ('' !== $declarations) {
-			$body[] = $declarations;
-		}
-
-		foreach ($rule->getCssRules() as $nestedRule) {
-			$body[] = $this->renderRule($nestedRule, $options, $depth + 1);
-		}
-
-		return $this->renderBlock($this->indent($depth, $options).$rule->getSelectorText(), $body, $depth, $options);
-	}
-
-	private function renderKeyframeRule(CSSKeyframeRule $rule, CSSRenderOptions $options, int $depth): string
-	{
-		$body = [];
-		$declarations = $this->renderDeclarations($rule->getStyle(), $options, $depth + 1);
-		if ('' !== $declarations) {
-			$body[] = $declarations;
-		}
-
-		return $this->renderBlock($this->indent($depth, $options).$rule->getKeyText(), $body, $depth, $options);
-	}
-
-	private function renderPageRule(CSSPageRule $rule, CSSRenderOptions $options, int $depth): string
-	{
-		$body = [];
-		$declarations = $this->renderDeclarations($rule->getStyle(), $options, $depth + 1);
-		if ('' !== $declarations) {
-			$body[] = $declarations;
-		}
-
-		foreach ($rule->getCssRules() as $nestedRule) {
-			$body[] = $this->renderRule($nestedRule, $options, $depth + 1);
-		}
-
-		$prelude = $rule->getSelectorText();
-		$header = $this->indent($depth, $options).'@page'.('' === $prelude ? '' : ' '.$prelude);
-
-		return $this->renderBlock($header, $body, $depth, $options);
-	}
-
-	private function renderGroupingRule(CSSGroupingRule $rule, CSSRenderOptions $options, int $depth): string
-	{
-		$body = [];
-		foreach ($rule->getCssRules() as $nestedRule) {
-			$body[] = $this->renderRule($nestedRule, $options, $depth + 1);
-		}
-
-		$prelude = $rule->getPrelude();
-		$header = $this->indent($depth, $options).'@'.$rule->getName().('' === $prelude ? '' : ' '.$prelude);
-
-		return $this->renderBlock($header, $body, $depth, $options);
-	}
-
-	private function renderAtRule(CSSAtRule $rule, CSSRenderOptions $options, int $depth): string
-	{
-		$prelude = $rule->getPrelude();
-		$header = $this->indent($depth, $options).'@'.$rule->getName().('' === $prelude ? '' : ' '.$prelude);
-
-		if (!$rule->hasBlock()) {
-			return $header.';';
-		}
-
-		$body = [];
-		if (null !== $rule->getStyle()) {
-			$declarations = $this->renderDeclarations($rule->getStyle(), $options, $depth + 1);
-			if ('' !== $declarations) {
-				$body[] = $declarations;
-			}
-		}
-
-		return $this->renderBlock($header, $body, $depth, $options);
-	}
-
-	private function renderFontFeatureValuesRule(CSSFontFeatureValuesRule $rule, CSSRenderOptions $options, int $depth): string
-	{
-		$body = [];
-		foreach ($rule->getFeatureMaps() as $category => $map) {
-			if (0 === count($map)) {
+				if ($hasCallback) {
+					$local = array_pop($bufferStack);
+					if (!$pretty) {
+						$local[] = '}';
+					} elseif (!$selfEmitted) {
+						$local[$openIdx] = self::indent($depth) . $header . ' {}';
+					} else {
+						$local[] = "\n" . self::indent($depth) . '}';
+					}
+					$serialized = count($local) === 1 ? $local[0] : implode('', $local);
+					$transformed = $callback($closeRule, $serialized);
+					$parentBufIdx = array_key_last($bufferStack);
+					if ($transformed === '') {
+						if ($sepIdx !== null && count($bufferStack[$parentBufIdx]) === $sepIdx + 1) {
+							array_pop($bufferStack[$parentBufIdx]);
+						}
+					} else {
+						$bufferStack[$parentBufIdx][] = $transformed;
+						$openContainers[$parentIdx]['emitted'] = true;
+					}
+				} else {
+					if (!$pretty) {
+						$chunks[] = '}';
+					} elseif (!$selfEmitted) {
+						$chunks[$openIdx] = self::indent($depth) . $header . ' {}';
+					} else {
+						$chunks[] = "\n" . self::indent($depth) . '}';
+					}
+					$openContainers[$parentIdx]['emitted'] = true;
+				}
 				continue;
 			}
 
-			$declarations = [];
-			foreach ($map->entries() as [$name, $values]) {
-				$declaration = $name.':'.(CSSRenderMode::Pretty === $options->mode ? ' ' : '').implode(' ', $values).';';
-				$declarations[] = $this->indent($depth + 2, $options).$declaration;
+			[, $rule, $depth] = $frame;
+			if ($depth > self::MAX_RENDER_DEPTH) {
+				throw new CSSParserLimitException(sprintf('Maximum CSS rendering depth of %d exceeded.', self::MAX_RENDER_DEPTH));
 			}
-			$body[] = $this->renderBlock(
-				$this->indent($depth + 1, $options).'@'.$category,
-				$declarations,
-				$depth + 1,
-				$options,
-			);
+
+			$parentIdx = array_key_last($openContainers);
+			$sepIdx = null;
+			if ($pretty && ($depth > 0 || $openContainers[$parentIdx]['emitted'])) {
+				if ($hasCallback) {
+					$parentBufIdx = array_key_last($bufferStack);
+					$sepIdx = count($bufferStack[$parentBufIdx]);
+					$bufferStack[$parentBufIdx][] = "\n";
+				} else {
+					$sepIdx = count($chunks);
+					$chunks[] = "\n";
+				}
+			}
+
+			$isGrouping = $rule instanceof CSSGroupingRule;
+			if ($isGrouping) {
+				if ($hasCallback) {
+					$bufferStack[] = [];
+					$targetIdx = array_key_last($bufferStack);
+					$out = &$bufferStack[$targetIdx];
+				} else {
+					$out = &$chunks;
+				}
+
+				if ($rule instanceof CSSStyleRule) {
+					$header = $rule->getSelectorText();
+					$style = $rule->getStyle();
+					$nested = $rule->getCssRules()->getRulesRaw();
+					$openIdx = count($out);
+					$out[] = $pretty
+						? self::indent($depth) . $header . ' {'
+						: self::normalizeMinifiedWhitespace($header, true) . '{';
+					$emitted = self::appendDeclarations($style, $pretty, $depth + 1, $pretty, $out);
+				} elseif ($rule instanceof CSSPageRule) {
+					$prelude = $rule->getSelectorText();
+					$header = '@page' . ($prelude === '' ? '' : ' ' . $prelude);
+					$style = $rule->getStyle();
+					$nested = $rule->getCssRules()->getRulesRaw();
+					$openIdx = count($out);
+					$out[] = $pretty
+						? self::indent($depth) . $header . ' {'
+						: self::normalizeMinifiedWhitespace($header, true) . '{';
+					$emitted = self::appendDeclarations($style, $pretty, $depth + 1, $pretty, $out);
+				} elseif ($rule instanceof CSSFontFeatureValuesRule) {
+					$header = '@font-feature-values ' . $rule->getFontFamily();
+					$maps = $rule->getFeatureMaps();
+					$nested = $rule->getCssRules()->getRulesRaw();
+					$openIdx = count($out);
+					$out[] = $pretty
+						? self::indent($depth) . $header . ' {'
+						: self::normalizeMinifiedWhitespace($header, false) . '{';
+					$emitted = self::appendFontFeatureMaps($maps, $pretty, $depth, $out);
+				} else {
+					$prelude = $rule->getPrelude();
+					$header = '@' . $rule->getName() . ($prelude === '' ? '' : ' ' . $prelude);
+					$nested = $rule->getCssRules()->getRulesRaw();
+					$openIdx = count($out);
+					$out[] = $pretty
+						? self::indent($depth) . $header . ' {'
+						: self::normalizeMinifiedWhitespace($header, false) . '{';
+					$emitted = false;
+				}
+
+				unset($out);
+				$openContainers[] = ['emitted' => $emitted];
+				$workStack[] = [self::FRAME_CLOSE, $rule, $depth, $openIdx, $header, $sepIdx];
+				for ($i = count($nested) - 1; $i >= 0; $i--) {
+					$workStack[] = [self::FRAME_ENTER, $nested[$i], $depth + 1];
+				}
+				continue;
+			}
+
+			// Leaf rule inline emission
+			if ($hasCallback) {
+				$local = [];
+				self::appendLeafRuleBody($rule, $options, $pretty, $depth, $local);
+				$serialized = count($local) === 1 ? $local[0] : implode('', $local);
+				$transformed = $callback($rule, $serialized);
+				$parentBufIdx = array_key_last($bufferStack);
+				if ($transformed === '') {
+					if ($sepIdx !== null && count($bufferStack[$parentBufIdx]) === $sepIdx + 1) {
+						array_pop($bufferStack[$parentBufIdx]);
+					}
+				} else {
+					$bufferStack[$parentBufIdx][] = $transformed;
+					$openContainers[$parentIdx]['emitted'] = true;
+				}
+			} else {
+				$before = count($chunks);
+				self::appendLeafRuleBody($rule, $options, $pretty, $depth, $chunks);
+				if (count($chunks) > $before) {
+					$openContainers[$parentIdx]['emitted'] = true;
+				} elseif ($sepIdx !== null && count($chunks) === $sepIdx + 1) {
+					array_pop($chunks);
+				}
+			}
 		}
 
-		foreach ($rule->getCssRules() as $nestedRule) {
-			$body[] = $this->renderRule($nestedRule, $options, $depth + 1);
+		$result = count($chunks) === 1 ? $chunks[0] : implode('', $chunks);
+		if ($options->escapeHtmlStyleTag && $result !== '' && stripos($result, '</style') !== false) {
+			$escaped = preg_replace('/<\/(style(?=[\t\n\f\r \/>]|$))/i', '<\/$1', $result);
+			if ($escaped === null) {
+				throw new RuntimeException('Failed to escape closing </style tags in CSS output.');
+			}
+			return $escaped;
 		}
 
-		$header = $this->indent($depth, $options).'@font-feature-values '.$rule->getFontFamily();
-
-		return $this->renderBlock($header, $body, $depth, $options);
+		return $result;
 	}
 
-	private function renderDeclarations(CSSStyleDeclaration $style, CSSRenderOptions $options, int $depth): string
-	{
-		$declarations = [];
-		foreach ($style as $property => $declaration) {
-			$priority = '' === $declaration['priority'] ? '' : (CSSRenderMode::Pretty === $options->mode ? ' !important' : '!important');
-			$separator = CSSRenderMode::Pretty === $options->mode ? ': ' : ':';
-			$serialized = $property.$separator.$declaration['value'].$priority.';';
-			$declarations[] = CSSRenderMode::Pretty === $options->mode ? $this->indent($depth, $options).$serialized : $serialized;
+	/**
+	 * @param list<string> $out
+	 */
+	private static function appendLeafRuleBody(
+		CSSRule $rule,
+		CSSRenderOptions $options,
+		bool $pretty,
+		int $depth,
+		array &$out,
+	): void {
+		if ($rule instanceof CSSOpaqueRule) {
+			$raw = $options->keepComments ? $rule->getCssText() : CSSSyntaxScanner::removeComments($rule->getCssText());
+			$out[] = $pretty && $depth > 0 ? self::indent($depth) . $raw : $raw;
+			return;
 		}
 
-		return implode(CSSRenderMode::Pretty === $options->mode ? "\n" : '', $declarations);
-	}
-
-	/** @param list<string> $body */
-	private function renderBlock(string $header, array $body, int $depth, CSSRenderOptions $options): string
-	{
-		if (CSSRenderMode::Minified === $options->mode) {
-			$header = trim($header);
-			$header = str_replace(["\r\n", "\r", "\n"], '', $header);
-
-			return $header.'{'.implode('', $body).'}';
+		if ($rule instanceof CSSKeyframeRule) {
+			self::appendKeyframeRule($rule, $pretty, $depth, $out);
+			return;
 		}
 
-		$indent = $this->indent($depth, $options);
+		if ($rule instanceof CSSAtRule) {
+			self::appendAtRule($rule, $pretty, $depth, $out);
+			return;
+		}
 
-		return $header." {\n".implode("\n", $body)."\n".$indent.'}';
+		if ($rule instanceof CSSNestedDeclarations || $rule instanceof CSSFunctionDeclarations) {
+			self::appendDeclarations($rule->getStyle(), $pretty, $depth, false, $out);
+			return;
+		}
+
+		$out[] = ($pretty ? self::indent($depth) : '') . $rule->getCssText();
 	}
 
-	private function indent(int $depth, CSSRenderOptions $options): string
+	/**
+	 * @param array<string, CSSFontFeatureValuesMap> $maps
+	 * @param list<string> $out
+	 */
+	private static function appendFontFeatureMaps(array $maps, bool $pretty, int $depth, array &$out): bool
 	{
-		return CSSRenderMode::Pretty === $options->mode ? str_repeat(self::INDENT, $depth) : '';
+		$emitted = false;
+		if (!$pretty) {
+			foreach ($maps as $category => $map) {
+				$entries = $map->getEntriesRaw();
+				if ($entries === []) {
+					continue;
+				}
+				$emitted = true;
+				$out[] = '@' . $category . '{';
+				foreach ($entries as $name => $values) {
+					$out[] = $name . ':' . implode(' ', $values) . ';';
+				}
+				$out[] = '}';
+			}
+			return $emitted;
+		}
+
+		$subIndent = self::indent($depth + 1);
+		$declIndent = self::indent($depth + 2);
+		foreach ($maps as $category => $map) {
+			$entries = $map->getEntriesRaw();
+			if ($entries === []) {
+				continue;
+			}
+			$emitted = true;
+			$out[] = "\n" . $subIndent . '@' . $category . ' {';
+			foreach ($entries as $name => $values) {
+				$out[] = "\n" . $declIndent . $name . ': ' . implode(' ', $values) . ';';
+			}
+			$out[] = "\n" . $subIndent . '}';
+		}
+		return $emitted;
+	}
+
+	/**
+	 * @param list<string> $out
+	 */
+	private static function appendKeyframeRule(
+		CSSKeyframeRule $rule,
+		bool $pretty,
+		int $depth,
+		array &$out,
+	): void {
+		$header = $rule->getKeyText();
+		$style = $rule->getStyle();
+
+		if (!$pretty) {
+			$out[] = self::normalizeMinifiedWhitespace($header, true);
+			$out[] = '{';
+			self::appendDeclarations($style, false, $depth + 1, false, $out);
+			$out[] = '}';
+			return;
+		}
+
+		$indent = self::indent($depth);
+		$openIdx = count($out);
+		$out[] = $indent . $header . ' {';
+		$emitted = self::appendDeclarations($style, true, $depth + 1, true, $out);
+		if (!$emitted) {
+			$out[$openIdx] = $indent . $header . ' {}';
+			return;
+		}
+
+		$out[] = "\n" . $indent . '}';
+	}
+
+	/**
+	 * @param list<string> $out
+	 */
+	private static function appendPageRule(
+		CSSPageRule $rule,
+		CSSRenderOptions $options,
+		bool $pretty,
+		int $depth,
+		array &$out,
+	): void {
+		$prelude = $rule->getSelectorText();
+		$header = '@page' . ($prelude === '' ? '' : ' ' . $prelude);
+		$style = $rule->getStyle();
+		$nested = $rule->getCssRules()->getRulesRaw();
+
+		if (!$pretty) {
+			$out[] = self::normalizeMinifiedWhitespace($header, true);
+			$out[] = '{';
+			self::appendDeclarations($style, false, $depth + 1, false, $out);
+			foreach ($nested as $nestedRule) {
+				self::appendRule($nestedRule, $options, false, $depth + 1, $out);
+			}
+			$out[] = '}';
+			return;
+		}
+
+		$indent = self::indent($depth);
+		$openIdx = count($out);
+		$out[] = $indent . $header . ' {';
+		$emitted = self::appendDeclarations($style, true, $depth + 1, true, $out);
+		foreach ($nested as $nestedRule) {
+			$sepIdx = count($out);
+			$out[] = "\n";
+			self::appendRule($nestedRule, $options, true, $depth + 1, $out);
+			if (count($out) === $sepIdx + 1) {
+				array_pop($out);
+			} else {
+				$emitted = true;
+			}
+		}
+
+		if (!$emitted) {
+			$out[$openIdx] = $indent . $header . ' {}';
+			return;
+		}
+
+		$out[] = "\n" . $indent . '}';
+	}
+
+	/**
+	 * @param list<string> $out
+	 */
+	private static function appendGroupingRule(
+		CSSGroupingRule $rule,
+		CSSRenderOptions $options,
+		bool $pretty,
+		int $depth,
+		array &$out,
+	): void {
+		$prelude = $rule->getPrelude();
+		$header = '@' . $rule->getName() . ($prelude === '' ? '' : ' ' . $prelude);
+		$nested = $rule->getCssRules()->getRulesRaw();
+
+		if (!$pretty) {
+			$out[] = self::normalizeMinifiedWhitespace($header, false);
+			$out[] = '{';
+			foreach ($nested as $nestedRule) {
+				self::appendRule($nestedRule, $options, false, $depth + 1, $out);
+			}
+			$out[] = '}';
+			return;
+		}
+
+		$indent = self::indent($depth);
+		$openIdx = count($out);
+		$out[] = $indent . $header . ' {';
+		$emitted = false;
+		foreach ($nested as $nestedRule) {
+			$sepIdx = count($out);
+			$out[] = "\n";
+			self::appendRule($nestedRule, $options, true, $depth + 1, $out);
+			if (count($out) === $sepIdx + 1) {
+				array_pop($out);
+			} else {
+				$emitted = true;
+			}
+		}
+
+		if (!$emitted) {
+			$out[$openIdx] = $indent . $header . ' {}';
+			return;
+		}
+
+		$out[] = "\n" . $indent . '}';
+	}
+
+	/**
+	 * @param list<string> $out
+	 */
+	private static function appendAtRule(
+		CSSAtRule $rule,
+		bool $pretty,
+		int $depth,
+		array &$out,
+	): void {
+		$prelude = $rule->getPrelude();
+		$header = '@' . $rule->getName() . ($prelude === '' ? '' : ' ' . $prelude);
+
+		if (!$rule->hasBlock()) {
+			$out[] = $pretty ? self::indent($depth) . $header . ';' : self::normalizeMinifiedWhitespace($header, false) . ';';
+			return;
+		}
+
+		$style = $rule->getStyle();
+		if (!$pretty) {
+			$out[] = self::normalizeMinifiedWhitespace($header, false);
+			$out[] = '{';
+			if ($style !== null) {
+				self::appendDeclarations($style, false, $depth + 1, false, $out);
+			}
+			$out[] = '}';
+			return;
+		}
+
+		$indent = self::indent($depth);
+		$openIdx = count($out);
+		$out[] = $indent . $header . ' {';
+		$emitted = $style !== null && self::appendDeclarations($style, true, $depth + 1, true, $out);
+		if (!$emitted) {
+			$out[$openIdx] = $indent . $header . ' {}';
+			return;
+		}
+
+		$out[] = "\n" . $indent . '}';
+	}
+
+	/**
+	 * @param list<string> $out
+	 */
+	private static function appendFontFeatureValuesRule(
+		CSSFontFeatureValuesRule $rule,
+		CSSRenderOptions $options,
+		bool $pretty,
+		int $depth,
+		array &$out,
+	): void {
+		$header = '@font-feature-values ' . $rule->getFontFamily();
+		$maps = $rule->getFeatureMaps();
+		$nested = $rule->getCssRules()->getRulesRaw();
+
+		if (!$pretty) {
+			$out[] = self::normalizeMinifiedWhitespace($header, false);
+			$out[] = '{';
+			foreach ($maps as $category => $map) {
+				$entries = $map->getEntriesRaw();
+				if ($entries === []) {
+					continue;
+				}
+				$out[] = '@' . $category . '{';
+				foreach ($entries as $name => $values) {
+					$out[] = $name . ':' . implode(' ', $values) . ';';
+				}
+				$out[] = '}';
+			}
+			foreach ($nested as $nestedRule) {
+				self::appendRule($nestedRule, $options, false, $depth + 1, $out);
+			}
+			$out[] = '}';
+			return;
+		}
+
+		$indent = self::indent($depth);
+		$subIndent = self::indent($depth + 1);
+		$declIndent = self::indent($depth + 2);
+		$openIdx = count($out);
+		$out[] = $indent . $header . ' {';
+		$emitted = false;
+
+		foreach ($maps as $category => $map) {
+			$entries = $map->getEntriesRaw();
+			if ($entries === []) {
+				continue;
+			}
+			$emitted = true;
+			$out[] = "\n" . $subIndent . '@' . $category . ' {';
+			foreach ($entries as $name => $values) {
+				$out[] = "\n" . $declIndent . $name . ': ' . implode(' ', $values) . ';';
+			}
+			$out[] = "\n" . $subIndent . '}';
+		}
+
+		foreach ($nested as $nestedRule) {
+			$sepIdx = count($out);
+			$out[] = "\n";
+			self::appendRule($nestedRule, $options, true, $depth + 1, $out);
+			if (count($out) === $sepIdx + 1) {
+				array_pop($out);
+			} else {
+				$emitted = true;
+			}
+		}
+
+		if (!$emitted) {
+			$out[$openIdx] = $indent . $header . ' {}';
+			return;
+		}
+
+		$out[] = "\n" . $indent . '}';
+	}
+
+	/**
+	 * @param list<string> $out
+	 */
+	private static function appendDeclarations(
+		CSSStyleDeclaration $style,
+		bool $pretty,
+		int $depth,
+		bool $leadingNewline,
+		array &$out,
+	): bool {
+		$declarations = $style->getDeclarationsRaw();
+		if ($declarations === []) {
+			return false;
+		}
+
+		if (!$pretty) {
+			foreach ($declarations as $property => $declaration) {
+				$out[] = $declaration['priority'] === ''
+					? $property . ':' . $declaration['value'] . ';'
+					: $property . ':' . $declaration['value'] . '!important;';
+			}
+			return true;
+		}
+
+		$indent = self::indent($depth);
+		$first = true;
+		foreach ($declarations as $property => $declaration) {
+			$prefix = ($first && !$leadingNewline) ? $indent : "\n" . $indent;
+			$first = false;
+			$out[] = $declaration['priority'] === ''
+				? $prefix . $property . ': ' . $declaration['value'] . ';'
+				: $prefix . $property . ': ' . $declaration['value'] . ' !important;';
+		}
+
+		return true;
+	}
+
+	private static function normalizeMinifiedWhitespace(string $text, bool $collapseTopLevelCommas): string
+	{
+		$trimmed = CSSSyntaxScanner::trimCssWhitespace($text);
+		if ($trimmed === '') {
+			return '';
+		}
+		if (
+			strpbrk($trimmed, "\r\n\t\f") === false
+			&& !str_contains($trimmed, '  ')
+			&& (!$collapseTopLevelCommas || (!str_contains($trimmed, ' ,') && !str_contains($trimmed, ', ')))
+		) {
+			return $trimmed;
+		}
+
+		$length = strlen($trimmed);
+		$offset = 0;
+		$stack = [];
+		$output = '';
+		$pendingSpace = false;
+		$lastEscapeOffset = -1;
+		$mask = "\\/\"'()[]{} \t\n\r\f,";
+
+		while ($offset < $length) {
+			$span = strcspn($trimmed, $mask, $offset, $length - $offset);
+			if ($span > 0) {
+				if ($pendingSpace && $output !== '') {
+					$output .= ' ';
+				}
+				$pendingSpace = false;
+				$output .= substr($trimmed, $offset, $span);
+				$offset += $span;
+				if ($offset >= $length) {
+					break;
+				}
+			}
+
+			$ch = $trimmed[$offset];
+
+			if ($ch === ' ' || $ch === "\t" || $ch === "\n" || $ch === "\r" || $ch === "\f") {
+				$wsLen = strspn($trimmed, " \t\n\r\f", $offset);
+				if ($wsLen > 0) {
+					$pendingSpace = true;
+					$offset += $wsLen;
+				}
+				continue;
+			}
+
+			if ($ch === ',') {
+				if ($collapseTopLevelCommas && $stack === []) {
+					$pendingSpace = false;
+					$output .= ',';
+					$offset++;
+					$offset += strspn($trimmed, " \t\n\r\f", $offset);
+					continue;
+				}
+				if ($pendingSpace && $output !== '') {
+					$output .= ' ';
+				}
+				$pendingSpace = false;
+				$output .= ',';
+				$offset++;
+				continue;
+			}
+
+			if ($ch === '\\') {
+				if ($pendingSpace && $output !== '') {
+					$output .= ' ';
+				}
+				$pendingSpace = false;
+				$hexLen = strspn($trimmed, '0123456789abcdefABCDEF', $offset + 1, 6);
+				if ($hexLen > 0) {
+					$endEsc = $offset + 1 + $hexLen;
+					$hasTerminatingSpace = false;
+					if ($endEsc < $length) {
+						$ws = $trimmed[$endEsc];
+						if ($ws === "\r" && ($trimmed[$endEsc + 1] ?? '') === "\n") {
+							$endEsc += 2;
+							$hasTerminatingSpace = true;
+						} elseif ($ws === ' ' || $ws === "\t" || $ws === "\n" || $ws === "\r" || $ws === "\f") {
+							$endEsc++;
+							$hasTerminatingSpace = true;
+						}
+					}
+					$output .= substr($trimmed, $offset, 1 + $hexLen) . ($hasTerminatingSpace ? ' ' : '');
+				} else {
+					$step = ($offset + 1 < $length && $trimmed[$offset + 1] === "\r" && ($trimmed[$offset + 2] ?? '') === "\n") ? 3 : 2;
+					$endEsc = min($length, $offset + $step);
+					$output .= substr($trimmed, $offset, $endEsc - $offset);
+				}
+				$lastEscapeOffset = $offset;
+				$offset = $endEsc;
+				continue;
+			}
+
+			if ($ch === '"' || $ch === "'") {
+				if ($pendingSpace && $output !== '') {
+					$output .= ' ';
+				}
+				$pendingSpace = false;
+				$start = $offset;
+				$quote = $ch;
+				$offset++;
+				while ($offset < $length) {
+					$next = $trimmed[$offset];
+					if ($next === '\\') {
+						$step = ($offset + 1 < $length && $trimmed[$offset + 1] === "\r" && ($trimmed[$offset + 2] ?? '') === "\n") ? 3 : 2;
+						$offset += $step;
+						continue;
+					}
+					$offset++;
+					if ($next === $quote) {
+						break;
+					}
+				}
+				$output .= substr($trimmed, $start, min($length, $offset) - $start);
+				continue;
+			}
+
+			if ($ch === '/' && $offset + 1 < $length && $trimmed[$offset + 1] === '*') {
+				if ($pendingSpace && $output !== '') {
+					$output .= ' ';
+				}
+				$pendingSpace = false;
+				$endComment = strpos($trimmed, '*/', $offset + 2);
+				$endOffset = $endComment === false ? $length : $endComment + 2;
+				$output .= substr($trimmed, $offset, $endOffset - $offset);
+				$offset = $endOffset;
+				continue;
+			}
+
+			if ($ch === '(') {
+				// Preserve unquoted url(...) payloads verbatim via shared CSSSyntaxScanner rules
+				if (!$pendingSpace && CSSSyntaxScanner::isUnquotedUrlStartInternal($trimmed, $offset, 0, $length, $lastEscapeOffset)) {
+					$urlValid = false;
+					$urlEnd = CSSSyntaxScanner::scanUnquotedUrlEnd($trimmed, $offset, $length, $urlValid);
+					$endPos = $urlEnd < $length ? $urlEnd + 1 : $length;
+					$output .= substr($trimmed, $offset, $endPos - $offset);
+					$offset = $endPos;
+					continue;
+				}
+				if ($pendingSpace && $output !== '') {
+					$output .= ' ';
+				}
+				$pendingSpace = false;
+				$stack[] = '(';
+				$output .= '(';
+				$offset++;
+				continue;
+			}
+
+			if ($pendingSpace && $output !== '') {
+				$output .= ' ';
+			}
+			$pendingSpace = false;
+
+			if ($ch === '[' || $ch === '{') {
+				$stack[] = $ch;
+			} elseif ($ch === ')' && end($stack) === '(') {
+				array_pop($stack);
+			} elseif ($ch === ']' && end($stack) === '[') {
+				array_pop($stack);
+			} elseif ($ch === '}' && end($stack) === '{') {
+				array_pop($stack);
+			}
+
+			$output .= $ch;
+			$offset++;
+		}
+
+		return $output;
+	}
+
+	private static function indent(int $depth): string
+	{
+		return self::$indentCache[$depth] ??= str_repeat(self::INDENT, $depth);
 	}
 }

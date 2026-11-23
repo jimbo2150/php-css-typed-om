@@ -52,4 +52,14 @@ final class CSSFontPaletteValuesRule extends CSSAtRule
 			default => parent::__get($name),
 		};
 	}
+
+	public function __isset(string $name): bool
+	{
+		return match ($name) {
+			'name', 'overrideColors' => true,
+			'fontFamily' => $this->getFontFamily() !== null,
+			'basePalette' => $this->getBasePalette() !== null,
+			default => parent::__isset($name),
+		};
+	}
 }

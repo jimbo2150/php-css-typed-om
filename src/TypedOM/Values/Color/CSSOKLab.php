@@ -6,15 +6,37 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color;
 
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
+use ReflectionClass;
 
 /**
  * Represents a CSS `oklab(...)` color value.
  */
 final class CSSOKLab extends CSSColorValue
 {
-	private CSSNumericValue|CSSKeywordValue $l;
-	private CSSNumericValue|CSSKeywordValue $a;
-	private CSSNumericValue|CSSKeywordValue $b;
+	private CSSNumericValue|CSSKeywordValue $lValue;
+	private CSSNumericValue|CSSKeywordValue $aValue;
+	private CSSNumericValue|CSSKeywordValue $bValue;
+
+	public CSSNumericValue|CSSKeywordValue $l {
+		get => $this->lValue;
+		set (CSSNumericValue|CSSKeywordValue|int|float $value) {
+			$this->lValue = self::normalizePercentChannel($value, 100.0);
+		}
+	}
+
+	public CSSNumericValue|CSSKeywordValue $a {
+		get => $this->aValue;
+		set (CSSNumericValue|CSSKeywordValue|int|float $value) {
+			$this->aValue = self::normalizeNumberOrPercentChannel($value);
+		}
+	}
+
+	public CSSNumericValue|CSSKeywordValue $b {
+		get => $this->bValue;
+		set (CSSNumericValue|CSSKeywordValue|int|float $value) {
+			$this->bValue = self::normalizeNumberOrPercentChannel($value);
+		}
+	}
 
 	public function __construct(
 		CSSNumericValue|CSSKeywordValue|int|float $l,
@@ -22,29 +44,50 @@ final class CSSOKLab extends CSSColorValue
 		CSSNumericValue|CSSKeywordValue|int|float $b,
 		CSSNumericValue|CSSKeywordValue|int|float $alpha = 1.0,
 	) {
-		$this->setL($l);
-		$this->setA($a);
-		$this->setB($b);
-		$this->setAlpha($alpha);
+		$this->lValue = self::normalizePercentChannel($l, 100.0);
+		$this->aValue = self::normalizeNumberOrPercentChannel($a);
+		$this->bValue = self::normalizeNumberOrPercentChannel($b);
+		$this->alphaValue = self::normalizePercentChannel($alpha, 100.0);
 	}
 
-	public function getL(): CSSNumericValue|CSSKeywordValue { return $this->l; }
-	public function getA(): CSSNumericValue|CSSKeywordValue { return $this->a; }
-	public function getB(): CSSNumericValue|CSSKeywordValue { return $this->b; }
+	/**
+	 * @internal Fast factory for already-validated, caller-owned channel objects.
+	 */
+	public static function fromValidated(
+		CSSNumericValue|CSSKeywordValue $l,
+		CSSNumericValue|CSSKeywordValue $a,
+		CSSNumericValue|CSSKeywordValue $b,
+		CSSNumericValue|CSSKeywordValue $alpha,
+	): self {
+		static $reflection = null;
+		$reflection ??= new ReflectionClass(self::class);
+		/** @var self $instance */
+		$instance = $reflection->newInstanceWithoutConstructor();
+		$instance->lValue = $l;
+		$instance->aValue = $a;
+		$instance->bValue = $b;
+		$instance->alphaValue = $alpha;
+
+		return $instance;
+	}
+
+	public function getL(): CSSNumericValue|CSSKeywordValue { return $this->lValue; }
+	public function getA(): CSSNumericValue|CSSKeywordValue { return $this->aValue; }
+	public function getB(): CSSNumericValue|CSSKeywordValue { return $this->bValue; }
 
 	public function setL(CSSNumericValue|CSSKeywordValue|int|float $l): void
 	{
-		$this->l = self::normalizePercentChannel($l, 100.0);
+		$this->lValue = self::normalizePercentChannel($l, 100.0);
 	}
 
 	public function setA(CSSNumericValue|CSSKeywordValue|int|float $a): void
 	{
-		$this->a = self::normalizeNumberOrPercentChannel($a);
+		$this->aValue = self::normalizeNumberOrPercentChannel($a);
 	}
 
 	public function setB(CSSNumericValue|CSSKeywordValue|int|float $b): void
 	{
-		$this->b = self::normalizeNumberOrPercentChannel($b);
+		$this->bValue = self::normalizeNumberOrPercentChannel($b);
 	}
 
 	public function toOKLab(): CSSOKLab
@@ -52,43 +95,31 @@ final class CSSOKLab extends CSSColorValue
 		return $this->clone();
 	}
 
+	public function __clone(): void
+	{
+		$this->lValue = $this->lValue->clone();
+		$this->aValue = $this->aValue->clone();
+		$this->bValue = $this->bValue->clone();
+		$this->alphaValue = $this->alphaValue->clone();
+	}
+
 	public function clone(): static
 	{
-		return new static($this->l->clone(), $this->a->clone(), $this->b->clone(), $this->alpha->clone());
+		return clone $this;
 	}
 
 	public function __toString(): string
 	{
-		return 'oklab(' . $this->l . ' ' . $this->a . ' ' . $this->b . $this->formatAlphaSuffix() . ')';
-	}
-
-	public function __get(string $name): mixed
-	{
-		return match ($name) {
-			'l' => $this->l,
-			'a' => $this->a,
-			'b' => $this->b,
-			default => parent::__get($name),
-		};
-	}
-
-	public function __set(string $name, mixed $value): void
-	{
-		if ($value instanceof CSSNumericValue || $value instanceof CSSKeywordValue || is_int($value) || is_float($value)) {
-			if ($name === 'l') { $this->setL($value); return; }
-			if ($name === 'a') { $this->setA($value); return; }
-			if ($name === 'b') { $this->setB($value); return; }
-		}
-		parent::__set($name, $value);
+		return 'oklab(' . $this->lValue . ' ' . $this->aValue . ' ' . $this->bValue . $this->formatAlphaSuffix() . ')';
 	}
 
 	protected function toXyzD65(): array
 	{
-		$l = self::resolvePercentUnit($this->l);
-		$a = self::resolveLinearChannel($this->a, 0.4);
-		$b = self::resolveLinearChannel($this->b, 0.4);
+		$l = self::resolvePercentUnit($this->lValue);
+		$a = self::resolveLinearChannel($this->aValue, 0.4);
+		$b = self::resolveLinearChannel($this->bValue, 0.4);
 		[$x, $y, $z] = self::oklabToXyzD65($l, $a, $b);
 
-		return [$x, $y, $z, $this->alpha->clone()];
+		return [$x, $y, $z, $this->alphaValue->clone()];
 	}
 }

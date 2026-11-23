@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 
 /**
  * Represents a CSS `@counter-style` rule.
@@ -21,11 +22,8 @@ final class CSSCounterStyleRule extends CSSAtRule
 
 	public function __construct(string $name, CSSStyleDeclaration $descriptors)
 	{
-		$name = trim($name);
-		if ($name === '') {
-			throw new InvalidArgumentException('@counter-style requires a name.');
-		}
-		parent::__construct('counter-style', $name, $descriptors, true);
+		$validated = self::validateName($name);
+		parent::__construct('counter-style', $validated, $descriptors, true);
 	}
 
 	public function getNameText(): string
@@ -35,11 +33,7 @@ final class CSSCounterStyleRule extends CSSAtRule
 
 	public function setNameText(string $name): void
 	{
-		$name = trim($name);
-		if ($name === '') {
-			throw new InvalidArgumentException('@counter-style name cannot be empty.');
-		}
-		$this->prelude = CSSStyleDeclaration::normalizePropertyName($name);
+		$this->prelude = self::validateName($name);
 	}
 
 	public function getDescriptor(string $name): string
@@ -65,6 +59,19 @@ final class CSSCounterStyleRule extends CSSAtRule
 		return parent::__get($name);
 	}
 
+	public function __isset(string $name): bool
+	{
+		if ($name === 'name') {
+			return true;
+		}
+		$descriptor = self::camelToKebab($name);
+		if (in_array($descriptor, self::DESCRIPTORS, true)) {
+			return true;
+		}
+
+		return parent::__isset($name);
+	}
+
 	public function __set(string $name, mixed $value): void
 	{
 		if ($name === 'name' && is_string($value)) {
@@ -77,6 +84,22 @@ final class CSSCounterStyleRule extends CSSAtRule
 			return;
 		}
 		parent::__set($name, $value);
+	}
+
+	private static function validateName(string $name): string
+	{
+		$name = CSSSyntaxScanner::trimCssWhitespace($name);
+		if ($name === '') {
+			throw new InvalidArgumentException('@counter-style name cannot be empty.');
+		}
+		if (CSSSyntaxScanner::hasControlCharacters($name)) {
+			throw new InvalidArgumentException('Invalid @counter-style name.');
+		}
+		if (!preg_match('/^(?:--[a-zA-Z0-9_-]|-?[a-zA-Z_]|[^\x00-\x7F]|' . CSSSyntaxScanner::IDENT_ESCAPE_REGEX . ')(?:[-_a-zA-Z0-9]|[^\x00-\x7F]|' . CSSSyntaxScanner::IDENT_ESCAPE_REGEX . ')*$/uD', $name)) {
+			throw new InvalidArgumentException('Invalid @counter-style name: ' . $name);
+		}
+
+		return $name;
 	}
 
 	private static function camelToKebab(string $name): string

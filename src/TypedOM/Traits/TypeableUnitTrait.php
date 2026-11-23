@@ -4,21 +4,20 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Traits;
 
-use Exception;
+use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSS;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
+use LogicException;
 
 /**
- * Trait for simple value classes (color, keyword, image).
- * 
- * Provides common functionality for simple CSS values that don't need complex operations.
+ * Trait providing unit storage, normalization, and category lookup via {@see CSSUnitEnum}.
  */
 trait TypeableUnitTrait
 {
 
 	/** @var CSSUnitEnum|null The unit enum object */
 	protected ?CSSUnitEnum $unitObj = null;
-    public string $unit {
+	public string $unit {
 		get {
 			return $this->unitObj ? $this->unitObj->toUnitName() : '';
 		}
@@ -29,12 +28,13 @@ trait TypeableUnitTrait
 	 *
 	 * @param string|CSSUnitEnum $unit The unit to set
 	 */
-	protected function setUnit(string|CSSUnitEnum $unit) {
+	protected function setUnit(string|CSSUnitEnum $unit): void
+	{
 		if (is_string($unit)) {
 			$resolved = CSSUnitEnum::tryFromUnitName($unit);
 			if ($resolved === null) {
 				$symbol = CSS::translateUnit(strtolower($unit));
-				throw new \InvalidArgumentException('Unsupported CSS unit: ' . $symbol);
+				throw new InvalidArgumentException('Unsupported CSS unit: ' . $symbol);
 			}
 			$unit = $resolved;
 		}
@@ -45,11 +45,12 @@ trait TypeableUnitTrait
 	 * Get the category name of the unit.
 	 *
 	 * @return string|null The unit type
-	 * @throws Exception If no unit is set or unknown type
+	 * @throws LogicException If no unit is set
 	 */
-	public function type(): ?string {
+	public function type(): ?string
+	{
 		if (!$this->unitObj) {
-			throw new Exception('No unit set.');
+			throw new LogicException('No unit set.');
 		}
 		$type = $this->unitObj->type();
 		return $type?->value;

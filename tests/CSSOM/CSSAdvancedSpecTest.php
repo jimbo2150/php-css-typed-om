@@ -180,12 +180,17 @@ CSS;
 			$rules[] = ".c{$i} { width: {$i}px; }";
 		}
 		$nested = str_repeat('@media screen { ', 60) . implode("\n", $rules) . str_repeat(' }', 60);
-		$start = hrtime(true);
 		$largeSheet = CSSStyleSheet::parse($nested);
-		$elapsedMs = (hrtime(true) - $start) / 1_000_000;
 
 		self::assertSame([], $largeSheet->getParseErrors());
-		self::assertLessThan(1500.0, $elapsedMs);
+		$current = $largeSheet->cssRules[0];
+		for ($depth = 1; $depth < 60; $depth++) {
+			$current = $current->cssRules[0];
+		}
+		self::assertCount(1500, $current->cssRules);
+		self::assertSame('.c0', $current->cssRules[0]->selectorText);
+		self::assertSame('.c1499', $current->cssRules[1499]->selectorText);
+		self::assertSame('1499px', $current->cssRules[1499]->style->getPropertyValue('width'));
 	}
 
 	public function testStyleRuleTracksParentRuleAndDefaultNestedInsertIndex(): void

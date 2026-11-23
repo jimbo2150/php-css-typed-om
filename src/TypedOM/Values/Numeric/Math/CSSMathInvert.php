@@ -24,12 +24,4 @@ class CSSMathInvert extends CSSMathValue
 		$this->requireOperandCount(1, 1);
 		$this->value = $this->values->values[0];
 	}
-
-	public function __get(string $name): mixed
-	{
-		if ($name === 'value') {
-			return $this->values->values[0];
-		}
-		return parent::__get($name);
-	}
 }

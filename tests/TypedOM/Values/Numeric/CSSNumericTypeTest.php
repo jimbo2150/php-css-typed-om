@@ -14,9 +14,14 @@ class CSSNumericTypeTest extends TestCase
 {
 	public function test() {
 		$instance = new CSSNumericType();
+		$instance->__set('length', 1);
+		$this->assertSame(1, $instance->{CSSUnitTypeEnum::from('length')->value});
+	}
+
+	public function testRejectsNonIntegerDimensionExponent() {
+		$instance = new CSSNumericType();
+		$this->expectException(InvalidArgumentException::class);
 		$instance->__set('length', 'px');
-		$this->assertSame('px', $instance->{CSSUnitTypeEnum::from('length')->value});
-		$instance->{CSSUnitTypeEnum::from('length')->value};
 	}
 
 	public function testInvalidType() {

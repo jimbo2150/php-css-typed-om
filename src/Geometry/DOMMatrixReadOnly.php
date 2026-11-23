@@ -22,6 +22,24 @@ use Stringable;
  */
 class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 {
+	/** @var list<float> */
+	protected const array IDENTITY_ELEMENTS = [
+		1.0, 0.0, 0.0, 0.0,
+		0.0, 1.0, 0.0, 0.0,
+		0.0, 0.0, 1.0, 0.0,
+		0.0, 0.0, 0.0, 1.0,
+	];
+
+	/** @var list<array{string, string}> */
+	protected const array ALIAS_PAIRS = [
+		['a', 'm11'],
+		['b', 'm12'],
+		['c', 'm21'],
+		['d', 'm22'],
+		['e', 'm41'],
+		['f', 'm42'],
+	];
+
 	/** @var array<string, int> */
 	protected const array ELEMENT_INDEX = [
 		'm11' => 0, 'm12' => 1, 'm13' => 2, 'm14' => 3,
@@ -34,7 +52,7 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 	/** @var list<float> 16 column-major elements */
 	protected array $elements;
 
-	protected bool $is2D;
+	public protected(set) bool $is2D;
 
 	/**
 	 * @param DOMMatrixReadOnly|list<int|float>|array<string, mixed>|string|null $init
@@ -43,7 +61,7 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 	public function __construct(self|array|string|null $init = null)
 	{
 		if ($init === null) {
-			$this->elements = self::identityElements();
+			$this->elements = self::IDENTITY_ELEMENTS;
 			$this->is2D = true;
 			return;
 		}
@@ -118,6 +136,20 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 		return $matrix;
 	}
 
+	/**
+	 * @internal Fast factory for callers that have already produced finite float elements.
+	 *
+	 * @param list<float> $elements
+	 */
+	public static function fromTrustedElements(array $elements, bool $is2D): static
+	{
+		$matrix = new static();
+		$matrix->elements = $elements;
+		$matrix->is2D = $is2D;
+
+		return $matrix;
+	}
+
 	public function is2D(): bool
 	{
 		return $this->is2D;
@@ -125,14 +157,7 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 
 	public function isIdentity(): bool
 	{
-		$identity = self::identityElements();
-		foreach ($this->elements as $index => $value) {
-			if ($value !== $identity[$index]) {
-				return false;
-			}
-		}
-
-		return true;
+		return $this->elements === self::IDENTITY_ELEMENTS;
 	}
 
 	public function getA(): float { return $this->elements[0]; }
@@ -222,12 +247,24 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 
 	public function flipX(): DOMMatrix
 	{
-		return DOMMatrix::fromMatrix($this)->multiplySelf([-1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+		$m = $this->elements;
+		$m[0] = $m[0] === 0.0 ? 0.0 : -$m[0];
+		$m[1] = $m[1] === 0.0 ? 0.0 : -$m[1];
+		$m[2] = $m[2] === 0.0 ? 0.0 : -$m[2];
+		$m[3] = $m[3] === 0.0 ? 0.0 : -$m[3];
+
+		return DOMMatrix::fromTrustedElements($m, $this->is2D);
 	}
 
 	public function flipY(): DOMMatrix
 	{
-		return DOMMatrix::fromMatrix($this)->multiplySelf([1.0, 0.0, 0.0, -1.0, 0.0, 0.0]);
+		$m = $this->elements;
+		$m[4] = $m[4] === 0.0 ? 0.0 : -$m[4];
+		$m[5] = $m[5] === 0.0 ? 0.0 : -$m[5];
+		$m[6] = $m[6] === 0.0 ? 0.0 : -$m[6];
+		$m[7] = $m[7] === 0.0 ? 0.0 : -$m[7];
+
+		return DOMMatrix::fromTrustedElements($m, $this->is2D);
 	}
 
 	/**
@@ -253,10 +290,10 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 		$m = $this->elements;
 
 		return [
-			'x' => $m[0] * $x + $m[4] * $y + $m[8] * $z + $m[12] * $w,
-			'y' => $m[1] * $x + $m[5] * $y + $m[9] * $z + $m[13] * $w,
-			'z' => $m[2] * $x + $m[6] * $y + $m[10] * $z + $m[14] * $w,
-			'w' => $m[3] * $x + $m[7] * $y + $m[11] * $z + $m[15] * $w,
+			'x' => self::assertFinite($m[0] * $x + $m[4] * $y + $m[8] * $z + $m[12] * $w, 'transformedPoint.x'),
+			'y' => self::assertFinite($m[1] * $x + $m[5] * $y + $m[9] * $z + $m[13] * $w, 'transformedPoint.y'),
+			'z' => self::assertFinite($m[2] * $x + $m[6] * $y + $m[10] * $z + $m[14] * $w, 'transformedPoint.z'),
+			'w' => self::assertFinite($m[3] * $x + $m[7] * $y + $m[11] * $z + $m[15] * $w, 'transformedPoint.w'),
 		];
 	}
 
@@ -330,26 +367,27 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 
 	public function __toString(): string
 	{
+		$m = $this->elements;
 		if ($this->is2D) {
-			$values = [
-				$this->elements[0],
-				$this->elements[1],
-				$this->elements[4],
-				$this->elements[5],
-				$this->elements[12],
-				$this->elements[13],
-			];
-			return 'matrix(' . implode(', ', array_map(self::formatNumber(...), $values)) . ')';
+			return 'matrix('
+				. self::formatNumber($m[0]) . ', '
+				. self::formatNumber($m[1]) . ', '
+				. self::formatNumber($m[4]) . ', '
+				. self::formatNumber($m[5]) . ', '
+				. self::formatNumber($m[12]) . ', '
+				. self::formatNumber($m[13]) . ')';
 		}
 
-		return 'matrix3d(' . implode(', ', array_map(self::formatNumber(...), $this->elements)) . ')';
+		$parts = [];
+		foreach ($m as $value) {
+			$parts[] = self::formatNumber($value);
+		}
+
+		return 'matrix3d(' . implode(', ', $parts) . ')';
 	}
 
 	public function __get(string $name): mixed
 	{
-		if ($name === 'is2D') {
-			return $this->is2D;
-		}
 		if ($name === 'isIdentity') {
 			return $this->isIdentity();
 		}
@@ -360,6 +398,11 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 		throw new Error('Undefined property: ' . static::class . '::$' . $name);
 	}
 
+	public function __isset(string $name): bool
+	{
+		return $name === 'isIdentity' || isset(self::ELEMENT_INDEX[$name]);
+	}
+
 	public function __set(string $name, mixed $value): void
 	{
 		throw new Error('Cannot set property ' . static::class . '::$' . $name);
@@ -368,25 +411,50 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 	/** @return list<float> */
 	protected static function identityElements(): array
 	{
-		return [
-			1.0, 0.0, 0.0, 0.0,
-			0.0, 1.0, 0.0, 0.0,
-			0.0, 0.0, 1.0, 0.0,
-			0.0, 0.0, 0.0, 1.0,
-		];
+		return self::IDENTITY_ELEMENTS;
 	}
 
 	/** @param list<float> $left @param list<float> $right @return list<float> */
-	protected static function multiplyElements(array $left, array $right): array
-	{
-		$result = array_fill(0, 16, 0.0);
+	public static function multiplyElements(
+		array $left,
+		array $right,
+		bool $leftIs2D = false,
+		bool $rightIs2D = false,
+	): array {
+		if ($leftIs2D && $rightIs2D) {
+			return [
+				self::assertFinite($left[0] * $right[0] + $left[4] * $right[1], 'matrix product'),
+				self::assertFinite($left[1] * $right[0] + $left[5] * $right[1], 'matrix product'),
+				0.0,
+				0.0,
+				self::assertFinite($left[0] * $right[4] + $left[4] * $right[5], 'matrix product'),
+				self::assertFinite($left[1] * $right[4] + $left[5] * $right[5], 'matrix product'),
+				0.0,
+				0.0,
+				0.0,
+				0.0,
+				1.0,
+				0.0,
+				self::assertFinite($left[0] * $right[12] + $left[4] * $right[13] + $left[12], 'matrix product'),
+				self::assertFinite($left[1] * $right[12] + $left[5] * $right[13] + $left[13], 'matrix product'),
+				0.0,
+				1.0,
+			];
+		}
+
+		$result = self::IDENTITY_ELEMENTS;
 		for ($column = 0; $column < 4; $column++) {
+			$colBase = $column * 4;
+			$r0 = $right[$colBase];
+			$r1 = $right[$colBase + 1];
+			$r2 = $right[$colBase + 2];
+			$r3 = $right[$colBase + 3];
 			for ($row = 0; $row < 4; $row++) {
-				$sum = 0.0;
-				for ($inner = 0; $inner < 4; $inner++) {
-					$sum += $left[$inner * 4 + $row] * $right[$column * 4 + $inner];
-				}
-				$result[$column * 4 + $row] = self::assertFinite($sum, 'matrix product');
+				$sum = $left[$row] * $r0
+					+ $left[4 + $row] * $r1
+					+ $left[8 + $row] * $r2
+					+ $left[12 + $row] * $r3;
+				$result[$colBase + $row] = self::assertFinite($sum, 'matrix product');
 			}
 		}
 
@@ -424,9 +492,14 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 	/** @return array{list<float>, bool} */
 	protected static function parseTransformString(string $cssText): array
 	{
-		$trimmed = trim($cssText);
+		if (strlen($cssText) > \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException(
+				sprintf('Transform list exceeds maximum size of %d bytes.', \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions::DEFAULT_MAX_BYTES),
+			);
+		}
+		$trimmed = CSSSyntaxScanner::trimCssWhitespace($cssText);
 		if ($trimmed === '' || strcasecmp($trimmed, 'none') === 0) {
-			return [self::identityElements(), true];
+			return [self::IDENTITY_ELEMENTS, true];
 		}
 
 		CSSSyntaxScanner::assertValidFragment($trimmed, 'CSS transform', [';', '{', '}']);
@@ -470,16 +543,7 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 	 */
 	protected static function normalizeDictionary(array $init): array
 	{
-		$aliases = [
-			['a', 'm11'],
-			['b', 'm12'],
-			['c', 'm21'],
-			['d', 'm22'],
-			['e', 'm41'],
-			['f', 'm42'],
-		];
-
-		foreach ($aliases as [$short, $long]) {
+		foreach (self::ALIAS_PAIRS as [$short, $long]) {
 			if (array_key_exists($short, $init) && array_key_exists($long, $init)) {
 				$shortVal = self::assertFinite($init[$short], $short);
 				$longVal = self::assertFinite($init[$long], $long);
@@ -489,8 +553,7 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 			}
 		}
 
-		$elements = self::identityElements();
-		$has3DKeys = false;
+		$elements = self::IDENTITY_ELEMENTS;
 		$explicitIs2D = null;
 
 		foreach ($init as $key => $value) {
@@ -501,15 +564,18 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 				$explicitIs2D = $value;
 				continue;
 			}
+			if ($key === 'isIdentity') {
+				if (!is_bool($value)) {
+					throw new InvalidArgumentException('DOMMatrixInit::$isIdentity must be a boolean.');
+				}
+				continue;
+			}
 			if (!isset(self::ELEMENT_INDEX[$key])) {
 				throw new InvalidArgumentException('Unknown DOMMatrixInit property: ' . $key);
 			}
 			$index = self::ELEMENT_INDEX[$key];
 			$float = self::assertFinite($value, $key);
 			$elements[$index] = $float;
-			if (in_array($key, ['m13', 'm14', 'm23', 'm24', 'm31', 'm32', 'm33', 'm34', 'm43', 'm44'], true)) {
-				$has3DKeys = true;
-			}
 		}
 
 		$are2D = self::elementsAre2D($elements);
@@ -517,7 +583,7 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 			throw new InvalidArgumentException('DOMMatrixInit cannot specify is2D=true with non-2D 3D matrix entries.');
 		}
 
-		$is2D = $explicitIs2D ?? ($are2D && !$has3DKeys);
+		$is2D = $explicitIs2D ?? $are2D;
 
 		return [$elements, $is2D];
 	}

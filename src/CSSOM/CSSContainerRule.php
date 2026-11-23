@@ -27,6 +27,9 @@ final class CSSContainerRule extends CSSConditionRule
 		'default' => true,
 	];
 
+	/** @var ?array{string, string} */
+	private ?array $parsedPrelude = null;
+
 	public function __construct(string $conditionText)
 	{
 		parent::__construct('container', $conditionText);
@@ -35,6 +38,12 @@ final class CSSContainerRule extends CSSConditionRule
 	public function getType(): int
 	{
 		return self::CONTAINER_RULE;
+	}
+
+	public function setConditionText(string $conditionText): void
+	{
+		parent::setConditionText($conditionText);
+		$this->parsedPrelude = null;
 	}
 
 	public function getContainerName(): string
@@ -58,30 +67,42 @@ final class CSSContainerRule extends CSSConditionRule
 		};
 	}
 
+	public function __isset(string $name): bool
+	{
+		return match ($name) {
+			'containerName', 'containerQuery' => true,
+			default => parent::__isset($name),
+		};
+	}
+
 	/** @return array{string, string} */
 	private function splitPrelude(): array
 	{
-		$prelude = trim($this->prelude);
+		if ($this->parsedPrelude !== null) {
+			return $this->parsedPrelude;
+		}
+
+		$prelude = CSSSyntaxScanner::trimCssWhitespace($this->prelude);
 		if ($prelude === '') {
-			return ['', ''];
+			return $this->parsedPrelude = ['', ''];
 		}
 
 		$tokens = CSSSyntaxScanner::splitTopLevelWhitespace($prelude);
 		if ($tokens === []) {
-			return ['', ''];
+			return $this->parsedPrelude = ['', ''];
 		}
 
 		$first = $tokens[0];
 		if (!self::isValidContainerName($first)) {
-			return ['', $prelude];
+			return $this->parsedPrelude = ['', $prelude];
 		}
 
 		if (count($tokens) === 1) {
-			return [$first, ''];
+			return $this->parsedPrelude = [$first, ''];
 		}
 
-		$rest = ltrim(substr($prelude, strlen($first)));
-		return [$first, $rest];
+		$rest = ltrim(substr($prelude, strlen($first)), CSSSyntaxScanner::CSS_WHITESPACE);
+		return $this->parsedPrelude = [$first, $rest];
 	}
 
 	private static function isValidContainerName(string $token): bool
@@ -93,6 +114,6 @@ final class CSSContainerRule extends CSSConditionRule
 			return false;
 		}
 
-		return preg_match('/^(?:--|[-_a-zA-Z]|[^\x00-\x7F]|\\\\(?:[0-9a-fA-F]{1,6}\s?|[^\r\n\f]))(?:[-_a-zA-Z0-9]|[^\x00-\x7F]|\\\\(?:[0-9a-fA-F]{1,6}\s?|[^\r\n\f]))*$/uD', $token) === 1;
+		return preg_match('/^(?:--|-?(?:[_a-zA-Z]|[^\x00-\x7F]|' . CSSSyntaxScanner::IDENT_ESCAPE_REGEX . '))(?:[-_a-zA-Z0-9]|[^\x00-\x7F]|' . CSSSyntaxScanner::IDENT_ESCAPE_REGEX . ')*$/uD', $token) === 1;
 	}
 }

@@ -8,6 +8,7 @@ use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
+use ReflectionClass;
 
 /**
  * Represents a CSS `color(<colorspace> c1 c2 c3 [/ alpha])` value.
@@ -27,10 +28,25 @@ final class CSSColor extends CSSColorValue
 		'xyz-d65' => true,
 	];
 
-	private CSSKeywordValue $colorSpace;
+	private CSSKeywordValue $colorSpaceValue;
 
 	/** @var list<CSSNumericValue|CSSKeywordValue> */
-	private array $channels;
+	private array $channelsValue;
+
+	public CSSKeywordValue $colorSpace {
+		get => $this->colorSpaceValue->clone();
+		set (CSSKeywordValue|string $value) {
+			$this->setColorSpace($value);
+		}
+	}
+
+	/** @var list<CSSNumericValue|CSSKeywordValue> */
+	public array $channels {
+		get => $this->channelsValue;
+		set (array $value) {
+			$this->setChannels($value);
+		}
+	}
 
 	/**
 	 * @param list<CSSNumericValue|CSSKeywordValue|int|float> $channels
@@ -42,20 +58,40 @@ final class CSSColor extends CSSColorValue
 	) {
 		$this->setColorSpace($colorSpace);
 		$this->setChannels($channels);
-		$this->setAlpha($alpha);
+		$this->alphaValue = self::normalizePercentChannel($alpha, 100.0);
+	}
+
+	/**
+	 * @internal Fast factory for already-validated, caller-owned channel objects.
+	 * @param list<CSSNumericValue|CSSKeywordValue> $channels
+	 */
+	public static function fromValidated(
+		CSSKeywordValue $colorSpace,
+		array $channels,
+		CSSNumericValue|CSSKeywordValue $alpha,
+	): self {
+		static $reflection = null;
+		$reflection ??= new ReflectionClass(self::class);
+		/** @var self $instance */
+		$instance = $reflection->newInstanceWithoutConstructor();
+		$instance->colorSpaceValue = $colorSpace;
+		$instance->channelsValue = $channels;
+		$instance->alphaValue = $alpha;
+
+		return $instance;
 	}
 
 	public function getColorSpace(): CSSKeywordValue
 	{
-		return $this->colorSpace;
+		return $this->colorSpaceValue->clone();
 	}
 
 	public function setColorSpace(CSSKeywordValue|string $colorSpace): void
 	{
-		$raw = trim($colorSpace instanceof CSSKeywordValue ? $colorSpace->getValue() : $colorSpace);
+		$raw = \Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner::trimCssWhitespace($colorSpace instanceof CSSKeywordValue ? $colorSpace->getValue() : $colorSpace);
 		if (str_starts_with($raw, '--')) {
 			$normalized = CSSStyleDeclaration::normalizePropertyName($raw);
-			$this->colorSpace = new CSSKeywordValue($normalized);
+			$this->colorSpaceValue = new CSSKeywordValue($normalized);
 			return;
 		}
 
@@ -63,13 +99,16 @@ final class CSSColor extends CSSColorValue
 		if (!isset(self::PREDEFINED_SPACES[$lower])) {
 			throw new InvalidArgumentException('Unsupported CSS color space: ' . $raw);
 		}
-		$this->colorSpace = new CSSKeywordValue($lower);
+		if (isset($this->channelsValue) && count($this->channelsValue) !== 3) {
+			throw new InvalidArgumentException(sprintf('Predefined color space "%s" requires exactly 3 channels.', $lower));
+		}
+		$this->colorSpaceValue = new CSSKeywordValue($lower);
 	}
 
 	/** @return list<CSSNumericValue|CSSKeywordValue> */
 	public function getChannels(): array
 	{
-		return $this->channels;
+		return $this->channelsValue;
 	}
 
 	/** @param list<CSSNumericValue|CSSKeywordValue|int|float> $channels */
@@ -78,7 +117,7 @@ final class CSSColor extends CSSColorValue
 		if ($channels === []) {
 			throw new InvalidArgumentException('CSSColor requires at least one channel.');
 		}
-		$space = $this->colorSpace->getValue();
+		$space = $this->colorSpaceValue->getValue();
 		if (isset(self::PREDEFINED_SPACES[$space]) && count($channels) !== 3) {
 			throw new InvalidArgumentException(sprintf('Predefined color space "%s" requires exactly 3 channels.', $space));
 		}
@@ -87,56 +126,44 @@ final class CSSColor extends CSSColorValue
 		foreach ($channels as $channel) {
 			$normalized[] = self::normalizeNumberOrPercentChannel($channel);
 		}
-		$this->channels = $normalized;
+		$this->channelsValue = $normalized;
+	}
+
+	public function __clone(): void
+	{
+		$this->colorSpaceValue = $this->colorSpaceValue->clone();
+		$clonedChannels = [];
+		foreach ($this->channelsValue as $channel) {
+			$clonedChannels[] = $channel->clone();
+		}
+		$this->channelsValue = $clonedChannels;
+		$this->alphaValue = $this->alphaValue->clone();
 	}
 
 	public function clone(): static
 	{
-		return new static(
-			$this->colorSpace->clone(),
-			array_map(static fn (CSSNumericValue|CSSKeywordValue $c): CSSNumericValue|CSSKeywordValue => $c->clone(), $this->channels),
-			$this->alpha->clone(),
-		);
+		return clone $this;
 	}
 
 	public function __toString(): string
 	{
-		$serialized = array_map(static fn (CSSNumericValue|CSSKeywordValue $c): string => (string) $c, $this->channels);
-		return 'color(' . $this->colorSpace . ' ' . implode(' ', $serialized) . $this->formatAlphaSuffix() . ')';
-	}
-
-	public function __get(string $name): mixed
-	{
-		return match ($name) {
-			'colorSpace' => $this->colorSpace,
-			'channels' => $this->channels,
-			default => parent::__get($name),
-		};
-	}
-
-	public function __set(string $name, mixed $value): void
-	{
-		if ($name === 'colorSpace' && ($value instanceof CSSKeywordValue || is_string($value))) {
-			$this->setColorSpace($value);
-			return;
+		$serialized = [];
+		foreach ($this->channelsValue as $channel) {
+			$serialized[] = (string) $channel;
 		}
-		if ($name === 'channels' && is_array($value)) {
-			$this->setChannels($value);
-			return;
-		}
-		parent::__set($name, $value);
+		return 'color(' . $this->colorSpaceValue . ' ' . implode(' ', $serialized) . $this->formatAlphaSuffix() . ')';
 	}
 
 	protected function toXyzD65(): array
 	{
-		$space = $this->colorSpace->getValue();
+		$space = $this->colorSpaceValue->getValue();
 		if (!isset(self::PREDEFINED_SPACES[$space])) {
 			throw new InvalidArgumentException(sprintf('Cannot convert custom color space "%s".', $space));
 		}
 
-		$c0 = self::resolveLinearChannel($this->channels[0], 1.0);
-		$c1 = self::resolveLinearChannel($this->channels[1], 1.0);
-		$c2 = self::resolveLinearChannel($this->channels[2], 1.0);
+		$c0 = self::resolveLinearChannel($this->channelsValue[0], 1.0);
+		$c1 = self::resolveLinearChannel($this->channelsValue[1], 1.0);
+		$c2 = self::resolveLinearChannel($this->channelsValue[2], 1.0);
 
 		[$x, $y, $z] = match ($space) {
 			'xyz', 'xyz-d65' => [$c0, $c1, $c2],
@@ -149,6 +176,6 @@ final class CSSColor extends CSSColorValue
 			'rec2020' => self::linearRec2020ToXyzD65(self::rec2020ToLinear($c0), self::rec2020ToLinear($c1), self::rec2020ToLinear($c2)),
 		};
 
-		return [$x, $y, $z, $this->alpha->clone()];
+		return [$x, $y, $z, $this->alphaValue->clone()];
 	}
 }

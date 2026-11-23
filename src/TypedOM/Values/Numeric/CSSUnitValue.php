@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Stringable;
 
 /**
@@ -16,10 +17,17 @@ class CSSUnitValue extends CSSNumericValue implements Stringable
 {
 	public mixed $value = null {
 		set (mixed $newValue) {
-			if (!is_numeric($newValue) || !is_finite((float) $newValue)) {
+			if (is_string($newValue) && CSSSyntaxScanner::hasControlCharacters($newValue)) {
+				throw new InvalidArgumentException('CSSUnitValue::$value contains disallowed control characters.');
+			}
+			if (!is_numeric($newValue)) {
 				throw new InvalidArgumentException('CSSUnitValue::$value must be a finite number.');
 			}
-			$this->value = (float) $newValue;
+			$float = (float) $newValue;
+			if (!is_finite($float)) {
+				throw new InvalidArgumentException('CSSUnitValue::$value must be a finite number.');
+			}
+			$this->value = $float;
 		}
 	}
 
@@ -30,42 +38,73 @@ class CSSUnitValue extends CSSNumericValue implements Stringable
 	 */
 	public function __construct(string|float|int $value, string|CSSUnitEnum $unit)
 	{
-		if (!is_numeric($value)) {
-			throw new InvalidArgumentException('Invalid numeric value for CSSUnitValue.');
-		}
-		$numeric = (float) $value;
-		if (!is_finite($numeric)) {
-			throw new InvalidArgumentException('CSSUnitValue must be finite.');
-		}
-		$this->setValue($numeric);
+		$this->value = $value;
 		$this->setUnit($unit);
 	}
 
 	public function add(CSSNumericValue|int|float ...$values): CSSNumericValue
 	{
-		$normalized = array_map(static fn (CSSNumericValue|int|float $v): CSSNumericValue => self::toNumericValue($v), $values);
-		if ($normalized !== [] && array_all($normalized, fn (CSSNumericValue $value): bool =>
-			$value instanceof self && $this->unit === $value->unit)) {
-			$total = $this->value + array_sum(array_map(static fn (self $value): float => $value->value, $normalized));
-			if (!is_finite($total)) {
+		if ($values === []) {
+			return parent::add(...$values);
+		}
+
+		$allSameUnit = true;
+		$sum = $this->value;
+		$normalized = [];
+		$thisUnit = $this->unitObj;
+
+		foreach ($values as $v) {
+			$nv = self::toNumericValue($v);
+			$normalized[] = $nv;
+			if ($allSameUnit) {
+				if ($nv instanceof self && $nv->unitObj === $thisUnit) {
+					$sum += $nv->value;
+				} else {
+					$allSameUnit = false;
+				}
+			}
+		}
+
+		if ($allSameUnit) {
+			if (!is_finite($sum)) {
 				throw new InvalidArgumentException('CSS numeric addition overflowed to a non-finite value.');
 			}
-			return new self($total, $this->unitObj ?? $this->unit);
+			return new self($sum, $thisUnit ?? $this->unit);
 		}
+
 		return parent::add(...$normalized);
 	}
 
 	public function sub(CSSNumericValue|int|float ...$values): CSSNumericValue
 	{
-		$normalized = array_map(static fn (CSSNumericValue|int|float $v): CSSNumericValue => self::toNumericValue($v), $values);
-		if ($normalized !== [] && array_all($normalized, fn (CSSNumericValue $value): bool =>
-			$value instanceof self && $this->unit === $value->unit)) {
-			$total = $this->value - array_sum(array_map(static fn (self $value): float => $value->value, $normalized));
-			if (!is_finite($total)) {
+		if ($values === []) {
+			return parent::sub(...$values);
+		}
+
+		$allSameUnit = true;
+		$sum = $this->value;
+		$normalized = [];
+		$thisUnit = $this->unitObj;
+
+		foreach ($values as $v) {
+			$nv = self::toNumericValue($v);
+			$normalized[] = $nv;
+			if ($allSameUnit) {
+				if ($nv instanceof self && $nv->unitObj === $thisUnit) {
+					$sum -= $nv->value;
+				} else {
+					$allSameUnit = false;
+				}
+			}
+		}
+
+		if ($allSameUnit) {
+			if (!is_finite($sum)) {
 				throw new InvalidArgumentException('CSS numeric subtraction overflowed to a non-finite value.');
 			}
-			return new self($total, $this->unitObj ?? $this->unit);
+			return new self($sum, $thisUnit ?? $this->unit);
 		}
+
 		return parent::sub(...$normalized);
 	}
 

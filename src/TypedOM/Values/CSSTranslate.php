@@ -16,9 +16,30 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
  */
 final class CSSTranslate extends CSSTransformComponent
 {
-	private CSSNumericValue $x;
-	private CSSNumericValue $y;
-	private CSSNumericValue $z;
+	private CSSNumericValue $xValue;
+	private CSSNumericValue $yValue;
+	private CSSNumericValue $zValue;
+
+	public CSSNumericValue $x {
+		get => $this->xValue;
+		set (CSSNumericValue|int|float $value) {
+			$this->setX($value);
+		}
+	}
+
+	public CSSNumericValue $y {
+		get => $this->yValue;
+		set (CSSNumericValue|int|float $value) {
+			$this->setY($value);
+		}
+	}
+
+	public CSSNumericValue $z {
+		get => $this->zValue;
+		set (CSSNumericValue|int|float $value) {
+			$this->setZ($value);
+		}
+	}
 
 	public function __construct(
 		CSSNumericValue|int|float|string $xOrFunction,
@@ -29,149 +50,184 @@ final class CSSTranslate extends CSSTransformComponent
 		if (is_string($xOrFunction) && is_array($yOrValues)) {
 			$function = strtolower($xOrFunction);
 			$values = array_values($yOrValues);
-			[$this->x, $this->y, $this->z, $normalizedIs2D] = self::fromFunctionArguments($function, $values);
-			parent::__construct($function, $values, $is2D ?? $normalizedIs2D);
+			[$this->xValue, $this->yValue, $this->zValue, $serialized, $normalizedIs2D] = self::fromFunctionArguments($function, $values);
+			parent::__construct($function, $serialized, $is2D ?? $normalizedIs2D);
 			return;
 		}
 
-		$this->x = self::numericValue($xOrFunction, 'px', ['length', 'percent']);
-		$this->y = $yOrValues === null ? new CSSUnitValue(0, 'px') : self::numericValue($yOrValues, 'px', ['length', 'percent']);
-		$this->z = $z === null || is_bool($z) ? new CSSUnitValue(0, 'px') : self::numericValue($z, 'px', ['length']);
+		$this->xValue = self::numericValue($xOrFunction, 'px', ['length', 'percent']);
+		$this->yValue = $yOrValues === null ? new CSSUnitValue(0, 'px') : self::numericValue($yOrValues, 'px', ['length', 'percent']);
+		$this->zValue = $z === null || is_bool($z) ? new CSSUnitValue(0, 'px') : self::numericValue($z, 'px', ['length']);
 		$hasZ = $z !== null && !is_bool($z);
-		$serializedValues = $hasZ ? [$this->x, $this->y, $this->z] : [$this->x, $this->y];
-		$normalizedIs2D = !$hasZ || ($this->z instanceof CSSUnitValue && $this->z->value === 0.0);
+		$serializedValues = $hasZ ? [$this->xValue, $this->yValue, $this->zValue] : [$this->xValue, $this->yValue];
+		$normalizedIs2D = !$hasZ;
 		parent::__construct($hasZ ? 'translate3d' : 'translate', $serializedValues, $is2D ?? $normalizedIs2D);
 	}
 
 	public function getX(): CSSNumericValue
 	{
-		return $this->x;
+		return $this->xValue;
 	}
 
-	public function setX(CSSNumericValue $x): void
+	public function setX(CSSNumericValue|int|float $x): void
 	{
-		$this->x = self::numericValue($x, 'px', ['length', 'percent']);
+		$this->xValue = self::numericValue($x, 'px', ['length', 'percent']);
+		if ($this->functionName === 'translatey') {
+			$this->functionName = 'translate';
+		} elseif ($this->functionName === 'translatez') {
+			$this->functionName = 'translate3d';
+			$this->twoDimensional = false;
+		}
 		$this->syncSerializedValues();
 	}
 
 	public function getY(): CSSNumericValue
 	{
-		return $this->y;
+		return $this->yValue;
 	}
 
-	public function setY(CSSNumericValue $y): void
+	public function setY(CSSNumericValue|int|float $y): void
 	{
-		$this->y = self::numericValue($y, 'px', ['length', 'percent']);
+		$this->yValue = self::numericValue($y, 'px', ['length', 'percent']);
+		if ($this->functionName === 'translatex') {
+			$this->functionName = 'translate';
+		} elseif ($this->functionName === 'translatez') {
+			$this->functionName = 'translate3d';
+			$this->twoDimensional = false;
+		}
 		$this->syncSerializedValues();
 	}
 
 	public function getZ(): CSSNumericValue
 	{
-		return $this->z;
+		return $this->zValue;
 	}
 
-	public function setZ(CSSNumericValue $z): void
+	public function setZ(CSSNumericValue|int|float $z): void
 	{
-		$this->z = self::numericValue($z, 'px', ['length']);
+		$this->zValue = self::numericValue($z, 'px', ['length']);
+		if (!($this->zValue instanceof CSSUnitValue && $this->zValue->value === 0.0)) {
+			$this->twoDimensional = false;
+			if ($this->functionName !== 'translatez') {
+				$this->functionName = 'translate3d';
+			}
+		}
+		$this->syncSerializedValues();
+	}
+
+	public function setIs2D(bool $is2D): void
+	{
+		parent::setIs2D($is2D);
+		if ($is2D) {
+			if ($this->functionName === 'translate3d' || $this->functionName === 'translatez') {
+				$this->functionName = 'translate';
+			}
+		} elseif ($this->functionName !== 'translatez') {
+			$this->functionName = 'translate3d';
+		}
 		$this->syncSerializedValues();
 	}
 
 	public function toMatrix(): DOMMatrix
 	{
-		$matrix = self::identityMatrix();
-		$matrix[12] = self::scalar($this->x, 'length');
-		$matrix[13] = self::scalar($this->y, 'length');
-		$z = $this->twoDimensional ? 0.0 : self::scalar($this->z, 'length');
+		$matrix = self::IDENTITY_MATRIX;
+		$matrix[12] = self::scalar($this->xValue, 'length');
+		$matrix[13] = self::scalar($this->yValue, 'length');
+		$z = $this->twoDimensional ? 0.0 : self::scalar($this->zValue, 'length');
 		$matrix[14] = $z;
 
-		return DOMMatrix::fromElements($matrix, $this->twoDimensional && $z === 0.0);
+		return DOMMatrix::fromTrustedElements($matrix, $this->twoDimensional && $z === 0.0);
+	}
+
+	public function __clone(): void
+	{
+		$preserveSingleTranslate = $this->functionName === 'translate' && count($this->values) === 1;
+		$this->xValue = $this->xValue->clone();
+		$this->yValue = $this->yValue->clone();
+		$this->zValue = $this->zValue->clone();
+		if ($preserveSingleTranslate) {
+			$this->values = [$this->xValue];
+			return;
+		}
+		$this->syncSerializedValues();
 	}
 
 	public function clone(): static
 	{
-		return new static($this->x->clone(), $this->y->clone(), $this->twoDimensional ? null : $this->z->clone(), $this->twoDimensional);
-	}
-
-	public function __get(string $name): mixed
-	{
-		return match ($name) {
-			'x' => $this->getX(),
-			'y' => $this->getY(),
-			'z' => $this->getZ(),
-			default => parent::__get($name),
-		};
-	}
-
-	public function __set(string $name, mixed $value): void
-	{
-		if ($name === 'x' && $value instanceof CSSNumericValue) {
-			$this->setX($value);
-			return;
-		}
-		if ($name === 'y' && $value instanceof CSSNumericValue) {
-			$this->setY($value);
-			return;
-		}
-		if ($name === 'z' && $value instanceof CSSNumericValue) {
-			$this->setZ($value);
-			return;
-		}
-		parent::__set($name, $value);
+		return clone $this;
 	}
 
 	private function syncSerializedValues(): void
 	{
 		$this->values = match ($this->functionName) {
-			'translatex' => [$this->x],
-			'translatey' => [$this->y],
-			'translatez' => [$this->z],
-			'translate3d' => [$this->x, $this->y, $this->z],
-			default => [$this->x, $this->y],
+			'translatex' => [$this->xValue],
+			'translatey' => [$this->yValue],
+			'translatez' => [$this->zValue],
+			'translate3d' => [$this->xValue, $this->yValue, $this->zValue],
+			default => [$this->xValue, $this->yValue],
 		};
 	}
 
-	/** @param list<CSSStyleValue|string> $values @return array{CSSNumericValue, CSSNumericValue, CSSNumericValue, bool} */
+	/** @param list<CSSStyleValue|string> $values @return array{CSSNumericValue, CSSNumericValue, CSSNumericValue, list<CSSNumericValue>, bool} */
 	private static function fromFunctionArguments(string $function, array $values): array
 	{
-		$zero = new CSSUnitValue(0, 'px');
-		$oneOrTwo = static function (int $min, int $max) use ($values, $function): void {
+		$assertCount = static function (int $min, int $max) use ($values, $function): void {
 			if (count($values) < $min || count($values) > $max) {
 				throw new InvalidArgumentException('Invalid argument count for ' . $function . '().');
 			}
 		};
-		$x = $zero;
-		$y = $zero;
-		$z = $zero;
+
+		$x = null;
+		$y = null;
+		$z = null;
+		$serialized = [];
 		$is2D = true;
+
 		switch ($function) {
 			case 'translate':
-				$oneOrTwo(1, 2);
+				$assertCount(1, 2);
 				$x = self::numericValue($values[0], 'px', ['length', 'percent']);
-				$y = isset($values[1]) ? self::numericValue($values[1], 'px', ['length', 'percent']) : $zero;
+				if (isset($values[1])) {
+					$y = self::numericValue($values[1], 'px', ['length', 'percent']);
+					$serialized = [$x, $y];
+				} else {
+					$serialized = [$x];
+				}
 				break;
 			case 'translatex':
-				$oneOrTwo(1, 1);
+				$assertCount(1, 1);
 				$x = self::numericValue($values[0], 'px', ['length', 'percent']);
+				$serialized = [$x];
 				break;
 			case 'translatey':
-				$oneOrTwo(1, 1);
+				$assertCount(1, 1);
 				$y = self::numericValue($values[0], 'px', ['length', 'percent']);
+				$serialized = [$y];
 				break;
 			case 'translatez':
-				$oneOrTwo(1, 1);
+				$assertCount(1, 1);
 				$z = self::numericValue($values[0], 'px', ['length']);
+				$serialized = [$z];
 				$is2D = false;
 				break;
 			case 'translate3d':
-				$oneOrTwo(3, 3);
+				$assertCount(3, 3);
 				$x = self::numericValue($values[0], 'px', ['length', 'percent']);
 				$y = self::numericValue($values[1], 'px', ['length', 'percent']);
 				$z = self::numericValue($values[2], 'px', ['length']);
+				$serialized = [$x, $y, $z];
 				$is2D = false;
 				break;
 			default:
 				throw new InvalidArgumentException('Unsupported translation function: ' . $function);
 		}
-		return [$x, $y, $z, $is2D];
+
+		return [
+			$x ?? new CSSUnitValue(0, 'px'),
+			$y ?? new CSSUnitValue(0, 'px'),
+			$z ?? new CSSUnitValue(0, 'px'),
+			$serialized,
+			$is2D,
+		];
 	}
 }

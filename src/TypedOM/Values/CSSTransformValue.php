@@ -10,6 +10,8 @@ use Countable;
 use Error;
 use InvalidArgumentException;
 use IteratorAggregate;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Traversable;
@@ -25,6 +27,14 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 {
 	/** @var list<CSSTransformComponent> */
 	private array $components;
+
+	public int $length {
+		get => count($this->components);
+	}
+
+	public bool $is2D {
+		get => $this->is2D();
+	}
 
 	/**
 	 * @param list<CSSTransformComponent> $components
@@ -45,9 +55,16 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 		$this->components = $normalized;
 	}
 
-	public static function fromCssText(string $cssText): self
+	public static function fromCssText(string $cssText, ?CSSParserOptions $options = null): self
 	{
-		$cssText = trim($cssText);
+		$options ??= CSSParserOptions::default();
+		if ($options->maxBytes !== null && strlen($cssText) > $options->maxBytes) {
+			throw new CSSParserLimitException(sprintf('Transform list exceeds maximum size of %d bytes.', $options->maxBytes));
+		}
+		if ($cssText !== '') {
+			CSSSyntaxScanner::assertValidFragment($cssText, 'CSS transform', [';', '{', '}']);
+		}
+		$cssText = CSSSyntaxScanner::trimCssWhitespace(str_contains($cssText, '/*') ? CSSSyntaxScanner::removeComments($cssText) : $cssText);
 		if ($cssText === '' || strtolower($cssText) === 'none') {
 			throw new InvalidArgumentException('A transform list must contain at least one function.');
 		}
@@ -56,14 +73,12 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 		$offset = 0;
 		$length = strlen($cssText);
 		while ($offset < $length) {
-			while ($offset < $length && ctype_space($cssText[$offset])) {
-				$offset++;
-			}
+			$offset += strspn($cssText, " \t\n\r\f", $offset);
 			if ($offset >= $length) {
 				break;
 			}
 
-			if (!preg_match('/\G([a-zA-Z][a-zA-Z0-9-]*)\s*\(/', $cssText, $match, 0, $offset)) {
+			if (!preg_match('/\G([a-zA-Z][a-zA-Z0-9-]*)\(/', $cssText, $match, 0, $offset)) {
 				throw new InvalidArgumentException('Invalid transform function at offset ' . $offset . '.');
 			}
 			$name = strtolower($match[1]);
@@ -73,8 +88,8 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 				throw new InvalidArgumentException('Unclosed transform function: ' . $name);
 			}
 
-			$argumentsText = trim(substr($cssText, $open + 1, $close - $open - 1));
-			$arguments = self::parseArguments($argumentsText);
+			$argumentsText = CSSSyntaxScanner::trimCssWhitespace(substr($cssText, $open + 1, $close - $open - 1));
+			$arguments = self::parseArguments($argumentsText, $options);
 			$class = self::componentClass($name);
 			$components[] = new $class($name, $arguments);
 			$offset = $close + 1;
@@ -201,48 +216,77 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 			}
 		}
 
-		return DOMMatrix::fromElements($matrix->toFloat64Array(), $is2D);
+		return DOMMatrix::fromTrustedElements($matrix->toFloat64Array(), $is2D);
+	}
+
+	public function __clone(): void
+	{
+		foreach ($this->components as $i => $component) {
+			$this->components[$i] = $component->clone();
+		}
 	}
 
 	public function clone(): static
 	{
-		return new static(array_map(static fn (CSSTransformComponent $component): CSSTransformComponent => $component->clone(), $this->components));
+		return clone $this;
 	}
 
 	public function __toString(): string
 	{
-		return implode(' ', array_map(static fn (CSSTransformComponent $component): string => (string) $component, $this->components));
+		$parts = [];
+		foreach ($this->components as $component) {
+			$parts[] = (string) $component;
+		}
+
+		return implode(' ', $parts);
 	}
 
 	public function __get(string $name): mixed
 	{
-		return match ($name) {
-			'length' => $this->getLength(),
-			'is2D' => $this->is2D(),
-			default => throw new Error('Undefined property: ' . static::class . '::$' . $name),
-		};
+		throw new Error('Undefined property: ' . static::class . '::$' . $name);
+	}
+
+	public function __isset(string $name): bool
+	{
+		return false;
+	}
+
+	public function __set(string $name, mixed $value): void
+	{
+		throw new Error('Cannot set property ' . static::class . '::$' . $name);
 	}
 
 	/** @return list<CSSStyleValue|string> */
-	private static function parseArguments(string $arguments): array
+	private static function parseArguments(string $arguments, CSSParserOptions $options): array
 	{
 		if ($arguments === '') {
 			return [];
 		}
 
-		$parts = CSSSyntaxScanner::splitTopLevel($arguments, ',');
+		$parts = str_contains($arguments, ',')
+			? CSSSyntaxScanner::splitTopLevel($arguments, ',')
+			: [$arguments];
 		if (count($parts) === 1) {
-			$parts = CSSSyntaxScanner::splitTopLevelWhitespace(trim($arguments));
+			$parts = CSSSyntaxScanner::splitTopLevelWhitespace(CSSSyntaxScanner::trimCssWhitespace($arguments));
 		}
 
-		return array_map(static function (string $part): CSSStyleValue|string {
-			$part = trim($part);
-			try {
-				return CSSStyleValue::parse($part);
-			} catch (InvalidArgumentException) {
-				return $part;
+		$parsed = [];
+		foreach ($parts as $part) {
+			$part = CSSSyntaxScanner::trimCssWhitespace($part);
+			if (strcasecmp($part, 'none') === 0) {
+				$parsed[] = new CSSKeywordValue('none');
+				continue;
 			}
-		}, $parts);
+			try {
+				$parsed[] = CSSStyleValue::parse($part, null, $options);
+			} catch (CSSParserLimitException $e) {
+				throw $e;
+			} catch (InvalidArgumentException) {
+				$parsed[] = $part;
+			}
+		}
+
+		return $parsed;
 	}
 
 	/** @return class-string<CSSTransformComponent> */

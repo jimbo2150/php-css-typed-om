@@ -3,6 +3,7 @@
 - **PHP type:** `Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner`
 - **Source:** [`src/Parser/CSSSyntaxScanner.php`](../../../src/Parser/CSSSyntaxScanner.php)
 - **Kind:** final class of static CSS scanning utilities
+- **Public constants:** `CSS_WHITESPACE = " \t\n\r\f"`, `IDENT_ESCAPE_REGEX`.
 
 Scans CSS fragments while recognizing quoted strings, escapes, comments, and nested `()`, `[]`, and `{}` blocks. Offsets and slice boundaries are byte offsets. Methods do not generally reject malformed fragments unless noted; use `assertValidFragment()` when validation is needed.
 
@@ -68,6 +69,16 @@ $match = CSSSyntaxScanner::findNextTopLevelDelimiter('a{b:c}; d', [';', '{']);
 // ['offset' => 1, 'delimiter' => '{']
 ```
 
+### `findNextTopLevelDelimiterBytes(string $source, string $delimiterBytes, int $start = 0, ?int $end = null): ?array`
+
+String-mask variant of `findNextTopLevelDelimiter()` accepting single-byte delimiters as a contiguous string (e.g. `';{}'`).
+
+- **Returns:** `['offset' => int, 'delimiter' => string]`, or `null` if no match.
+
+### `findMatchingUrlEnd(string $source, int $openParenOffset, ?int $end = null): ?int`
+
+Finds the closing `)` offset of a `url(...)` argument (both unquoted URLs and quoted `url("..." /* comment */)` forms) starting at `$openParenOffset` (`'('`), ignoring parentheses inside CSS escapes and strings, or `null` if unclosed.
+
 ### `findMatchingDelimiter(string $source, int $openOffset, ?int $end = null): ?int`
 
 Finds the matching close byte for an opening `(`, `[`, or `{`, respecting nested blocks, quoted strings, escapes, and comments. Invalid offsets, a non-opening character, mismatched blocks, and unterminated content return `null`.
@@ -81,16 +92,21 @@ Finds the matching close byte for an opening `(`, `[`, or `{`, respecting nested
 $close = CSSSyntaxScanner::findMatchingDelimiter('fn(a, [b])', 2); // 9
 ```
 
+### `findMatchingBlockEnd(string $source, int $openBraceOffset, ?int $end = null): ?int`
+
+Finds the matching closing `}` for a rule/at-rule block starting at `$openBraceOffset`, respecting strings, escapes, comments, `url(...)`, and nested `{}`/`()`/`[]` while ignoring stray unmatched `)`/`]` tokens per CSS Syntax Level 3 error recovery. Returns `null` if unclosed before `$end`.
+
 ### `removeComments(string $source, int $start = 0, ?int $end = null): string`
 
-Removes CSS comments outside quoted strings and substitutes one space for each removed comment so neighboring tokens are not accidentally joined. Scans and returns only the requested byte slice.
+Removes CSS comments outside quoted strings and `url(...)`, collapsing contiguous comment runs and inserting a separator space only when adjacent tokens would otherwise merge or re-tokenize (per CSS Syntax Level 3 tokenization boundaries). Scans and returns only the requested byte slice.
 
 - `$source`: source string.
 - `$start`: inclusive starting byte offset.
 - `$end`: optional exclusive ending byte offset.
 
 ```php
-$clean = CSSSyntaxScanner::removeComments('red/* note */blue'); // 'red blue'
+$clean = CSSSyntaxScanner::removeComments('div/* note */span'); // 'div span'
+$compound = CSSSyntaxScanner::removeComments('div/* note */.foo'); // 'div.foo'
 ```
 
 ### `isBalanced(string $source, int $start = 0, ?int $end = null): bool`
@@ -145,3 +161,15 @@ CSSSyntaxScanner::assertValidFragment('.card:hover', 'selector');
 // Throws InvalidArgumentException for a top-level declaration separator:
 CSSSyntaxScanner::assertValidFragment('.card; body', 'selector');
 ```
+
+### `findLastTopLevelImportant(string $source, int $start = 0, ?int $end = null): ?int`
+
+Returns the byte offset of the `!` belonging to a trailing top-level `!important` flag (with CSS escape awareness), or `null` when absent.
+
+### `decodeCssIdentEscapes(string $ident): string`
+
+Decodes CSS backslash escapes (hexadecimal code points with optional trailing whitespace and literal escapes) inside an identifier token.
+
+### `trimCssWhitespace(string $value): string`
+
+Trims only CSS Syntax Level 3 whitespace bytes (`" \t\n\r\f"`), preserving `\x0B` (vertical tab) and control characters for structural validation.

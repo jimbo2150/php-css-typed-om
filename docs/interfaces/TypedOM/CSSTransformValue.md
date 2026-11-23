@@ -11,7 +11,7 @@ No public constants or enum cases. Inherits `parse` and `parseAll` from [CSSStyl
 | Method/property | Signature and behavior |
 |---|---|
 | `__construct` | `public function __construct(array $components)`; requires a non-empty list containing only `CSSTransformComponent`, else `InvalidArgumentException`. Example: `$transforms = new CSSTransformValue([new CSSTranslate('2px')]);`. |
-| `fromCssText` | `public static function fromCssText(string $cssText): self`; parses adjacent supported CSS transform functions into components. Empty text/`none`, malformed syntax, unsupported function, and invalid component arguments throw `InvalidArgumentException`. Example: `$transforms = CSSTransformValue::fromCssText('translate(2px) rotate(10deg)');`. |
+| `fromCssText` | `public static function fromCssText(string $cssText, ?CSSParserOptions $options = null): self`; enforces `$options->maxBytes`, validates fragment structure and strips CSS comments, then parses adjacent supported CSS transform functions into components. Empty text/`none`, malformed syntax, unsupported function, and invalid component arguments throw `InvalidArgumentException`. Example: `$transforms = CSSTransformValue::fromCssText('translate(2px) rotate(10deg)');`. |
 | `count` / `getLength` | `public function count(): int`; `public function getLength(): int`; return number of components. Example: `$count = count($transforms);`. |
 | `offsetExists` | `public function offsetExists(mixed $offset): bool`; true for existing integer indexes. Example: `$exists = isset($transforms[0]);`. |
 | `offsetGet` | `public function offsetGet(mixed $offset): ?CSSTransformComponent`; gets a component at an integer index or returns null for missing/non-integer indexes. Example: `$first = $transforms[0];`. |

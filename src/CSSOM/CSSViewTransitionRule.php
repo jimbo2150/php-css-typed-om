@@ -47,4 +47,13 @@ final class CSSViewTransitionRule extends CSSAtRule
 			default => parent::__get($name),
 		};
 	}
+
+	public function __isset(string $name): bool
+	{
+		return match ($name) {
+			'navigation' => $this->getNavigation() !== null,
+			'types' => true,
+			default => parent::__isset($name),
+		};
+	}
 }

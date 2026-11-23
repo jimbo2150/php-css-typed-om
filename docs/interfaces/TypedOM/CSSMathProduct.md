@@ -10,4 +10,4 @@ Constants: `operator = 'product'`, `sign = '*'`. Properties `values`, `inner_val
 
 | Method | Signature and behavior |
 |---|---|
-| `__construct` | `public function __construct(CSSNumericValue|CSSNumericArray|array $values)`; requires at least one operand; throws `InvalidArgumentException` for an empty list. Example: `$product = new CSSMathProduct([$a, $b]);`. |
+| `__construct` | `public function __construct(CSSNumericValue|CSSNumericArray|array $values)`; requires at least one operand and eagerly validates multiplicative type compatibility (rejecting conflicting non-null `percentHint` values with `InvalidArgumentException`). Example: `$product = new CSSMathProduct([$a, $b]);`. |

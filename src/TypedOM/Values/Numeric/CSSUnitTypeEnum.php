@@ -28,7 +28,7 @@ enum CSSUnitTypeEnum: string
 	{
 		if ($this === self::PERCENT_HINT) {
 			if (is_int($value)) {
-				return 'int';
+				return new InvalidArgumentException('percentHint must be a unit category string.');
 			}
 			$resolved = self::tryFrom($value);
 			if ($resolved !== null && $resolved !== self::PERCENT_HINT) {
@@ -41,6 +41,6 @@ enum CSSUnitTypeEnum: string
 			return 'int';
 		}
 
-		return 'string';
+		return new InvalidArgumentException('Numeric type dimension exponent must be an integer.');
 	}
 }

@@ -5,9 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Traits;
 
 /**
- * Trait for simple value classes (color, keyword, image).
- * 
- * Provides common functionality for simple CSS values that don't need complex operations.
+ * Trait exposing a `$length` property hook over a `$values` sequence.
  */
 trait LengthTrait
 {

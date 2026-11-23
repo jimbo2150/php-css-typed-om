@@ -4,22 +4,22 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\Tests\TypedOM\Values;
 
+use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSOKLCH;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSImageValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSPositionValue;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSImageValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSRotate;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSScale;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSTransformValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSTranslate;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSRotate;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSScale;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSVariableReferenceValue;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathClamp;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericArray;
-use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathClamp;
 use PHPUnit\Framework\TestCase;
 
 final class CSSStyleValueParsingTest extends TestCase

@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 
 /**
@@ -22,12 +25,20 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 	 */
 	public function set(string $property, CSSStyleValue|string|array ...$values): void
 	{
-		$serialized = $this->serializeValues($property, $values);
-		$this->style->setProperty($property, $serialized);
+		$normalized = CSSStyleDeclaration::normalizePropertyName($property);
+		$options = CSSParserOptions::default();
+		[$serialized, $partCount] = $this->serializeValues($normalized, $values, $options);
+		if ($options->maxBytes !== null && strlen($serialized) > $options->maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS property value exceeds maximum size of %d bytes.', $options->maxBytes));
+		}
+		if ($partCount > 1) {
+			CSSStyleDeclaration::validatePropertyValue($serialized);
+		}
+		$this->style->setValidatedProperty($normalized, $serialized, '');
 	}
 
 	/**
-	 * Appends one or more comma-separated values to a property atomically.
+	 * Appends one or more comma-separated values to a property atomically, preserving priority.
 	 *
 	 * @throws InvalidArgumentException When the property name or any value is invalid
 	 */
@@ -36,12 +47,23 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 		if ($values === []) {
 			throw new InvalidArgumentException('A style property requires at least one value.');
 		}
-		$serialized = implode(', ', array_map(
-			fn (CSSStyleValue|string $item): string => $this->validateSingleValue($property, $item),
-			$values,
-		));
-		$current = $this->style->getPropertyValue($property);
-		$this->style->setProperty($property, $current === '' ? $serialized : $current . ', ' . $serialized);
+		$normalized = CSSStyleDeclaration::normalizePropertyName($property);
+		$options = CSSParserOptions::default();
+		$parts = [];
+		$existing = $this->style->getDeclarationsRaw()[$normalized] ?? null;
+		$current = $existing['value'] ?? '';
+		$priority = $existing['priority'] ?? '';
+		$runningBytes = $current === '' ? 0 : strlen($current);
+		foreach ($values as $item) {
+			$part = $this->validateSingleValue($normalized, $item, $options, $runningBytes, $current !== '' || $parts !== [] ? 2 : 0);
+			$parts[] = $part;
+		}
+		$serialized = implode(', ', $parts);
+		$next = $current === '' ? $serialized : $current . ', ' . $serialized;
+		if ($current !== '' || count($parts) > 1) {
+			CSSStyleDeclaration::validatePropertyValue($next);
+		}
+		$this->style->setValidatedProperty($normalized, $next, $priority);
 	}
 
 	public function delete(string $property): void
@@ -54,8 +76,11 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 		$this->style->clear();
 	}
 
-	/** @param list<CSSStyleValue|string|array<int, CSSStyleValue|string>> $values */
-	private function serializeValues(string $property, array $values): string
+	/**
+	 * @param list<CSSStyleValue|string|array<int, CSSStyleValue|string>> $values
+	 * @return array{string, int}
+	 */
+	private function serializeValues(string $normalizedProperty, array $values, CSSParserOptions $options): array
 	{
 		$flat = [];
 		foreach ($values as $value) {
@@ -70,26 +95,43 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 			throw new InvalidArgumentException('A style property requires at least one value.');
 		}
 
+		$allowEmpty = str_starts_with($normalizedProperty, '--') && count($flat) === 1;
 		$serialized = [];
+		$runningBytes = 0;
 		foreach ($flat as $item) {
-			$serialized[] = $this->validateSingleValue($property, $item);
+			$serialized[] = $this->validateSingleValue($normalizedProperty, $item, $options, $runningBytes, $serialized !== [] ? 1 : 0, $allowEmpty);
 		}
 
-		return implode(' ', $serialized);
+		return [implode(' ', $serialized), count($flat)];
 	}
 
-	private function validateSingleValue(string $property, mixed $item): string
-	{
+	private function validateSingleValue(
+		string $normalizedProperty,
+		mixed $item,
+		CSSParserOptions $options,
+		int &$runningBytes,
+		int $separatorBytes,
+		bool $allowEmpty = false,
+	): string {
 		if (!$item instanceof CSSStyleValue && !is_string($item)) {
 			throw new InvalidArgumentException('StylePropertyMap values must be CSSStyleValue objects or strings.');
 		}
-		$cssText = trim((string) $item);
+
+		$cssText = CSSSyntaxScanner::trimCssWhitespace((string) $item);
 		if ($cssText === '') {
+			if ($allowEmpty) {
+				return '';
+			}
 			throw new InvalidArgumentException('StylePropertyMap values cannot be empty.');
 		}
+		$runningBytes += $separatorBytes + strlen($cssText);
+		if ($options->maxBytes !== null && $runningBytes > $options->maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS property value exceeds maximum size of %d bytes.', $options->maxBytes));
+		}
+
 		CSSStyleDeclaration::validatePropertyValue($cssText);
 		if (!$item instanceof CSSStyleValue) {
-			CSSStyleValue::parse($property, $cssText);
+			CSSStyleValue::parseValidated($normalizedProperty, $cssText, $options);
 		}
 
 		return $cssText;

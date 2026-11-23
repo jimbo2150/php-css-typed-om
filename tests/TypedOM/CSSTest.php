@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\Tests\TypedOM;
 
+use BadMethodCallException;
+use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSS;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPropertyRule;
@@ -15,8 +17,6 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMin;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
 use PHPUnit\Framework\TestCase;
-use BadMethodCallException;
-use InvalidArgumentException;
 
 class CSSTest extends TestCase
 {
@@ -253,5 +253,49 @@ class CSSTest extends TestCase
 		self::assertFalse(CSS::supports('(display: grid) and (color: red) or (width: 1px)'));
 		self::assertFalse(CSS::supports('selector()'));
 		self::assertFalse(CSS::supports(str_repeat('(', 40) . 'display: grid' . str_repeat(')', 40), null, new CSSParserOptions(maxDepth: 5)));
+
+		// Tabs/newlines after `not` (valid), strict `selector(` (no space before `(`), and unlimited maxDepth support
+		self::assertTrue(CSS::supports("not\t(not-a-real-prop: 1)"));
+		self::assertFalse(CSS::supports("selector\t(:has(a))"));
+		self::assertTrue(CSS::supports('selector(:has(a))'));
+		self::assertTrue(CSS::supports(str_repeat('(', 40) . 'display: grid' . str_repeat(')', 40), null, CSSParserOptions::unlimited()));
+	}
+
+	public function testRegisterPropertyAllowsStringLiteralVarAndRejectsEscapedVar(): void
+	{
+		CSS::clearRegisteredProperties();
+		try {
+			$literal = CSS::registerProperty([
+				'name' => '--quoted-var',
+				'syntax' => '<string>',
+				'inherits' => false,
+				'initialValue' => '"var(--x)"',
+			]);
+			self::assertSame('"var(--x)"', $literal->getInitialValue());
+
+			$this->expectException(\InvalidArgumentException::class);
+			CSS::registerProperty([
+				'name' => '--escaped-var',
+				'syntax' => '<length>',
+				'inherits' => false,
+				'initialValue' => '\76 ar(--x)',
+			]);
+		} finally {
+			CSS::clearRegisteredProperties();
+		}
+	}
+
+	public function testSupportsDecodesEscapedImportantAndUnitFactoryCastsStringValues(): void
+	{
+		self::assertTrue(CSS::supports('(display: grid !\69 mportant)'));
+		$px = CSS::px('12.5');
+		self::assertSame(12.5, $px->value);
+		self::assertSame('px', $px->unit);
+		self::assertFalse(CSS::supports('/* unclosed comment'));
+		self::assertFalse(CSS::supports('not ' . str_repeat('(', 40) . 'display: grid' . str_repeat(')', 40), null, new CSSParserOptions(maxDepth: 5)));
+		self::assertTrue(CSS::supports(str_repeat('(', 256) . 'display: grid' . str_repeat(')', 256)));
+
+		$this->expectException(\InvalidArgumentException::class);
+		CSS::px("10\x00");
 	}
 }

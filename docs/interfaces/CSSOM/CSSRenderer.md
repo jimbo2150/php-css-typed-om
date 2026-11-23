@@ -9,6 +9,6 @@
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `render(CSSStyleSheet|CSSRule $source, ?CSSRenderOptions $options = null): string` (static) | Renders a stylesheet's rules or one rule. Defaults to `CSSRenderOptions`; pretty output separates stylesheet rules by newline. Opaque rules retain source unless `keepComments` is false. The optional callback transforms each rendered rule after its children. | `$css = CSSRenderer::render($sheet, new CSSRenderOptions(CSSRenderMode::Minified));` |
+| `render(CSSStyleSheet|CSSRule $source, ?CSSRenderOptions $options = null): string` (static) | Renders a stylesheet's rules or one rule. Defaults to `CSSRenderOptions`; pretty output separates stylesheet rules by newline. Opaque rules retain source unless `keepComments` is false; `escapeHtmlStyleTag` escapes `</style` closing sequences as `<\/style`. Throws `CSSParserLimitException` if rule nesting exceeds the 512-level renderer bound. | `$css = CSSRenderer::render($sheet, new CSSRenderOptions(CSSRenderMode::Minified));` |
 
 No public constructor or other public methods are declared.
