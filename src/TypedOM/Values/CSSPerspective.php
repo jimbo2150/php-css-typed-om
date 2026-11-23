@@ -20,7 +20,7 @@ final class CSSPerspective extends CSSTransformComponent
 	private CSSNumericValue|CSSKeywordValue $lengthValue;
 
 	public CSSNumericValue|CSSKeywordValue $length {
-		get => $this->lengthValue;
+		get => $this->getLength();
 		set (CSSNumericValue|CSSKeywordValue|int|float|string $value) {
 			$this->setLength($value);
 		}
@@ -45,7 +45,13 @@ final class CSSPerspective extends CSSTransformComponent
 
 	public function getLength(): CSSNumericValue|CSSKeywordValue
 	{
-		return $this->lengthValue;
+		return $this->lengthValue instanceof CSSKeywordValue ? $this->lengthValue->clone() : $this->lengthValue;
+	}
+
+	/** @return list<CSSNumericValue|CSSKeywordValue> */
+	public function getValues(): array
+	{
+		return [$this->getLength()];
 	}
 
 	public function setLength(CSSNumericValue|CSSKeywordValue|int|float|string $length): void
@@ -103,7 +109,7 @@ final class CSSPerspective extends CSSTransformComponent
 			if (strcasecmp($keyword->getValue(), 'none') !== 0) {
 				throw new InvalidArgumentException('CSSPerspective keyword must be "none".');
 			}
-			return $keyword;
+			return new CSSKeywordValue('none');
 		}
 
 		$numeric = self::numericValue($value, 'px', ['length']);

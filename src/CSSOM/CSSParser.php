@@ -191,6 +191,9 @@ final class CSSParser
 		$declarationCount = 0;
 		$length = strlen($cssText);
 		$offset = self::skipTrivia($cssText, str_starts_with($cssText, "\xEF\xBB\xBF") ? 3 : 0, $length, $sheet, false);
+		if ($sheet->getParseErrors() !== []) {
+			throw new InvalidArgumentException($sheet->getParseErrors()[0]['message']);
+		}
 		if ($offset >= $length) {
 			throw new InvalidArgumentException('Exactly one valid nested CSS rule is required.');
 		}
@@ -292,12 +295,18 @@ final class CSSParser
 		$sheet->configureErrorLimit($options->maxErrors);
 		$length = strlen($cssText);
 		$offset = self::skipTrivia($cssText, str_starts_with($cssText, "\xEF\xBB\xBF") ? 3 : 0, $length, $sheet, false);
+		if ($sheet->getParseErrors() !== []) {
+			throw new InvalidArgumentException($sheet->getParseErrors()[0]['message']);
+		}
 		$delimiter = CSSSyntaxScanner::findNextTopLevelDelimiterBytes($cssText, '{;}', $offset, $length);
 		if ($delimiter === null || $delimiter['delimiter'] !== '{') {
 			throw new InvalidArgumentException('Malformed page margin rule.');
 		}
 
-		$prelude = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($cssText, $offset, $delimiter['offset']));
+		$prelude = self::extractPrelude($cssText, $offset, $delimiter['offset'], $sheet);
+		if ($prelude === null) {
+			throw new InvalidArgumentException($sheet->getParseErrors()[0]['message'] ?? 'CSS margin rule prelude contains disallowed control characters.');
+		}
 		[$name, $extra] = self::splitAtRulePrelude($prelude);
 		if ($extra !== '') {
 			throw new InvalidArgumentException('Unexpected prelude in page margin rule.');
@@ -422,12 +431,25 @@ final class CSSParser
 				continue;
 			}
 
-			$prelude = self::extractPrelude($source, $ruleStart, $delimOffset);
+			$prelude = self::extractPrelude($source, $ruleStart, $delimOffset, $sheet);
+			if ($prelude === null) {
+				if ($delimChar === ';') {
+					$offset = $delimOffset + 1;
+				} else {
+					self::skipMalformedBlock($source, $delimOffset, $offset, $end, $sheet);
+				}
+				continue;
+			}
 
 			if ($delimChar === ';') {
 				$offset = $delimOffset + 1;
 				if ($keyframes) {
-					$sheet->recordParseError('Nested at-rules are not allowed inside @keyframes.', $ruleStart);
+					$sheet->recordParseError(
+						str_starts_with($prelude, '@')
+							? 'Nested at-rules are not allowed inside @keyframes.'
+							: 'Stray declaration or statement is not allowed directly inside @keyframes.',
+						$ruleStart,
+					);
 					continue;
 				}
 				if (!str_starts_with($prelude, '@')) {
@@ -791,6 +813,7 @@ final class CSSParser
 		};
 		$style = new $declarationClass();
 		$offset = $braceOffset + 1;
+		$sawEmptyInitialValue = false;
 		$closed = self::parseStyleBlock(
 			$source,
 			$offset,
@@ -808,6 +831,8 @@ final class CSSParser
 			false,
 			$braceOffset,
 			$declLimitRecorded,
+			$name === 'property',
+			$sawEmptyInitialValue,
 		);
 		if (!$closed) {
 			return null;
@@ -816,7 +841,7 @@ final class CSSParser
 		try {
 			$rule = match ($name) {
 				'font-face' => new CSSFontFaceRule($style),
-				'property' => new CSSPropertyRule($condition, $style),
+				'property' => new CSSPropertyRule($condition, $style, $sawEmptyInitialValue),
 				'counter-style' => new CSSCounterStyleRule($condition, $style),
 				'font-palette-values' => new CSSFontPaletteValuesRule($condition, $style),
 				'position-try' => new CSSPositionTryRule($condition, $style),
@@ -941,6 +966,8 @@ final class CSSParser
 		bool $functionMode,
 		int $openBraceOffset,
 		bool &$declLimitRecorded = false,
+		bool $allowEmptyInitialValue = false,
+		bool &$sawEmptyInitialValue = false,
 	): bool {
 		if ($options->maxDepth !== null && $depth > $options->maxDepth) {
 			$message = sprintf('Maximum CSS nesting depth of %d exceeded.', $options->maxDepth);
@@ -956,7 +983,6 @@ final class CSSParser
 		$currentStyle = $style;
 		$hasNestedRule = false;
 		$isGroupingWithDecls = $ownerRule !== null && !$ownerRule instanceof CSSStyleRule && !$pageMode;
-		$declLimitHit = $declLimitRecorded;
 
 		while ($offset < $end) {
 			$offset = self::skipTrivia($source, $offset, $end, $sheet, false);
@@ -966,8 +992,8 @@ final class CSSParser
 
 			$delimiter = CSSSyntaxScanner::findNextTopLevelDelimiterBytes($source, ';{}', $offset, $end);
 			if ($delimiter === null) {
-				if (!$declLimitHit) {
-					$declLimitHit = !$currentStyle->parseDeclarationSlice(
+				if (!$declLimitRecorded) {
+					$declLimitRecorded = !$currentStyle->parseDeclarationSlice(
 						$source,
 						$offset,
 						$end,
@@ -977,10 +1003,9 @@ final class CSSParser
 						$declarationCount,
 						$throwOnLimit,
 						true,
+						$allowEmptyInitialValue,
+						$sawEmptyInitialValue,
 					);
-					if ($declLimitHit) {
-						$declLimitRecorded = true;
-					}
 				}
 				self::flushDiagnostics($sheet, $diagnostics);
 				$sheet->recordParseError('Unclosed CSS rule block.', $openBraceOffset);
@@ -992,8 +1017,8 @@ final class CSSParser
 			$delimOffset = $delimiter['offset'];
 
 			if ($delimChar === ';') {
-				if (!$declLimitHit) {
-					$declLimitHit = !$currentStyle->parseDeclarationSlice(
+				if (!$declLimitRecorded) {
+					$declLimitRecorded = !$currentStyle->parseDeclarationSlice(
 						$source,
 						$offset,
 						$delimOffset,
@@ -1003,18 +1028,17 @@ final class CSSParser
 						$declarationCount,
 						$throwOnLimit,
 						true,
+						$allowEmptyInitialValue,
+						$sawEmptyInitialValue,
 					);
-					if ($declLimitHit) {
-						$declLimitRecorded = true;
-					}
 				}
 				$offset = $delimOffset + 1;
 				continue;
 			}
 
 			if ($delimChar === '}') {
-				if ($delimOffset > $offset && !$declLimitHit) {
-					$declLimitHit = !$currentStyle->parseDeclarationSlice(
+				if ($delimOffset > $offset && !$declLimitRecorded) {
+					$declLimitRecorded = !$currentStyle->parseDeclarationSlice(
 						$source,
 						$offset,
 						$delimOffset,
@@ -1024,10 +1048,9 @@ final class CSSParser
 						$declarationCount,
 						$throwOnLimit,
 						true,
+						$allowEmptyInitialValue,
+						$sawEmptyInitialValue,
 					);
-					if ($declLimitHit) {
-						$declLimitRecorded = true;
-					}
 				}
 				self::flushDiagnostics($sheet, $diagnostics);
 				if ($ownerRule !== null && !$pageMode && ($hasNestedRule || $isGroupingWithDecls) && count($currentStyle) > 0) {
@@ -1065,63 +1088,63 @@ final class CSSParser
 			self::flushDiagnostics($sheet, $diagnostics);
 
 			if ($pageMode && $ownerRule !== null) {
-				$prelude = self::extractPrelude($source, $offset, $delimOffset);
-				if (!self::canRecordRule($options, $ruleCount, $sheet, $offset, $throwOnLimit)) {
+				$prelude = self::extractPrelude($source, $offset, $delimOffset, $sheet);
+				if ($prelude === null || !self::canRecordRule($options, $ruleCount, $sheet, $offset, $throwOnLimit)) {
 					self::skipMalformedBlock($source, $delimOffset, $offset, $end, $sheet);
 					continue;
 				}
 				$marginStyle = new CSSStyleDeclaration();
 				$ruleStart = $offset;
 				$offset = $delimOffset + 1;
-					$diagnostics = [];
-					$closed = self::parseStyleBlock(
-						$source,
-						$offset,
-						$end,
-						$marginStyle,
-						null,
-						$sheet,
-						$depth + 1,
-						$options,
-						$ruleCount,
-						$declarationCount,
-						$throwOnLimit,
-						false,
-						false,
-						false,
-						$delimOffset,
-						$declLimitRecorded,
-					);
-					if ($closed) {
-						try {
-							[$marginName, $extra] = self::splitAtRulePrelude($prelude);
-							if ($extra !== '') {
-								throw new InvalidArgumentException('Unexpected prelude in page margin rule.');
-							}
-							$ownerRule->getCssRules()->appendDetached(new CSSMarginRule($marginName, $marginStyle));
-							$ruleCount++;
-						} catch (InvalidArgumentException $exception) {
-							$sheet->recordParseError($exception->getMessage(), $ruleStart);
+				$diagnostics = [];
+				$closed = self::parseStyleBlock(
+					$source,
+					$offset,
+					$end,
+					$marginStyle,
+					null,
+					$sheet,
+					$depth + 1,
+					$options,
+					$ruleCount,
+					$declarationCount,
+					$throwOnLimit,
+					false,
+					false,
+					false,
+					$delimOffset,
+					$declLimitRecorded,
+				);
+				if ($closed) {
+					try {
+						[$marginName, $extra] = self::splitAtRulePrelude($prelude);
+						if ($extra !== '') {
+							throw new InvalidArgumentException('Unexpected prelude in page margin rule.');
 						}
-					}
-					continue;
-				}
-
-				// Style rule / grouping rule / @function nested rule
-				if ($ownerRule !== null && ($hasNestedRule || $isGroupingWithDecls) && count($currentStyle) > 0) {
-					if (self::canRecordRule($options, $ruleCount, $sheet, $offset, $throwOnLimit)) {
-						$declarations = $functionMode && $currentStyle instanceof CSSFunctionDescriptors
-							? new CSSFunctionDeclarations($currentStyle)
-							: new CSSNestedDeclarations($currentStyle);
-						$ownerRule->getCssRules()->appendDetached($declarations);
+						$ownerRule->getCssRules()->appendDetached(new CSSMarginRule($marginName, $marginStyle));
 						$ruleCount++;
+					} catch (InvalidArgumentException $exception) {
+						$sheet->recordParseError($exception->getMessage(), $ruleStart);
 					}
 				}
+				continue;
+			}
 
-				$ruleStart = $offset;
-				$prelude = self::extractPrelude($source, $ruleStart, $delimOffset);
+			// Style rule / grouping rule / @function nested rule
+			if ($ownerRule !== null && ($hasNestedRule || $isGroupingWithDecls) && count($currentStyle) > 0) {
+				if (self::canRecordRule($options, $ruleCount, $sheet, $offset, $throwOnLimit)) {
+					$declarations = $functionMode && $currentStyle instanceof CSSFunctionDescriptors
+						? new CSSFunctionDeclarations($currentStyle)
+						: new CSSNestedDeclarations($currentStyle);
+					$ownerRule->getCssRules()->appendDetached($declarations);
+					$ruleCount++;
+				}
+			}
 
-				if (!self::canRecordRule($options, $ruleCount, $sheet, $ruleStart, $throwOnLimit)) {
+			$ruleStart = $offset;
+			$prelude = self::extractPrelude($source, $ruleStart, $delimOffset, $sheet);
+
+			if ($prelude === null || !self::canRecordRule($options, $ruleCount, $sheet, $ruleStart, $throwOnLimit)) {
 					self::skipMalformedBlock($source, $delimOffset, $offset, $end, $sheet);
 					$hasNestedRule = true;
 					$currentStyle = $functionMode ? new CSSFunctionDescriptors() : new CSSStyleProperties();
@@ -1357,7 +1380,7 @@ final class CSSParser
 					$declOffset = $next !== null ? $next['offset'] + 1 : $close;
 
 					if ($declLimitRecorded) {
-						continue;
+						break;
 					}
 
 					if (CSSSyntaxScanner::hasControlCharactersInSlice($source, $segStart, $segEnd - $segStart)) {
@@ -1380,7 +1403,6 @@ final class CSSParser
 						$sheet->recordParseError('Invalid font feature value name.', $segStart);
 						continue;
 					}
-					$featureName = str_contains($rawName, '\\') ? CSSSyntaxScanner::decodeCssIdentEscapes($rawName) : $rawName;
 
 					if (CSSSyntaxScanner::findLastTopLevelImportant($source, $colon + 1, $segEnd) !== null) {
 						$sheet->recordParseError('!important is not allowed in @font-feature-values.', $segStart);
@@ -1412,7 +1434,11 @@ final class CSSParser
 						$sheet->recordParseError('Font feature values must be non-empty integer lists.', $segStart);
 						continue;
 					}
-					$map->set($featureName, $ints);
+					try {
+						$map->set($rawName, $ints);
+					} catch (InvalidArgumentException $exception) {
+						$sheet->recordParseError($exception->getMessage(), $segStart);
+					}
 				}
 			} elseif (self::canRecordRule($options, $ruleCount, $sheet, $ruleStart, $throwOnLimit)) {
 				$close = CSSSyntaxScanner::findMatchingBlockEnd($source, $delimOffset, $end);
@@ -1457,7 +1483,10 @@ final class CSSParser
 		}
 		$ruleStart = $offset;
 		$delimOffset = $delimiter['offset'];
-		$prelude = self::extractPrelude($source, $ruleStart, $delimOffset);
+		$prelude = self::extractPrelude($source, $ruleStart, $delimOffset, $sheet);
+		if ($prelude === null) {
+			throw new InvalidArgumentException($sheet->getParseErrors()[0]['message'] ?? 'CSS rule prelude contains disallowed control characters.');
+		}
 
 		if ($delimiter['delimiter'] === ';') {
 			if (!str_starts_with($prelude, '@')) {
@@ -1558,32 +1587,82 @@ final class CSSParser
 			throw new InvalidArgumentException('Malformed at-rule prelude: ' . $prelude);
 		}
 
-		$c1 = $prelude[1];
-		if ($c1 === '-') {
-			if ($length < 3) {
+		// Scan full CSS <ident> per CSS Syntax L3 §4.3.9 (stops at ':', '(', or whitespace).
+		$pos = 1;
+		if ($prelude[$pos] === '-') {
+			$pos++;
+			if ($pos >= $length) {
 				throw new InvalidArgumentException('Malformed at-rule prelude: ' . $prelude);
 			}
-			$c2 = $prelude[2];
-			if (!(($c2 >= 'a' && $c2 <= 'z') || ($c2 >= 'A' && $c2 <= 'Z') || $c2 === '_' || $c2 === '-')) {
-				throw new InvalidArgumentException('Malformed at-rule prelude: ' . $prelude);
-			}
-		} elseif (!(($c1 >= 'a' && $c1 <= 'z') || ($c1 >= 'A' && $c1 <= 'Z') || $c1 === '_')) {
+		}
+
+		$first = $prelude[$pos];
+		$firstOrd = ord($first);
+		if ($first === '-') {
+			$pos++;
+		} elseif (($first >= 'a' && $first <= 'z') || ($first >= 'A' && $first <= 'Z') || $first === '_' || $firstOrd >= 0x80) {
+			$pos++;
+		} elseif ($first === '\\' && $pos + 1 < $length && $prelude[$pos + 1] !== "\n" && $prelude[$pos + 1] !== "\r" && $prelude[$pos + 1] !== "\f") {
+			$pos = self::advanceIdentEscape($prelude, $pos, $length);
+		} else {
 			throw new InvalidArgumentException('Malformed at-rule prelude: ' . $prelude);
 		}
 
-		$nameLen = 1 + strspn($prelude, self::IDENT_CHARS, 2, $length - 2);
-		$name = strtolower(substr($prelude, 1, $nameLen));
+		while ($pos < $length) {
+			$asciiLen = strspn($prelude, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_', $pos, $length - $pos);
+			if ($asciiLen > 0) {
+				$pos += $asciiLen;
+				if ($pos >= $length) {
+					break;
+				}
+			}
+			$ch = $prelude[$pos];
+			if (ord($ch) >= 0x80) {
+				$pos++;
+				continue;
+			}
+			if ($ch === '\\' && $pos + 1 < $length && $prelude[$pos + 1] !== "\n" && $prelude[$pos + 1] !== "\r" && $prelude[$pos + 1] !== "\f") {
+				$pos = self::advanceIdentEscape($prelude, $pos, $length);
+				continue;
+			}
+			break;
+		}
 
-		if ($nameLen + 1 >= $length) {
+		$name = strtolower(substr($prelude, 1, $pos - 1));
+		if ($pos >= $length) {
 			return [$name, ''];
 		}
 
-		return [$name, CSSSyntaxScanner::trimCssWhitespace(substr($prelude, 1 + $nameLen))];
+		return [$name, CSSSyntaxScanner::trimCssWhitespace(substr($prelude, $pos))];
 	}
 
-	private static function extractPrelude(string $source, int $start, int $end): string
+	private static function advanceIdentEscape(string $prelude, int $slashOffset, int $length): int
 	{
-		$raw = substr($source, $start, $end - $start);
+		$hexLen = strspn($prelude, '0123456789abcdefABCDEF', $slashOffset + 1, min(6, $length - ($slashOffset + 1)));
+		if ($hexLen === 0) {
+			return $slashOffset + 2;
+		}
+		$end = $slashOffset + 1 + $hexLen;
+		if ($end < $length) {
+			$ws = $prelude[$end];
+			if ($ws === "\r" && $end + 1 < $length && $prelude[$end + 1] === "\n") {
+				$end += 2;
+			} elseif ($ws === ' ' || $ws === "\t" || $ws === "\n" || $ws === "\r" || $ws === "\f") {
+				$end++;
+			}
+		}
+
+		return $end;
+	}
+
+	private static function extractPrelude(string $source, int $start, int $end, ?CSSStyleSheet $sheet = null): ?string
+	{
+		$len = $end - $start;
+		if ($len > 0 && CSSSyntaxScanner::hasControlCharactersInSlice($source, $start, $len)) {
+			$sheet?->recordParseError('CSS rule prelude contains disallowed control characters.', $start);
+			return null;
+		}
+		$raw = substr($source, $start, $len);
 		if (str_contains($raw, '/*')) {
 			return CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($raw));
 		}
@@ -1642,8 +1721,14 @@ final class CSSParser
 			if ($ch === '/' && $offset + 1 < $end && $source[$offset + 1] === '*') {
 				$commentEnd = strpos($source, '*/', $offset + 2);
 				if ($commentEnd === false || $commentEnd + 1 >= $end) {
+					if (CSSSyntaxScanner::hasControlCharactersInSlice($source, $offset, $end - $offset)) {
+						$sheet?->recordParseError('CSS comment contains disallowed control characters.', $offset);
+					}
 					$sheet?->recordParseError('Unclosed CSS comment.', $offset);
 					return $end;
+				}
+				if (CSSSyntaxScanner::hasControlCharactersInSlice($source, $offset + 2, $commentEnd - ($offset + 2))) {
+					$sheet?->recordParseError('CSS comment contains disallowed control characters.', $offset);
 				}
 				$offset = $commentEnd + 2;
 				continue;

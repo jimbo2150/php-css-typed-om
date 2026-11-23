@@ -60,12 +60,14 @@ final class CSSScopeRule extends CSSGroupingRule
 	private static function parseBounds(string $prelude): array
 	{
 		$prelude = CSSSyntaxScanner::trimCssWhitespace($prelude);
+		if (str_contains($prelude, '/*')) {
+			$prelude = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($prelude));
+		}
 		if ($prelude === '') {
 			return [null, null];
 		}
 
 		$offset = 0;
-		$length = strlen($prelude);
 		$start = null;
 		$end = null;
 
@@ -80,7 +82,7 @@ final class CSSScopeRule extends CSSGroupingRule
 
 		$rest = CSSSyntaxScanner::trimCssWhitespace(substr($prelude, $offset));
 		if ($rest !== '') {
-			if (!preg_match('/^to\s*\(/i', $rest)) {
+			if (!preg_match('/^to[ \t\n\r\f]+\(/i', $rest)) {
 				throw new InvalidArgumentException('Malformed @scope prelude: ' . $prelude);
 			}
 			$open = strpos($rest, '(');

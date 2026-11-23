@@ -95,6 +95,12 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 		$this->values = $fragments;
 	}
 
+	/** @internal */
+	public function getMaxBytesInternal(): ?int
+	{
+		return $this->maxBytes;
+	}
+
 	public static function fromCssText(string $cssText, ?CSSParserOptions $options = null, int $depth = 0): self
 	{
 		return new self($cssText, $options, $depth);
@@ -400,7 +406,7 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 		$delimStack = [];
 		$offset = 0;
 		$lastEscapeOffset = -1;
-		$mask = "\\\"'/();{}";
+		$mask = "\\\"'/();{}[]";
 
 		while ($offset < $length) {
 			$offset += strcspn($source, $mask, $offset, $length - $offset);
@@ -429,17 +435,19 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 			}
 			if ($ch === '\\') {
 				$lastEscapeOffset = $offset;
-				$offset += 2;
+				$offset = self::consumeCssEscapeEnd($source, $offset, $length);
 				continue;
 			}
-			if ($ch === ';' || $ch === '{' || $ch === '}') {
+			if ($ch === ';' || $ch === '{' || $ch === '}' || $ch === '[' || $ch === ']') {
 				$topDelim = $delimStack === [] ? null : end($delimStack);
-				if ($topDelim !== null && $topDelim[0] === '(') {
+				if (($ch === ';' || $ch === '{' || $ch === '}') && $topDelim !== null && $topDelim[0] === '(') {
 					$parenHasForbidden[$topDelim[1]] = true;
 				}
-				if ($ch === '{') {
-					$delimStack[] = ['{', $offset];
-				} elseif ($ch === '}' && $topDelim !== null && $topDelim[0] === '{') {
+				if ($ch === '{' || $ch === '[') {
+					$delimStack[] = [$ch, $offset];
+				} elseif (($ch === '}' && $topDelim !== null && $topDelim[0] === '{')
+					|| ($ch === ']' && $topDelim !== null && $topDelim[0] === '[')
+				) {
 					array_pop($delimStack);
 				}
 				$offset++;
@@ -476,6 +484,7 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 			$fragmentStart = $sliceStart;
 			$pos = $sliceStart;
 			$lastEsc = -1;
+			$lastEscEnd = -1;
 
 			while ($pos < $sliceEnd) {
 				$pos += strcspn($source, $mask, $pos, $sliceEnd - $pos);
@@ -504,7 +513,8 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 				}
 				if ($ch === '\\') {
 					$lastEsc = $pos;
-					$pos += 2;
+					$lastEscEnd = self::consumeCssEscapeEnd($source, $pos, $sliceEnd);
+					$pos = $lastEscEnd;
 					continue;
 				}
 
@@ -515,6 +525,7 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 
 				if ($pos >= $sliceStart + 3 && ($source[$pos - 1] === 'r' || $source[$pos - 1] === 'R')
 					&& substr_compare($source, 'var', $pos - 3, 3, true) === 0
+					&& $lastEscEnd !== $pos - 3
 					&& ($pos === $sliceStart + 3 || !self::isIdentByte($source[$pos - 4]))
 					&& isset($matchingParens[$pos])
 				) {
@@ -564,7 +575,7 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 								if ($varStart > $fragmentStart) {
 									$fragments[] = substr($source, $fragmentStart, $varStart - $fragmentStart);
 								}
-								$fragments[] = CSSVariableReferenceValue::createParsed($normalizedVariable, $fbObj);
+								$fragments[] = CSSVariableReferenceValue::createParsed($normalizedVariable, $fbObj, $maxBytes);
 								$pos = $close + 1;
 								$fragmentStart = $pos;
 								continue;
@@ -615,6 +626,26 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 		}
 
 		return $offset;
+	}
+
+	private static function consumeCssEscapeEnd(string $source, int $backslashPos, int $limit): int
+	{
+		$next = $backslashPos + 1;
+		if ($next >= $limit) {
+			return $limit;
+		}
+		if (ctype_xdigit($source[$next])) {
+			$hexEnd = $next + strspn($source, '0123456789abcdefABCDEF', $next, min(6, $limit - $next));
+			if ($hexEnd < $limit && str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$hexEnd])) {
+				if ($source[$hexEnd] === "\r" && $hexEnd + 1 < $limit && $source[$hexEnd + 1] === "\n") {
+					return $hexEnd + 2;
+				}
+				return $hexEnd + 1;
+			}
+			return $hexEnd;
+		}
+
+		return $next + 1;
 	}
 
 	private static function isIdentByte(string $byte): bool

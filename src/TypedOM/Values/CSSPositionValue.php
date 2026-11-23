@@ -19,17 +19,20 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
  */
 final class CSSPositionValue extends CSSStyleValue
 {
+	private CSSStyleValue $xValue;
+	private CSSStyleValue $yValue;
+
 	public CSSStyleValue $x {
+		get => self::exposeCoordinate($this->xValue);
 		set (CSSStyleValue $value) {
-			self::validateCoordinate($value, 'x');
-			$this->x = $value;
+			$this->xValue = self::validateAndNormalizeCoordinate($value, 'x');
 		}
 	}
 
 	public CSSStyleValue $y {
+		get => self::exposeCoordinate($this->yValue);
 		set (CSSStyleValue $value) {
-			self::validateCoordinate($value, 'y');
-			$this->y = $value;
+			$this->yValue = self::validateAndNormalizeCoordinate($value, 'y');
 		}
 	}
 
@@ -38,8 +41,8 @@ final class CSSPositionValue extends CSSStyleValue
 	 */
 	public function __construct(CSSStyleValue $x, CSSStyleValue $y)
 	{
-		$this->x = $x;
-		$this->y = $y;
+		$this->xValue = self::validateAndNormalizeCoordinate($x, 'x');
+		$this->yValue = self::validateAndNormalizeCoordinate($y, 'y');
 	}
 
 	/**
@@ -53,8 +56,8 @@ final class CSSPositionValue extends CSSStyleValue
 		if ($options->maxBytes !== null && strlen($cssText) > $options->maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS position value exceeds maximum size of %d bytes.', $options->maxBytes));
 		}
-		if ($cssText !== '' && CSSSyntaxScanner::hasControlCharacters($cssText)) {
-			throw new InvalidArgumentException('CSS position value contains disallowed control characters.');
+		if ($cssText !== '') {
+			CSSSyntaxScanner::assertValidFragment($cssText, 'CSS position', [';', '{', '}']);
 		}
 
 		$parts = CSSSyntaxScanner::splitTopLevelWhitespace(CSSSyntaxScanner::trimCssWhitespace($cssText));
@@ -91,28 +94,28 @@ final class CSSPositionValue extends CSSStyleValue
 
 	public function getX(): CSSStyleValue
 	{
-		return $this->x;
+		return self::exposeCoordinate($this->xValue);
 	}
 
 	public function setX(CSSStyleValue $x): void
 	{
-		$this->x = $x;
+		$this->xValue = self::validateAndNormalizeCoordinate($x, 'x');
 	}
 
 	public function getY(): CSSStyleValue
 	{
-		return $this->y;
+		return self::exposeCoordinate($this->yValue);
 	}
 
 	public function setY(CSSStyleValue $y): void
 	{
-		$this->y = $y;
+		$this->yValue = self::validateAndNormalizeCoordinate($y, 'y');
 	}
 
 	public function __clone(): void
 	{
-		$this->x = $this->x->clone();
-		$this->y = $this->y->clone();
+		$this->xValue = $this->xValue->clone();
+		$this->yValue = $this->yValue->clone();
 	}
 
 	public function clone(): static
@@ -122,7 +125,7 @@ final class CSSPositionValue extends CSSStyleValue
 
 	public function __toString(): string
 	{
-		return (string) $this->x . ' ' . (string) $this->y;
+		return (string) $this->xValue . ' ' . (string) $this->yValue;
 	}
 
 	public function __get(string $name): mixed
@@ -140,7 +143,12 @@ final class CSSPositionValue extends CSSStyleValue
 		throw new Error('Cannot set property ' . static::class . '::$' . $name);
 	}
 
-	private static function validateCoordinate(CSSStyleValue $coordinate, string $axis): void
+	private static function exposeCoordinate(CSSStyleValue $coordinate): CSSStyleValue
+	{
+		return $coordinate instanceof CSSKeywordValue ? $coordinate->clone() : $coordinate;
+	}
+
+	private static function validateAndNormalizeCoordinate(CSSStyleValue $coordinate, string $axis): CSSStyleValue
 	{
 		if ($coordinate instanceof CSSKeywordValue) {
 			$lower = strtolower($coordinate->getValue());
@@ -150,7 +158,7 @@ final class CSSPositionValue extends CSSStyleValue
 			if (!$valid) {
 				throw new InvalidArgumentException('Invalid position keyword for ' . $axis . ': ' . $coordinate->getValue());
 			}
-			return;
+			return new CSSKeywordValue($lower);
 		}
 
 		if (!$coordinate instanceof CSSNumericValue) {
@@ -161,6 +169,7 @@ final class CSSPositionValue extends CSSStyleValue
 		$dims = $type->toArray();
 		$lengthExp = (int) ($dims['length'] ?? 0);
 		$percentExp = (int) ($dims['percent'] ?? 0);
+		$hint = $type->percentHint;
 		$hasOther = false;
 		foreach ($dims as $dim => $exp) {
 			if ($dim !== 'length' && $dim !== 'percent' && $dim !== 'percentHint' && (int) $exp !== 0) {
@@ -169,12 +178,14 @@ final class CSSPositionValue extends CSSStyleValue
 			}
 		}
 
-		// Valid position coordinates are <length>, <percentage>, or <length-percentage> (1D length + optional percentHint).
-		$isLength = $lengthExp === 1 && $percentExp === 0 && !$hasOther;
-		$isPercent = $lengthExp === 0 && $percentExp === 1 && !$hasOther;
+		// Valid position coordinates are <length>, <percentage>, or <length-percentage> (1D length + optional length percentHint).
+		$isLength = $lengthExp === 1 && $percentExp === 0 && !$hasOther && ($hint === null || $hint === 'length');
+		$isPercent = $lengthExp === 0 && $percentExp === 1 && !$hasOther && $hint === null;
 		if (!$isLength && !$isPercent) {
 			throw new InvalidArgumentException('Position coordinate must be a length or percentage.');
 		}
+
+		return $coordinate;
 	}
 
 	private static function parseCoordinate(string $value, ?CSSParserOptions $options = null): CSSStyleValue
@@ -184,7 +195,10 @@ final class CSSPositionValue extends CSSStyleValue
 			return new CSSKeywordValue($lower);
 		}
 
-		$numeric = CSSNumericValue::parse($value, null, $options);
+		$numeric = CSSNumericValue::tryParseValidated($value, $options);
+		if ($numeric === null) {
+			throw new InvalidArgumentException('Invalid CSS numeric value: ' . $value);
+		}
 		if ($numeric instanceof CSSUnitValue && $numeric->unit === 'number' && $numeric->value === 0.0) {
 			return new CSSUnitValue(0.0, 'px');
 		}

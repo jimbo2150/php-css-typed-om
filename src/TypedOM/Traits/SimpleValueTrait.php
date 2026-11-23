@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Traits;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 
 /**
  * Trait for numeric Typed OM value properties with finite-value validation.
@@ -27,6 +28,10 @@ trait SimpleValueTrait
 
 	protected static function isValueValid(mixed $value): bool
 	{
+		if (is_string($value) && CSSSyntaxScanner::hasControlCharacters($value)) {
+			return false;
+		}
+
 		return is_numeric($value) && is_finite((float) $value);
 	}
 

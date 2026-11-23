@@ -45,7 +45,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 		'flex' => ['fr' => 1.0],
 	];
 
-	protected const int MAX_MATH_NODES = 100_000;
+	public const int MAX_MATH_NODES = 100_000;
 	protected const int MAX_MATH_TREE_DEPTH = 512;
 
 	protected ?CSSNumericType $cachedNumericType = null;
@@ -254,27 +254,8 @@ abstract class CSSNumericValue extends CSSStyleValue
 	 */
 	public function to(string $unit, ?CSSContext $context = null): self
 	{
-		$targetUnit = self::resolveUnit($unit);
-		$currentType = $this->getNumericTypeInternal();
-		$targetDimension = $targetUnit->type()?->value;
-		$expectedType = self::baseTypeForUnitCategory($targetDimension);
-
-		if ($currentType->percentHint !== null) {
-			throw new InvalidArgumentException('Cannot convert a mixed percentage expression directly to a single unit.');
-		}
-		if (!$currentType->equals($expectedType)) {
-			throw new InvalidArgumentException(sprintf(
-				'Cannot convert %s to %s.',
-				$this->getNumericCategory(),
-				$targetDimension ?? 'number',
-			));
-		}
-
-		if ($targetDimension === CSSUnitTypeEnum::LENGTH->value) {
-			$context ??= new CSSContext();
-		}
-
-		return self::convertNumericValue($this, $targetUnit, $context);
+		$visits = 0;
+		return $this->toWithVisits($this, self::resolveUnit($unit), $context, $visits);
 	}
 
 	/**
@@ -303,8 +284,9 @@ abstract class CSSNumericValue extends CSSStyleValue
 			];
 		}
 
+		$visits = 0;
 		$terms = [];
-		self::collectAdditiveTerms($this, 1.0, $terms);
+		self::collectAdditiveTerms($this, 1.0, $terms, $visits);
 		$context = null;
 
 		foreach ($terms as [$sign, $term]) {
@@ -330,7 +312,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 
 			if ($targetIdx === null) {
 				// Force standard incompatible conversion error
-				$term->to($buckets[0]['unit']->toUnitName(), $context);
+				$this->toWithVisits($term, $buckets[0]['unit'], $context, $visits);
 				throw new InvalidArgumentException('Cannot convert numeric value into requested toSum() units.');
 			}
 
@@ -339,11 +321,11 @@ abstract class CSSNumericValue extends CSSStyleValue
 				$context = new CSSContext();
 			}
 
-			$converted = $term->to($targetUnit->toUnitName(), $context);
+			$converted = $this->toWithVisits($term, $targetUnit, $context, $visits);
 			if ($converted instanceof CSSUnitValue) {
 				$termValue = $converted->value;
 			} else {
-				$evaluated = self::evaluateConcreteTerm($converted);
+				$evaluated = self::evaluateConcreteTerm($converted, $visits);
 				if ($evaluated === null) {
 					throw new InvalidArgumentException('Cannot sum non-unit expression in toSum().');
 				}
@@ -363,7 +345,11 @@ abstract class CSSNumericValue extends CSSStyleValue
 	public function add(CSSNumericValue|int|float ...$values): self
 	{
 		$operands = self::normalizeVariadicOperands($values);
-		$all = [...self::sumOperands($this), ...$operands];
+		$existing = self::sumOperands($this);
+		if (count($existing) + count($operands) > self::MAX_MATH_NODES) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
+		}
+		$all = [...$existing, ...$operands];
 		$merged = self::mergeAdditiveTypes($all);
 
 		return CSSMathSum::fromValidated($all, $merged);
@@ -372,11 +358,15 @@ abstract class CSSNumericValue extends CSSStyleValue
 	public function sub(CSSNumericValue|int|float ...$values): self
 	{
 		$operands = self::normalizeVariadicOperands($values);
+		$existing = self::sumOperands($this);
+		if (count($existing) + count($operands) > self::MAX_MATH_NODES) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
+		}
 		$negated = [];
 		foreach ($operands as $value) {
 			$negated[] = new CSSMathNegate([$value]);
 		}
-		$all = [...self::sumOperands($this), ...$negated];
+		$all = [...$existing, ...$negated];
 		$merged = self::mergeAdditiveTypes($all);
 
 		return CSSMathSum::fromValidated($all, $merged);
@@ -385,12 +375,18 @@ abstract class CSSNumericValue extends CSSStyleValue
 	public function mul(CSSNumericValue|int|float ...$values): CSSMathProduct
 	{
 		$operands = self::normalizeVariadicOperands($values);
+		if (1 + count($operands) > self::MAX_MATH_NODES) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
+		}
 		return new CSSMathProduct([$this, ...$operands]);
 	}
 
 	public function div(CSSNumericValue|int|float ...$values): CSSMathProduct
 	{
 		$operands = self::normalizeVariadicOperands($values);
+		if (1 + count($operands) > self::MAX_MATH_NODES) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
+		}
 		$inverted = [];
 		foreach ($operands as $value) {
 			$inverted[] = new CSSMathInvert([$value]);
@@ -621,8 +617,57 @@ abstract class CSSNumericValue extends CSSStyleValue
 		return $this instanceof CSSMathValue ? $this->values->values : [$this];
 	}
 
+	/**
+	 * @internal Fast path for already limit-checked, control-byte-free, whitespace-trimmed strings.
+	 * @throws CSSParserLimitException When resource limits are exceeded
+	 */
+	public static function tryParseValidated(string $trimmedCssText, ?CSSParserOptions $options = null, int $depth = 0): ?self
+	{
+		if ($trimmedCssText === '') {
+			return null;
+		}
+		$options ??= CSSParserOptions::default();
+		if ($options->maxMathDepth !== null && $depth > $options->maxMathDepth) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $options->maxMathDepth));
+		}
+
+		return self::tryParseTrimmed($trimmedCssText, $options, $depth, false);
+	}
+
 	private static function tryParseTrimmed(string $cssText, CSSParserOptions $options, int $depth, bool $throwOnInvalid): ?self
 	{
+		if ($cssText !== '') {
+			$c0 = $cssText[0];
+			if ((($c0 >= '0' && $c0 <= '9') || $c0 === '.' || $c0 === '+' || $c0 === '-')
+				&& !str_contains($cssText, '(')
+			) {
+				$len = strlen($cssText);
+				if (preg_match('/\G([+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?)([a-zA-Z%]*)/', $cssText, $matches) === 1
+					&& strlen($matches[0]) === $len
+				) {
+					$value = (float) $matches[1];
+					if (!is_finite($value)) {
+						if ($throwOnInvalid) {
+							throw new InvalidArgumentException('CSS numeric value must be finite: ' . $cssText);
+						}
+						return null;
+					}
+					$unit = CSSUnitEnum::tryFromSymbol($matches[2]);
+					if ($unit === null) {
+						if ($throwOnInvalid) {
+							throw new InvalidArgumentException('Unsupported CSS unit: ' . $matches[2]);
+						}
+						return null;
+					}
+					return new CSSUnitValue($value, $unit);
+				}
+				if ($throwOnInvalid) {
+					throw new InvalidArgumentException('Invalid CSS numeric value: ' . $cssText);
+				}
+				return null;
+			}
+		}
+
 		return CSSCalcParser::parseUnitOrMathSlice($cssText, 0, strlen($cssText), $options, $depth, $throwOnInvalid);
 	}
 
@@ -637,9 +682,8 @@ abstract class CSSNumericValue extends CSSStyleValue
 	}
 
 	/** @param list<array{float, CSSNumericValue}> $terms */
-	private static function collectAdditiveTerms(self $root, float $rootSign, array &$terms): void
+	private static function collectAdditiveTerms(self $root, float $rootSign, array &$terms, int &$visits = 0): void
 	{
-		$visits = 0;
 		$stack = [[$root, $rootSign, 0]];
 		while ($stack !== []) {
 			[$value, $sign, $depth] = array_pop($stack);
@@ -743,9 +787,32 @@ abstract class CSSNumericValue extends CSSStyleValue
 		return $resolved;
 	}
 
-	private static function convertNumericValue(self $root, CSSUnitEnum $targetUnit, ?CSSContext $context): self
+	private function toWithVisits(self $term, CSSUnitEnum $targetUnit, ?CSSContext $context, int &$visits): self
 	{
-		$visits = 0;
+		$currentType = $term->getNumericTypeInternal();
+		$targetDimension = $targetUnit->type()?->value;
+		$expectedType = self::baseTypeForUnitCategory($targetDimension);
+
+		if ($currentType->percentHint !== null) {
+			throw new InvalidArgumentException('Cannot convert a mixed percentage expression directly to a single unit.');
+		}
+		if (!$currentType->equals($expectedType)) {
+			throw new InvalidArgumentException(sprintf(
+				'Cannot convert %s to %s.',
+				$term->getNumericCategory(),
+				$targetDimension ?? 'number',
+			));
+		}
+
+		if ($targetDimension === CSSUnitTypeEnum::LENGTH->value) {
+			$context ??= new CSSContext();
+		}
+
+		return self::convertNumericValue($term, $targetUnit, $context, $visits);
+	}
+
+	private static function convertNumericValue(self $root, CSSUnitEnum $targetUnit, ?CSSContext $context, int &$visits = 0): self
+	{
 		$slots = [];
 		$nextSlot = 1;
 		$stack = [[0, $root, 0, 0]];
@@ -771,22 +838,20 @@ abstract class CSSNumericValue extends CSSStyleValue
 			}
 
 			if ($frame[0] === 2) {
-				[, $origProduct, $dimIndex, $dimSlot, $targetSlot] = $frame;
+				[, $origProduct, $dimIndex, $dimSlot, $depth, $targetSlot] = $frame;
 				$values = $origProduct->values->values;
 				$newValues = [];
-				$cloneBudget = self::MAX_MATH_NODES - $visits;
 				foreach ($values as $idx => $operand) {
 					if ($idx === $dimIndex && $dimSlot !== null) {
 						$newValues[] = $slots[$dimSlot];
 						unset($slots[$dimSlot]);
 					} else {
-						$newValues[] = self::cloneTreeIteratively($operand, $visits, 0);
+						$newValues[] = self::cloneTreeIteratively($operand, $visits, $depth + 1);
 					}
 					if ($visits > self::MAX_MATH_NODES) {
 						throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
 					}
 				}
-				unset($cloneBudget);
 				$slots[$targetSlot] = new CSSMathProduct($newValues);
 				continue;
 			}
@@ -842,7 +907,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 					if ($targetUnit !== CSSUnitEnum::NUMBER) {
 						throw new InvalidArgumentException('Unit conversion is not supported for these units.');
 					}
-					$stack[] = [2, $value, -1, null, $targetSlot];
+					$stack[] = [2, $value, -1, null, $depth, $targetSlot];
 					continue;
 				}
 				if (count($dimensionalIndexes) !== 1) {
@@ -850,7 +915,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 				}
 				$dimIdx = $dimensionalIndexes[0];
 				$dimSlot = $nextSlot++;
-				$stack[] = [2, $value, $dimIdx, $dimSlot, $targetSlot];
+				$stack[] = [2, $value, $dimIdx, $dimSlot, $depth, $targetSlot];
 				$stack[] = [0, $values[$dimIdx], $depth + 1, $dimSlot];
 				continue;
 			}
@@ -869,9 +934,8 @@ abstract class CSSNumericValue extends CSSStyleValue
 		return $slots[0];
 	}
 
-	private static function evaluateConcreteTerm(self $root): ?float
+	private static function evaluateConcreteTerm(self $root, int &$visits = 0): ?float
 	{
-		$visits = 0;
 		$slots = [];
 		$nextSlot = 1;
 		// Phase 0 = VISIT(node, numberOnly, depth, slotIdx)

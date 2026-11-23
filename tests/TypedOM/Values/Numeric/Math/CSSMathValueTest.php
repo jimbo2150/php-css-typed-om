@@ -15,58 +15,46 @@ use PHPUnit\Framework\TestCase;
 
 class CSSMathValueTest extends TestCase
 {
-    public function testCSSMathInvertToString()
+    public function testCSSMathInvertToString(): void
     {
         $mathInvert = new CSSMathInvert(new CSSUnitValue(10, 'px'));
-        $this->assertEquals('calc(1 / 10px)', (string)$mathInvert);
+        self::assertSame('calc(1 / 10px)', (string)$mathInvert);
     }
 
-    public function testCSSMathInvertWithSingleValueToString()
-    {
-        $mathInvert = new CSSMathInvert(new CSSUnitValue(10, 'px'));
-        $this->assertEquals('calc(1 / 10px)', (string)$mathInvert);
-    }
-
-    public function testCSSMathNegateToString()
+    public function testCSSMathNegateToString(): void
     {
         $mathNegate = new CSSMathNegate(new CSSUnitValue(10, 'px'));
-        $this->assertEquals('calc(-10px)', (string)$mathNegate);
+        self::assertSame('calc(-10px)', (string)$mathNegate);
     }
 
-    public function testCSSMathNegateWithSingleValueToString()
-    {
-        $mathNegate = new CSSMathNegate(new CSSUnitValue(10, 'px'));
-        $this->assertEquals('calc(-10px)', (string)$mathNegate);
-    }
-
-    public function testCSSMathSumToString()
+    public function testCSSMathSumToString(): void
     {
         $mathSum = new CSSMathSum([new CSSUnitValue(10, 'px'), new CSSUnitValue(20, 'px')]);
-        $this->assertEquals('calc(10px + 20px)', (string)$mathSum);
+        self::assertSame('calc(10px + 20px)', (string)$mathSum);
     }
 
-    public function testCSSMathSumWithSingleValueToString()
+    public function testCSSMathSumWithSingleValueToString(): void
     {
         $mathSum = new CSSMathSum([new CSSUnitValue(10, 'px')]);
-        $this->assertEquals('calc(10px)', (string)$mathSum);
+        self::assertSame('calc(10px)', (string)$mathSum);
     }
 
-    public function testCSSMathProductToString()
+    public function testCSSMathProductToString(): void
     {
         $mathProduct = new CSSMathProduct([new CSSUnitValue(10, 'px'), new CSSUnitValue(20, 'px')]);
-        $this->assertEquals('calc(10px * 20px)', (string)$mathProduct);
+        self::assertSame('calc(10px * 20px)', (string)$mathProduct);
     }
 
-    public function testCSSMathMinToString()
+    public function testCSSMathMinToString(): void
     {
         $mathMin = new CSSMathMin([new CSSUnitValue(10, 'px'), new CSSUnitValue(20, 'px')]);
-        $this->assertEquals('min(10px, 20px)', (string)$mathMin);
+        self::assertSame('min(10px, 20px)', (string)$mathMin);
     }
 
-    public function testCSSMathMaxToString()
+    public function testCSSMathMaxToString(): void
     {
         $mathMax = new CSSMathMax([new CSSUnitValue(10, 'px'), new CSSUnitValue(20, 'px')]);
-        $this->assertEquals('max(10px, 20px)', (string)$mathMax);
+        self::assertSame('max(10px, 20px)', (string)$mathMax);
     }
 
     public function testClone()

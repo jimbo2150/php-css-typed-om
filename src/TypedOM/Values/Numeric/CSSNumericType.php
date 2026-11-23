@@ -109,8 +109,13 @@ class CSSNumericType
 
 	public function applyPercentHint(string $hint): self
 	{
+		$hintType = CSSUnitTypeEnum::tryFrom($hint);
+		if ($hintType === null || $hintType === CSSUnitTypeEnum::PERCENT_HINT) {
+			throw new InvalidArgumentException(sprintf('Invalid percent hint dimension "%s".', $hint));
+		}
+
 		$dimensions = $this->dimensions;
-		if (isset($dimensions['percent'])) {
+		if ($hintType !== CSSUnitTypeEnum::PERCENT && isset($dimensions['percent'])) {
 			$newExp = (int) ($dimensions[$hint] ?? 0) + (int) $dimensions['percent'];
 			unset($dimensions['percent']);
 			if ($newExp === 0) {

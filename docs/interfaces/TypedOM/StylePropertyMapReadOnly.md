@@ -22,4 +22,4 @@ No public constants or enum cases. The backing declaration is held in a protecte
 | `entries` | `public function entries(): array`; returns pairs `[propertyName, list<CSSStyleValue>]` in declaration order. Example: `$entries = $map->entries();`. |
 | `forEach` | `public function forEach(callable $callback): void`; invokes `$callback($values, $property, $this)` for each declaration entry. Callback exceptions propagate. Example: `$map->forEach(static fn ($values, $name, $map) => print($name));`. |
 | `getIterator` | `public function getIterator(): Traversable`; yields `property => list<CSSStyleValue>` entries lazily via a generator. Example: `foreach ($map as $property => $values) { /* inspect */ }`. |
-| `__get` | `public function __get(string $name): mixed`; exposes magic read-only `size`; any other name throws `Error`. Example: `$size = $map->size;`. |
+| `$size` (property hook) | `public int $size { get; }`; returns declaration count (`$this->style->getLength()`). Undeclared property accesses via `__get`/`__set` throw `Error`. Example: `$size = $map->size;`. |

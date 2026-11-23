@@ -151,7 +151,7 @@ final class CSSStyleSheet extends StyleSheet
 	 */
 	public function replaceSync(string $cssText, ?CSSParserOptions $options = null): void
 	{
-		$options ??= new CSSParserOptions();
+		$options ??= CSSParserOptions::default();
 		$replacement = CSSParser::parseStylesheet($cssText, $options, true);
 		$this->cssRules->replaceAll($replacement->getCssRules());
 		$this->parseErrors = $replacement->getParseErrors();
@@ -197,5 +197,16 @@ final class CSSStyleSheet extends StyleSheet
 			'baseURL' => $this->baseURL !== null,
 			default => parent::__isset($name),
 		};
+	}
+
+	public function __clone(): void
+	{
+		parent::__clone();
+		$origRules = $this->cssRules->getRulesRaw();
+		$this->cssRules = new CSSRuleList($this);
+		$this->totalRuleCount = 0;
+		if ($origRules !== []) {
+			CSSGroupingRule::cloneRulesIntoList($origRules, $this->cssRules, $this, null);
+		}
 	}
 }

@@ -6,7 +6,7 @@
 
 ## Public API
 
-No public constants or enum cases. Inherits `parse`/`parseAll` from [CSSStyleValue](CSSStyleValue.md#public-api), and common transform methods `getValues`, `getFunctionName`, `is2D`, `setIs2D`, `__toString`, `__get`, `__set`, `identityMatrix`, and `multiplyMatrices` from [CSSTransformComponent](CSSTransformComponent.md#public-api). Overrides `toMatrix` and `clone`.
+No public constants or enum cases. Inherits `parse`/`parseAll` from [CSSStyleValue](CSSStyleValue.md#public-api), and common transform methods `getValues`, `getFunctionName`, `is2D`, `setIs2D`, `$is2D`, `__toString`, `identityMatrix`, and `multiplyMatrices` from [CSSTransformComponent](CSSTransformComponent.md#public-api). Overrides `toMatrix` and `clone`.
 
 | Method/property | Signature and behavior |
 |---|---|
@@ -15,5 +15,4 @@ No public constants or enum cases. Inherits `parse`/`parseAll` from [CSSStyleVal
 | `setX` / `setY` / `setZ` | `public function setX(CSSNumericValue|int|float $x): void`; `public function setY(CSSNumericValue|int|float $y): void`; `public function setZ(CSSNumericValue|int|float $z): void`; validates a unitless factor and updates serialized arguments; invalid types throw `InvalidArgumentException`. Example: `$scale->setY(0.75);`. |
 | `toMatrix` | `public function toMatrix(): DOMMatrix`; returns a 4x4 `DOMMatrix` scale transform; requires concrete unitless numeric values. Example: `$matrix = $scale->toMatrix();`. |
 | `clone` | `public function clone(): static`; clones scale factors and preserves single-argument `scale(x)` serialization. Example: `$copy = $scale->clone();`. |
-| `__get` | `public function __get(string $name): mixed`; exposes read-only magic `x`, `y`, and `z`; other names delegate to the parent (`is2D`). Example: `$factor = $scale->x;`. |
-| `__set` | `public function __set(string $name, mixed $value): void`; accepts a numeric value or int/float for magic `x`, `y`, or `z`; invalid names/types throw `Error` or numeric validation errors. Example: `$scale->z = 1.2;`. |
+| `$x` / `$y` / `$z` (property hooks) | `public CSSNumericValue $x { get; set; }`, `$y`, `$z`; read/write scale factors via validating setters. Unknown properties via `__get`/`__set` throw `Error`. Example: `$scale->z = 1.2;`. |

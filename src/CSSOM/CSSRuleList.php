@@ -61,8 +61,14 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 
 		$total = 0;
 		$stack = [$rule];
+		$visited = [];
 		while ($stack !== []) {
 			$current = array_pop($stack);
+			$id = spl_object_id($current);
+			if (isset($visited[$id])) {
+				continue;
+			}
+			$visited[$id] = true;
 			$total++;
 			if ($current instanceof CSSGroupingRule) {
 				foreach ($current->getCssRules()->getRulesRaw() as $child) {
@@ -166,6 +172,12 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 		return $this->owner;
 	}
 
+	/** @internal Appends a freshly cloned rule directly during iterative tree cloning. */
+	public function appendClonedInternal(CSSRule $rule): void
+	{
+		$this->rules[] = $rule;
+	}
+
 	/**
 	 * @internal Builds detached grouping/style rule subtrees during parsing before a single top-level attach.
 	 */
@@ -248,8 +260,14 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 	public function reparent(?CSSStyleSheet $sheet): void
 	{
 		$stack = [$this];
+		$visited = [];
 		while ($stack !== []) {
 			$list = array_pop($stack);
+			$listId = spl_object_id($list);
+			if (isset($visited[$listId])) {
+				continue;
+			}
+			$visited[$listId] = true;
 			$list->sheet = $sheet;
 			$owner = $list->owner;
 			foreach ($list->rules as $rule) {
@@ -261,6 +279,17 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 					}
 				}
 			}
+		}
+	}
+
+	public function __clone(): void
+	{
+		$origRules = $this->rules;
+		$this->rules = [];
+		$this->sheet = null;
+		$this->owner = null;
+		if ($origRules !== []) {
+			CSSGroupingRule::cloneRulesIntoList($origRules, $this, null, null);
 		}
 	}
 
@@ -280,10 +309,16 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 	private function assertNoCycle(CSSRule $candidate): void
 	{
 		$ancestor = $this->owner;
+		$visited = [];
 		while ($ancestor !== null) {
 			if ($ancestor === $candidate) {
 				throw new InvalidArgumentException('Cannot insert an ancestor rule into its own descendant CSSRuleList.');
 			}
+			$id = spl_object_id($ancestor);
+			if (isset($visited[$id])) {
+				throw new InvalidArgumentException('Detected a cycle in CSSGroupingRule ancestor chain.');
+			}
+			$visited[$id] = true;
 			$ancestor = $ancestor->getParentRule();
 		}
 	}

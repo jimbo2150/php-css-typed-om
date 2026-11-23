@@ -448,7 +448,7 @@ final class CSSSyntaxScanner
 				$pos += strspn($source, self::CSS_WHITESPACE, $pos, $length - $pos);
 				if ($pos + 1 < $length && $source[$pos] === '/' && $source[$pos + 1] === '*') {
 					$commentEnd = strpos($source, '*/', $pos + 2);
-					if ($commentEnd === false) {
+					if ($commentEnd === false || $commentEnd + 1 >= $length) {
 						return null;
 					}
 					$pos = $commentEnd + 2;
@@ -652,9 +652,9 @@ final class CSSSyntaxScanner
 				return $source;
 			}
 		} else {
-			$slice = substr($source, $baseStart, $sliceLen);
-			if (!str_contains($slice, '/*')) {
-				return $slice;
+			$firstComment = strpos($source, '/*', $baseStart);
+			if ($firstComment === false || $firstComment + 1 >= $length) {
+				return substr($source, $baseStart, $sliceLen);
 			}
 		}
 
@@ -700,8 +700,13 @@ final class CSSSyntaxScanner
 						$lastEscapeEnd = $endEsc;
 						$offset = $endEsc;
 					} else {
-						$lastEscapeEnd = min($length, $offset + 2);
-						$offset = $lastEscapeEnd;
+						$escapedByte = $source[$offset + 1];
+						if ($escapedByte === "\n" || $escapedByte === "\r" || $escapedByte === "\f") {
+							$offset++;
+						} else {
+							$lastEscapeEnd = $offset + 2;
+							$offset = $lastEscapeEnd;
+						}
 					}
 				}
 				continue;
@@ -739,10 +744,15 @@ final class CSSSyntaxScanner
 				}
 
 				$nextByte = $runEnd < $length ? $source[$runEnd] : null;
-				$nextNextByte = $runEnd + 1 < $length ? $source[$runEnd + 1] : null;
-
-				if (self::needsCommentSeparatorSpace($prevByte, $prevWasEscape, $nextByte, $nextNextByte)) {
-					$chunks[] = ' ';
+				if ($prevByte !== null
+					&& $nextByte !== null
+					&& $nextByte !== ' ' && $nextByte !== "\t" && $nextByte !== "\n" && $nextByte !== "\r" && $nextByte !== "\f"
+					&& ($prevWasEscape || ($prevByte !== ' ' && $prevByte !== "\t" && $prevByte !== "\n" && $prevByte !== "\r" && $prevByte !== "\f"))
+				) {
+					$nextNextByte = $runEnd + 1 < $length ? $source[$runEnd + 1] : null;
+					if (self::needsCommentSeparatorSpace($prevByte, $prevWasEscape, $nextByte, $nextNextByte)) {
+						$chunks[] = ' ';
+					}
 				}
 
 				$offset = $runEnd;
@@ -769,7 +779,7 @@ final class CSSSyntaxScanner
 		if ($prevByte === null || $nextByte === null) {
 			return false;
 		}
-		if (str_contains(self::CSS_WHITESPACE, $prevByte) || str_contains(self::CSS_WHITESPACE, $nextByte)) {
+		if ((!$prevWasEscape && str_contains(self::CSS_WHITESPACE, $prevByte)) || str_contains(self::CSS_WHITESPACE, $nextByte)) {
 			return false;
 		}
 
@@ -803,6 +813,12 @@ final class CSSSyntaxScanner
 		if ((($prevByte === '~' || $prevByte === '|' || $prevByte === '^' || $prevByte === '$' || $prevByte === '*') && $nextByte === '=')
 			|| ($prevByte === '|' && $nextByte === '|')
 		) {
+			return true;
+		}
+		if (($prevByte === 'e' || $prevByte === 'E') && $nextByte === '+' && $nextNextIsDigit) {
+			return true;
+		}
+		if ($prevByte === '!' && $nextByte === '-' && $nextNextByte === '-') {
 			return true;
 		}
 		if ($prevByte === ')' && $nextIsIdentStart) {
@@ -1418,7 +1434,10 @@ final class CSSSyntaxScanner
 				break;
 			}
 
-			if ($ch === '\\' && !self::isEscapedBackslash($source, $cursor, $start)) {
+			if ($ch === '\\') {
+				if ($cursor > $start && $source[$cursor - 1] === '\\') {
+					return false;
+				}
 				$cursor--;
 				continue;
 			}

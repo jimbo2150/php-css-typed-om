@@ -7,6 +7,7 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrixReadOnly;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 
@@ -41,7 +42,7 @@ final class CSSMatrixComponent extends CSSTransformComponent
 						throw new InvalidArgumentException('Matrix components must be unitless numbers.');
 					}
 					$values[] = $value->value;
-				} elseif (is_numeric($value) && is_finite((float) $value)) {
+				} elseif (!(is_string($value) && CSSSyntaxScanner::hasControlCharacters($value)) && is_numeric($value) && is_finite((float) $value)) {
 					$values[] = (float) $value;
 				} else {
 					throw new InvalidArgumentException('Matrix components must be finite numbers.');
@@ -140,7 +141,7 @@ final class CSSMatrixComponent extends CSSTransformComponent
 
 		$normalized = [];
 		foreach ($matrix as $value) {
-			if (!is_numeric($value) || !is_finite((float) $value)) {
+			if ((is_string($value) && CSSSyntaxScanner::hasControlCharacters($value)) || !is_numeric($value) || !is_finite((float) $value)) {
 				throw new InvalidArgumentException('Matrix components must be finite numbers.');
 			}
 			$normalized[] = (float) $value;

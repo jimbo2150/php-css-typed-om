@@ -100,4 +100,10 @@ abstract class CSSRule
 	{
 		throw new Error('Cannot set property ' . static::class . '::$' . $name);
 	}
+
+	public function __clone(): void
+	{
+		$this->parentStyleSheet = null;
+		$this->parentRule = null;
+	}
 }

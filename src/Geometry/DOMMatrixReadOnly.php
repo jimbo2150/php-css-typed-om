@@ -478,6 +478,9 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 
 	protected static function assertFinite(mixed $value, string $label): float
 	{
+		if (is_string($value) && CSSSyntaxScanner::hasControlCharacters($value)) {
+			throw new InvalidArgumentException(sprintf('Matrix %s contains disallowed control characters.', $label));
+		}
 		if (!is_int($value) && !is_float($value) && !(is_string($value) && is_numeric($value))) {
 			throw new InvalidArgumentException(sprintf('Matrix %s must be a finite number.', $label));
 		}

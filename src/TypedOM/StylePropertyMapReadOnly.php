@@ -52,7 +52,7 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 		while ($offset < $length) {
 			$comma = CSSSyntaxScanner::findTopLevel($value, ',', $offset, $length);
 			$segmentEnd = $comma ?? $length;
-			$first = trim(substr($value, $offset, $segmentEnd - $offset));
+			$first = CSSSyntaxScanner::trimCssWhitespace(substr($value, $offset, $segmentEnd - $offset));
 			if ($first !== '') {
 				return CSSStyleValue::parseValidated($normalized, $first, $options);
 			}

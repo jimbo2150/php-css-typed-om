@@ -19,6 +19,7 @@ class CSSGroupingRule extends CSSRule
 	protected readonly string $name;
 	protected string $prelude;
 	private CSSRuleList $cssRules;
+	private static bool $inIterativeClone = false;
 
 	/**
 	 * @throws InvalidArgumentException When $name or $prelude contains invalid syntax
@@ -105,6 +106,11 @@ class CSSGroupingRule extends CSSRule
 
 	public function getCssText(): string
 	{
+		if ($this->cssRules->getRulesRaw() === [] && self::usesCoreSerialization($this)) {
+			$prelude = $this->prelude === '' ? '' : ' ' . $this->prelude;
+			return '@' . $this->name . $prelude . ' {  }';
+		}
+
 		return self::serializeTreeIteratively($this);
 	}
 
@@ -123,8 +129,34 @@ class CSSGroupingRule extends CSSRule
 					throw new CSSParserLimitException(sprintf('Maximum CSS serialization depth of %d exceeded.', CSSRenderer::MAX_RENDER_DEPTH));
 				}
 				$children = $node->getCssRules()->getRulesRaw();
-				$workStack[] = [1, $node, count($children)];
-				for ($i = count($children) - 1; $i >= 0; $i--) {
+				$childCount = count($children);
+				if ($childCount === 0) {
+					if ($node instanceof CSSStyleRule) {
+						$resultsStack[] = $node->getSelectorText() . ' { ' . $node->getStyle()->getCssText() . ' }';
+					} elseif ($node instanceof CSSPageRule) {
+						$prelude = $node->getPrelude() === '' ? '' : ' ' . $node->getPrelude();
+						$resultsStack[] = '@page' . $prelude . ' { ' . $node->getStyle()->getCssText() . ' }';
+					} elseif ($node instanceof CSSFontFeatureValuesRule) {
+						$blocks = [];
+						foreach ($node->getFeatureMaps() as $category => $map) {
+							if (count($map) === 0) {
+								continue;
+							}
+							$declarations = [];
+							foreach ($map->getEntriesRaw() as $name => $values) {
+								$declarations[] = $name . ': ' . implode(' ', $values) . ';';
+							}
+							$blocks[] = '@' . $category . ' { ' . implode(' ', $declarations) . ' }';
+						}
+						$resultsStack[] = '@font-feature-values ' . $node->getFontFamily() . ' { ' . implode(' ', $blocks) . ' }';
+					} else {
+						$prelude = $node->getPrelude() === '' ? '' : ' ' . $node->getPrelude();
+						$resultsStack[] = '@' . $node->getName() . $prelude . ' {  }';
+					}
+					continue;
+				}
+				$workStack[] = [1, $node, $childCount];
+				for ($i = $childCount - 1; $i >= 0; $i--) {
 					$child = $children[$i];
 					if ($child instanceof self && self::usesCoreSerialization($child)) {
 						$workStack[] = [0, $child, $depth + 1];
@@ -143,7 +175,7 @@ class CSSGroupingRule extends CSSRule
 			}
 
 			$childCount = $depth;
-			$childTexts = $childCount === 0 ? [] : array_splice($resultsStack, -$childCount);
+			$childTexts = $childCount === 1 ? [array_pop($resultsStack)] : array_splice($resultsStack, -$childCount);
 			if ($node instanceof CSSStyleRule) {
 				$parts = [];
 				$decls = $node->getStyle()->getCssText();
@@ -235,11 +267,76 @@ class CSSGroupingRule extends CSSRule
 		return $name === 'cssRules' || parent::__isset($name);
 	}
 
+	public function __clone(): void
+	{
+		parent::__clone();
+		$origRules = $this->cssRules->getRulesRaw();
+		$this->cssRules = new CSSRuleList(null, $this);
+		if (!self::$inIterativeClone && $origRules !== []) {
+			self::cloneRulesIntoList($origRules, $this->cssRules, null, $this);
+		}
+	}
+
+	/**
+	 * @internal Iteratively clones source rules into $targetList without recursion (Xdebug-safe).
+	 * @param list<CSSRule> $sourceRules
+	 */
+	public static function cloneRulesIntoList(
+		array $sourceRules,
+		CSSRuleList $targetList,
+		?CSSStyleSheet $targetSheet,
+		?self $targetOwner,
+	): void {
+		$wasCloning = self::$inIterativeClone;
+		self::$inIterativeClone = true;
+		$totalAdded = 0;
+		$visited = [];
+		try {
+			/** @var list<array{CSSRule, CSSRuleList, ?self}> $stack */
+			$stack = [];
+			for ($i = count($sourceRules) - 1; $i >= 0; $i--) {
+				$stack[] = [$sourceRules[$i], $targetList, $targetOwner];
+			}
+
+			while ($stack !== []) {
+				[$src, $destList, $destOwner] = array_pop($stack);
+				$srcId = spl_object_id($src);
+				if (isset($visited[$srcId])) {
+					throw new LogicException('Cannot clone a cyclic CSS rule tree.');
+				}
+				$visited[$srcId] = true;
+
+				$srcChildren = $src instanceof self ? $src->getCssRules()->getRulesRaw() : [];
+				$cloned = clone $src;
+				$cloned->setParentLinks($targetSheet, $destOwner);
+				$destList->appendClonedInternal($cloned);
+				$totalAdded++;
+
+				if ($cloned instanceof self && $srcChildren !== []) {
+					$childDestList = $cloned->getCssRules();
+					$childDestList->setSheetInternal($targetSheet);
+					for ($i = count($srcChildren) - 1; $i >= 0; $i--) {
+						$stack[] = [$srcChildren[$i], $childDestList, $cloned];
+					}
+				}
+			}
+		} finally {
+			self::$inIterativeClone = $wasCloning;
+		}
+		$targetSheet?->adjustTotalRuleCount($totalAdded);
+	}
+
 	protected function getNestingDepth(): int
 	{
 		$depth = 1;
 		$parent = $this->getParentRule();
+		$visited = [];
 		while ($parent !== null) {
+			$id = spl_object_id($parent);
+			if (isset($visited[$id])) {
+				throw new LogicException('Detected a cycle in CSSGroupingRule ancestor chain.');
+			}
+			$visited[$id] = true;
 			$depth++;
 			$parent = $parent->getParentRule();
 		}

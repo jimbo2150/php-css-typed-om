@@ -24,6 +24,7 @@ Magic read-only `cssRules`, `cssText`, `parseErrors`, and `baseURL`; stylesheet 
 | `deleteRule(int $index = 0): void` | Removes rule at index. Throws `OutOfBoundsException` when invalid. | | `$sheet->deleteRule(0);` |
 | `replaceSync(string $cssText, ?CSSParserOptions $options = null): void` | Replaces all rules and parse diagnostics from recovered parse; first rejects input exceeding `maxBytes` with `InvalidArgumentException`. | | `$sheet->replaceSync('b { color: blue }');` |
 | `recordParseError(string $message, int $offset): void` | Appends a diagnostic record. | | `$sheet->recordParseError('Unexpected token', 4);` |
+| `__clone(): void` | Deep-clones owned `CSSRuleList` and rule subtrees iteratively (`O(1)` PHP stack) with cloned metadata and reset total rule count. | | `$copy = clone $sheet;` |
 | `__toString(): string` | Returns `getCssText()`. | | `(string) $sheet;` |
 | `__get(string $name): mixed` | Exposes `cssRules`, `cssText`, and `parseErrors`; other names delegate to `StyleSheet::__get()`. | | `$sheet->cssRules;` |
 

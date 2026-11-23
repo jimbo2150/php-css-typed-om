@@ -24,4 +24,4 @@ No public constants or enum cases. Inherits `parse` and `parseAll` from [CSSStyl
 | `toMatrix` | `public function toMatrix(): DOMMatrix`; starts with identity and multiplies each component `DOMMatrix` in list order, preserving `is2D = false` if any component is 3D. Example: `$matrix = $transforms->toMatrix();`. |
 | `clone` | `public function clone(): static`; deep-clones each component. Example: `$copy = $transforms->clone();`. |
 | `__toString` | `public function __toString(): string`; joins component serialization with spaces. Example: `$css = (string) $transforms;`. |
-| `__get` | `public function __get(string $name): mixed`; exposes virtual read-only `length` and `is2D`; other names throw `Error`. Example: `$length = $transforms->length;`. |
+| `$length` / `$is2D` (property hooks) | Read-only hooked properties `public int $length { get; }` and `public bool $is2D { get; }`. Undeclared property accesses via `__get`/`__set` throw `Error`. Example: `$length = $transforms->length;`. |

@@ -217,6 +217,9 @@ abstract class CSS
 		}
 
 		$syntax = CSSSyntaxScanner::trimCssWhitespace($syntax);
+		if (strpbrk($syntax, "\t\n\r\f") !== false) {
+			$syntax = (string) preg_replace('/[ \t\n\r\f]+/', ' ', $syntax);
+		}
 		self::validatePropertySyntax($syntax);
 
 		if ($syntax !== '*' && ($initialValue === null || CSSSyntaxScanner::trimCssWhitespace($initialValue) === '')) {
@@ -306,7 +309,12 @@ abstract class CSS
 			return false;
 		}
 
-		return self::evaluateSupportsConditionIterative($condition, $options->maxDepth) === true;
+		$matchingParens = [];
+		if (!self::buildSupportsMatchingParens($condition, $options->maxDepth, $matchingParens)) {
+			return false;
+		}
+
+		return self::evaluateSupportsConditionIterative($condition, $options->maxDepth, $matchingParens) === true;
 	}
 
 	/**
@@ -330,6 +338,18 @@ abstract class CSS
 		$offset = 0;
 
 		while ($offset < $length) {
+			if ($offset >= 2 || ($offset === 1 && !$firstIsDash)) {
+				$safeLen = strspn($source, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-', $offset, $length - $offset);
+				if ($safeLen > 0) {
+					$output .= substr($source, $offset, $safeLen);
+					$offset += $safeLen;
+					$charIndex += $safeLen;
+					if ($offset >= $length) {
+						break;
+					}
+				}
+			}
+
 			$byte = ord($source[$offset]);
 			if ($byte < 0x80) {
 				$codepoint = $byte;
@@ -408,8 +428,12 @@ abstract class CSS
 		}
 	}
 
-	private static function supportsDeclaration(string $property, string $value, bool $allowImportant): bool
-	{
+	private static function supportsDeclaration(
+		string $property,
+		string $value,
+		bool $allowImportant,
+		bool $preValidated = false,
+	): bool {
 		try {
 			$normalized = CSSStyleDeclaration::normalizePropertyName($property);
 		} catch (InvalidArgumentException) {
@@ -417,11 +441,18 @@ abstract class CSS
 		}
 
 		$rawValue = CSSSyntaxScanner::trimCssWhitespace($value);
-		if ($rawValue !== '' && (CSSSyntaxScanner::hasControlCharacters($rawValue) || !CSSSyntaxScanner::isBalanced($rawValue))) {
-			return false;
+		if (!$preValidated) {
+			if ($rawValue !== '' && (CSSSyntaxScanner::hasControlCharacters($rawValue) || !CSSSyntaxScanner::isBalanced($rawValue))) {
+				return false;
+			}
+			$trimmed = str_contains($rawValue, '/*')
+				? CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($rawValue))
+				: $rawValue;
+		} else {
+			$trimmed = $rawValue;
 		}
-		$trimmed = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($rawValue));
-		if ($allowImportant) {
+
+		if ($allowImportant && str_contains($trimmed, '!')) {
 			$bang = CSSSyntaxScanner::findLastTopLevelImportant($trimmed);
 			if ($bang !== null) {
 				$trimmed = rtrim(substr($trimmed, 0, $bang), CSSSyntaxScanner::CSS_WHITESPACE);
@@ -432,12 +463,12 @@ abstract class CSS
 			return false;
 		}
 
-		try {
-			if ($trimmed !== '') {
+		if ($trimmed !== '' && (!$preValidated || strcspn($trimmed, ';{}!') !== strlen($trimmed))) {
+			try {
 				CSSStyleDeclaration::validatePropertyValue($trimmed);
+			} catch (InvalidArgumentException) {
+				return false;
 			}
-		} catch (InvalidArgumentException) {
-			return false;
 		}
 
 		if (str_starts_with($normalized, '--')) {
@@ -525,9 +556,72 @@ abstract class CSS
 	}
 
 	/**
-	 * Iterative slice-based evaluator for `@supports` conditions (O(1) PHP stack frames, zero per-level substr).
+	 * @param array<int, int> $matchingParens
 	 */
-	private static function evaluateSupportsConditionIterative(string $source, ?int $maxDepth): ?bool
+	private static function buildSupportsMatchingParens(string $source, ?int $maxDepth, array &$matchingParens): bool
+	{
+		$length = strlen($source);
+		$stack = [];
+		$offset = 0;
+		$lastEscapeOffset = -1;
+		$mask = "\\\"'()";
+
+		while ($offset < $length) {
+			$offset += strcspn($source, $mask, $offset, $length - $offset);
+			if ($offset >= $length) {
+				break;
+			}
+
+			$ch = $source[$offset];
+			if ($ch === '"' || $ch === "'") {
+				$valid = false;
+				$strEnd = CSSSyntaxScanner::scanQuotedStringEnd($source, $offset, $length, $valid);
+				if (!$valid) {
+					return false;
+				}
+				$offset = $strEnd + 1;
+				continue;
+			}
+			if ($ch === '\\') {
+				$lastEscapeOffset = $offset;
+				if ($offset + 1 < $length && $source[$offset + 1] === "\r" && ($source[$offset + 2] ?? '') === "\n") {
+					$offset += 3;
+				} else {
+					$offset += 2;
+				}
+				continue;
+			}
+			if ($ch === '(') {
+				if (CSSSyntaxScanner::isUnquotedUrlStartInternal($source, $offset, 0, $length, $lastEscapeOffset)) {
+					$valid = false;
+					$urlEnd = CSSSyntaxScanner::scanUnquotedUrlEnd($source, $offset, $length, $valid);
+					$offset = $urlEnd < $length ? $urlEnd + 1 : $length;
+					continue;
+				}
+				$stack[] = $offset;
+				if ($maxDepth !== null && count($stack) > $maxDepth) {
+					return false;
+				}
+				$offset++;
+				continue;
+			}
+			// $ch === ')'
+			if ($stack === []) {
+				return false;
+			}
+			$matchingParens[array_pop($stack)] = $offset;
+			$offset++;
+		}
+
+		return $stack === [];
+	}
+
+	/**
+	 * Iterative slice-based evaluator for `@supports` conditions (O(1) PHP stack frames, zero per-level substr).
+	 *
+	 * @param array<int, int> $matchingParens
+	 */
+	private static function evaluateSupportsConditionIterative(string $source, ?int $maxDepth, array &$matchingParens): ?bool
 	{
 		// Frame modes:
 		// 0 = EVAL_CONDITION(start, end, depth, targetKind, targetIdx)
@@ -570,7 +664,7 @@ abstract class CSS
 				$nextSlot = count($slots);
 				$slots[] = null;
 				$stack[] = [1, $op, $clauses, $idx + 1, $depth, $nextSlot, $destSlot];
-				self::pushSupportsInParens($source, $cStart, $cEnd, $depth, $nextSlot, $maxDepth, $slots, $stack);
+				self::pushSupportsInParens($source, $cStart, $cEnd, $depth, $nextSlot, $maxDepth, $slots, $stack, $matchingParens);
 				continue;
 			}
 
@@ -587,7 +681,7 @@ abstract class CSS
 			}
 
 			$c0 = $source[$start];
-			$startsNot = $end - $start >= 4 && strncasecmp(substr($source, $start, 3), 'not', 3) === 0
+			$startsNot = $end - $start >= 4 && substr_compare($source, 'not', $start, 3, true) === 0
 				&& str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$start + 3]);
 			$startsSelector = $end - $start >= 9 && substr_compare($source, 'selector(', $start, 9, true) === 0;
 
@@ -597,6 +691,7 @@ abstract class CSS
 					$slots[$destSlot] = self::supportsDeclaration(
 						substr($source, $start, $colon - $start),
 						substr($source, $colon + 1, $end - ($colon + 1)),
+						true,
 						true,
 					);
 				} else {
@@ -609,18 +704,18 @@ abstract class CSS
 				$opStart = $start + 4;
 				$opEnd = $end;
 				self::trimSlice($source, $opStart, $opEnd);
-				if (!self::isSupportsInParensSlice($source, $opStart, $opEnd)) {
+				if (!self::isSupportsInParensSlice($source, $opStart, $opEnd, $matchingParens)) {
 					$slots[$destSlot] = false;
 					continue;
 				}
 				$innerSlot = count($slots);
 				$slots[] = null;
 				$stack[] = [2, $innerSlot, $destSlot];
-				self::pushSupportsInParens($source, $opStart, $opEnd, $depth, $innerSlot, $maxDepth, $slots, $stack);
+				self::pushSupportsInParens($source, $opStart, $opEnd, $depth, $innerSlot, $maxDepth, $slots, $stack, $matchingParens);
 				continue;
 			}
 
-			$tokens = self::splitSupportsClausesSlice($source, $start, $end);
+			$tokens = self::splitSupportsClausesSlice($source, $start, $end, $matchingParens);
 			if ($tokens === null || $tokens === []) {
 				$slots[$destSlot] = false;
 				continue;
@@ -631,7 +726,7 @@ abstract class CSS
 					$slots[$destSlot] = false;
 					continue;
 				}
-				self::pushSupportsInParens($source, $tokens[0][0], $tokens[0][1], $depth, $destSlot, $maxDepth, $slots, $stack);
+				self::pushSupportsInParens($source, $tokens[0][0], $tokens[0][1], $depth, $destSlot, $maxDepth, $slots, $stack, $matchingParens);
 				continue;
 			}
 
@@ -673,7 +768,7 @@ abstract class CSS
 			$firstSlot = count($slots);
 			$slots[] = null;
 			$stack[] = [1, $operator, $clauses, 1, $depth, $firstSlot, $destSlot];
-			self::pushSupportsInParens($source, $clauses[0][0], $clauses[0][1], $depth, $firstSlot, $maxDepth, $slots, $stack);
+			self::pushSupportsInParens($source, $clauses[0][0], $clauses[0][1], $depth, $firstSlot, $maxDepth, $slots, $stack, $matchingParens);
 		}
 
 		return $slots[0];
@@ -682,6 +777,7 @@ abstract class CSS
 	/**
 	 * @param array<int, ?bool> $slots
 	 * @param list<array<int, mixed>> $stack
+	 * @param array<int, int> $matchingParens
 	 */
 	private static function pushSupportsInParens(
 		string $source,
@@ -692,6 +788,7 @@ abstract class CSS
 		?int $maxDepth,
 		array &$slots,
 		array &$stack,
+		array &$matchingParens,
 	): void {
 		if ($maxDepth !== null && $depth > $maxDepth) {
 			$slots[$destSlot] = null;
@@ -704,7 +801,7 @@ abstract class CSS
 		}
 		if ($end - $start >= 9 && substr_compare($source, 'selector(', $start, 9, true) === 0) {
 			$open = $start + 8;
-			$close = CSSSyntaxScanner::findMatchingDelimiter($source, $open, $end);
+			$close = $matchingParens[$open] ?? null;
 			if ($close !== $end - 1) {
 				$slots[$destSlot] = false;
 				return;
@@ -739,7 +836,7 @@ abstract class CSS
 		}
 
 		$isGroupOrNot = $source[$innerStart] === '('
-			|| ($innerEnd - $innerStart >= 4 && strncasecmp(substr($source, $innerStart, 3), 'not', 3) === 0 && str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$innerStart + 3]))
+			|| ($innerEnd - $innerStart >= 4 && substr_compare($source, 'not', $innerStart, 3, true) === 0 && str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$innerStart + 3]))
 			|| ($innerEnd - $innerStart >= 9 && substr_compare($source, 'selector(', $innerStart, 9, true) === 0);
 
 		if ($isGroupOrNot) {
@@ -758,6 +855,7 @@ abstract class CSS
 				substr($source, $innerStart, $colon - $innerStart),
 				substr($source, $colon + 1, $innerEnd - ($colon + 1)),
 				true,
+				true,
 			);
 			return;
 		}
@@ -775,18 +873,21 @@ abstract class CSS
 		}
 	}
 
-	private static function isSupportsInParensSlice(string $source, int $start, int $end): bool
+	/**
+	 * @param array<int, int> $matchingParens
+	 */
+	private static function isSupportsInParensSlice(string $source, int $start, int $end, array &$matchingParens): bool
 	{
 		self::trimSlice($source, $start, $end);
 		if ($start >= $end) {
 			return false;
 		}
 		if ($source[$start] === '(') {
-			return CSSSyntaxScanner::findMatchingDelimiter($source, $start, $end) === $end - 1;
+			return ($matchingParens[$start] ?? null) === $end - 1;
 		}
 		if ($end - $start >= 9 && substr_compare($source, 'selector(', $start, 9, true) === 0) {
 			$open = $start + 8;
-			return CSSSyntaxScanner::findMatchingDelimiter($source, $open, $end) === $end - 1;
+			return ($matchingParens[$open] ?? null) === $end - 1;
 		}
 
 		return false;
@@ -795,9 +896,10 @@ abstract class CSS
 	/**
 	 * Splits top-level `@supports` clauses and combinators (`and` / `or`) over a byte slice.
 	 *
+	 * @param array<int, int> $matchingParens
 	 * @return list<array{0: int, 1: int}|string>|null
 	 */
-	private static function splitSupportsClausesSlice(string $source, int $start, int $end): ?array
+	private static function splitSupportsClausesSlice(string $source, int $start, int $end, array &$matchingParens): ?array
 	{
 		$tokens = [];
 		$offset = $start;
@@ -809,7 +911,7 @@ abstract class CSS
 			}
 
 			if ($source[$offset] === '(') {
-				$close = CSSSyntaxScanner::findMatchingDelimiter($source, $offset, $end);
+				$close = $matchingParens[$offset] ?? null;
 				if ($close === null || $close >= $end) {
 					return null;
 				}
@@ -820,7 +922,7 @@ abstract class CSS
 
 			if ($end - $offset >= 9 && substr_compare($source, 'selector(', $offset, 9, true) === 0) {
 				$open = $offset + 8;
-				$close = CSSSyntaxScanner::findMatchingDelimiter($source, $open, $end);
+				$close = $matchingParens[$open] ?? null;
 				if ($close === null || $close >= $end) {
 					return null;
 				}

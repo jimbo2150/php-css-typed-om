@@ -48,6 +48,7 @@ Private `parentStyleSheet` and `parentRule` fields are exposed by getters and ma
 | `getParentStyleSheet(): ?CSSStyleSheet` | Returns attached stylesheet, or `null` when detached. | `$rule->getParentStyleSheet();` |
 | `getParentRule(): ?CSSGroupingRule` | Returns owning grouping rule, or `null` when not nested/attached. | `$rule->getParentRule();` |
 | `attach(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void` | Updates both parent references; grouping subclasses also reparent child lists. | `$rule->attach($sheet, null);` |
+| `__clone(): void` | Deeply detaches/clones rule state iteratively (including owned style declarations and grouping child lists without recursion). | `$copy = clone $rule;` |
 | `__toString(): string` | Returns `getCssText()`. | `$css = (string) $rule;` |
 | `__get(string $name): mixed` | Maps `type`, `cssText`, `parentStyleSheet`, and `parentRule`; unknown names throw `Error`. | `$rule->cssText;` |
 | `__set(string $name, mixed $value): void` | Rejects every magic write with `Error`. | `$rule->cssText = 'x'; // throws Error` |

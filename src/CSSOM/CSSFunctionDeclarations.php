@@ -43,4 +43,11 @@ final class CSSFunctionDeclarations extends CSSRule
 	{
 		return $name === 'style' || parent::__isset($name);
 	}
+
+	public function __clone(): void
+	{
+		parent::__clone();
+		$this->style = clone $this->style;
+		$this->style->setParentRule($this);
+	}
 }

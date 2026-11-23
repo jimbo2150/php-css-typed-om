@@ -7,5 +7,5 @@
 
 ## Properties & Methods
 
-- Channels (`CSSNumericValue|CSSKeywordValue`): `l`, `c`, `h`, `alpha` (`getL()`/`setL()`, `getC()`/`setC()`, `getH()`/`setH()`, `getAlpha()`/`setAlpha()`, plus magic `__get`/`__set`).
+- Channels (`CSSNumericValue|CSSKeywordValue`): property hooks `$l`, `$c`, `$h`, `$alpha` (cloning returned `CSSKeywordValue` instances) and methods `getL()`/`setL()`, `getC()`/`setC()`, `getH()`/`setH()`, `getAlpha()`/`setAlpha()`.
 - `__construct($l, $c, $h, $alpha = 1.0)`, `toOKLCH(): CSSOKLCH`, `toOKLab(): CSSOKLab`, `clone(): static`, `__toString(): string`.

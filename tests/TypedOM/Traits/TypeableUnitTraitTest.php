@@ -71,6 +71,7 @@ class TypeableUnitTraitTest extends TestCase
 	public function testUnsetType(): void
 	{
 		$this->expectException(Exception::class);
-		$this->assertSame(null, $this->type());
+		$this->expectExceptionMessage('No unit set.');
+		$this->type();
 	}
 }

@@ -82,7 +82,10 @@ final class CSSContainerRule extends CSSConditionRule
 			return $this->parsedPrelude;
 		}
 
-		$prelude = CSSSyntaxScanner::trimCssWhitespace($this->prelude);
+		$raw = CSSSyntaxScanner::trimCssWhitespace($this->prelude);
+		$prelude = str_contains($raw, '/*')
+			? CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($raw))
+			: $raw;
 		if ($prelude === '') {
 			return $this->parsedPrelude = ['', ''];
 		}
@@ -110,10 +113,11 @@ final class CSSContainerRule extends CSSConditionRule
 		if ($token === '' || str_contains($token, '(') || str_contains($token, ')')) {
 			return false;
 		}
-		if (isset(self::RESERVED_KEYWORDS[strtolower($token)])) {
+		if (preg_match('/^(?:--|-?(?:[_a-zA-Z]|[^\x00-\x7F]|' . CSSSyntaxScanner::IDENT_ESCAPE_REGEX . '))(?:[-_a-zA-Z0-9]|[^\x00-\x7F]|' . CSSSyntaxScanner::IDENT_ESCAPE_REGEX . ')*$/uD', $token) !== 1) {
 			return false;
 		}
+		$decoded = str_contains($token, '\\') ? CSSSyntaxScanner::decodeCssIdentEscapes($token) : $token;
 
-		return preg_match('/^(?:--|-?(?:[_a-zA-Z]|[^\x00-\x7F]|' . CSSSyntaxScanner::IDENT_ESCAPE_REGEX . '))(?:[-_a-zA-Z0-9]|[^\x00-\x7F]|' . CSSSyntaxScanner::IDENT_ESCAPE_REGEX . ')*$/uD', $token) === 1;
+		return !isset(self::RESERVED_KEYWORDS[strtolower($decoded)]);
 	}
 }

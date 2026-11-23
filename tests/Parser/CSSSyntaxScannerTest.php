@@ -160,5 +160,12 @@ final class CSSSyntaxScannerTest extends TestCase
 		self::assertSame('calc(10px+ 5px)', CSSSyntaxScanner::removeComments('calc(10px/*a*/+/*b*/5px)'));
 		self::assertSame('rgb(255 0 0)', CSSSyntaxScanner::removeComments('rgb(255/*c*/0 0)'));
 		self::assertSame('a{color:red;}', CSSSyntaxScanner::removeComments('a/*c*/{color:red;}'));
+		self::assertSame('1e +2', CSSSyntaxScanner::removeComments('1e/*c*/+2'));
+		self::assertSame('<! --', CSSSyntaxScanner::removeComments('<!/*c*/--'));
+		// Escaped '/' (\/*...*/) is an escaped slash token, NOT a comment opener
+		self::assertSame('1e\\/*c*/+2', CSSSyntaxScanner::removeComments('1e\\/*c*/+2'));
+		self::assertNull(CSSSyntaxScanner::findMatchingUrlEnd('url("a.png" /*', 3));
+		self::assertSame("a \\\nb", CSSSyntaxScanner::removeComments("a/*c*/\\\nb"));
+		self::assertSame("a\\\nb", CSSSyntaxScanner::removeComments("a\\\n/*c*/b"));
 	}
 }

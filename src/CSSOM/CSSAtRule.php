@@ -104,4 +104,13 @@ class CSSAtRule extends CSSRule
 			default => parent::__isset($name),
 		};
 	}
+
+	public function __clone(): void
+	{
+		parent::__clone();
+		if ($this->style !== null) {
+			$this->style = clone $this->style;
+			$this->style->setParentRule($this);
+		}
+	}
 }

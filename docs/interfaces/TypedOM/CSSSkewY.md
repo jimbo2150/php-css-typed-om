@@ -6,7 +6,7 @@
 
 ## Public API
 
-No public constants or enum cases. Inherits `parse`/`parseAll` from [CSSStyleValue](CSSStyleValue.md#public-api), and common transform methods `getValues`, `getFunctionName`, `is2D`, `__toString`, `__get`, `__set`, `identityMatrix`, and `multiplyMatrices` from [CSSTransformComponent](CSSTransformComponent.md#public-api). Overrides `setIs2D`, `toMatrix`, and `clone`.
+No public constants or enum cases. Inherits `parse`/`parseAll` from [CSSStyleValue](CSSStyleValue.md#public-api), and common transform methods `getValues`, `getFunctionName`, `is2D`, `$is2D`, `__toString`, `identityMatrix`, and `multiplyMatrices` from [CSSTransformComponent](CSSTransformComponent.md#public-api). Overrides `setIs2D`, `toMatrix`, and `clone`.
 
 | Method/property | Signature and behavior |
 |---|---|
@@ -16,5 +16,4 @@ No public constants or enum cases. Inherits `parse`/`parseAll` from [CSSStyleVal
 | `setIs2D` | `public function setIs2D(bool $is2D): void`; skew transforms are strictly 2D; passing `false` throws `InvalidArgumentException`. |
 | `toMatrix` | `public function toMatrix(): DOMMatrix`; returns a 2D `DOMMatrix` using the tangent of the y angle; non-finite tangents throw `InvalidArgumentException`. Example: `$matrix = $skew->toMatrix();`. |
 | `clone` | `public function clone(): static`; copies the angle. Example: `$copy = $skew->clone();`. |
-| `__get` | `public function __get(string $name): mixed`; exposes magic read-only `ay`; other names delegate to parent (`is2D`). Example: `$angle = $skew->ay;`. |
-| `__set` | `public function __set(string $name, mixed $value): void`; accepts `CSSNumericValue` for magic `ay` through its setter; delegates to parent or throws `Error`. Example: `$skew->ay = CSSNumericValue::parse('8deg');`. |
+| `$ay` (property hook) | `public CSSNumericValue $ay { get; set; }`; reads/writes validated angle via setter. Unknown properties via `__get`/`__set` throw `Error`. Example: `$skew->ay = CSSNumericValue::parse('8deg');`. |

@@ -13,7 +13,7 @@ Magic read-only `href`, `media`, `mediaText`, `styleSheet`, `layerName`, and `su
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(string $prelude)` | Requires non-empty text; stores a media list parsed from the remaining tail. Throws `InvalidArgumentException` when empty. | `$rule = new CSSImportRule('url("theme.css") layer(theme) screen');` |
+| `__construct(string $prelude)` | Requires non-empty text; strictly parses tail clauses (`layer` / `layer(name)` before optional `supports(...)` before media list, rejecting duplicate or empty clauses and trailing junk) using O(N) balanced delimiter matching. Throws `InvalidArgumentException` on invalid preludes. | `$rule = new CSSImportRule('url("theme.css") layer(theme) screen');` |
 | `getHref(): string` | Returns the first prelude token with `url(...)` and surrounding quotes unwrapped. | `$rule->getHref();` |
 | `getMedia(): MediaList` | Returns the parsed mutable media list. | `$rule->getMedia()->appendMedium('print');` |
 | `getMediaText(): string` | Returns normalized media-list text. | `$rule->getMediaText();` |

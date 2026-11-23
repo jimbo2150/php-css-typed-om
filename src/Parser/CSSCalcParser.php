@@ -135,6 +135,9 @@ class CSSCalcParser
 		int $rootMode,
 		bool $throwOnInvalid,
 	): ?CSSNumericValue {
+		$matchingParens = null;
+		$totalTokens = 0;
+		$totalNodes = 0;
 		$slots = [];
 		$nextSlot = 1;
 		$workStack = [[0, $rootStart, $rootEnd, $rootDepth, $rootMode, 0]];
@@ -154,9 +157,16 @@ class CSSCalcParser
 							if ($valueStack === []) {
 								throw new InvalidArgumentException('Insufficient operands for operator: ' . substr($op, 1));
 							}
-							$value = self::materializeValue(array_pop($valueStack));
+							$value = self::materializeValue(array_pop($valueStack), $totalNodes);
 							if ($op === 'u-') {
-								$valueStack[] = $value instanceof CSSMathNegate ? $value->values->values[0] : new CSSMathNegate([$value]);
+								if ($value instanceof CSSMathNegate) {
+									$valueStack[] = $value->values->values[0];
+								} else {
+									if (++$totalNodes > CSSNumericValue::MAX_MATH_NODES) {
+										throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
+									}
+									$valueStack[] = new CSSMathNegate([$value]);
+								}
 							} else {
 								$valueStack[] = $value;
 							}
@@ -165,11 +175,18 @@ class CSSCalcParser
 						if (count($valueStack) < 2) {
 							throw new InvalidArgumentException('Insufficient operands for operator: ' . $op);
 						}
-						$operand2 = self::materializeValue(array_pop($valueStack));
+						$operand2 = self::materializeValue(array_pop($valueStack), $totalNodes);
 						$rawLeft = array_pop($valueStack);
 
 						if ($op === '+' || $op === '-') {
-							$rhs = $op === '-' ? new CSSMathNegate([$operand2]) : $operand2;
+							if ($op === '-') {
+								if (++$totalNodes > CSSNumericValue::MAX_MATH_NODES) {
+									throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
+								}
+								$rhs = new CSSMathNegate([$operand2]);
+							} else {
+								$rhs = $operand2;
+							}
 							if (is_array($rawLeft) && $rawLeft[0] === self::GROUP_SUM) {
 								$rawLeft[2] = CSSNumericValue::combineAdditiveTypes($rawLeft[2], $rhs->getNumericTypeInternal());
 								$rawLeft[1][] = $rhs;
@@ -180,12 +197,19 @@ class CSSCalcParser
 								$list[] = $rhs;
 								$valueStack[] = [self::GROUP_SUM, $list, $merged];
 							} else {
-								$left = self::materializeValue($rawLeft);
+								$left = self::materializeValue($rawLeft, $totalNodes);
 								$merged = CSSNumericValue::combineAdditiveTypes($left->getNumericTypeInternal(), $rhs->getNumericTypeInternal());
 								$valueStack[] = [self::GROUP_SUM, [$left, $rhs], $merged];
 							}
 						} else {
-							$rhs = $op === '/' ? new CSSMathInvert([$operand2]) : $operand2;
+							if ($op === '/') {
+								if (++$totalNodes > CSSNumericValue::MAX_MATH_NODES) {
+									throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
+								}
+								$rhs = new CSSMathInvert([$operand2]);
+							} else {
+								$rhs = $operand2;
+							}
 							if (is_array($rawLeft) && $rawLeft[0] === self::GROUP_PRODUCT) {
 								$rawLeft[2] = $rawLeft[2]->multiply($rhs->getNumericTypeInternal());
 								$rawLeft[1][] = $rhs;
@@ -196,12 +220,15 @@ class CSSCalcParser
 								$list[] = $rhs;
 								$valueStack[] = [self::GROUP_PRODUCT, $list, $mergedType];
 							} else {
-								$left = self::materializeValue($rawLeft);
+								$left = self::materializeValue($rawLeft, $totalNodes);
 								$mergedType = $left->getNumericTypeInternal()->multiply($rhs->getNumericTypeInternal());
 								$valueStack[] = [self::GROUP_PRODUCT, [$left, $rhs], $mergedType];
 							}
 						}
 					} elseif ($type === self::T_NUMBER) {
+						if (++$totalNodes > CSSNumericValue::MAX_MATH_NODES) {
+							throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
+						}
 						/** @var float $numValue */
 						$numValue = $token[2];
 						/** @var CSSUnitEnum $unitEnum */
@@ -222,7 +249,7 @@ class CSSCalcParser
 				if (count($valueStack) !== 1) {
 					throw new InvalidArgumentException('Invalid expression.');
 				}
-				$slots[$targetSlot] = self::materializeValue($valueStack[0]);
+				$slots[$targetSlot] = self::materializeValue($valueStack[0], $totalNodes);
 				continue;
 			}
 
@@ -236,6 +263,9 @@ class CSSCalcParser
 						throw new InvalidArgumentException('Invalid argument in ' . $function . '().');
 					}
 					$arguments[] = $val;
+				}
+				if (++$totalNodes > CSSNumericValue::MAX_MATH_NODES) {
+					throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
 				}
 				$slots[$targetSlot] = match ($function) {
 					'min' => new CSSMathMin($arguments),
@@ -280,6 +310,9 @@ class CSSCalcParser
 						}
 						return null;
 					}
+					if (++$totalNodes > CSSNumericValue::MAX_MATH_NODES) {
+						throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
+					}
 					$slots[$targetSlot] = new CSSUnitValue($value, $unit);
 					continue;
 				}
@@ -288,17 +321,24 @@ class CSSCalcParser
 					&& $sliceLen >= 6
 					&& substr_compare($source, 'calc(', $start, 5, true) === 0
 				) {
-					$close = CSSSyntaxScanner::findMatchingDelimiter($source, $start + 4, $end);
+					$matchingParens ??= self::buildMatchingParens($source, $rootStart, $rootEnd);
+					$close = $matchingParens[$start + 4] ?? null;
 					if ($close !== $end - 1) {
 						if ($throwOnInvalid) {
 							throw new InvalidArgumentException('Invalid CSS calc() expression.');
 						}
 						return null;
 					}
-					$workStack[] = [0, $start + 5, $close, $depth, 2, $targetSlot];
-					continue;
+					$start += 5;
+					$end = $close;
+					self::trimSlice($source, $start, $end);
+					$mode = 2;
 				}
+			}
 
+			if ($mode === 0) {
+				$c0 = $source[$start];
+				$sliceLen = $end - $start;
 				$fnName = null;
 				$openOffset = -1;
 				if ($sliceLen >= 5 && ($c0 === 'm' || $c0 === 'M')) {
@@ -315,7 +355,8 @@ class CSSCalcParser
 				}
 
 				if ($fnName !== null) {
-					$close = CSSSyntaxScanner::findMatchingDelimiter($source, $openOffset, $end);
+					$matchingParens ??= self::buildMatchingParens($source, $rootStart, $rootEnd);
+					$close = $matchingParens[$openOffset] ?? null;
 					if ($close !== $end - 1) {
 						if ($throwOnInvalid) {
 							throw new InvalidArgumentException('Invalid CSS math function.');
@@ -329,6 +370,9 @@ class CSSCalcParser
 						$comma = CSSSyntaxScanner::findTopLevel($source, ',', $argPos, $close);
 						$segEnd = $comma ?? $close;
 						$argRanges[] = [$argPos, $segEnd];
+						if (($totalNodes + count($argRanges)) > CSSNumericValue::MAX_MATH_NODES) {
+							throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
+						}
 						if ($comma === null) {
 							break;
 						}
@@ -374,7 +418,7 @@ class CSSCalcParser
 			}
 
 			// mode === 2: inner <calc-sum> expression
-			$tokens = self::tokenizeSlice($source, $start, $end, $options, $depth);
+			$tokens = self::tokenizeSlice($source, $start, $end, $options, $depth, $totalTokens, $matchingParens, $rootStart, $rootEnd);
 			$outputQueue = [];
 			$operatorStack = [];
 			$parenDepth = 0;
@@ -462,27 +506,52 @@ class CSSCalcParser
 			if ($start + 1 < $end && $source[$start] === '/' && $source[$start + 1] === '*') {
 				$cEnd = strpos($source, '*/', $start + 2);
 				if ($cEnd === false || $cEnd + 1 >= $end) {
-					$start = $end;
-					return;
+					throw new InvalidArgumentException('Unclosed comment in CSS math expression.');
 				}
 				$start = $cEnd + 2;
 				continue;
 			}
 			break;
 		}
-		while ($end > $start) {
+		if ($start >= $end) {
+			return;
+		}
+
+		$firstComment = strpos($source, '/*', $start);
+		if ($firstComment === false || $firstComment >= $end) {
 			while ($end > $start && str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$end - 1])) {
 				$end--;
 			}
-			if ($end - $start >= 4 && $source[$end - 2] === '*' && $source[$end - 1] === '/') {
-				$commentStart = strrpos(substr($source, $start, $end - $start - 2), '/*');
-				if ($commentStart !== false) {
-					$end = $start + $commentStart;
-					continue;
-				}
-			}
-			break;
+			return;
 		}
+
+		$lastContentEnd = $start;
+		$pos = $start;
+		while ($pos < $end) {
+			$pos += strspn($source, CSSSyntaxScanner::CSS_WHITESPACE, $pos, $end - $pos);
+			if ($pos >= $end) {
+				break;
+			}
+			if ($pos + 1 < $end && $source[$pos] === '/' && $source[$pos + 1] === '*') {
+				$cEnd = strpos($source, '*/', $pos + 2);
+				if ($cEnd === false || $cEnd + 1 >= $end) {
+					throw new InvalidArgumentException('Unclosed comment in CSS math expression.');
+				}
+				$pos = $cEnd + 2;
+				continue;
+			}
+			$nextComment = strpos($source, '/*', $pos);
+			$chunkEnd = ($nextComment === false || $nextComment >= $end) ? $end : $nextComment;
+			$trimmedEnd = $chunkEnd;
+			while ($trimmedEnd > $pos && str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$trimmedEnd - 1])) {
+				$trimmedEnd--;
+			}
+			if ($trimmedEnd > $pos) {
+				$lastContentEnd = $trimmedEnd;
+			}
+			$pos = $chunkEnd;
+		}
+		$end = $lastContentEnd;
 	}
 
 	private static function sliceContainsMathExpression(string $source, int $start, int $end): bool
@@ -507,10 +576,16 @@ class CSSCalcParser
 	/**
 	 * @param CSSNumericValue|array{0: int, 1: list<CSSNumericValue>, 2: CSSNumericType} $entry
 	 */
-	private static function materializeValue(CSSNumericValue|array $entry): CSSNumericValue
+	private static function materializeValue(CSSNumericValue|array $entry, int &$totalNodes): CSSNumericValue
 	{
 		if ($entry instanceof CSSNumericValue) {
 			return $entry;
+		}
+		if (++$totalNodes > CSSNumericValue::MAX_MATH_NODES) {
+			throw new CSSParserLimitException(sprintf(
+				'Maximum CSS math expression node count of %d exceeded.',
+				CSSNumericValue::MAX_MATH_NODES,
+			));
 		}
 		if ($entry[0] === self::GROUP_SUM) {
 			return CSSMathSum::fromValidated($entry[1], $entry[2]);
@@ -519,11 +594,56 @@ class CSSCalcParser
 		return CSSMathProduct::fromValidated($entry[1], $entry[2]);
 	}
 
+	/** @return array<int, int> */
+	private static function buildMatchingParens(string $source, int $start, int $end): array
+	{
+		$matchingParens = [];
+		$parenStack = [];
+		$scan = $start;
+		while ($scan < $end) {
+			$scan += strcspn($source, '()/', $scan, $end - $scan);
+			if ($scan >= $end) {
+				break;
+			}
+			$ch = $source[$scan];
+			if ($ch === '/') {
+				if ($scan + 1 < $end && $source[$scan + 1] === '*') {
+					$cEnd = strpos($source, '*/', $scan + 2);
+					if ($cEnd === false || $cEnd + 1 >= $end) {
+						break;
+					}
+					$scan = $cEnd + 2;
+					continue;
+				}
+				$scan++;
+				continue;
+			}
+			if ($ch === '(') {
+				$parenStack[] = $scan;
+			} elseif ($parenStack !== []) {
+				$matchingParens[array_pop($parenStack)] = $scan;
+			}
+			$scan++;
+		}
+
+		return $matchingParens;
+	}
+
 	/**
+	 * @param ?array<int, int> $matchingParens
 	 * @return list<array{0: int, 1: mixed, 2?: mixed, 3?: CSSUnitEnum}>
 	 */
-	private static function tokenizeSlice(string $expression, int $sliceStart, int $sliceEnd, CSSParserOptions $options, int $depth): array
-	{
+	private static function tokenizeSlice(
+		string $expression,
+		int $sliceStart,
+		int $sliceEnd,
+		CSSParserOptions $options,
+		int $depth,
+		int &$totalTokens,
+		?array &$matchingParens,
+		int $rootStart,
+		int $rootEnd,
+	): array {
 		$tokens = [];
 		$offset = $sliceStart;
 		$expectsOperand = true;
@@ -555,6 +675,12 @@ class CSSCalcParser
 
 			if ($maxTokens !== null && count($tokens) >= $maxTokens) {
 				throw new CSSParserLimitException('CSS calc() expression exceeds maximum token limit.');
+			}
+			if (++$totalTokens > CSSNumericValue::MAX_MATH_NODES) {
+				throw new CSSParserLimitException(sprintf(
+					'Maximum CSS math expression node count of %d exceeded.',
+					CSSNumericValue::MAX_MATH_NODES,
+				));
 			}
 
 			if (!$expectsOperand && ($character === '+' || $character === '-')) {
@@ -646,7 +772,8 @@ class CSSCalcParser
 				$name = $identifier[0];
 				$afterName = $offset + strlen($name);
 				if ($afterName < $sliceEnd && $expression[$afterName] === '(') {
-					$close = CSSSyntaxScanner::findMatchingDelimiter($expression, $afterName, $sliceEnd);
+					$matchingParens ??= self::buildMatchingParens($expression, $rootStart, $rootEnd);
+					$close = $matchingParens[$afterName] ?? null;
 					if ($close === null || $close >= $sliceEnd) {
 						throw new InvalidArgumentException('Mismatched parentheses.');
 					}

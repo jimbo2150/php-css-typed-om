@@ -33,6 +33,17 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 		$this->setMediaText($mediaText);
 	}
 
+	/**
+	 * @internal Creates an independent copy bound to a new change callback without re-parsing.
+	 */
+	public function cloneWithCallback(?Closure $onChange): self
+	{
+		$copy = new self('', $onChange);
+		$copy->media = $this->media;
+
+		return $copy;
+	}
+
 	public function getMediaText(): string
 	{
 		return implode(', ', $this->media);

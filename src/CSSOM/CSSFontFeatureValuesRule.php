@@ -104,4 +104,14 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 		}
 		parent::__set($name, $value);
 	}
+
+	public function __clone(): void
+	{
+		parent::__clone();
+		$clonedMaps = [];
+		foreach ($this->featureMaps as $category => $map) {
+			$clonedMaps[$category] = clone $map;
+		}
+		$this->featureMaps = $clonedMaps;
+	}
 }

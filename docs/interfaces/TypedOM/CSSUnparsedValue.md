@@ -22,7 +22,7 @@ No public constants or enum cases. It inherits `parse(string $propertyOrCssText,
 | `getIterator` | `public function getIterator(): Traversable`; returns an `ArrayIterator` over fragments. Example: `foreach ($value as $fragment) { /* consume fragment */ }`. |
 | `clone` | `public function clone(): static`; clones each variable-reference fragment and copies strings. Example: `$copy = $value->clone();`. |
 | `__toString` | `public function __toString(): string`; iteratively concatenates fragments (handling arbitrary nesting without PHP call-stack recursion limits) and enforces the instance's byte limit (`maxBytes ?? CSSParserOptions::DEFAULT_MAX_BYTES`; unlimited when constructed with `CSSParserOptions::unlimited()`), throwing `CSSParserLimitException` if exceeded. Example: `$css = (string) $value;`. |
-| `__get` | `public function __get(string $name): mixed`; exposes virtual read-only `length` as fragment count; unknown properties throw `Error`. Example: `$length = $value->length;`. |
+| `$length` (property hook) | `public int $length { get; }` returning fragment count (`count($this->values)`). Undeclared property accesses via `__get`/`__set` throw `Error`. Example: `$length = $value->length;`. |
 
 ## Fragment parsing note
 

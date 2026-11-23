@@ -55,6 +55,9 @@ abstract class CSSMathValue extends CSSNumericValue
 	protected function requireOperandCount(int $minimum, ?int $maximum = null): void
 	{
 		$count = count($this->values);
+		if ($count > CSSNumericValue::MAX_MATH_NODES) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
+		}
 		if ($count < $minimum || ($maximum !== null && $count > $maximum)) {
 			throw new InvalidArgumentException('Invalid number of operands for ' . static::class . '.');
 		}

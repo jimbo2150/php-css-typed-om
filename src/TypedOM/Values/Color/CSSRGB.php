@@ -20,21 +20,21 @@ final class CSSRGB extends CSSColorValue
 	private CSSNumericValue|CSSKeywordValue $bValue;
 
 	public CSSNumericValue|CSSKeywordValue $r {
-		get => $this->rValue;
+		get => self::exposeComponent($this->rValue);
 		set (CSSNumericValue|CSSKeywordValue|int|float $value) {
 			$this->rValue = self::normalizePercentChannel($value, 100.0);
 		}
 	}
 
 	public CSSNumericValue|CSSKeywordValue $g {
-		get => $this->gValue;
+		get => self::exposeComponent($this->gValue);
 		set (CSSNumericValue|CSSKeywordValue|int|float $value) {
 			$this->gValue = self::normalizePercentChannel($value, 100.0);
 		}
 	}
 
 	public CSSNumericValue|CSSKeywordValue $b {
-		get => $this->bValue;
+		get => self::exposeComponent($this->bValue);
 		set (CSSNumericValue|CSSKeywordValue|int|float $value) {
 			$this->bValue = self::normalizePercentChannel($value, 100.0);
 		}
@@ -73,9 +73,9 @@ final class CSSRGB extends CSSColorValue
 		return $instance;
 	}
 
-	public function getR(): CSSNumericValue|CSSKeywordValue { return $this->rValue; }
-	public function getG(): CSSNumericValue|CSSKeywordValue { return $this->gValue; }
-	public function getB(): CSSNumericValue|CSSKeywordValue { return $this->bValue; }
+	public function getR(): CSSNumericValue|CSSKeywordValue { return self::exposeComponent($this->rValue); }
+	public function getG(): CSSNumericValue|CSSKeywordValue { return self::exposeComponent($this->gValue); }
+	public function getB(): CSSNumericValue|CSSKeywordValue { return self::exposeComponent($this->bValue); }
 
 	public function setR(CSSNumericValue|CSSKeywordValue|int|float $r): void
 	{

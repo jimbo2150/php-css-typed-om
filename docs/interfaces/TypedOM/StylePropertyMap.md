@@ -6,7 +6,7 @@
 
 ## Public API
 
-No public constants or enum cases. This class inherits the constructor and all read-only methods from [StylePropertyMapReadOnly](StylePropertyMapReadOnly.md#public-api): `__construct(CSSStyleDeclaration $style)`, `get(string $property): ?CSSStyleValue`, `getAll(string $property): array`, `has(string $property): bool`, `count(): int`, `getSize(): int`, `getStyleDeclaration(): CSSStyleDeclaration`, `keys(): array`, `values(): array`, `entries(): array`, `forEach(callable $callback): void`, `getIterator(): Traversable`, and `__get(string $name): mixed` (magic `size`). Their behavior and examples are documented on the parent page.
+No public constants or enum cases. This class inherits the constructor, `public int $size` hook, and all read-only methods from [StylePropertyMapReadOnly](StylePropertyMapReadOnly.md#public-api): `__construct(CSSStyleDeclaration $style)`, `get(string $property): ?CSSStyleValue`, `getAll(string $property): array`, `has(string $property): bool`, `count(): int`, `getSize(): int`, `getStyleDeclaration(): CSSStyleDeclaration`, `keys(): array`, `values(): array`, `entries(): array`, `forEach(callable $callback): void`, and `getIterator(): Traversable`. Their behavior and examples are documented on the parent page.
 
 | Method | Signature and behavior |
 |---|---|

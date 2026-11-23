@@ -114,7 +114,19 @@ final class CSSPageRule extends CSSGroupingRule
 
 	public function getCssText(): string
 	{
+		if ($this->getCssRules()->getRulesRaw() === []) {
+			$prelude = $this->prelude === '' ? '' : ' ' . $this->prelude;
+			return '@page' . $prelude . ' { ' . $this->style->getCssText() . ' }';
+		}
+
 		return CSSGroupingRule::serializeTreeIteratively($this);
+	}
+
+	public function __clone(): void
+	{
+		parent::__clone();
+		$this->style = clone $this->style;
+		$this->style->setParentRule($this);
 	}
 
 	public function __get(string $name): mixed

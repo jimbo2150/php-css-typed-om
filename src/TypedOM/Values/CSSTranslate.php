@@ -55,13 +55,21 @@ final class CSSTranslate extends CSSTransformComponent
 			return;
 		}
 
+		if (is_bool($z)) {
+			if ($is2D !== null && $is2D !== $z) {
+				throw new InvalidArgumentException('Conflicting $z boolean and $is2D arguments for CSSTranslate.');
+			}
+			$is2D = $z;
+			$z = null;
+		}
+
 		$this->xValue = self::numericValue($xOrFunction, 'px', ['length', 'percent']);
 		$this->yValue = $yOrValues === null ? new CSSUnitValue(0, 'px') : self::numericValue($yOrValues, 'px', ['length', 'percent']);
-		$this->zValue = $z === null || is_bool($z) ? new CSSUnitValue(0, 'px') : self::numericValue($z, 'px', ['length']);
-		$hasZ = $z !== null && !is_bool($z);
-		$serializedValues = $hasZ ? [$this->xValue, $this->yValue, $this->zValue] : [$this->xValue, $this->yValue];
-		$normalizedIs2D = !$hasZ;
-		parent::__construct($hasZ ? 'translate3d' : 'translate', $serializedValues, $is2D ?? $normalizedIs2D);
+		$hasZ = $z !== null;
+		$this->zValue = $hasZ ? self::numericValue($z, 'px', ['length']) : new CSSUnitValue(0, 'px');
+		$resolvedIs2D = $is2D ?? !$hasZ;
+		$serializedValues = $resolvedIs2D ? [$this->xValue, $this->yValue] : [$this->xValue, $this->yValue, $this->zValue];
+		parent::__construct($resolvedIs2D ? 'translate' : 'translate3d', $serializedValues, $resolvedIs2D);
 	}
 
 	public function getX(): CSSNumericValue

@@ -19,7 +19,7 @@ final class CSSFunctionDescriptors extends CSSStyleDeclaration
 	public function __isset(string $name): bool
 	{
 		if ($name === 'result') {
-			return $this->getResult() !== null;
+			return true;
 		}
 		return parent::__isset($name);
 	}

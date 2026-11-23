@@ -109,4 +109,9 @@ abstract class StyleSheet
 		}
 		throw new Error('Cannot set property ' . static::class . '::$' . $name);
 	}
+
+	public function __clone(): void
+	{
+		$this->media = $this->media->cloneWithCallback(null);
+	}
 }

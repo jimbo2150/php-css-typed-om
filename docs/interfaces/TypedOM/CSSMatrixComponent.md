@@ -14,4 +14,4 @@
 | `getFunctionName` / `__toString` | Dynamically reflects live `is2D()` and `matrix` state (`matrix(a, b, c, d, e, f)` when 2D, `matrix3d(...)` when 3D). |
 | `toMatrix` | `public function toMatrix(): DOMMatrix`; returns a cloned `DOMMatrix` (flattened to 2D when `is2D()` is true). |
 | `clone` | Deep-clones the component and its matrix. |
-| `__get` / `__set` | Exposes `matrix` (`DOMMatrix`) and delegates `is2D` to `CSSTransformComponent`. |
+| `$matrix` / `$is2D` (property hooks) | `public DOMMatrix $matrix { get; set; }` and inherited `public bool $is2D { get; set; }`. Undeclared property accesses via `__get`/`__set` throw `Error`. |

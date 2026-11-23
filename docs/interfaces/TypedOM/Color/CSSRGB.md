@@ -7,5 +7,5 @@
 
 ## Properties & Methods
 
-- Channels (`CSSNumericValue|CSSKeywordValue`): `r`, `g`, `b`, `alpha` (`getR()`/`setR()`, `getG()`/`setG()`, `getB()`/`setB()`, `getAlpha()`/`setAlpha()`, plus magic `__get`/`__set`).
+- Channels (`CSSNumericValue|CSSKeywordValue`): property hooks `$r`, `$g`, `$b`, `$alpha` (cloning returned `CSSKeywordValue` instances) and methods `getR()`/`setR()`, `getG()`/`setG()`, `getB()`/`setB()`, `getAlpha()`/`setAlpha()`.
 - `__construct($r, $g, $b, $alpha = 1.0)`, `toRGB(): CSSRGB`, `clone(): static`, `__toString(): string` (serializes `rgb(r g b)` or `rgb(r g b / alpha)`).

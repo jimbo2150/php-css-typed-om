@@ -58,14 +58,17 @@ final class CSSFuzzTest extends TestCase
 
 			// Typed OM entry points & CSS::supports must only throw InvalidArgumentException (or return bool)
 			$slice = substr($input, 0, 96);
-			CSS::supports($slice, null, $options);
+			self::assertIsBool(CSS::supports($slice, null, $options));
 			try {
-				CSSStyleValue::parse('width', $slice, $options);
+				self::assertInstanceOf(CSSStyleValue::class, CSSStyleValue::parse('width', $slice, $options));
 			} catch (InvalidArgumentException) {
 				// Expected on malformed random CSS fragments
 			}
 			try {
-				new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue([$slice]);
+				self::assertInstanceOf(
+					\Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue::class,
+					new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue([$slice]),
+				);
 			} catch (InvalidArgumentException) {
 				// Expected on unbalanced/control-byte fragments
 			}
@@ -77,7 +80,7 @@ final class CSSFuzzTest extends TestCase
 				static fn () => CSSPositionValue::fromCssText($slice, $options),
 			] as $call) {
 				try {
-					$call();
+					self::assertInstanceOf(CSSStyleValue::class, $call());
 				} catch (InvalidArgumentException) {
 					// Expected on malformed random CSS fragments
 				}
@@ -93,8 +96,6 @@ final class CSSFuzzTest extends TestCase
 			$edgeSheet = CSSStyleSheet::parse($edge, $options);
 			self::assertIsString(CSSRenderer::render($edgeSheet, new CSSRenderOptions(CSSRenderMode::Minified, escapeHtmlStyleTag: true)));
 		}
-
-		self::addToAssertionCount(1);
 	}
 
 	private function randomCss(Randomizer $rng, int $tokenCount): string

@@ -14,4 +14,4 @@ No public constants or enum cases. Inherited `parse`/`parseAll` are documented i
 | `getImage` | `public function getImage(): string`; returns the normalized stored image text. Example: `$source = $image->getImage();`. |
 | `clone` | `public function clone(): static`; returns a validated copy. Example: `$copy = $image->clone();`. |
 | `__toString` | `public function __toString(): string`; returns stored CSS text. Example: `$css = (string) $image;`. |
-| `__get` | `public function __get(string $name): mixed`; exposes magic read-only property `image`; any other name throws `Error`. Example: `$text = $image->image;`. |
+| `$image` (property) | `public readonly string $image`; read-only normalized image text. Undeclared property accesses via `__get`/`__set` throw `Error`. Example: `$text = $image->image;`. |

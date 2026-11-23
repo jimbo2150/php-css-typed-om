@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Stringable;
 
@@ -47,6 +48,9 @@ class CSSUnitValue extends CSSNumericValue implements Stringable
 		if ($values === []) {
 			return parent::add(...$values);
 		}
+		if (count($values) >= self::MAX_MATH_NODES) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
+		}
 
 		$allSameUnit = true;
 		$sum = $this->value;
@@ -79,6 +83,9 @@ class CSSUnitValue extends CSSNumericValue implements Stringable
 	{
 		if ($values === []) {
 			return parent::sub(...$values);
+		}
+		if (count($values) >= self::MAX_MATH_NODES) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
 		}
 
 		$allSameUnit = true;

@@ -9,89 +9,78 @@ use PHPUnit\Framework\TestCase;
 
 class CSSUnitValueTest extends TestCase
 {
-    public function testToStringWithPxUnit()
+    public function testToStringWithPxUnit(): void
     {
         $value = new CSSUnitValue(10, 'px');
-        $this->assertEquals('10px', (string)$value);
+        self::assertInstanceOf(\Stringable::class, $value);
+        self::assertSame('10px', (string)$value);
     }
 
-    public function testToStringWithFloatValue()
+    public function testToStringWithFloatValue(): void
     {
         $value = new CSSUnitValue(10.5, 'px');
-        $this->assertEquals('10.5px', (string)$value);
+        self::assertSame('10.5px', (string)$value);
     }
 
-    public function testToStringWithEmUnit()
+    public function testToStringWithEmUnit(): void
     {
         $value = new CSSUnitValue(2, 'em');
-        $this->assertEquals('2em', (string)$value);
+        self::assertSame('2em', (string)$value);
     }
 
-    public function testToStringWithPercentUnit()
+    public function testToStringWithPercentUnit(): void
     {
         $value = new CSSUnitValue(50, 'percent');
-        $this->assertEquals('50%', (string)$value);
+        self::assertSame('50%', (string)$value);
     }
 
-    public function testToStringWithNumberUnit()
+    public function testToStringWithNumberUnit(): void
     {
         $value = new CSSUnitValue(5, 'number');
-        $this->assertEquals('5', (string)$value);
+        self::assertSame('5', (string)$value);
     }
 
-    public function testToStringWithVwUnit()
+    public function testToStringWithVwUnit(): void
     {
         $value = new CSSUnitValue(100, 'vw');
-        $this->assertEquals('100vw', (string)$value);
+        self::assertSame('100vw', (string)$value);
     }
 
-    public function testToStringWithDegUnit()
+    public function testToStringWithDegUnit(): void
     {
         $value = new CSSUnitValue(90, 'deg');
-        $this->assertEquals('90deg', (string)$value);
+        self::assertSame('90deg', (string)$value);
     }
 
-    public function testStringableInterface()
-    {
-        $value = new CSSUnitValue(10, 'px');
-        $this->assertEquals('10px', (string)$value);
-    }
-
-    public function testStringableInterfaceWithFloat()
-    {
-        $value = new CSSUnitValue(10.5, 'px');
-        $this->assertEquals('10.5px', (string)$value);
-    }
-
-    public function testAddSameUnit()
+    public function testAddSameUnit(): void
     {
         $value1 = new CSSUnitValue(10, 'px');
         $value2 = new CSSUnitValue(5, 'px');
         $result = $value1->add($value2);
 
-        $this->assertInstanceOf(CSSUnitValue::class, $result);
-        $this->assertEquals(15, $result->value);
-        $this->assertEquals('px', $result->unit);
+        self::assertInstanceOf(CSSUnitValue::class, $result);
+        self::assertSame(15.0, $result->value);
+        self::assertSame('px', $result->unit);
     }
 
-    public function testAddDifferentUnit()
+    public function testAddDifferentUnit(): void
     {
         $value1 = new CSSUnitValue(10, 'px');
         $value2 = new CSSUnitValue(5, 'em');
         $result = $value1->add($value2);
 
-        $this->assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum::class, $result);
+        self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum::class, $result);
     }
 
-    public function testSubSameUnit()
+    public function testSubSameUnit(): void
     {
         $value1 = new CSSUnitValue(10, 'px');
         $value2 = new CSSUnitValue(5, 'px');
         $result = $value1->sub($value2);
 
-        $this->assertInstanceOf(CSSUnitValue::class, $result);
-        $this->assertEquals(5, $result->value);
-        $this->assertEquals('px', $result->unit);
+        self::assertInstanceOf(CSSUnitValue::class, $result);
+        self::assertSame(5.0, $result->value);
+        self::assertSame('px', $result->unit);
     }
 
     public function testSubDifferentUnit()

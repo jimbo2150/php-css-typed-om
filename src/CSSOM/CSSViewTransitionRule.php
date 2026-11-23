@@ -26,7 +26,7 @@ final class CSSViewTransitionRule extends CSSAtRule
 	/** @return list<string> */
 	public function getTypes(): array
 	{
-		$raw = trim($this->style?->getPropertyValue('types') ?? '');
+		$raw = CSSSyntaxScanner::trimCssWhitespace($this->style?->getPropertyValue('types') ?? '');
 		if ($raw === '' || strtolower($raw) === 'none') {
 			return [];
 		}
@@ -51,8 +51,7 @@ final class CSSViewTransitionRule extends CSSAtRule
 	public function __isset(string $name): bool
 	{
 		return match ($name) {
-			'navigation' => $this->getNavigation() !== null,
-			'types' => true,
+			'navigation', 'types' => true,
 			default => parent::__isset($name),
 		};
 	}

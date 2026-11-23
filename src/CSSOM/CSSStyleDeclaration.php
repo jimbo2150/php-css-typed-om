@@ -273,7 +273,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 
 		$serialized = [];
 		foreach ($this->declarations as $property => $declaration) {
-			$serialized[] = $property . ': ' . $declaration['value'] . ($declaration['priority'] === '' ? '' : ' !important') . ';';
+			$serialized[] = $declaration['priority'] === ''
+				? $property . ': ' . $declaration['value'] . ';'
+				: $property . ': ' . $declaration['value'] . ' !important;';
 		}
 
 		return implode(' ', $serialized);
@@ -433,6 +435,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		int &$declarationCount = 0,
 		bool $throwOnLimit = false,
 		bool $allowSentinelSlot = false,
+		bool $allowEmptyInitialValue = false,
+		bool &$sawEmptyInitialValue = false,
 	): bool {
 		if ($start >= $end) {
 			return true;
@@ -489,6 +493,25 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			}
 
 			if ($value === '' && !str_starts_with($name, '--')) {
+				if ($allowEmptyInitialValue && $name === 'initial-value' && $priority === '') {
+					if ($options !== null && $options->maxDeclarations !== null && $declarationCount >= $options->maxDeclarations) {
+						$message = sprintf('Maximum CSS declaration limit of %d exceeded.', $options->maxDeclarations);
+						if ($strict || $throwOnLimit) {
+							throw new CSSParserLimitException($message);
+						}
+						self::recordDiagnostic($message, $segmentOffset, $diagnostics, $options, $allowSentinelSlot);
+						return false;
+					}
+					$current = $this->declarations['initial-value'] ?? null;
+					if ($current !== null && $current['priority'] === 'important') {
+						return true;
+					}
+					$declarationCount++;
+					unset($this->declarations['initial-value']);
+					$this->cachedKeys = null;
+					$sawEmptyInitialValue = true;
+					return true;
+				}
 				self::handleInvalidDeclaration('CSS declaration value cannot be empty: ' . $name, $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
 				return true;
 			}
@@ -506,6 +529,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			$current = $this->declarations[$name] ?? null;
 			if ($current !== null && $current['priority'] === 'important' && $priority !== 'important') {
 				return true;
+			}
+			if ($name === 'initial-value') {
+				$sawEmptyInitialValue = false;
 			}
 			$this->declarations[$name] = ['value' => $value, 'priority' => $priority];
 			$this->cachedKeys = null;
@@ -572,6 +598,25 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		}
 
 		if ($value === '' && !str_starts_with($name, '--')) {
+			if ($allowEmptyInitialValue && $name === 'initial-value' && $priority === '') {
+				if ($options !== null && $options->maxDeclarations !== null && $declarationCount >= $options->maxDeclarations) {
+					$message = sprintf('Maximum CSS declaration limit of %d exceeded.', $options->maxDeclarations);
+					if ($strict || $throwOnLimit) {
+						throw new CSSParserLimitException($message);
+					}
+					self::recordDiagnostic($message, $segmentOffset, $diagnostics, $options, $allowSentinelSlot);
+					return false;
+				}
+				$current = $this->declarations['initial-value'] ?? null;
+				if ($current !== null && $current['priority'] === 'important') {
+					return true;
+				}
+				$declarationCount++;
+				unset($this->declarations['initial-value']);
+				$this->cachedKeys = null;
+				$sawEmptyInitialValue = true;
+				return true;
+			}
 			self::handleInvalidDeclaration('CSS declaration value cannot be empty: ' . $name, $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
 			return true;
 		}
@@ -590,6 +635,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		$current = $this->declarations[$name] ?? null;
 		if ($current !== null && $current['priority'] === 'important' && $priority !== 'important') {
 			return true;
+		}
+		if ($name === 'initial-value') {
+			$sawEmptyInitialValue = false;
 		}
 		$this->declarations[$name] = ['value' => $value, 'priority' => $priority];
 		$this->cachedKeys = null;
@@ -617,7 +665,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		int $baseOffset,
 		?CSSParserOptions $options = null,
 	): void {
-		$options ??= new CSSParserOptions();
+		$options ??= CSSParserOptions::default();
 		if ($options->maxBytes !== null && strlen($cssText) > $options->maxBytes) {
 			$message = sprintf('CSS declaration block exceeds maximum size of %d bytes.', $options->maxBytes);
 			if ($strict) {
@@ -635,8 +683,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		$initialDiagCount = count($diagnostics);
 
 		while ($offset < $length) {
-			$next = CSSSyntaxScanner::findNextTopLevelDelimiter($cssText, [';'], $offset, $length);
-			$segmentEnd = $next !== null ? $next['offset'] : $length;
+			$next = CSSSyntaxScanner::findTopLevel($cssText, ';', $offset, $length);
+			$segmentEnd = $next ?? $length;
 			$ok = $this->parseDeclarationSlice(
 				$cssText,
 				$offset,
@@ -650,7 +698,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			if (!$ok) {
 				break;
 			}
-			$offset = $next !== null ? $next['offset'] + 1 : $length;
+			$offset = $next !== null ? $next + 1 : $length;
 		}
 
 		if ($baseOffset !== 0) {

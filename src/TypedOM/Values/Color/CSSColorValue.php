@@ -31,7 +31,7 @@ abstract class CSSColorValue extends CSSStyleValue
 	protected CSSNumericValue|CSSKeywordValue $alphaValue;
 
 	public CSSNumericValue|CSSKeywordValue $alpha {
-		get => $this->alphaValue;
+		get => self::exposeComponent($this->alphaValue);
 		set (CSSNumericValue|CSSKeywordValue|int|float $value) {
 			$this->alphaValue = self::normalizePercentChannel($value, 100.0);
 		}
@@ -51,6 +51,12 @@ abstract class CSSColorValue extends CSSStyleValue
 		?CSSParserOptions $options = null,
 	): self {
 		$options ??= CSSParserOptions::default();
+		if ($cssText !== null) {
+			if ($options->maxBytes !== null && strlen($propertyOrCssText) > $options->maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS property name exceeds maximum size of %d bytes.', $options->maxBytes));
+			}
+			CSSStyleDeclaration::normalizePropertyName($propertyOrCssText);
+		}
 		$rawSource = $cssText ?? $propertyOrCssText;
 		if ($options->maxBytes !== null && strlen($rawSource) > $options->maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS color value exceeds maximum size of %d bytes.', $options->maxBytes));
@@ -95,7 +101,7 @@ abstract class CSSColorValue extends CSSStyleValue
 
 	public function getAlpha(): CSSNumericValue|CSSKeywordValue
 	{
-		return $this->alphaValue;
+		return self::exposeComponent($this->alphaValue);
 	}
 
 	public function setAlpha(CSSNumericValue|CSSKeywordValue|int|float $alpha): void
@@ -327,6 +333,11 @@ abstract class CSSColorValue extends CSSStyleValue
 		}
 
 		return ' / ' . (string) $this->alphaValue;
+	}
+
+	protected static function exposeComponent(CSSNumericValue|CSSKeywordValue $component): CSSNumericValue|CSSKeywordValue
+	{
+		return $component instanceof CSSKeywordValue ? $component->clone() : $component;
 	}
 
 	protected static function normalizeNoneKeyword(CSSKeywordValue $keyword): CSSKeywordValue
@@ -929,7 +940,12 @@ abstract class CSSColorValue extends CSSStyleValue
 			return new CSSKeywordValue('none');
 		}
 
-		return CSSNumericValue::parse($token, null, $options);
+		$numeric = CSSNumericValue::tryParseValidated($token, $options);
+		if ($numeric === null) {
+			throw new InvalidArgumentException('Invalid CSS numeric value: ' . $token);
+		}
+
+		return $numeric;
 	}
 
 	private static function parseRgbFunction(string $body, CSSParserOptions $options): CSSRGB

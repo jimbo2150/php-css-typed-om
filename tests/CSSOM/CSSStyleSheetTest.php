@@ -278,14 +278,69 @@ final class CSSStyleSheetTest extends TestCase
 		try {
 			$detachedMedia->getCssRules()->remove(0);
 			self::fail('Expected LogicException on detached CSSRuleList::remove().');
-		} catch (\LogicException) {
-			self::assertTrue(true);
+		} catch (\LogicException $e) {
+			self::assertStringContainsString('detached', strtolower($e->getMessage()));
 		}
 		try {
 			$detachedMedia->deleteRule(0);
 			self::fail('Expected LogicException on detached CSSGroupingRule::deleteRule().');
-		} catch (\LogicException) {
-			self::assertTrue(true);
+		} catch (\LogicException $e) {
+			self::assertStringContainsString('detached', strtolower($e->getMessage()));
 		}
+	}
+
+	public function testAtRulePrecludesDeepIterativeCloneAndPropertyEmptyInitialRoundTrip(): void
+	{
+		// Escaped @media\65 and non-ASCII @mediaé become opaque at-rules, while @media (screen) is structured
+		$identSheet = CSSStyleSheet::parse('@mediaé { a { color: red; } } @media\65 { a { color: red; } } @--custom { a: 1; }');
+		self::assertSame([], $identSheet->getParseErrors());
+		self::assertCount(3, $identSheet->cssRules);
+		foreach ($identSheet->cssRules as $opaqueRule) {
+			self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\CSSOM\CSSOpaqueRule::class, $opaqueRule);
+		}
+
+		// @property empty initial-value: ; round-trips faithfully
+		$propCss = '@property --empty-init { syntax: "*"; inherits: false; initial-value: ; }';
+		$propSheet = CSSStyleSheet::parse($propCss);
+		self::assertSame([], $propSheet->getParseErrors());
+		self::assertSame('', $propSheet->cssRules[0]->getInitialValue());
+		self::assertSame(
+			'@property --empty-init { syntax: "*"; inherits: false; initial-value: ; }',
+			$propSheet->cssRules[0]->getCssText(),
+		);
+		$reparsedProp = CSSStyleSheet::parse(\Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderer::render($propSheet));
+		self::assertSame([], $reparsedProp->getParseErrors());
+		self::assertSame('', $reparsedProp->cssRules[0]->getInitialValue());
+
+		// @import clause order/adjacent parens, @namespace url( mid-ident, @container escaped reserved keyword, @scope `to` whitespace
+		$imp = new CSSImportRule('url("a.css") layer(base)supports(display: grid) screen');
+		self::assertSame('base', $imp->getLayerName());
+		self::assertSame('display: grid', $imp->getSupportsText());
+		self::assertSame('screen', $imp->getMediaText());
+
+		$ns = new CSSNamespaceRule('foo-url-prefix url("urn:foo")');
+		self::assertSame('foo-url-prefix', $ns->getPrefix());
+		self::assertSame('urn:foo', $ns->getNamespaceURI());
+
+		$escapedContainer = new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSContainerRule('\6e ot (width > 100px)');
+		self::assertSame('', $escapedContainer->getContainerName());
+
+		try {
+			new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSScopeRule('(.card) to(.footer)');
+			self::fail('Expected @scope without whitespace after "to" to throw InvalidArgumentException.');
+		} catch (InvalidArgumentException $e) {
+			self::assertStringContainsString('Malformed @scope prelude', $e->getMessage());
+		}
+
+		// Deep iterative CSSStyleSheet clone independence
+		$orig = CSSStyleSheet::parse('@media screen { @supports (display: grid) { a { color: red; } } } @page :first { margin: 1cm; }');
+		$cloned = clone $orig;
+		self::assertNotSame($orig, $cloned);
+		self::assertNotSame($orig->cssRules[0], $cloned->cssRules[0]);
+		self::assertSame($cloned, $cloned->cssRules[0]->cssRules[0]->cssRules[0]->parentStyleSheet);
+		self::assertSame($orig->getTotalRuleCount(), $cloned->getTotalRuleCount());
+		$cloned->cssRules[0]->cssRules[0]->cssRules[0]->style->setProperty('color', 'blue');
+		self::assertSame('red', $orig->cssRules[0]->cssRules[0]->cssRules[0]->style->getPropertyValue('color'));
+		self::assertSame('blue', $cloned->cssRules[0]->cssRules[0]->cssRules[0]->style->getPropertyValue('color'));
 	}
 }

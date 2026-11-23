@@ -95,4 +95,11 @@ final class CSSKeyframeRule extends CSSRule
 		}
 		parent::__set($name, $value);
 	}
+
+	public function __clone(): void
+	{
+		parent::__clone();
+		$this->style = clone $this->style;
+		$this->style->setParentRule($this);
+	}
 }

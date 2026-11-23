@@ -23,7 +23,7 @@ final class CSSCharsetRule extends CSSAtRule
 
 	public function getEncoding(): string
 	{
-		return trim($this->prelude, " \t\n\r\0\x0B\"'");
+		return trim($this->prelude, CSSSyntaxScanner::CSS_WHITESPACE . "\"'");
 	}
 
 	public function getType(): int

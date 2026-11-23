@@ -170,8 +170,8 @@ class CSSNumericValueTest extends TestCase
 		try {
 			(new CSSUnitValue(10, 'px'))->to('deg');
 			self::fail('Expected a cross-dimension conversion to throw.');
-		} catch (\InvalidArgumentException) {
-			self::assertTrue(true);
+		} catch (\InvalidArgumentException $e) {
+			self::assertStringContainsString('cannot convert', strtolower($e->getMessage()));
 		}
 
 		$this->expectException(\InvalidArgumentException::class);
@@ -395,24 +395,15 @@ class CSSNumericValueTest extends TestCase
         $this->assertEquals('5px', (string)$result);
     }
 
-    public function testSubMethodWithCSSUnitValue()
+    public function testSubMethodWithCSSUnitValue(): void
     {
         $value1 = new CSSUnitValue(10, 'px');
         $value2 = new CSSUnitValue(5, 'px');
         $result = $value1->sub($value2);
 
-        $this->assertInstanceOf(CSSUnitValue::class, $result);
-        $this->assertEquals(5, $result->value);
-        $this->assertEquals('px', $result->unit);
-    }
-
-    public function testSubMethodWithCSSUnitValueStringCast()
-    {
-        $value1 = new CSSUnitValue(10, 'px');
-        $value2 = new CSSUnitValue(5, 'px');
-        $result = $value1->sub($value2);
-
-        $this->assertEquals('5px', (string)$result);
+        self::assertInstanceOf(CSSUnitValue::class, $result);
+        self::assertSame(5.0, $result->value);
+        self::assertSame('px', $result->unit);
     }
 
     public function testMulMethod()
@@ -705,20 +696,62 @@ class CSSNumericValueTest extends TestCase
         try {
             $sumA->mul($sumB);
             $this->fail('Expected multiplying conflicting percentHints to throw.');
-        } catch (\InvalidArgumentException) {
-            $this->assertTrue(true);
+        } catch (\InvalidArgumentException $e) {
+            self::assertStringContainsString('percent', strtolower($e->getMessage()));
         }
 
         // Eager CSSMathProduct validation rejects conflicting percentHints even before ->type()
         try {
             new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct([$sumA, $sumB]);
             $this->fail('Expected CSSMathProduct constructor with conflicting percentHints to throw.');
-        } catch (\InvalidArgumentException) {
-            $this->assertTrue(true);
+        } catch (\InvalidArgumentException $e) {
+            self::assertStringContainsString('percent', strtolower($e->getMessage()));
         }
 
         $neg = new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathNegate(new CSSUnitValue(5, 'px'));
         $negClone = clone $neg;
         $this->assertNotSame($neg->value, $negClone->value);
+    }
+
+    public function testPercentHintValidationCalcUnclosedCommentAndMathNodeBudget(): void
+    {
+        // applyPercentHint('percent') must not double percent exponent, and invalid hints throw
+        $pctType = new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericType(['percent' => 1]);
+        $hintedPct = $pctType->applyPercentHint('percent');
+        self::assertSame(1, $hintedPct->percent);
+        self::assertSame('percent', $hintedPct->percentHint);
+
+        foreach (['invalid', 'percentHint'] as $badHint) {
+            try {
+                $pctType->applyPercentHint($badHint);
+                self::fail('Expected invalid percent hint to throw: ' . $badHint);
+            } catch (\InvalidArgumentException $e) {
+                self::assertStringContainsString('percent hint', strtolower($e->getMessage()));
+            }
+        }
+
+        // Unclosed comments in min() arguments fail deterministically
+        try {
+            CSSNumericValue::parse('min(1px /* unclosed, 2px)');
+            self::fail('Expected unclosed comment inside min() to throw InvalidArgumentException.');
+        } catch (\InvalidArgumentException $e) {
+            self::assertNotSame('', $e->getMessage());
+        }
+
+        // Variadic operand caps enforce MAX_MATH_NODES even when bypassing constructor
+        $overflowTerms = array_fill(0, CSSNumericValue::MAX_MATH_NODES + 1, new CSSUnitValue(1, 'px'));
+        try {
+            (new CSSUnitValue(1, 'px'))->add(...$overflowTerms);
+            self::fail('Expected variadic add() exceeding MAX_MATH_NODES to throw CSSParserLimitException.');
+        } catch (\Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException $e) {
+            self::assertStringContainsString('node count', strtolower($e->getMessage()));
+        }
+
+        try {
+            new CSSMathSum($overflowTerms);
+            self::fail('Expected CSSMathSum exceeding MAX_MATH_NODES to throw CSSParserLimitException.');
+        } catch (\Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException $e) {
+            self::assertStringContainsString('node count', strtolower($e->getMessage()));
+        }
     }
 }

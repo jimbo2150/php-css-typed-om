@@ -8,6 +8,7 @@ use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSS;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
@@ -70,8 +71,16 @@ abstract class CSSStyleValue implements Stringable
 	public static function parse(string $propertyOrCssText, ?string $cssText = null, ?CSSParserOptions $options = null): CSSStyleValue
 	{
 		$options ??= CSSParserOptions::default();
-		$property = $cssText === null ? '' : strtolower(CSSSyntaxScanner::trimCssWhitespace($propertyOrCssText));
-		$raw = $cssText ?? $propertyOrCssText;
+		if ($cssText !== null) {
+			if ($options->maxBytes !== null && strlen($propertyOrCssText) > $options->maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS property name exceeds maximum size of %d bytes.', $options->maxBytes));
+			}
+			$property = CSSStyleDeclaration::normalizePropertyName($propertyOrCssText);
+			$raw = $cssText;
+		} else {
+			$property = '';
+			$raw = $propertyOrCssText;
+		}
 		if ($options->maxBytes !== null && strlen($raw) > $options->maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS value exceeds maximum size of %d bytes.', $options->maxBytes));
 		}
@@ -94,12 +103,14 @@ abstract class CSSStyleValue implements Stringable
 	public static function parseAll(string $property, string $cssText, ?CSSParserOptions $options = null): array
 	{
 		$options ??= CSSParserOptions::default();
+		if ($options->maxBytes !== null && strlen($property) > $options->maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS property name exceeds maximum size of %d bytes.', $options->maxBytes));
+		}
 		if ($options->maxBytes !== null && strlen($cssText) > $options->maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS value list exceeds maximum size of %d bytes.', $options->maxBytes));
 		}
+		$normalizedProp = CSSStyleDeclaration::normalizePropertyName($property);
 		CSSSyntaxScanner::assertValidFragment($cssText, 'CSS value list', [';', '{', '}']);
-
-		$normalizedProp = strtolower(CSSSyntaxScanner::trimCssWhitespace($property));
 
 		return self::parseAllValidated($normalizedProp, $cssText, $options);
 	}
@@ -192,7 +203,7 @@ abstract class CSSStyleValue implements Stringable
 			}
 		}
 
-		$numeric = CSSNumericValue::tryParse($trimmedValue, $options);
+		$numeric = CSSNumericValue::tryParseValidated($trimmedValue, $options);
 		if ($numeric !== null) {
 			return $numeric;
 		}

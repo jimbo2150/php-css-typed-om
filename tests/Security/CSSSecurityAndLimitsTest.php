@@ -672,5 +672,167 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		$deepParens = str_repeat('(', 5000) . '1' . str_repeat(')', 5000);
 		$unparsedLinear = \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue::fromCssText($deepParens, CSSParserOptions::unlimited());
 		self::assertSame($deepParens, (string) $unparsedLinear);
+
+		// Batch 1 & 2 security and correctness regressions
+		$this->assertBatch1And2SecurityRegressions();
+	}
+
+	private function assertBatch1And2SecurityRegressions(): void
+	{
+		// 1. Control bytes inside comments: strict rules throw, stylesheet drops rule & records parse error
+		foreach ([
+			static fn () => \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParser::parseSingleRule("a { /* \x00 */ color: red; }"),
+			static fn () => \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParser::parseSingleMarginRule("@top-left { /* \x01 */ content: 'x'; }"),
+		] as $strictCommentCall) {
+			try {
+				$strictCommentCall();
+				self::fail('Expected control byte inside comment to throw InvalidArgumentException.');
+			} catch (InvalidArgumentException $e) {
+				self::assertStringContainsString('control', strtolower($e->getMessage()));
+			}
+		}
+
+		$ctrlSheet = CSSStyleSheet::parse("a /* \x00 */ { color: red; } b { color: blue; }", new CSSParserOptions());
+		self::assertNotEmpty($ctrlSheet->getParseErrors());
+		self::assertCount(1, $ctrlSheet->cssRules);
+		self::assertSame('b', $ctrlSheet->cssRules[0]->selectorText);
+
+		$ctrlLeadingCommentSheet = CSSStyleSheet::parse("a { /* \x00 */ color: red; }");
+		self::assertNotEmpty($ctrlLeadingCommentSheet->getParseErrors());
+		self::assertCount(1, $ctrlLeadingCommentSheet->cssRules);
+		self::assertSame(1, $ctrlLeadingCommentSheet->cssRules[0]->style->length);
+
+		$ctrlDeclSheet = CSSStyleSheet::parse("a { color: /* \x00 */ red; }");
+		self::assertNotEmpty($ctrlDeclSheet->getParseErrors());
+		self::assertCount(1, $ctrlDeclSheet->cssRules);
+		self::assertSame(0, $ctrlDeclSheet->cssRules[0]->style->length);
+
+		// @font-feature-values respects maxDeclarations limit and decodes escaped feature value names
+		$ffvLimited = CSSStyleSheet::parse(
+			'@font-feature-values Inter { @styleset { a: 1; b: 2; c: 3; } }',
+			new CSSParserOptions(maxDeclarations: 1),
+		);
+		self::assertNotEmpty($ffvLimited->getParseErrors());
+		$ffvEscaped = CSSStyleSheet::parse('@font-feature-values Inter { @styleset { \\61 lt: 1 2; } }');
+		self::assertSame([], $ffvEscaped->getParseErrors());
+		self::assertSame([1, 2], $ffvEscaped->cssRules[0]->styleset->get('\\61 lt'));
+
+		// 2. CSSUnparsedValue bracket tracking, hex+ws escape before var(, and maxBytes inheritance
+		$bracketUnparsed = \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue::fromCssText('var(--a, [a;b] var(--b))');
+		self::assertCount(1, $bracketUnparsed);
+		self::assertSame('--a', $bracketUnparsed[0]->variable);
+		self::assertSame('[a;b] var(--b)', (string) $bracketUnparsed[0]->fallback);
+
+		$escapedIdentVar = \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue::fromCssText('\66 var(--a)');
+		self::assertCount(1, $escapedIdentVar);
+		self::assertIsString($escapedIdentVar[0]);
+
+		$tightVar = new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSVariableReferenceValue(
+			'--x',
+			'red',
+			new CSSParserOptions(maxBytes: 16),
+		);
+		try {
+			$tightVar->variable = '--' . str_repeat('a', 32);
+			self::fail('Expected oversized $variable assignment to throw CSSParserLimitException.');
+		} catch (CSSParserLimitException $e) {
+			self::assertStringContainsString('maximum size', strtolower($e->getMessage()));
+		}
+		try {
+			$tightVar->setFallback(str_repeat('a', 32));
+			self::fail('Expected oversized setFallback() to throw CSSParserLimitException.');
+		} catch (CSSParserLimitException $e) {
+			self::assertStringContainsString('maximum size', strtolower($e->getMessage()));
+		}
+
+		// Unlimited CSSUnparsedValue + unlimited CSSVariableReferenceValue avoids default 16 MiB cap in __toString()
+		$unlim = CSSParserOptions::unlimited();
+		$unlimRef = new CSSVariableReferenceValue('--x', 'abc', $unlim);
+		self::assertSame('var(--x, abc)', (string) $unlimRef);
+
+		// 3. CSS::supports duplicate !important & multi-line registerProperty syntax collapse
+		self::assertFalse(CSS::supports('(color: red !important !important)'));
+		CSS::clearRegisteredProperties();
+		try {
+			$reg = CSS::registerProperty([
+				'name' => '--multi',
+				'syntax' => "<length>\n|\t<percentage>",
+				'inherits' => false,
+				'initialValue' => '0px',
+			]);
+			self::assertSame('<length> | <percentage>', $reg->getSyntax());
+		} finally {
+			CSS::clearRegisteredProperties();
+		}
+
+		// 4. Keyword clone isolation across CSSPerspective, CSSPositionValue, and CSSColorValue subclasses
+		$persp = new CSSPerspective('none');
+		$len = $persp->length;
+		$len->value = 'evil';
+		self::assertSame('none', $persp->getLength()->getValue());
+		$persp->getValues()[0]->value = 'evil';
+		self::assertSame('none', $persp->getLength()->getValue());
+
+		$pos = new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSPositionValue(
+			new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue('left'),
+			new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue('top'),
+		);
+		$px = $pos->x;
+		$px->value = 'top';
+		self::assertSame('left', $pos->getX()->getValue());
+
+		try {
+			$customHintType = \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericType::fromDimensions(['length' => 1, 'percentHint' => 'angle']);
+			$synth = new class ($customHintType) extends CSSNumericValue {
+				public function __construct(private readonly \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericType $t)
+				{
+					$this->cachedNumericType = $t;
+				}
+				public function __toString(): string { return '10px'; }
+				public function clone(): static { return clone $this; }
+			};
+			new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSPositionValue($synth, CSS::px(0));
+			self::fail('Expected invalid percentHint on CSSPositionValue length to throw.');
+		} catch (InvalidArgumentException $e) {
+			self::assertStringContainsString('length or percentage', strtolower($e->getMessage()));
+		}
+
+		$rgb = \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue::parse('rgb(none 10% 20% / none)');
+		$rKw = $rgb->r;
+		$rKw->value = 'evil';
+		self::assertSame('none', $rgb->getR()->getValue());
+		$aKw = $rgb->alpha;
+		$aKw->value = 'evil';
+		self::assertSame('none', $rgb->getAlpha()->getValue());
+
+		$customColor = \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue::parse('color(srgb none 0.5 0.5)');
+		$chans = $customColor->channels;
+		$chans[0]->value = 'evil';
+		self::assertSame('none', $customColor->getChannels()[0]->getValue());
+
+		// 5. CSSTranslate bool $z sets is2D properly; DOMMatrixReadOnly & CSSMatrixComponent reject \x0B
+		$tBool = new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSTranslate(10, 20, false);
+		self::assertFalse($tBool->is2D());
+		self::assertSame('translate3d(10px, 20px, 0px)', (string) $tBool);
+
+		foreach ([
+			static fn () => new DOMMatrixReadOnly(["\x0B1", 0, 0, 1, 0, 0]),
+			static fn () => new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSMatrixComponent(["\x0B1", 0, 0, 1, 0, 0]),
+			static fn () => CSS::px("\x0B10"),
+		] as $vtabCall) {
+			try {
+				$vtabCall();
+				self::fail('Expected vertical tab control byte to throw InvalidArgumentException.');
+			} catch (InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
+
+		// 6. Depth-256 clone $sheet stays iterative without excessive stack nesting
+		$deepCss = str_repeat('@media screen { ', 255) . 'a { color: red; }' . str_repeat(' }', 255);
+		$deepSheet = CSSStyleSheet::parse($deepCss);
+		self::assertSame([], $deepSheet->getParseErrors());
+		$clonedDeep = clone $deepSheet;
+		self::assertSame(256, $clonedDeep->getTotalRuleCount());
 	}
 }

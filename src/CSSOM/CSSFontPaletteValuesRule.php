@@ -56,9 +56,7 @@ final class CSSFontPaletteValuesRule extends CSSAtRule
 	public function __isset(string $name): bool
 	{
 		return match ($name) {
-			'name', 'overrideColors' => true,
-			'fontFamily' => $this->getFontFamily() !== null,
-			'basePalette' => $this->getBasePalette() !== null,
+			'name', 'overrideColors', 'fontFamily', 'basePalette' => true,
 			default => parent::__isset($name),
 		};
 	}

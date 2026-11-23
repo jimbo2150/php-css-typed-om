@@ -37,7 +37,7 @@ Available unit factories (all take one `string|int|float $value` and return `CSS
 
 ### `registerProperty(array|CSSPropertyRule $definition): CSSPropertyRule`
 
-Registers a custom property (`--*`) in the standalone registry, validating `name`, `syntax`, `inherits`, and computationally independent `initialValue` (required when `syntax !== '*'`, rejecting `var()`). Companion helpers: `getRegisteredProperty(string $name): ?CSSPropertyRule`, `getRegisteredProperties(): array`, `unregisterProperty(string $name): bool`, and `clearRegisteredProperties(): void`.
+Registers a custom property (`--*`) in the standalone registry, validating `name`, `syntax` (collapsing multi-line CSS whitespace inside `$syntax` to single spaces), `inherits`, and computationally independent `initialValue` (required when `syntax !== '*'`, rejecting `var()`). Companion helpers: `getRegisteredProperty(string $name): ?CSSPropertyRule`, `getRegisteredProperties(): array`, `unregisterProperty(string $name): bool`, and `clearRegisteredProperties(): void`.
 
 ### `supports(string $propertyOrCondition, ?string $value = null, ?CSSParserOptions $options = null): bool`
 

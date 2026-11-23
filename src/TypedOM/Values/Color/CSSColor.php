@@ -42,7 +42,7 @@ final class CSSColor extends CSSColorValue
 
 	/** @var list<CSSNumericValue|CSSKeywordValue> */
 	public array $channels {
-		get => $this->channelsValue;
+		get => self::exposeChannels($this->channelsValue);
 		set (array $value) {
 			$this->setChannels($value);
 		}
@@ -108,7 +108,21 @@ final class CSSColor extends CSSColorValue
 	/** @return list<CSSNumericValue|CSSKeywordValue> */
 	public function getChannels(): array
 	{
-		return $this->channelsValue;
+		return self::exposeChannels($this->channelsValue);
+	}
+
+	/**
+	 * @param list<CSSNumericValue|CSSKeywordValue> $channels
+	 * @return list<CSSNumericValue|CSSKeywordValue>
+	 */
+	private static function exposeChannels(array $channels): array
+	{
+		$result = [];
+		foreach ($channels as $channel) {
+			$result[] = self::exposeComponent($channel);
+		}
+
+		return $result;
 	}
 
 	/** @param list<CSSNumericValue|CSSKeywordValue|int|float> $channels */

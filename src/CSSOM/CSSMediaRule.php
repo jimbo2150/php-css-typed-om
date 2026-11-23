@@ -51,4 +51,12 @@ final class CSSMediaRule extends CSSConditionRule
 	{
 		return $name === 'media' || parent::__isset($name);
 	}
+
+	public function __clone(): void
+	{
+		parent::__clone();
+		$this->media = $this->media->cloneWithCallback(function (string $text): void {
+			parent::setConditionText($text);
+		});
+	}
 }

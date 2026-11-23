@@ -56,14 +56,11 @@ final class CSSNamespaceRule extends CSSAtRule
 			return ['', $trimmed];
 		}
 
-		// Scan optional leading identifier prefix up to whitespace, quote, or 'url('
+		// Scan optional leading identifier prefix up to whitespace or quoted string
 		$pos = 0;
 		while ($pos < $length) {
 			$ch = $trimmed[$pos];
 			if ($ch === '"' || $ch === "'" || str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $ch)) {
-				break;
-			}
-			if ($pos + 4 <= $length && substr_compare($trimmed, 'url(', $pos, 4, true) === 0) {
 				break;
 			}
 			if ($ch === '\\') {
