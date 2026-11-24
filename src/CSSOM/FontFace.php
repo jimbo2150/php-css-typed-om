@@ -14,6 +14,22 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
  * Outside of a browser DOM/network environment, `status` remains `'unloaded'` and
  * font sources are retained as CSS source descriptors without fetching binary data.
  *
+ * @property string $family
+ * @property string $source
+ * @property-read string $status
+ * @property string $style
+ * @property string $weight
+ * @property string $stretch
+ * @property string $unicodeRange
+ * @property string $variant
+ * @property string $featureSettings
+ * @property string $variationSettings
+ * @property string $display
+ * @property string $ascentOverride
+ * @property string $descentOverride
+ * @property string $lineGapOverride
+ * @property string $sizeAdjust
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/FontFace
  */
 final class FontFace
@@ -49,8 +65,8 @@ final class FontFace
 		'sizeAdjust' => 'size-adjust',
 	];
 
-	private string $family;
-	private string $source;
+	private string $familyValue;
+	private string $sourceValue;
 
 	/** @var array<string, string> */
 	private array $descriptors;
@@ -119,8 +135,8 @@ final class FontFace
 	public function toCSSFontFaceRule(): CSSFontFaceRule
 	{
 		$descriptors = new CSSFontFaceDescriptors();
-		$descriptors->setProperty('font-family', $this->family);
-		$descriptors->setProperty('src', $this->source);
+		$descriptors->setProperty('font-family', $this->familyValue);
+		$descriptors->setProperty('src', $this->sourceValue);
 
 		foreach (self::TO_CSS_DESCRIPTOR as $prop => $cssName) {
 			if (isset($this->explicit[$prop]) || $this->descriptors[$prop] !== self::DEFAULTS[$prop]) {
@@ -131,8 +147,8 @@ final class FontFace
 		return new CSSFontFaceRule($descriptors);
 	}
 
-	public function getFamily(): string { return $this->family; }
-	public function getSource(): string { return $this->source; }
+	public function getFamily(): string { return $this->familyValue; }
+	public function getSource(): string { return $this->sourceValue; }
 	public function getStatus(): string { return 'unloaded'; }
 
 	public function setFamily(string $family): void
@@ -145,7 +161,7 @@ final class FontFace
 			throw new InvalidArgumentException('FontFace family cannot be empty.');
 		}
 		CSSStyleDeclaration::validatePropertyValue($trimmed);
-		$this->family = $trimmed;
+		$this->familyValue = $trimmed;
 	}
 
 	public function setSource(string $source): void
@@ -158,7 +174,7 @@ final class FontFace
 			throw new InvalidArgumentException('FontFace source cannot be empty.');
 		}
 		CSSStyleDeclaration::validatePropertyValue($trimmed);
-		$this->source = $trimmed;
+		$this->sourceValue = $trimmed;
 	}
 
 	public function getStyle(): string { return $this->descriptors['style']; }
@@ -189,10 +205,10 @@ final class FontFace
 	public function __get(string $name): mixed
 	{
 		if ($name === 'family') {
-			return $this->family;
+			return $this->familyValue;
 		}
 		if ($name === 'source') {
-			return $this->source;
+			return $this->sourceValue;
 		}
 		if ($name === 'status') {
 			return 'unloaded';

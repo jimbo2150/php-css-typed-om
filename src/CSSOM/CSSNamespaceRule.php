@@ -10,6 +10,9 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 /**
  * Represents a CSS `@namespace` rule.
  *
+ * @property-read string $prefix
+ * @property-read string $namespaceURI
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSNamespaceRule
  */
 final class CSSNamespaceRule extends CSSAtRule
@@ -31,8 +34,12 @@ final class CSSNamespaceRule extends CSSAtRule
 	public function getNamespaceURI(): string
 	{
 		[, $uri] = self::splitNamespacePrelude($this->prelude);
-		if (strncasecmp($uri, 'url(', 4) === 0 && str_ends_with($uri, ')')) {
-			$uri = CSSSyntaxScanner::trimCssWhitespace(substr($uri, 4, -1));
+		$uriLen = strlen($uri);
+		if ($uriLen > 0) {
+			$ident = CSSSyntaxScanner::decodeIdentAt($uri, 0, $uriLen);
+			if ($ident !== null && strtolower($ident['ident']) === 'url' && $ident['end'] < $uriLen && $uri[$ident['end']] === '(' && str_ends_with($uri, ')')) {
+				$uri = CSSSyntaxScanner::trimCssWhitespace(substr($uri, $ident['end'] + 1, -1));
+			}
 		}
 		if (strlen($uri) >= 2 && (($uri[0] === '"' && $uri[-1] === '"') || ($uri[0] === "'" && $uri[-1] === "'"))) {
 			return substr($uri, 1, -1);
@@ -52,7 +59,11 @@ final class CSSNamespaceRule extends CSSAtRule
 
 		// No prefix when prelude starts directly with quoted string or url(...)
 		$first = $trimmed[0];
-		if ($first === '"' || $first === "'" || ($length >= 4 && substr_compare($trimmed, 'url(', 0, 4, true) === 0)) {
+		if ($first === '"' || $first === "'") {
+			return ['', $trimmed];
+		}
+		$leadingIdent = CSSSyntaxScanner::decodeIdentAt($trimmed, 0, $length);
+		if ($leadingIdent !== null && strtolower($leadingIdent['ident']) === 'url' && $leadingIdent['end'] < $length && $trimmed[$leadingIdent['end']] === '(') {
 			return ['', $trimmed];
 		}
 

@@ -15,6 +15,8 @@ use Traversable;
 /**
  * Read-only ordered collection of standalone stylesheets.
  *
+ * @property-read int $length
+ *
  * @implements ArrayAccess<int, StyleSheet>
  * @implements IteratorAggregate<int, StyleSheet>
  */

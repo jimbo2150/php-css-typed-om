@@ -9,7 +9,7 @@ use PHPUnit\Framework\TestCase;
 
 class CSSContextTest extends TestCase
 {
-	public function testConstructorWithDefaultValues()
+	public function testConstructorWithDefaultValues(): void
 	{
 		$context = new CSSContext();
 		$this->assertEquals(16.0, $context->getFontSize());
@@ -17,7 +17,7 @@ class CSSContextTest extends TestCase
 		$this->assertEquals(540.0, $context->getViewportHeight());
 	}
 
-	public function testConstructorWithCustomValues()
+	public function testConstructorWithCustomValues(): void
 	{
 		$context = new CSSContext(20.0, 1280.0, 720.0);
 		$this->assertEquals(20.0, $context->getFontSize());
@@ -25,7 +25,7 @@ class CSSContextTest extends TestCase
 		$this->assertEquals(720.0, $context->getViewportHeight());
 	}
 
-	public function testSettersAndGetters()
+	public function testSettersAndGetters(): void
 	{
 		$context = new CSSContext();
 		$context->setFontSize(24.0);
@@ -38,7 +38,7 @@ class CSSContextTest extends TestCase
 		$this->assertEquals(1080.0, $context->getViewportHeight());
 	}
 
-	public function testGetToPxFactor()
+	public function testGetToPxFactor(): void
 	{
 		$context = new CSSContext(16.0, 1000.0, 800.0);
 		$this->assertEquals(1.0, $context->getToPxFactor('px'));
@@ -56,7 +56,7 @@ class CSSContextTest extends TestCase
 		$this->assertEquals(1.0, $context->getToPxFactor('unknown'));
 	}
 
-	public function testGetFromPxFactor()
+	public function testGetFromPxFactor(): void
 	{
 		$context = new CSSContext(16.0, 1000.0, 800.0);
 		$this->assertEquals(1.0, $context->getFromPxFactor('px'));
@@ -69,7 +69,7 @@ class CSSContextTest extends TestCase
 		$this->assertEquals(1.0, $context->getFromPxFactor('unknown'));
 	}
 
-	public function testFactorCache()
+	public function testFactorCache(): void
 	{
 		$context = new CSSContext();
 		$this->assertEquals(1.0, $context->getToPxFactor('px'));
@@ -77,7 +77,7 @@ class CSSContextTest extends TestCase
 		$this->assertEquals(1.0, $context->getToPxFactor('px'));
 	}
 
-	public function testCacheIsClearedOnContextChange()
+	public function testCacheIsClearedOnContextChange(): void
 	{
 		$context = new CSSContext();
 		$this->assertEquals(16.0, $context->getToPxFactor('em'));

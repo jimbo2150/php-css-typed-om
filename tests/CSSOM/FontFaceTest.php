@@ -42,7 +42,9 @@ final class FontFaceTest extends TestCase
 		// Round-trip via parsed stylesheet
 		$sheet = CSSStyleSheet::parse($rule->cssText);
 		self::assertSame([], $sheet->getParseErrors());
-		$parsed = FontFace::fromCSSFontFaceRule($sheet->cssRules[0]);
+		$ruleNode = $sheet->cssRules[0];
+		self::assertInstanceOf(CSSFontFaceRule::class, $ruleNode);
+		$parsed = FontFace::fromCSSFontFaceRule($ruleNode);
 		self::assertSame('"Inter"', $parsed->family);
 		self::assertSame('100 900', $parsed->weight);
 		self::assertSame('swap', $parsed->display);
@@ -51,24 +53,28 @@ final class FontFaceTest extends TestCase
 	public function testValidatesDescriptorsStatusImmutabilityAndMissingRequiredRuleDescriptors(): void
 	{
 		$face = new FontFace('Demo', 'url("demo.woff2")');
+		$threw = false;
 		try {
-			$face->status = 'loaded';
-			self::fail('Expected status write to throw Error.');
-		} catch (Error) {
+			$face->__set('status', 'loaded');
+		} catch (Error $e) {
+			$threw = true;
+			self::assertStringContainsString('status', $e->getMessage());
 			self::assertSame('unloaded', $face->status);
 		}
+		self::assertTrue($threw);
 
 		try {
 			new FontFace('Demo', 'url("demo.woff2")', ['unknown' => '1']);
 			self::fail('Expected unknown descriptor key to throw.');
-		} catch (InvalidArgumentException) {
-			self::assertTrue(true);
+		} catch (InvalidArgumentException $e) {
+			self::assertNotSame('', $e->getMessage());
 		}
 
 		try {
-			$face->weight = '700; color: red';
+			$face->__set('weight', '700; color: red');
 			self::fail('Expected CSS injection in descriptor to throw.');
-		} catch (InvalidArgumentException) {
+		} catch (InvalidArgumentException $e) {
+			self::assertNotSame('', $e->getMessage());
 			self::assertSame('normal', $face->weight);
 		}
 

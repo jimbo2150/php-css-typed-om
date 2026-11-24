@@ -16,10 +16,11 @@ Magic `fontFamily` reads/writes the family list. `annotation`, `ornaments`, `sty
 | `__construct(string $fontFamily)` | Requires a non-empty family list. Throws `InvalidArgumentException` if blank. | `$rule = new CSSFontFeatureValuesRule('Demo');` |
 | `getType(): int` | Returns `CSSRule::FONT_FEATURE_VALUES_RULE`. | `$rule->getType();` |
 | `getFontFamily(): string` | Returns the stored prelude. | `$rule->getFontFamily();` |
-| `setFontFamily(string $fontFamily): void` | Trims, rejects blank input and validates structural syntax before storing. Throws `InvalidArgumentException` for invalid input. | `$rule->setFontFamily('Demo, sans-serif');` |
-| `getFeatureMap(string $featureType): CSSFontFeatureValuesMap` | Lowercases and trims a valid category identifier; lazily creates and returns its map. Throws `InvalidArgumentException` for malformed category names. | `$rule->getFeatureMap('stylistic')->set('salt', [1]);` |
+| `setFontFamily(string $fontFamily): void` | Trims, rejects blank input, enforces `DEFAULT_MAX_BYTES` and validates structural syntax before storing. Throws `InvalidArgumentException` / `CSSParserLimitException` for invalid or oversized input. | `$rule->setFontFamily('Demo, sans-serif');` |
+| `getFeatureMap(string $featureType): CSSFontFeatureValuesMap` | Lowercases and trims a valid category identifier; lazily creates, links to this rule, and returns its map. Throws `InvalidArgumentException` for malformed category names. | `$rule->getFeatureMap('stylistic')->set('salt', [1]);` |
 | `getFeatureMaps(): array` | Returns only maps already created, keyed by normalized category name. | `$rule->getFeatureMaps();` |
 | `getCssText(): string` | Serializes populated feature maps as category blocks, followed by nested rules. | `$rule->getCssText();` |
+| `__clone(): void` | Deep-clones all feature maps cleanly without retaining old owner references. | `$copy = clone $rule;` |
 | `__get(string $name): mixed` | Supports `fontFamily` and the seven feature-map accessors; otherwise delegates to `CSSGroupingRule`. | `$rule->stylistic;` |
 | `__set(string $name, mixed $value): void` | String `fontFamily` assignments call its setter; other writes delegate to the parent and are rejected when unsupported. | `$rule->fontFamily = 'Demo';` |
 

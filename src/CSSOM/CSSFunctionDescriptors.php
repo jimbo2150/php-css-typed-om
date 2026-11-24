@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
+/**
+ * @property string $result
+ */
 final class CSSFunctionDescriptors extends CSSStyleDeclaration
 {
 	public function getResult(): string

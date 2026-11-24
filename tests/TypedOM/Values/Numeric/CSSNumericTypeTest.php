@@ -12,25 +12,25 @@ use ValueError;
 
 class CSSNumericTypeTest extends TestCase
 {
-	public function test() {
+	public function test(): void {
 		$instance = new CSSNumericType();
 		$instance->__set('length', 1);
 		$this->assertSame(1, $instance->{CSSUnitTypeEnum::from('length')->value});
 	}
 
-	public function testRejectsNonIntegerDimensionExponent() {
+	public function testRejectsNonIntegerDimensionExponent(): void {
 		$instance = new CSSNumericType();
 		$this->expectException(InvalidArgumentException::class);
 		$instance->__set('length', 'px');
 	}
 
-	public function testInvalidType() {
+	public function testInvalidType(): void {
 		$instance = new CSSNumericType();
 		$this->expectException(ValueError::class);
 		$instance->__set('test', 5);
 	}
 
-	public function testInvalidValue() {
+	public function testInvalidValue(): void {
 		$instance = new CSSNumericType();
 		$this->expectException(InvalidArgumentException::class);
 		$instance->__set('percentHint', 'f');

@@ -10,6 +10,12 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 /**
  * Represents a CSS `@property` custom property registration rule.
  *
+ * @property-read string $name
+ * @property-read string $syntax
+ * @property-read bool $inherits
+ * @property-read ?string $initialValue
+ * @property-read CSSStyleDeclaration $style
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSPropertyRule
  */
 final class CSSPropertyRule extends CSSAtRule
@@ -42,36 +48,36 @@ final class CSSPropertyRule extends CSSAtRule
 
 	public function getSyntax(): string
 	{
-		return trim($this->style?->getPropertyValue('syntax') ?? '', " \t\n\r\f\"'");
+		return trim($this->styleDeclaration?->getPropertyValue('syntax') ?? '', " \t\n\r\f\"'");
 	}
 
 	public function getInherits(): bool
 	{
-		return strtolower($this->style?->getPropertyValue('inherits') ?? '') === 'true';
+		return strtolower($this->styleDeclaration?->getPropertyValue('inherits') ?? '') === 'true';
 	}
 
 	public function getInitialValue(): ?string
 	{
-		if ($this->style === null) {
+		if ($this->styleDeclaration === null) {
 			return $this->hasEmptyInitialValue ? '' : null;
 		}
-		if (!isset($this->style['initial-value'])) {
+		if (!isset($this->styleDeclaration['initial-value'])) {
 			return $this->hasEmptyInitialValue ? '' : null;
 		}
 
-		return $this->style->getPropertyValue('initial-value');
+		return $this->styleDeclaration->getPropertyValue('initial-value');
 	}
 
 	public function getCssText(): string
 	{
-		if (!$this->hasEmptyInitialValue || ($this->style !== null && isset($this->style['initial-value']))) {
+		if (!$this->hasEmptyInitialValue || ($this->styleDeclaration !== null && isset($this->styleDeclaration['initial-value']))) {
 			return parent::getCssText();
 		}
-		$body = $this->style?->getCssText() ?? '';
+		$body = $this->styleDeclaration?->getCssText() ?? '';
 		$extra = 'initial-value: ;';
 		$content = $body === '' ? $extra : $body . ' ' . $extra;
 
-		return '@' . $this->name . ' ' . CSSSyntaxScanner::trimCssWhitespace($this->prelude) . ' { ' . $content . ' }';
+		return '@' . $this->atRuleName . ' ' . CSSSyntaxScanner::trimCssWhitespace($this->prelude) . ' { ' . $content . ' }';
 	}
 
 	public function __get(string $name): mixed

@@ -57,7 +57,7 @@ class CSSMathValueTest extends TestCase
 		self::assertSame('max(10px, 20px)', (string)$mathMax);
 	}
 
-	public function testClampSerialization()
+	public function testClampSerialization(): void
 	{
 		$clamp = new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathClamp(
 			new CSSUnitValue(10, 'px'),
@@ -67,7 +67,7 @@ class CSSMathValueTest extends TestCase
 		self::assertSame('clamp(10px, 5vw, 50px)', (string) $clamp);
 	}
 
-	public function testClone()
+	public function testClone(): void
 	{
 		$mathSum = new CSSMathSum([new CSSUnitValue(10, 'px'), new CSSUnitValue(20, 'px')]);
 		$clone = $mathSum->clone();

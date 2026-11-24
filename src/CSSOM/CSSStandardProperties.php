@@ -11,7 +11,7 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
  */
 final class CSSStandardProperties
 {
-	/** @var array<string, true> */
+	/** @var array<string, bool> */
 	private const array PROPERTIES = [
 		'accent-color' => true, 'align-content' => true, 'align-items' => true, 'align-self' => true,
 		'alignment-baseline' => true, 'all' => true, 'anchor-name' => true, 'anchor-scope' => true,

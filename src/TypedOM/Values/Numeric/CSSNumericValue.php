@@ -29,6 +29,8 @@ use ReflectionClass;
 /**
  * Base class for CSS Typed OM numeric values (`CSSUnitValue` and `CSSMathValue`).
  *
+ * @property-read CSSNumericType $type
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSNumericValue
  */
 abstract class CSSNumericValue extends CSSStyleValue
@@ -213,7 +215,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 				}
 				$node->cachedNumericType = $type;
 			} else {
-				$node->cachedNumericType = self::mergeAdditiveTypes($children);
+				$node->cachedNumericType = self::mergeAdditiveTypesInternal($children);
 			}
 		}
 
@@ -279,9 +281,10 @@ abstract class CSSNumericValue extends CSSStyleValue
 				continue;
 			}
 			$seenUnits[$resolved->value] = true;
+			$resolvedType = $resolved->type();
 			$buckets[] = [
 				'unit' => $resolved,
-				'category' => $resolved->type()?->value ?? 'number',
+				'category' => $resolvedType !== null ? $resolvedType->value : 'number',
 				'value' => 0.0,
 			];
 		}
@@ -352,7 +355,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 			throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
 		}
 		$all = [...$existing, ...$operands];
-		$merged = self::mergeAdditiveTypes($all);
+		$merged = self::mergeAdditiveTypesInternal($all);
 
 		return CSSMathSum::fromValidated($all, $merged);
 	}
@@ -369,7 +372,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 			$negated[] = new CSSMathNegate([$value]);
 		}
 		$all = [...$existing, ...$negated];
-		$merged = self::mergeAdditiveTypes($all);
+		$merged = self::mergeAdditiveTypesInternal($all);
 
 		return CSSMathSum::fromValidated($all, $merged);
 	}
@@ -443,7 +446,12 @@ abstract class CSSNumericValue extends CSSStyleValue
 				continue;
 			}
 
-			[, $node, $depth, $targetSlot] = $frame;
+			/** @var CSSNumericValue $node */
+			$node = $frame[1];
+			/** @var int $depth */
+			$depth = $frame[2];
+			/** @var int $targetSlot */
+			$targetSlot = $frame[3];
 			if ($depth > self::MAX_MATH_TREE_DEPTH) {
 				throw new CSSParserLimitException(sprintf('Maximum CSS math expression tree depth of %d exceeded.', self::MAX_MATH_TREE_DEPTH));
 			}
@@ -478,7 +486,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 		$operands = self::flattenNumericArguments($values, self::MAX_MATH_NODES - 1);
 		self::assertHasOperands($operands);
 		$all = [$this, ...$operands];
-		$merged = self::mergeAdditiveTypes($all);
+		$merged = self::mergeAdditiveTypesInternal($all);
 
 		return CSSMathMin::fromValidated($all, $merged);
 	}
@@ -488,7 +496,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 		$operands = self::flattenNumericArguments($values, self::MAX_MATH_NODES - 1);
 		self::assertHasOperands($operands);
 		$all = [$this, ...$operands];
-		$merged = self::mergeAdditiveTypes($all);
+		$merged = self::mergeAdditiveTypesInternal($all);
 
 		return CSSMathMax::fromValidated($all, $merged);
 	}
@@ -528,6 +536,18 @@ abstract class CSSNumericValue extends CSSStyleValue
 	 * @throws InvalidArgumentException When operands have incompatible dimensions
 	 */
 	public static function mergeAdditiveTypes(array $values): CSSNumericType
+	{
+		// Clone cached base types so external callers cannot poison the shared unit-category cache.
+		return clone self::mergeAdditiveTypesInternal($values);
+	}
+
+	/**
+	 * @internal Fast path returning merged (possibly shared cached) CSSNumericType for internal construction.
+	 *
+	 * @param list<self> $values
+	 * @throws InvalidArgumentException When operands have incompatible dimensions
+	 */
+	public static function mergeAdditiveTypesInternal(array $values): CSSNumericType
 	{
 		if ($values === []) {
 			return self::baseTypeForUnitCategory(null);
@@ -834,7 +854,16 @@ abstract class CSSNumericValue extends CSSStyleValue
 			}
 
 			if ($frame[0] === 2) {
-				[, $origProduct, $dimIndex, $dimSlot, $depth, $targetSlot] = $frame;
+				/** @var CSSMathProduct $origProduct */
+				$origProduct = $frame[1];
+				/** @var int $dimIndex */
+				$dimIndex = $frame[2];
+				/** @var ?int $dimSlot */
+				$dimSlot = $frame[3];
+				/** @var int $depth */
+				$depth = $frame[4];
+				/** @var int $targetSlot */
+				$targetSlot = $frame[5];
 				$values = $origProduct->values->values;
 				$newValues = [];
 				foreach ($values as $idx => $operand) {
@@ -852,7 +881,12 @@ abstract class CSSNumericValue extends CSSStyleValue
 				continue;
 			}
 
-			[, $value, $depth, $targetSlot] = $frame;
+			/** @var CSSNumericValue $value */
+			$value = $frame[1];
+			/** @var int $depth */
+			$depth = $frame[2];
+			/** @var int $targetSlot */
+			$targetSlot = $frame[3];
 			if ($depth > self::MAX_MATH_TREE_DEPTH) {
 				throw new CSSParserLimitException(sprintf('Maximum CSS math expression tree depth of %d exceeded.', self::MAX_MATH_TREE_DEPTH));
 			}
@@ -914,6 +948,10 @@ abstract class CSSNumericValue extends CSSStyleValue
 				$stack[] = [2, $value, $dimIdx, $dimSlot, $depth, $targetSlot];
 				$stack[] = [0, $values[$dimIdx], $depth + 1, $dimSlot];
 				continue;
+			}
+
+			if (!$value instanceof CSSMathValue) {
+				throw new InvalidArgumentException('Unsupported numeric expression conversion.');
 			}
 
 			$children = $value->values->values;
@@ -991,7 +1029,14 @@ abstract class CSSNumericValue extends CSSStyleValue
 				return null;
 			}
 
-			[, $node, $numberOnly, $depth, $targetSlot] = $frame;
+			/** @var CSSNumericValue $node */
+			$node = $frame[1];
+			/** @var bool $numberOnly */
+			$numberOnly = $frame[2];
+			/** @var int $depth */
+			$depth = $frame[3];
+			/** @var int $targetSlot */
+			$targetSlot = $frame[4];
 			if ($depth > self::MAX_MATH_TREE_DEPTH) {
 				throw new CSSParserLimitException(sprintf('Maximum CSS math expression tree depth of %d exceeded.', self::MAX_MATH_TREE_DEPTH));
 			}
@@ -1062,7 +1107,10 @@ abstract class CSSNumericValue extends CSSStyleValue
 		return $slots[0] ?? null;
 	}
 
-	/** @param list<self|int|float> $values @return list<self> */
+	/**
+	 * @param array<int, self|int|float> $values
+	 * @return list<self>
+	 */
 	private static function normalizeVariadicOperands(array $values): array
 	{
 		if ($values === []) {
@@ -1085,7 +1133,10 @@ abstract class CSSNumericValue extends CSSStyleValue
 		}
 	}
 
-	/** @param list<CSSNumericArray|self|int|float> $values @return list<self> */
+	/**
+	 * @param array<int, CSSNumericArray|self|int|float> $values
+	 * @return list<self>
+	 */
 	private static function flattenNumericArguments(array $values, int $maxItems = self::MAX_MATH_NODES): array
 	{
 		$result = [];

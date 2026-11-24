@@ -33,6 +33,10 @@ final class CSSSkew extends CSSTransformComponent
 		}
 	}
 
+	/**
+	 * @param CSSNumericValue|int|float|string $axOrFunction
+	 * @param list<CSSStyleValue|string>|CSSNumericValue|int|float|string|null $ayOrValues
+	 */
 	public function __construct(
 		CSSNumericValue|int|float|string $axOrFunction,
 		array|CSSNumericValue|int|float|string|null $ayOrValues = null,

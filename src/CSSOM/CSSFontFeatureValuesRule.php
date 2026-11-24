@@ -10,6 +10,15 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 /**
  * Represents a CSS `@font-feature-values` rule and its typed feature-value maps.
  *
+ * @property string $fontFamily
+ * @property-read CSSFontFeatureValuesMap $stylistic
+ * @property-read CSSFontFeatureValuesMap $styleset
+ * @property-read CSSFontFeatureValuesMap $characterVariant
+ * @property-read CSSFontFeatureValuesMap $swash
+ * @property-read CSSFontFeatureValuesMap $ornaments
+ * @property-read CSSFontFeatureValuesMap $annotation
+ * @property-read CSSFontFeatureValuesMap $historicalForms
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSFontFeatureValuesRule
  */
 final class CSSFontFeatureValuesRule extends CSSGroupingRule
@@ -49,6 +58,9 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 
 	public function setFontFamily(string $fontFamily): void
 	{
+		if (strlen($fontFamily) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('Font family list exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		}
 		$fontFamily = CSSSyntaxScanner::trimCssWhitespace($fontFamily);
 		if ($fontFamily === '') {
 			throw new InvalidArgumentException('@font-feature-values requires a font-family list.');
@@ -63,7 +75,12 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 		if (!in_array($featureType, self::FEATURE_ACCESSORS, true)) {
 			throw new InvalidArgumentException('Invalid font feature value category: ' . $featureType);
 		}
-		return $this->featureMaps[$featureType] ??= new CSSFontFeatureValuesMap();
+		if (!isset($this->featureMaps[$featureType])) {
+			$map = new CSSFontFeatureValuesMap();
+			$map->setOwnerRuleInternal($this);
+			$this->featureMaps[$featureType] = $map;
+		}
+		return $this->featureMaps[$featureType];
 	}
 
 	/** @return array<string, CSSFontFeatureValuesMap> */
@@ -110,7 +127,9 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 		parent::__clone();
 		$clonedMaps = [];
 		foreach ($this->featureMaps as $category => $map) {
-			$clonedMaps[$category] = clone $map;
+			$clonedMap = clone $map;
+			$clonedMap->setOwnerRuleInternal($this);
+			$clonedMaps[$category] = $clonedMap;
 		}
 		$this->featureMaps = $clonedMaps;
 	}

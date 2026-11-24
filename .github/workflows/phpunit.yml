@@ -24,5 +24,9 @@ jobs:
         run: composer validate --strict
       - name: Check code style
         run: ./vendor/bin/php-cs-fixer fix --dry-run --diff
+      - name: Run static analysis
+        run: ./vendor/bin/phpstan analyse --memory-limit=512M --no-progress
+      - name: Lint benchmarks script
+        run: php -l benchmarks/bench.php
       - name: Run tests
         run: ./vendor/bin/phpunit --colors=never

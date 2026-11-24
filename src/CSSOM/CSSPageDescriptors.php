@@ -142,7 +142,8 @@ final class CSSPageDescriptors extends CSSStyleDeclaration
 		'counter-set' => true,
 	];
 
-	protected static function allowedDescriptors(): ?array
+	/** @return array<string, true> */
+	protected static function allowedDescriptors(): array
 	{
 		return self::ALLOWED;
 	}

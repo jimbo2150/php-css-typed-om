@@ -12,6 +12,8 @@ use Stringable;
 /**
  * Represents a CSS value with a unit (e.g., `10px`, `50%`, `2em`).
  *
+ * @phpstan-consistent-constructor
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSUnitValue
  */
 class CSSUnitValue extends CSSNumericValue implements Stringable
@@ -33,6 +35,7 @@ class CSSUnitValue extends CSSNumericValue implements Stringable
 	}
 
 	/**
+	 * @phpstan-consistent-constructor
 	 * @param string|float|int $value Finite numeric magnitude
 	 * @param string|CSSUnitEnum $unit CSS unit name/symbol or enum
 	 * @throws InvalidArgumentException When $value is not finite/numeric or $unit is unsupported

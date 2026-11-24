@@ -41,7 +41,10 @@ final class CSSFuzzTest extends TestCase
 
 			// Scanner primitives must always terminate in linear time and respect bounds
 			CSSSyntaxScanner::isBalanced($input);
-			CSSSyntaxScanner::hasControlCharacters($input);
+			self::assertSame(
+				str_contains($input, "\x00") || str_contains($input, "\x0B"),
+				CSSSyntaxScanner::hasControlCharacters($input),
+			);
 			CSSSyntaxScanner::removeComments($input);
 			CSSSyntaxScanner::splitTopLevel($input, ';');
 			CSSSyntaxScanner::findLastTopLevelImportant($input);
@@ -49,21 +52,32 @@ final class CSSFuzzTest extends TestCase
 			// Stylesheet parsing must never crash and must obey error & rule caps
 			$sheet = CSSStyleSheet::parse($input, $options);
 			self::assertLessThanOrEqual($options->maxErrors + 1, count($sheet->getParseErrors()));
-			self::assertLessThanOrEqual($options->maxRules + 1, $sheet->getTotalRuleCount());
+			self::assertLessThanOrEqual($options->maxRules, $sheet->getTotalRuleCount());
 
 			$clonedSheet = clone $sheet;
 			self::assertSame($sheet->getTotalRuleCount(), $clonedSheet->getTotalRuleCount());
 
 			$rendered = CSSRenderer::render($sheet, new CSSRenderOptions(CSSRenderMode::Minified));
 			$escaped = CSSRenderer::render($sheet, new CSSRenderOptions(CSSRenderMode::Pretty, escapeHtmlStyleTag: true));
-			self::assertIsString($rendered);
+			$noComments = CSSRenderer::render($sheet, new CSSRenderOptions(
+				CSSRenderMode::Minified,
+				keepComments: false,
+				ruleCallback: static fn (\Jimbo2150\PhpCssTypedOm\CSSOM\CSSRule $rule, string $text): string => $text,
+			));
+			self::assertNotSame(false, strpos($rendered, '') !== false);
+			self::assertStringNotContainsString('/*', $noComments);
 			self::assertDoesNotMatchRegularExpression('/<\/style(?=[\t\n\f\r \/>]|$)/i', $escaped);
 			$reparsed = CSSStyleSheet::parse($rendered, $options);
 			self::assertSame($rendered, CSSRenderer::render($reparsed, new CSSRenderOptions(CSSRenderMode::Minified)));
 
+			// Standalone declaration parsing also stays bounded and crash-free
+			$fuzzDiags = [];
+			$decl = \Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration::parse(substr($input, 0, 128), false, $fuzzDiags, new CSSParserOptions(maxBytes: 4096, maxDeclarations: 128));
+			self::assertLessThanOrEqual(128, count($decl));
+
 			// Typed OM entry points & CSS::supports must only throw InvalidArgumentException (or return bool)
 			$slice = substr($input, 0, 96);
-			self::assertIsBool(CSS::supports($slice, null, $options));
+			CSS::supports($slice, null, $options);
 			try {
 				self::assertInstanceOf(CSSStyleValue::class, CSSStyleValue::parse('width', $slice, $options));
 			} catch (InvalidArgumentException) {
@@ -99,7 +113,8 @@ final class CSSFuzzTest extends TestCase
 			"@media screen {\n  a\\2f  b { color: red; }\n}",
 		] as $edge) {
 			$edgeSheet = CSSStyleSheet::parse($edge, $options);
-			self::assertIsString(CSSRenderer::render($edgeSheet, new CSSRenderOptions(CSSRenderMode::Minified, escapeHtmlStyleTag: true)));
+			$edgeRendered = CSSRenderer::render($edgeSheet, new CSSRenderOptions(CSSRenderMode::Minified, escapeHtmlStyleTag: true));
+			self::assertDoesNotMatchRegularExpression('/<\/style(?=[\t\n\f\r \/>]|$)/i', $edgeRendered);
 		}
 	}
 

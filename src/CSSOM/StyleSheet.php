@@ -11,19 +11,30 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 /**
  * Base metadata model for standalone stylesheets.
  *
+ * @property-read string $type
+ * @property-read ?string $href
+ * @property-read string $title
+ * @property bool $disabled
+ * @property-read MediaList $media
+ * @property-read ?CSSRule $ownerRule
+ * @property-read ?StyleSheet $parentStyleSheet
  * @see https://developer.mozilla.org/en-US/docs/Web/API/StyleSheet
  */
 abstract class StyleSheet
 {
-	private bool $disabled = false;
-	private MediaList $media;
+	private bool $disabledFlag = false;
+	private MediaList $mediaList;
+	private readonly ?string $hrefValue;
+	private readonly string $titleValue;
+	private readonly ?CSSRule $ownerRuleRef;
+	private readonly ?StyleSheet $parentSheetRef;
 
 	public function __construct(
-		private readonly ?string $href = null,
-		private readonly string $title = '',
+		?string $href = null,
+		string $title = '',
 		MediaList|string|null $media = null,
-		private readonly ?CSSRule $ownerRule = null,
-		private readonly ?StyleSheet $parentStyleSheet = null,
+		?CSSRule $ownerRule = null,
+		?StyleSheet $parentStyleSheet = null,
 		bool $disabled = false,
 	) {
 		if ($href !== null && CSSSyntaxScanner::hasControlCharacters($href)) {
@@ -32,8 +43,12 @@ abstract class StyleSheet
 		if (CSSSyntaxScanner::hasControlCharacters($title)) {
 			throw new InvalidArgumentException('StyleSheet title cannot contain control characters.');
 		}
-		$this->media = $media instanceof MediaList ? $media->cloneWithCallback(null) : new MediaList($media ?? '');
-		$this->disabled = $disabled;
+		$this->hrefValue = $href;
+		$this->titleValue = $title;
+		$this->ownerRuleRef = $ownerRule;
+		$this->parentSheetRef = $parentStyleSheet;
+		$this->mediaList = $media instanceof MediaList ? $media->cloneWithCallback(null) : new MediaList($media ?? '');
+		$this->disabledFlag = $disabled;
 	}
 
 	public function getType(): string
@@ -43,37 +58,37 @@ abstract class StyleSheet
 
 	public function getHref(): ?string
 	{
-		return $this->href;
+		return $this->hrefValue;
 	}
 
 	public function getTitle(): string
 	{
-		return $this->title;
+		return $this->titleValue;
 	}
 
 	public function isDisabled(): bool
 	{
-		return $this->disabled;
+		return $this->disabledFlag;
 	}
 
 	public function setDisabled(bool $disabled): void
 	{
-		$this->disabled = $disabled;
+		$this->disabledFlag = $disabled;
 	}
 
 	public function getMedia(): MediaList
 	{
-		return $this->media;
+		return $this->mediaList;
 	}
 
 	public function getOwnerRule(): ?CSSRule
 	{
-		return $this->ownerRule;
+		return $this->ownerRuleRef;
 	}
 
 	public function getParentStyleSheet(): ?StyleSheet
 	{
-		return $this->parentStyleSheet;
+		return $this->parentSheetRef;
 	}
 
 	public function __get(string $name): mixed
@@ -94,9 +109,9 @@ abstract class StyleSheet
 	{
 		return match ($name) {
 			'type', 'title', 'disabled', 'media' => true,
-			'href' => $this->href !== null,
-			'ownerRule' => $this->ownerRule !== null,
-			'parentStyleSheet' => $this->parentStyleSheet !== null,
+			'href' => $this->hrefValue !== null,
+			'ownerRule' => $this->ownerRuleRef !== null,
+			'parentStyleSheet' => $this->parentSheetRef !== null,
 			default => false,
 		};
 	}
@@ -112,6 +127,6 @@ abstract class StyleSheet
 
 	public function __clone(): void
 	{
-		$this->media = $this->media->cloneWithCallback(null);
+		$this->mediaList = $this->mediaList->cloneWithCallback(null);
 	}
 }

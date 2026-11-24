@@ -6,6 +6,7 @@ namespace Jimbo2150\PhpCssTypedOm;
 
 use BadMethodCallException;
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPropertyRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStandardProperties;
@@ -702,11 +703,10 @@ abstract class CSS
 			}
 
 			$c0 = $source[$start];
-			$startsNot = $end - $start >= 4 && substr_compare($source, 'not', $start, 3, true) === 0
-				&& str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$start + 3]);
-			$startsSelector = $end - $start >= 9 && substr_compare($source, 'selector(', $start, 9, true) === 0;
+			$notKwEnd = self::matchSupportsKeyword($source, $start, $end, 'not');
+			$selectorOpen = $notKwEnd === null ? self::matchSupportsSelectorOpen($source, $start, $end) : null;
 
-			if ($c0 !== '(' && !$startsNot && !$startsSelector) {
+			if ($c0 !== '(' && $notKwEnd === null && $selectorOpen === null) {
 				$colon = CSSSyntaxScanner::findTopLevel($source, ':', $start, $end);
 				if ($colon !== null) {
 					$slots[$destSlot] = self::supportsDeclaration(
@@ -721,8 +721,8 @@ abstract class CSS
 				continue;
 			}
 
-			if ($startsNot) {
-				$opStart = $start + 4;
+			if ($notKwEnd !== null) {
+				$opStart = $notKwEnd + 1;
 				$opEnd = $end;
 				self::trimSlice($source, $opStart, $opEnd);
 				if (!self::isSupportsInParensSlice($source, $opStart, $opEnd, $matchingParens)) {
@@ -820,8 +820,8 @@ abstract class CSS
 			$slots[$destSlot] = false;
 			return;
 		}
-		if ($end - $start >= 9 && substr_compare($source, 'selector(', $start, 9, true) === 0) {
-			$open = $start + 8;
+		if (($selectorOpen = self::matchSupportsSelectorOpen($source, $start, $end)) !== null) {
+			$open = $selectorOpen;
 			$close = $matchingParens[$open] ?? null;
 			if ($close !== $end - 1) {
 				$slots[$destSlot] = false;
@@ -857,8 +857,8 @@ abstract class CSS
 		}
 
 		$isGroupOrNot = $source[$innerStart] === '('
-			|| ($innerEnd - $innerStart >= 4 && substr_compare($source, 'not', $innerStart, 3, true) === 0 && str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$innerStart + 3]))
-			|| ($innerEnd - $innerStart >= 9 && substr_compare($source, 'selector(', $innerStart, 9, true) === 0);
+			|| self::matchSupportsKeyword($source, $innerStart, $innerEnd, 'not') !== null
+			|| self::matchSupportsSelectorOpen($source, $innerStart, $innerEnd) !== null;
 
 		if ($isGroupOrNot) {
 			$stack[] = [0, $innerStart, $innerEnd, $depth + 1, $destSlot];
@@ -906,8 +906,7 @@ abstract class CSS
 		if ($source[$start] === '(') {
 			return ($matchingParens[$start] ?? null) === $end - 1;
 		}
-		if ($end - $start >= 9 && substr_compare($source, 'selector(', $start, 9, true) === 0) {
-			$open = $start + 8;
+		if (($open = self::matchSupportsSelectorOpen($source, $start, $end)) !== null) {
 			return ($matchingParens[$open] ?? null) === $end - 1;
 		}
 
@@ -915,8 +914,6 @@ abstract class CSS
 	}
 
 	/**
-	 * Splits top-level `@supports` clauses and combinators (`and` / `or`) over a byte slice.
-	 *
 	 * @param array<int, int> $matchingParens
 	 * @return list<array{0: int, 1: int}|string>|null
 	 */
@@ -941,8 +938,7 @@ abstract class CSS
 				continue;
 			}
 
-			if ($end - $offset >= 9 && substr_compare($source, 'selector(', $offset, 9, true) === 0) {
-				$open = $offset + 8;
+			if (($open = self::matchSupportsSelectorOpen($source, $offset, $end)) !== null) {
 				$close = $matchingParens[$open] ?? null;
 				if ($close === null || $close >= $end) {
 					return null;
@@ -952,18 +948,14 @@ abstract class CSS
 				continue;
 			}
 
-			if ($end - $offset >= 4 && substr_compare($source, 'and', $offset, 3, true) === 0
-				&& str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$offset + 3])
-			) {
+			if (($kwEnd = self::matchSupportsKeyword($source, $offset, $end, 'and')) !== null) {
 				$tokens[] = 'and';
-				$offset += 3;
+				$offset = $kwEnd;
 				continue;
 			}
-			if ($end - $offset >= 3 && substr_compare($source, 'or', $offset, 2, true) === 0
-				&& str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$offset + 2])
-			) {
+			if (($kwEnd = self::matchSupportsKeyword($source, $offset, $end, 'or')) !== null) {
 				$tokens[] = 'or';
-				$offset += 2;
+				$offset = $kwEnd;
 				continue;
 			}
 
@@ -971,6 +963,44 @@ abstract class CSS
 		}
 
 		return $tokens;
+	}
+
+	private static function matchSupportsKeyword(string $source, int $offset, int $end, string $expectedLower): ?int
+	{
+		$len = strlen($expectedLower);
+		if ($end - $offset >= $len + 1
+			&& substr_compare($source, $expectedLower, $offset, $len, true) === 0
+			&& str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$offset + $len])
+		) {
+			return $offset + $len;
+		}
+		if ($offset < $end && ($source[$offset] === '\\' || strcasecmp($source[$offset], $expectedLower[0]) === 0)) {
+			$ident = CSSSyntaxScanner::decodeIdentAt($source, $offset, $end);
+			if ($ident !== null
+				&& strtolower($ident['ident']) === $expectedLower
+				&& $ident['end'] < $end
+				&& str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$ident['end']])
+			) {
+				return $ident['end'];
+			}
+		}
+
+		return null;
+	}
+
+	private static function matchSupportsSelectorOpen(string $source, int $offset, int $end): ?int
+	{
+		if ($end - $offset >= 9 && substr_compare($source, 'selector(', $offset, 9, true) === 0) {
+			return $offset + 8;
+		}
+		if ($offset < $end && ($source[$offset] === '\\' || $source[$offset] === 's' || $source[$offset] === 'S')) {
+			$ident = CSSSyntaxScanner::decodeIdentAt($source, $offset, $end);
+			if ($ident !== null && $ident['end'] < $end && $source[$ident['end']] === '(' && strtolower($ident['ident']) === 'selector') {
+				return $ident['end'];
+			}
+		}
+
+		return null;
 	}
 
 	/** @return array{int, string, int} */

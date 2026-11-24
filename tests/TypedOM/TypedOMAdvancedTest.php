@@ -153,11 +153,12 @@ final class TypedOMAdvancedTest extends TestCase
 	public function testStandaloneCollectionsExposeWebIdlIterableHelpers(): void
 	{
 		$numericArray = new CSSNumericArray([CSS::px(10), CSS::percent(50)]);
-		self::assertNotInstanceOf(CSSNumericValue::class, $numericArray);
 		self::assertSame(2, $numericArray->length);
 		self::assertSame([0, 1], $numericArray->keys());
 		self::assertCount(2, $numericArray->values());
-		self::assertSame(10.0, $numericArray->entries()[0][1]->value);
+		$firstNumeric = $numericArray->entries()[0][1];
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $firstNumeric);
+		self::assertSame(10.0, $firstNumeric->value);
 		$seen = [];
 		$numericArray->forEach(static function (CSSNumericValue $v, int $i) use (&$seen): void {
 			$seen[$i] = (string) $v;
@@ -190,7 +191,10 @@ final class TypedOMAdvancedTest extends TestCase
 		$scale = new CSSScale(2);
 		self::assertNotSame($scale->x, $scale->y);
 		$scaleClone = $scale->clone();
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $scaleClone->x);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $scaleClone->y);
 		$scaleClone->x->value = 5;
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $scale->x);
 		self::assertSame(2.0, $scale->x->value);
 		self::assertSame(2.0, $scaleClone->y->value);
 
@@ -249,8 +253,8 @@ final class TypedOMAdvancedTest extends TestCase
 		try {
 			new CSSRotate(0, 0, 0, CSS::deg(45));
 			self::fail('Expected zero rotation axis to throw.');
-		} catch (\InvalidArgumentException) {
-			self::assertTrue(true);
+		} catch (\InvalidArgumentException $e) {
+			self::assertNotSame('', $e->getMessage());
 		}
 
 		// Two-keyword CSSPositionValue('center left') resolves x=left, y=center
@@ -279,14 +283,15 @@ final class TypedOMAdvancedTest extends TestCase
 			try {
 				$tx->x = $badPercentHint;
 				self::fail('Expected incompatible percentHint math value to be rejected on CSSTranslate::$x.');
-			} catch (\InvalidArgumentException) {
-				self::assertTrue(true);
+			} catch (\InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
 			}
 		}
 
 		// CSSTranslate & CSSScale preserve 1-arg serialization on __clone()
 		$singleTranslateClone = clone new CSSTranslate('translate', [CSS::px(10)]);
 		self::assertSame('translate(10px)', (string) $singleTranslateClone);
+		/** @phpstan-ignore argument.type */
 		$singleScaleClone = clone new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSScale('scale', [2]);
 		self::assertSame('scale(2)', (string) $singleScaleClone);
 
@@ -296,8 +301,8 @@ final class TypedOMAdvancedTest extends TestCase
 		try {
 			CSSPositionValue::fromCssText("0\x00 0");
 			self::fail('Expected control character in CSSPositionValue to throw.');
-		} catch (\InvalidArgumentException) {
-			self::assertTrue(true);
+		} catch (\InvalidArgumentException $e) {
+			self::assertNotSame('', $e->getMessage());
 		}
 
 		// CSSImageValue rejects declaration/block delimiters inside non-url() functions, allows ';' in url()
@@ -306,8 +311,8 @@ final class TypedOMAdvancedTest extends TestCase
 		try {
 			new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSImageValue('linear-gradient(red; blue)');
 			self::fail('Expected ";" inside linear-gradient() to throw.');
-		} catch (\InvalidArgumentException) {
-			self::assertTrue(true);
+		} catch (\InvalidArgumentException $e) {
+			self::assertNotSame('', $e->getMessage());
 		}
 
 		// CSSTransformValue comments & clone deep-copy

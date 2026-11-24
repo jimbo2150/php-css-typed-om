@@ -9,6 +9,9 @@ use InvalidArgumentException;
 /**
  * Represents a CSS `@position-try` fallback rule for anchor positioning.
  *
+ * @property-read string $name
+ * @property-read CSSPositionTryDescriptors $style
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSPositionTryRule
  */
 final class CSSPositionTryRule extends CSSAtRule
@@ -37,7 +40,8 @@ final class CSSPositionTryRule extends CSSAtRule
 
 	public function getStyle(): CSSPositionTryDescriptors
 	{
-		return $this->style;
+		assert($this->styleDeclaration instanceof CSSPositionTryDescriptors);
+		return $this->styleDeclaration;
 	}
 
 	public function getType(): int

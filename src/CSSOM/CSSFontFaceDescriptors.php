@@ -47,7 +47,8 @@ final class CSSFontFaceDescriptors extends CSSStyleDeclaration
 		'unicode-range' => true,
 	];
 
-	protected static function allowedDescriptors(): ?array
+	/** @return array<string, true> */
+	protected static function allowedDescriptors(): array
 	{
 		return self::ALLOWED;
 	}

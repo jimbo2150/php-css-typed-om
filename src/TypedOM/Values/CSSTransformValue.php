@@ -83,14 +83,20 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 				break;
 			}
 
-			if (!preg_match('/\G([a-zA-Z][a-zA-Z0-9-]*)\(/', $cssText, $match, 0, $offset)) {
-				throw new InvalidArgumentException('Invalid transform function at offset ' . $offset . '.');
+			if (preg_match('/\G([a-zA-Z][a-zA-Z0-9-]*)\(/', $cssText, $match, 0, $offset)) {
+				$name = strtolower($match[1]);
+				$open = $offset + strlen($match[0]) - 1;
+			} else {
+				$ident = CSSSyntaxScanner::decodeIdentAt($cssText, $offset, $length);
+				if ($ident === null || $ident['end'] >= $length || $cssText[$ident['end']] !== '(') {
+					throw new InvalidArgumentException('Invalid transform function at offset ' . $offset . '.');
+				}
+				$name = strtolower($ident['ident']);
+				$open = $ident['end'];
 			}
-			$name = strtolower($match[1]);
 			if (count($components) >= self::MAX_COMPONENTS) {
 				throw new CSSParserLimitException(sprintf('Transform list exceeds maximum limit of %d components.', self::MAX_COMPONENTS));
 			}
-			$open = $offset + strlen($match[0]) - 1;
 			$close = CSSSyntaxScanner::findMatchingDelimiter($cssText, $open, $length);
 			if ($close === null) {
 				throw new InvalidArgumentException('Unclosed transform function: ' . $name);

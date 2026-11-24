@@ -10,7 +10,7 @@ use PHPUnit\Framework\TestCase;
 
 class CSSUnitTypeEnumTest extends TestCase
 {
-	public function test() {
+	public function test(): void {
 		$instance = CSSUnitTypeEnum::FLEX;
 		$this->assertSame('int', $instance->verifyValue(1));
 		$this->assertInstanceOf(

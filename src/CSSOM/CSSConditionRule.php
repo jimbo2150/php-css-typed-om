@@ -10,6 +10,8 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 /**
  * Base class for conditional grouping rules such as `@media`, `@supports`, and `@container`.
  *
+ * @property string $conditionText
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSConditionRule
  */
 class CSSConditionRule extends CSSGroupingRule

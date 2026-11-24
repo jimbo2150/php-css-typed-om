@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\Tests\CSSOM;
 
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFontFeatureValuesRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSMediaRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSOpaqueRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderer;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderMode;
@@ -38,7 +39,13 @@ CSS, CSSRenderer::render($sheet));
 
 		$roundTrip = CSSStyleSheet::parse(CSSRenderer::render($sheet, new CSSRenderOptions(CSSRenderMode::Minified)));
 		self::assertSame([], $roundTrip->getParseErrors());
-		self::assertSame('blue', $roundTrip->cssRules[0]->cssRules[0]->cssRules[0]->style->getPropertyValue('color'));
+		$media = $roundTrip->cssRules[0];
+		self::assertInstanceOf(CSSMediaRule::class, $media);
+		$styleRule = $media->cssRules[0];
+		self::assertInstanceOf(CSSStyleRule::class, $styleRule);
+		$nestedRule = $styleRule->cssRules[0];
+		self::assertInstanceOf(CSSStyleRule::class, $nestedRule);
+		self::assertSame('blue', $nestedRule->style->getPropertyValue('color'));
 	}
 
 	public function testRendersStandaloneRulesAndStructuredAtRules(): void
@@ -145,8 +152,10 @@ CSS);
 		$sheet = CSSStyleSheet::parse('a { color: red; &:hover { color: blue; } }');
 		$visited = [];
 		$options = new CSSRenderOptions(
-			ruleCallback: static function (CSSStyleRule $rule, string $text) use (&$visited): string {
-				$visited[] = $rule->getSelectorText();
+			ruleCallback: static function (\Jimbo2150\PhpCssTypedOm\CSSOM\CSSRule $rule, string $text) use (&$visited): string {
+				if ($rule instanceof CSSStyleRule) {
+					$visited[] = $rule->getSelectorText();
+				}
 
 				return str_replace('color: blue;', 'color: green;', $text);
 			},

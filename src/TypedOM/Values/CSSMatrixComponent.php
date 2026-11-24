@@ -22,6 +22,7 @@ final class CSSMatrixComponent extends CSSTransformComponent
 
 	public DOMMatrix $matrix {
 		get => $this->matrixValue;
+		/** @param DOMMatrixReadOnly|list<float|int|string> $value */
 		set (DOMMatrixReadOnly|array $value) {
 			$this->setMatrix($value);
 		}

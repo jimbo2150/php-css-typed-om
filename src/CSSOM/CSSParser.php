@@ -215,9 +215,7 @@ final class CSSParser
 		if ($trailing < $length) {
 			throw new InvalidArgumentException('Unexpected trailing content in nested CSS rule.');
 		}
-		if ($sheet->getParseErrors() !== []) {
-			throw new InvalidArgumentException($sheet->getParseErrors()[0]['message']);
-		}
+		self::assertNoSheetParseErrors($sheet);
 
 		$rule->attach(null, null);
 
@@ -310,7 +308,8 @@ final class CSSParser
 
 		$prelude = self::extractPrelude($cssText, $offset, $delimiter['offset'], $sheet);
 		if ($prelude === null) {
-			throw new InvalidArgumentException($sheet->getParseErrors()[0]['message'] ?? 'CSS margin rule prelude contains disallowed control characters.');
+			self::assertNoSheetParseErrors($sheet);
+			throw new InvalidArgumentException('CSS margin rule prelude contains disallowed control characters.');
 		}
 		[$name, $extra] = self::splitAtRulePrelude($prelude);
 		if ($extra !== '') {
@@ -346,11 +345,17 @@ final class CSSParser
 		if (self::skipTrivia($cssText, $offset, $length, $sheet, false) < $length) {
 			throw new InvalidArgumentException('Unexpected trailing content in page margin rule.');
 		}
-		if ($sheet->getParseErrors() !== []) {
-			throw new InvalidArgumentException($sheet->getParseErrors()[0]['message']);
-		}
+		self::assertNoSheetParseErrors($sheet);
 
 		return new CSSMarginRule($name, $style);
+	}
+
+	private static function assertNoSheetParseErrors(CSSStyleSheet $sheet): void
+	{
+		$errors = $sheet->getParseErrors();
+		if ($errors !== []) {
+			throw new InvalidArgumentException($errors[0]['message']);
+		}
 	}
 
 	private static function parseRuleList(
@@ -784,7 +789,7 @@ final class CSSParser
 					'layer' => new CSSLayerBlockRule($condition),
 					'keyframes', '-webkit-keyframes' => new CSSKeyframesRule($condition, $name),
 					'starting-style' => new CSSStartingStyleRule(),
-					'function' => CSSFunctionRule::fromPrelude($condition),
+					'function' => CSSFunctionRule::fromPrelude($condition, $options->maxBytes),
 					default => new CSSGroupingRule($name, $condition, $options->maxBytes),
 				};
 			} catch (InvalidArgumentException $exception) {
@@ -1409,7 +1414,8 @@ final class CSSParser
 
 					$rawName = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($source, $segStart, $colon));
 					if ($rawName === ''
-						|| preg_match('/^(?:-?(?:[_a-zA-Z]|[^\x00-\x7F]|' . CSSSyntaxScanner::IDENT_ESCAPE_REGEX . '))(?:[-_a-zA-Z0-9]|[^\x00-\x7F]|' . CSSSyntaxScanner::IDENT_ESCAPE_REGEX . ')*$/uD', $rawName) !== 1
+						|| CSSSyntaxScanner::hasControlCharacters($rawName)
+						|| CSSSyntaxScanner::scanIdentEnd($rawName, 0, strlen($rawName)) !== strlen($rawName)
 					) {
 						$sheet->recordParseError('Invalid font feature value name.', $segStart);
 						continue;
@@ -1446,7 +1452,12 @@ final class CSSParser
 						continue;
 					}
 					try {
-						$map->set($rawName, $ints);
+						$map->setParsedInternal($rawName, $ints, $options->maxBytes);
+					} catch (CSSParserLimitException $exception) {
+						if ($throwOnLimit) {
+							throw $exception;
+						}
+						$sheet->recordParseError($exception->getMessage(), $segStart);
 					} catch (InvalidArgumentException $exception) {
 						$sheet->recordParseError($exception->getMessage(), $segStart);
 					}
@@ -1460,7 +1471,7 @@ final class CSSParser
 				}
 				$raw = substr($source, $ruleStart, $close - $ruleStart + 1);
 				$offset = $close + 1;
-				$opaque = self::createValidatedOpaqueRule($raw, $sheet, $ruleStart);
+				$opaque = self::createValidatedOpaqueRule($raw, $sheet, $ruleStart, $options->maxBytes);
 				if ($opaque !== null) {
 					$rule->getCssRules()->appendDetached($opaque);
 					$ruleCount++;
@@ -1554,7 +1565,6 @@ final class CSSParser
 				$declarationCount,
 				true,
 				$declLimitRecorded,
-				$functionMode,
 			);
 			if ($rule === null) {
 				$message = $sheet->getParseErrors()[0]['message'] ?? 'Malformed nested CSS rule.';

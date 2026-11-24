@@ -27,7 +27,8 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSTransformValue;
 
-$jsonOutput = in_array('--json', $argv, true);
+$cliArgv = is_array($GLOBALS['argv'] ?? null) ? $GLOBALS['argv'] : [];
+$jsonOutput = in_array('--json', $cliArgv, true);
 $iterations = 25;
 $warmup = 5;
 
@@ -83,7 +84,7 @@ function buildFixtures(): array
 	}
 	$largeMinified = implode('', $largeMinParts);
 
-	// 5. deep-nested (~100 KB, depth 64)
+	// 5. deep-nested (~25 KB, depth 64)
 	$deepPrefix = '';
 	$deepSuffix = '';
 	$filler = '';
@@ -120,7 +121,7 @@ function measure(
 	callable $fn,
 	int $warmup,
 	int $iterations,
-	?int $bytesProcessed = 0,
+	?int $bytesProcessed = null,
 	int $opsPerIter = 1,
 	?callable $setup = null,
 	string $opsUnit = 'ops',
@@ -190,11 +191,14 @@ foreach ($fixtures as $fixtureName => $fixtureCss) {
 }
 $opcacheCli = ini_get('opcache.enable_cli');
 $jitConfig = ini_get('opcache.jit');
+$opcacheStatus = function_exists('opcache_get_status') ? opcache_get_status(false) : false;
+$jitEnabled = is_array($opcacheStatus) && (($opcacheStatus['jit']['enabled'] ?? false) === true);
+$jitStatus = $jitEnabled ? (($jitConfig === false || $jitConfig === '') ? 'on' : $jitConfig) : 'off';
 $results = [
 	'meta' => [
 		'php_version' => PHP_VERSION,
 		'opcache_cli' => ($opcacheCli === false || $opcacheCli === '') ? 'off' : $opcacheCli,
-		'jit' => ($jitConfig === false || $jitConfig === '') ? 'off' : $jitConfig,
+		'jit' => $jitStatus,
 		'iterations' => $iterations,
 		'warmup' => $warmup,
 		'fixture_bytes' => array_map('strlen', $fixtures),
@@ -308,11 +312,12 @@ $supportsSampleBytes = strlen('(display: grid) and (not (color: oklch(50% 0.2 20
 $results['benchmarks']['micro.css_supports_and_escape'] = measure(
 	static function () {
 		$ok = false;
+		$escaped = '';
 		for ($i = 0; $i < 300; $i++) {
 			$ok = CSS::supports('(display: grid) and (not (color: oklch(50% 0.2 200)))');
-			CSS::escape('section#main.card[data-x="1"]');
+			$escaped = CSS::escape('section#main.card[data-x="1"]');
 		}
-		return $ok;
+		return $ok && $escaped !== '';
 	},
 	$warmup,
 	$iterations,
@@ -398,7 +403,7 @@ $results['benchmarks']['macro.clone_medium'] = measure(
 	static fn (): CSSStyleSheet => clone $parsedMediumForClone,
 	$warmup,
 	$iterations,
-	strlen($fixtures['medium-app']),
+	null,
 	1,
 	null,
 	'clones',
@@ -452,6 +457,14 @@ $callbackOpts = new CSSRenderOptions(
 	static fn (CSSRule $r, string $s): string => $r instanceof CSSStyleRule ? '/* r */' . $s : $s,
 );
 
+$largeWithStyleClose = str_replace(
+	'padding: 12px 16px;',
+	'padding: 12px 16px; content: "</style>"; /* </style> */',
+	$fixtures['large-pretty'],
+);
+$parsedLargeWithStyleClose = CSSStyleSheet::parse($largeWithStyleClose);
+$escapeStyleOutBytes = strlen(CSSRenderer::render($parsedLargeWithStyleClose, $escapeMiniOpts));
+$opaqueStripOutBytes = strlen(CSSRenderer::render($parsedOpaque, $stripCommentsOpts));
 $prettyOutBytes = strlen(CSSRenderer::render($parsedLarge, $prettyOpts));
 $miniOutBytes = strlen(CSSRenderer::render($parsedLarge, $miniOpts));
 $cssTextOutBytes = strlen($parsedLarge->getCssText());
@@ -475,10 +488,10 @@ $results['benchmarks']['macro.render_minified_large'] = measure(
 	'renders',
 );
 $results['benchmarks']['macro.render_escape_style_large'] = measure(
-	static fn () => CSSRenderer::render($parsedLarge, $escapeMiniOpts),
+	static fn () => CSSRenderer::render($parsedLargeWithStyleClose, $escapeMiniOpts),
 	$warmup,
 	$iterations,
-	$miniOutBytes,
+	$escapeStyleOutBytes,
 	1,
 	null,
 	'renders',
@@ -496,12 +509,12 @@ $results['benchmarks']['macro.render_opaque_strip_comments'] = measure(
 	static fn () => CSSRenderer::render($parsedOpaque, $stripCommentsOpts),
 	$warmup,
 	$iterations,
-	strlen($fixtures['opaque-comments']),
+	$opaqueStripOutBytes,
 	1,
 	null,
 	'renders',
 );
-unset($parsedLarge, $parsedOpaque);
+unset($parsedLarge, $parsedLargeWithStyleClose, $largeWithStyleClose, $parsedOpaque);
 $parsedMediumForRender = CSSStyleSheet::parse($fixtures['medium-app']);
 $callbackOutBytes = strlen(CSSRenderer::render($parsedMediumForRender, $callbackOpts));
 $results['benchmarks']['macro.render_callback_medium'] = measure(

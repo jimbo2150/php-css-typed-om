@@ -43,8 +43,8 @@ final class StylePropertyMapTest extends TestCase
 			try {
 				$badCall();
 				self::fail('Expected empty value to throw InvalidArgumentException.');
-			} catch (\InvalidArgumentException) {
-				self::assertTrue(true);
+			} catch (\InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
 			}
 		}
 	}

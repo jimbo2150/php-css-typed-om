@@ -10,6 +10,8 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 /**
  * Represents a CSS page margin box at-rule (e.g., `@top-left-corner`) inside `@page`.
  *
+ * @property-read CSSStyleDeclaration $style
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSMarginRule
  */
 final class CSSMarginRule extends CSSAtRule

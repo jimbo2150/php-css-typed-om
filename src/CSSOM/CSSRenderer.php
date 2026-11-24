@@ -84,8 +84,8 @@ final class CSSRenderer
 	}
 
 	/**
-	 * @param list<string> $chunks
-	 * @param list<bool> $containerEmitted
+	 * @param array<int, string> $chunks
+	 * @param array<int, bool> $containerEmitted
 	 * @param array<int, true> $visited
 	 */
 	private static function processDirectWorkStack(

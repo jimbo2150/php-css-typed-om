@@ -9,6 +9,8 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 
 /**
  * Represents a CSS `@charset` rule.
+ *
+ * @property-read string $encoding
  */
 final class CSSCharsetRule extends CSSAtRule
 {

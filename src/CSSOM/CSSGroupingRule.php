@@ -14,11 +14,14 @@ use OutOfBoundsException;
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSGroupingRule
  */
+/**
+ * @property-read CSSRuleList $cssRules
+ */
 class CSSGroupingRule extends CSSRule
 {
-	protected readonly string $name;
+	protected readonly string $ruleName;
 	protected string $prelude;
-	private CSSRuleList $cssRules;
+	private CSSRuleList $cssRulesList;
 	private static bool $inIterativeClone = false;
 
 	/**
@@ -36,14 +39,14 @@ class CSSGroupingRule extends CSSRule
 		if (!preg_match('/^-?[a-zA-Z_][a-zA-Z0-9_-]*$/D', $trimmedName)) {
 			throw new InvalidArgumentException('Invalid CSS grouping rule name: ' . $name);
 		}
-		$this->name = $trimmedName;
+		$this->ruleName = $trimmedName;
 
 		$this->prelude = CSSSyntaxScanner::trimCssWhitespace($prelude);
 		if ($this->prelude !== '') {
 			CSSSyntaxScanner::assertValidFragment($this->prelude, 'CSS rule prelude', [';', '{', '}']);
 		}
 
-		$this->cssRules = new CSSRuleList(null, $this);
+		$this->cssRulesList = new CSSRuleList(null, $this);
 	}
 
 	public function getType(): int
@@ -53,7 +56,7 @@ class CSSGroupingRule extends CSSRule
 
 	public function getName(): string
 	{
-		return $this->name;
+		return $this->ruleName;
 	}
 
 	public function getPrelude(): string
@@ -63,7 +66,7 @@ class CSSGroupingRule extends CSSRule
 
 	public function getCssRules(): CSSRuleList
 	{
-		return $this->cssRules;
+		return $this->cssRulesList;
 	}
 
 	/**
@@ -79,28 +82,29 @@ class CSSGroupingRule extends CSSRule
 		if ($sheet === null) {
 			throw new LogicException('A detached grouping rule cannot insert rules.');
 		}
-		if ($index < 0 || $index > count($this->cssRules)) {
+		if ($index < 0 || $index > count($this->cssRulesList)) {
 			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
 		}
 
-		$inFunction = $this instanceof CSSFunctionRule || $this->isInsideFunctionRule();
-		$rule = $inFunction
+		$effectiveOptions = $sheet->resolveParserOptionsInternal($options);
+		[$useNested, $functionMode] = $this->resolveNestedInsertMode();
+		$rule = $useNested
 			? CSSParser::parseSingleNestedRule(
 				$ruleText,
-				$options,
+				$effectiveOptions,
 				$this->getNestingDepth(),
 				$sheet->getTotalRuleCount(),
 				$sheet->getTotalDeclarationCount(),
-				true,
+				$functionMode,
 			)
 			: CSSParser::parseSingleRule(
 				$ruleText,
-				$options,
+				$effectiveOptions,
 				$this->getNestingDepth(),
 				$sheet->getTotalRuleCount(),
 				$sheet->getTotalDeclarationCount(),
 			);
-		$this->cssRules->insertWithOptionsInternal($index, $rule, $options);
+		$this->cssRulesList->insertWithOptionsInternal($index, $rule, $effectiveOptions);
 
 		return $index;
 	}
@@ -116,14 +120,14 @@ class CSSGroupingRule extends CSSRule
 		if ($this->getParentStyleSheet() === null) {
 			throw new LogicException('A detached grouping rule cannot delete rules.');
 		}
-		$this->cssRules->remove($index);
+		$this->cssRulesList->remove($index);
 	}
 
 	public function getCssText(): string
 	{
-		if ($this->cssRules->getRulesRaw() === [] && self::usesCoreSerialization($this)) {
+		if ($this->cssRulesList->getRulesRaw() === [] && self::usesCoreSerialization($this)) {
 			$prelude = $this->prelude === '' ? '' : ' ' . $this->prelude;
-			return '@' . $this->name . $prelude . ' {  }';
+			return '@' . $this->ruleName . $prelude . ' {  }';
 		}
 
 		return self::serializeTreeIteratively($this);
@@ -276,8 +280,8 @@ class CSSGroupingRule extends CSSRule
 	public function attach(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void
 	{
 		$this->setParentLinks($sheet, $parentRule);
-		if ($this->cssRules->getSheetInternal() !== $sheet) {
-			$this->cssRules->reparent($sheet);
+		if ($this->cssRulesList->getSheetInternal() !== $sheet) {
+			$this->cssRulesList->reparent($sheet);
 		}
 	}
 
@@ -297,10 +301,10 @@ class CSSGroupingRule extends CSSRule
 	public function __clone(): void
 	{
 		parent::__clone();
-		$origRules = $this->cssRules->getRulesRaw();
-		$this->cssRules = new CSSRuleList(null, $this);
+		$origRules = $this->cssRulesList->getRulesRaw();
+		$this->cssRulesList = new CSSRuleList(null, $this);
 		if (!self::$inIterativeClone && $origRules !== []) {
-			self::cloneRulesIntoList($origRules, $this->cssRules, null, $this);
+			self::cloneRulesIntoList($origRules, $this->cssRulesList, null, $this);
 		}
 	}
 
@@ -393,22 +397,30 @@ class CSSGroupingRule extends CSSRule
 		return $depth;
 	}
 
-	private function isInsideFunctionRule(): bool
+	/** @return array{0: bool, 1: bool} [$useNested, $functionMode] */
+	private function resolveNestedInsertMode(): array
 	{
+		if ($this instanceof CSSFunctionRule) {
+			return [true, true];
+		}
+
 		$parent = $this->getParentRule();
 		$visited = [];
 		while ($parent !== null) {
 			if ($parent instanceof CSSFunctionRule) {
-				return true;
+				return [true, true];
+			}
+			if ($parent instanceof CSSStyleRule) {
+				return [true, false];
 			}
 			$id = spl_object_id($parent);
 			if (isset($visited[$id])) {
-				return false;
+				return [false, false];
 			}
 			$visited[$id] = true;
 			$parent = $parent->getParentRule();
 		}
 
-		return false;
+		return [false, false];
 	}
 }

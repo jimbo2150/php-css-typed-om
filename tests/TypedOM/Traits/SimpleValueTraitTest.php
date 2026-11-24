@@ -10,19 +10,19 @@ use PHPUnit\Framework\TestCase;
 
 class SimpleValueTraitTest extends TestCase
 {
-	public function testSetValueWithValidValue()
+	public function testSetValueWithValidValue(): void
 	{
 		$class = new SimpleValueTraitClass(10);
 		$this->assertEquals(10, $class->value);
 	}
 
-	public function testSetValueWithInvalidValue()
+	public function testSetValueWithInvalidValue(): void
 	{
 		$this->expectException(InvalidArgumentException::class);
 		new SimpleValueTraitClass('invalid');
 	}
 
-	public function testClone()
+	public function testClone(): void
 	{
 		$class = new SimpleValueTraitClass(10);
 		$clone = $class->clone();
@@ -30,7 +30,7 @@ class SimpleValueTraitTest extends TestCase
 		$this->assertEquals($class->value, $clone->value);
 	}
 
-	public function testToString()
+	public function testToString(): void
 	{
 		$class = new SimpleValueTraitClass(10);
 		$this->assertEquals('10', (string)$class);

@@ -10,6 +10,12 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
  * @property string $positionAnchor
  * @property string $positionArea
  * @property string $inset
+ * @property string $insetBlock
+ * @property string $insetBlockStart
+ * @property string $insetBlockEnd
+ * @property string $insetInline
+ * @property string $insetInlineStart
+ * @property string $insetInlineEnd
  * @property string $top
  * @property string $right
  * @property string $bottom
@@ -67,7 +73,8 @@ final class CSSPositionTryDescriptors extends CSSStyleDeclaration
 		'position-area' => true,
 	];
 
-	protected static function allowedDescriptors(): ?array
+	/** @return array<string, true> */
+	protected static function allowedDescriptors(): array
 	{
 		return self::ALLOWED;
 	}

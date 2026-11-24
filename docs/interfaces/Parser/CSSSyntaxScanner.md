@@ -25,6 +25,10 @@ $parts = CSSSyntaxScanner::splitTopLevel('a, fn(b, c), "d,e"', ',');
 // ['a', ' fn(b, c)', ' "d,e"']
 ```
 
+### `countTopLevelDelimiters(string $source, string $delimiter, int $start = 0, ?int $end = null): int`
+
+Counts occurrences of a single-byte `$delimiter` at top level without allocating intermediate substring segments. Throws `InvalidArgumentException` when `$delimiter` is not one byte.
+
 ### `splitTopLevelWhitespace(string $source, int $start = 0, ?int $end = null): array`
 
 Splits on whitespace outside strings, comments, and nested blocks. Separating whitespace/comments are discarded; each returned token retains its own source spelling.
@@ -169,6 +173,26 @@ Returns the byte offset of the `!` belonging to a trailing top-level `!important
 ### `decodeCssIdentEscapes(string $ident): string`
 
 Decodes CSS backslash escapes (hexadecimal code points with optional trailing whitespace and literal escapes) inside an identifier token.
+
+### `decodeIdentAt(string $source, int $start, ?int $end = null): ?array`
+
+Decodes one CSS identifier starting at byte offset `$start` (handling CSS Syntax Level 3 escapes), returning `['ident' => string, 'end' => int]` or `null` if invalid.
+
+### `findPrecedingEscapedIdentStart(string $source, int $openParen, int $sliceStart, string $expectedLower): ?int`
+
+Locates the start offset of a CSS identifier ending at `$openParen` whose escape-decoded lowercase spelling matches `$expectedLower`, or `null`.
+
+### `scanIdentEnd(string $source, int $start, ?int $end = null): ?int`
+
+Scans a CSS identifier per CSS Syntax Level 3 §4.3.9 starting at `$start` and returns its exclusive end byte offset, or `null` if invalid.
+
+### `decodeLeadingFunctionName(string $source, int $openParen): ?string`
+
+Decodes and lowercases a single CSS function name immediately preceding `$openParen`, or returns `null`.
+
+### `endsWithBareHexEscape(string $token): bool`
+
+Returns `true` if `$token` ends with a 1–6 hex digit escape sequence with no trailing whitespace.
 
 ### `trimCssWhitespace(string $value): string`
 

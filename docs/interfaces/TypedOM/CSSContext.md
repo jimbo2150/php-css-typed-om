@@ -17,8 +17,8 @@ No public properties, constants, or enum cases. Dimensions are stored privately 
 | `setViewportWidth` | `public function setViewportWidth(float $viewportWidth): self`; validates/sets a finite positive width, clears factor cache, and returns this context; invalid input throws `InvalidArgumentException`. Example: `$context->setViewportWidth(1280.0);`. |
 | `getViewportHeight` | `public function getViewportHeight(): float`; returns viewport height in pixels. Example: `$height = $context->getViewportHeight();`. |
 | `setViewportHeight` | `public function setViewportHeight(float $viewportHeight): self`; validates/sets a finite positive height, clears factor cache, and returns this context; invalid input throws `InvalidArgumentException`. Example: `$context->setViewportHeight(720.0);`. |
-| `getToPxFactor` | `public function getToPxFactor(string $unit): float`; returns/caches a factor to multiply a value by to convert it to px. Known units use context-dependent approximations; unrecognized units fall back to `1.0`. Example: `$factor = $context->getToPxFactor('em');`. |
-| `getFromPxFactor` | `public function getFromPxFactor(string $unit): float`; returns/caches the reciprocal of `getToPxFactor($unit)`, or `1.0` when the factor is not positive. Example: `$factor = $context->getFromPxFactor('vw');`. |
+| `getToPxFactor` | `public function getToPxFactor(string $unit): float`; returns/caches a factor to multiply a value by to convert it to px. Known units use context-dependent approximations and validate against non-finite overflow or underflow to zero (`InvalidArgumentException`); unrecognized units fall back to `1.0`. Example: `$factor = $context->getToPxFactor('em');`. |
+| `getFromPxFactor` | `public function getFromPxFactor(string $unit): float`; returns/caches the reciprocal of `getToPxFactor($unit)`, validating against overflow/underflow to zero (`InvalidArgumentException`), or `1.0` when the factor is not positive. Example: `$factor = $context->getFromPxFactor('vw');`. |
 
 ## Conversion model
 

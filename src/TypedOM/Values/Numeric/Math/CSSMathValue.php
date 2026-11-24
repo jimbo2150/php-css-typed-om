@@ -15,6 +15,8 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 /**
  * Base class for CSS Typed OM math expressions (`calc()`, `min()`, `max()`, `clamp()`).
  *
+ * @property-read ?string $operator
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSMathValue
  */
 abstract class CSSMathValue extends CSSNumericValue
@@ -23,6 +25,7 @@ abstract class CSSMathValue extends CSSNumericValue
 
 	public const ?string operator = null;
 
+	/** @param CSSNumericValue|CSSNumericArray|list<CSSNumericValue> $values */
 	public function __construct(CSSNumericValue|CSSNumericArray|array $values)
 	{
 		if ($values instanceof CSSNumericArray) {
@@ -65,7 +68,7 @@ abstract class CSSMathValue extends CSSNumericValue
 
 	protected function validateAdditiveTypes(): void
 	{
-		$this->cachedNumericType = self::mergeAdditiveTypes($this->values->values);
+		$this->cachedNumericType = self::mergeAdditiveTypesInternal($this->values->values);
 	}
 
 	public function __toString(): string

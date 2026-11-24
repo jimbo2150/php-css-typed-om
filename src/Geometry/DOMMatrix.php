@@ -10,6 +10,28 @@ use InvalidArgumentException;
 /**
  * Mutable 4x4 column-major transformation matrix (W3C Geometry Interfaces Level 1).
  *
+ * @property float $a
+ * @property float $b
+ * @property float $c
+ * @property float $d
+ * @property float $e
+ * @property float $f
+ * @property float $m11
+ * @property float $m12
+ * @property float $m13
+ * @property float $m14
+ * @property float $m21
+ * @property float $m22
+ * @property float $m23
+ * @property float $m24
+ * @property float $m31
+ * @property float $m32
+ * @property float $m33
+ * @property float $m34
+ * @property float $m41
+ * @property float $m42
+ * @property float $m43
+ * @property float $m44
  * @see https://developer.mozilla.org/en-US/docs/Web/API/DOMMatrix
  */
 class DOMMatrix extends DOMMatrixReadOnly
@@ -232,7 +254,7 @@ class DOMMatrix extends DOMMatrixReadOnly
 		return $this;
 	}
 
-	/** @param list<float> $elements */
+	/** @param array<int, float> $elements */
 	private static function applyTranslateElements(array &$elements, bool &$is2D, float $tx, float $ty, float $tz): void
 	{
 		if ($is2D && $tz === 0.0) {
@@ -250,7 +272,7 @@ class DOMMatrix extends DOMMatrixReadOnly
 		}
 	}
 
-	/** @param list<float> $elements */
+	/** @param array<int, float> $elements */
 	private static function applyRotateAxisAngleElements(
 		array &$elements,
 		bool &$is2D,

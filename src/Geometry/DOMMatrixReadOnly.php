@@ -19,7 +19,31 @@ use Stringable;
  *
  * Implements ArrayAccess over column-major indices 0..15 for ergonomic numeric access.
  *
+ * @phpstan-consistent-constructor
  * @implements ArrayAccess<int, float>
+ * @property-read bool $isIdentity
+ * @property-read float $a
+ * @property-read float $b
+ * @property-read float $c
+ * @property-read float $d
+ * @property-read float $e
+ * @property-read float $f
+ * @property-read float $m11
+ * @property-read float $m12
+ * @property-read float $m13
+ * @property-read float $m14
+ * @property-read float $m21
+ * @property-read float $m22
+ * @property-read float $m23
+ * @property-read float $m24
+ * @property-read float $m31
+ * @property-read float $m32
+ * @property-read float $m33
+ * @property-read float $m34
+ * @property-read float $m41
+ * @property-read float $m42
+ * @property-read float $m43
+ * @property-read float $m44
  * @see https://developer.mozilla.org/en-US/docs/Web/API/DOMMatrixReadOnly
  */
 class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
@@ -106,7 +130,7 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 			throw new InvalidArgumentException('fromFloat32Array() requires exactly 16 numeric elements.');
 		}
 
-		return new static(array_values($values));
+		return new static($values);
 	}
 
 	/** @param list<int|float> $values */
@@ -116,7 +140,7 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 			throw new InvalidArgumentException('fromFloat64Array() requires exactly 16 numeric elements.');
 		}
 
-		return new static(array_values($values));
+		return new static($values);
 	}
 
 	/**
@@ -416,7 +440,11 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 		return self::IDENTITY_ELEMENTS;
 	}
 
-	/** @param list<float> $left @param list<float> $right @return list<float> */
+	/**
+	 * @param list<float> $left
+	 * @param list<float> $right
+	 * @return list<float>
+	 */
 	public static function multiplyElements(
 		array $left,
 		array $right,

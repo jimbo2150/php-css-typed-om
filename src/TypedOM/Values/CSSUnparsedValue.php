@@ -25,7 +25,7 @@ use Traversable;
  */
 final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Countable, IteratorAggregate
 {
-	private const int MAX_UNPARSED_DEPTH = 512;
+	public const int MAX_UNPARSED_DEPTH = 512;
 
 	/** @var list<string|CSSVariableReferenceValue> */
 	private array $values;
@@ -109,7 +109,15 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 		return $this->maxBytes;
 	}
 
-	/** @internal Propagates a stricter parent maxBytes limit down cloned unparsed trees. */
+	/** @internal Updates only this CSSUnparsedValue node's scalar byte limit. */
+	public function clampMaxBytesScalarInternal(?int $limit): void
+	{
+		if ($limit !== null && ($this->maxBytes === null || $limit < $this->maxBytes)) {
+			$this->maxBytes = $limit;
+		}
+	}
+
+	/** @internal Propagates a stricter parent maxBytes limit down unparsed trees iteratively. */
 	public function clampMaxBytesInternal(?int $limit): void
 	{
 		if ($limit === null) {
@@ -124,12 +132,10 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 				continue;
 			}
 			$visited[$id] = true;
-			if ($node->maxBytes === null || $limit < $node->maxBytes) {
-				$node->maxBytes = $limit;
-			}
+			$node->clampMaxBytesScalarInternal($limit);
 			foreach ($node->values as $item) {
 				if ($item instanceof CSSVariableReferenceValue) {
-					$item->clampMaxBytesInternal($limit);
+					$item->clampMaxBytesScalarInternal($limit);
 					$fb = $item->getFallback();
 					if ($fb !== null) {
 						$stack[] = $fb;
@@ -159,7 +165,7 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 	/** @return list<string|CSSVariableReferenceValue> */
 	public function values(): array
 	{
-		return array_values($this->values);
+		return $this->values;
 	}
 
 	/** @return list<array{int, string|CSSVariableReferenceValue}> */
@@ -244,27 +250,29 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 
 	public function __clone(): void
 	{
-		// Iteratively clone descendant var() / unparsed trees to keep stack depth O(1).
-		$stack = [[&$this->values, 0]];
+		// Iteratively clone descendant var() / unparsed trees with scalar limit propagation (O(N), O(1) PHP frames).
+		$stack = [[&$this->values, 0, $this->maxBytes]];
 		while ($stack !== []) {
 			$entry = array_pop($stack);
 			/** @var list<string|CSSVariableReferenceValue> $list */
 			$list = &$entry[0];
 			$depth = $entry[1];
+			$effectiveLimit = $entry[2];
 			if ($depth > self::MAX_UNPARSED_DEPTH) {
 				throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', self::MAX_UNPARSED_DEPTH));
 			}
 			foreach ($list as $i => $item) {
 				if ($item instanceof CSSVariableReferenceValue) {
 					$clonedRef = $item->shallowCloneInternal();
-					$clonedRef->clampMaxBytesInternal($this->maxBytes);
+					$clonedRef->clampMaxBytesScalarInternal($effectiveLimit);
+					$refLimit = $clonedRef->getMaxBytesInternal();
 					$list[$i] = $clonedRef;
 					$fb = $clonedRef->getFallback();
 					if ($fb !== null) {
 						$clonedFb = $fb->shallowCloneInternal();
-						$clonedFb->clampMaxBytesInternal($clonedRef->getMaxBytesInternal());
+						$clonedFb->clampMaxBytesScalarInternal($refLimit);
 						$clonedRef->setFallbackInternal($clonedFb);
-						$stack[] = [&$clonedFb->values, $depth + 1];
+						$stack[] = [&$clonedFb->values, $depth + 1, $clonedFb->maxBytes];
 					}
 				}
 			}
@@ -371,6 +379,20 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 		throw new Error('Cannot set property ' . static::class . '::$' . $name);
 	}
 
+	/**
+	 * @internal Verifies that assigning an existing CSSUnparsedValue tree stays within $maxAllowedDepth and has no cycles.
+	 */
+	public static function assertTreeMaxDepthInternal(
+		self $root,
+		int $baseDepth = 0,
+		int $maxAllowedDepth = self::MAX_UNPARSED_DEPTH,
+	): void {
+		if ($baseDepth > $maxAllowedDepth) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', $maxAllowedDepth));
+		}
+		self::assertUnparsedDepthAndCycles($root, $baseDepth, $maxAllowedDepth, false, null);
+	}
+
 	private function assertNoReferenceCycleAndDepth(
 		CSSVariableReferenceValue $candidate,
 		int $baseDepth = 0,
@@ -378,17 +400,32 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 	): void {
 		$rootFb = $candidate->getFallback();
 		if ($rootFb === null) {
+			if (($baseDepth + 1) > $maxAllowedDepth) {
+				throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', $maxAllowedDepth));
+			}
 			return;
 		}
 
-		// O(N) iterative post-order DFS with cycle detection and memoized subtree height across DAGs.
+		self::assertUnparsedDepthAndCycles($rootFb, $baseDepth, $maxAllowedDepth, true, $this);
+	}
+
+	/**
+	 * Shared iterative O(N) post-order DFS for cycle detection and subtree depth verification.
+	 */
+	private static function assertUnparsedDepthAndCycles(
+		self $root,
+		int $baseDepth,
+		int $maxAllowedDepth,
+		bool $includeOuterWrapper,
+		?self $forbiddenNode,
+	): void {
 		$heightMemo = [];
 		$onStack = [];
-		$stack = [[0, $rootFb]];
+		$stack = [[0, $root]];
 
 		while ($stack !== []) {
 			[$phase, $fb] = array_pop($stack);
-			if ($fb === $this) {
+			if ($forbiddenNode !== null && $fb === $forbiddenNode) {
 				throw new InvalidArgumentException('Cannot insert a CSSVariableReferenceValue creating a fallback cycle.');
 			}
 			$id = spl_object_id($fb);
@@ -396,15 +433,18 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 				unset($onStack[$id]);
 				$maxChild = 0;
 				foreach ($fb->values as $nested) {
-					if ($nested instanceof CSSVariableReferenceValue && ($nestedFb = $nested->getFallback()) !== null) {
-						$childHeight = $heightMemo[spl_object_id($nestedFb)] ?? 0;
-						if ($childHeight > $maxChild) {
-							$maxChild = $childHeight;
-						}
+					if (!$nested instanceof CSSVariableReferenceValue) {
+						continue;
+					}
+					$nestedFb = $nested->getFallback();
+					$childHeight = $nestedFb === null ? 1 : ($heightMemo[spl_object_id($nestedFb)] ?? 0);
+					if ($childHeight > $maxChild) {
+						$maxChild = $childHeight;
 					}
 				}
-				$heightMemo[$id] = 1 + $maxChild;
-				if (($baseDepth + $heightMemo[$id]) > $maxAllowedDepth) {
+				$height = ($fb === $root && !$includeOuterWrapper) ? $maxChild : (1 + $maxChild);
+				$heightMemo[$id] = $height;
+				if (($baseDepth + $height) > $maxAllowedDepth) {
 					throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', $maxAllowedDepth));
 				}
 				continue;
@@ -424,7 +464,7 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 			foreach ($fb->values as $nested) {
 				if ($nested instanceof CSSVariableReferenceValue && ($nestedFb = $nested->getFallback()) !== null) {
 					$nestedId = spl_object_id($nestedFb);
-					if (isset($onStack[$nestedId]) || $nestedFb === $this) {
+					if (isset($onStack[$nestedId]) || ($forbiddenNode !== null && $nestedFb === $forbiddenNode)) {
 						throw new InvalidArgumentException('Cannot insert a CSSVariableReferenceValue creating a fallback cycle.');
 					}
 					if (!isset($heightMemo[$nestedId])) {
@@ -472,7 +512,7 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 	/** @return list<string|CSSVariableReferenceValue> */
 	private static function parseFragmentsIterative(string $source, CSSParserOptions $options, int $rootDepth, ?int $maxBytes): array
 	{
-		if (stripos($source, 'var(') === false) {
+		if (stripos($source, 'var(') === false && !str_contains($source, '\\')) {
 			return [$source];
 		}
 
@@ -600,6 +640,7 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 					continue;
 				}
 
+				$varStart = null;
 				if ($pos >= $sliceStart + 3 && ($source[$pos - 1] === 'r' || $source[$pos - 1] === 'R')
 					&& substr_compare($source, 'var', $pos - 3, 3, true) === 0
 					&& $lastEscEnd !== $pos - 3
@@ -607,6 +648,11 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 					&& isset($matchingParens[$pos])
 				) {
 					$varStart = $pos - 3;
+				} elseif ($lastEsc !== -1 && isset($matchingParens[$pos])) {
+					$varStart = CSSSyntaxScanner::findPrecedingEscapedIdentStart($source, $pos, $sliceStart, 'var');
+				}
+
+				if ($varStart !== null) {
 					$close = $matchingParens[$pos];
 					if ($close < $sliceEnd) {
 						$cursor = self::skipCssTrivia($source, $pos + 1, $close);

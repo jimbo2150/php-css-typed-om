@@ -78,8 +78,8 @@ final class CSSSyntaxScannerTest extends TestCase
 			try {
 				CSSSyntaxScanner::assertValidFragment($payload, 'CSS value');
 				self::fail('Expected unquoted url() comment breakout payload to fail validation: ' . $payload);
-			} catch (InvalidArgumentException) {
-				self::assertTrue(true);
+			} catch (InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
 			}
 		}
 

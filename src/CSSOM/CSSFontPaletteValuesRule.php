@@ -9,6 +9,11 @@ use InvalidArgumentException;
 /**
  * Represents a CSS `@font-palette-values` rule.
  *
+ * @property-read string $name
+ * @property-read string $fontFamily
+ * @property-read string $basePalette
+ * @property-read string $overrideColors
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSFontPaletteValuesRule
  */
 final class CSSFontPaletteValuesRule extends CSSAtRule
@@ -29,17 +34,17 @@ final class CSSFontPaletteValuesRule extends CSSAtRule
 
 	public function getFontFamily(): string
 	{
-		return $this->style?->getPropertyValue('font-family') ?? '';
+		return $this->styleDeclaration?->getPropertyValue('font-family') ?? '';
 	}
 
 	public function getBasePalette(): string
 	{
-		return $this->style?->getPropertyValue('base-palette') ?? '';
+		return $this->styleDeclaration?->getPropertyValue('base-palette') ?? '';
 	}
 
 	public function getOverrideColors(): string
 	{
-		return $this->style?->getPropertyValue('override-colors') ?? '';
+		return $this->styleDeclaration?->getPropertyValue('override-colors') ?? '';
 	}
 
 	public function __get(string $name): mixed

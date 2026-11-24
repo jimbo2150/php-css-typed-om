@@ -85,12 +85,22 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 		return $this->maxBytes;
 	}
 
-	/** @internal */
-	public function clampMaxBytesInternal(?int $limit): void
+	/** @internal Updates only this reference node's own byte limit without traversing fallback trees. */
+	public function clampMaxBytesScalarInternal(?int $limit): void
 	{
 		if ($limit !== null && ($this->maxBytes === null || $limit < $this->maxBytes)) {
 			$this->maxBytes = $limit;
 		}
+	}
+
+	/** @internal */
+	public function clampMaxBytesInternal(?int $limit): void
+	{
+		if ($limit === null) {
+			return;
+		}
+		$this->clampMaxBytesScalarInternal($limit);
+		$this->fallbackValue?->clampMaxBytesInternal($limit);
 	}
 
 	/** @internal */
@@ -124,7 +134,7 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 	}
 
 	/**
-	 * @throws InvalidArgumentException When $fallback contains invalid structure or control bytes
+	 * @throws InvalidArgumentException When $fallback contains invalid structure, control bytes, or exceeds limits
 	 */
 	public function setFallback(
 		CSSUnparsedValue|string|null $fallback,
@@ -203,17 +213,42 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 			return null;
 		}
 		$options ??= new CSSParserOptions(maxBytes: $defaultMaxBytes);
-		if ($fallback instanceof CSSUnparsedValue) {
-			$rendered = CSSUnparsedValue::stringifyIteratively($fallback->getValues(), $options->maxBytes);
-			CSSSyntaxScanner::assertValidFragment($rendered, 'CSS variable fallback', [';', '{', '}']);
-			$cloned = $fallback->clone();
-			$cloned->clampMaxBytesInternal($options->maxBytes);
-			return $cloned;
-		}
-		if ($options->maxBytes !== null && strlen($fallback) > $options->maxBytes) {
-			throw new CSSParserLimitException(sprintf('CSS variable fallback exceeds maximum size of %d bytes.', $options->maxBytes));
+		if ($options->maxDepth !== null && $depth > $options->maxDepth) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', $options->maxDepth));
 		}
 
-		return CSSUnparsedValue::fromCssText($fallback, $options, $depth);
+		$effectiveMaxBytes = $defaultMaxBytes;
+		if ($options->maxBytes !== null && ($effectiveMaxBytes === null || $options->maxBytes < $effectiveMaxBytes)) {
+			$effectiveMaxBytes = $options->maxBytes;
+		}
+
+		if ($fallback instanceof CSSUnparsedValue) {
+			$maxAllowedDepth = $options->maxDepth !== null
+				? min($options->maxDepth, CSSUnparsedValue::MAX_UNPARSED_DEPTH)
+				: CSSUnparsedValue::MAX_UNPARSED_DEPTH;
+			CSSUnparsedValue::assertTreeMaxDepthInternal($fallback, $depth + 1, $maxAllowedDepth);
+
+			$rendered = CSSUnparsedValue::stringifyIteratively($fallback->getValues(), $effectiveMaxBytes);
+			CSSSyntaxScanner::assertValidFragment($rendered, 'CSS variable fallback', [';', '{', '}']);
+			$cloned = $fallback->clone();
+			$cloned->clampMaxBytesInternal($effectiveMaxBytes);
+			return $cloned;
+		}
+
+		if ($effectiveMaxBytes !== null && strlen($fallback) > $effectiveMaxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS variable fallback exceeds maximum size of %d bytes.', $effectiveMaxBytes));
+		}
+		$effectiveOptions = $effectiveMaxBytes === $options->maxBytes
+			? $options
+			: new CSSParserOptions(
+				maxBytes: $effectiveMaxBytes,
+				maxDepth: $options->maxDepth,
+				maxMathDepth: $options->maxMathDepth,
+				maxRules: $options->maxRules,
+				maxDeclarations: $options->maxDeclarations,
+				maxErrors: $options->maxErrors,
+			);
+
+		return CSSUnparsedValue::fromCssText($fallback, $effectiveOptions, $depth + 1);
 	}
 }

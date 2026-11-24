@@ -20,7 +20,7 @@ use PHPUnit\Framework\TestCase;
 
 class CSSTest extends TestCase
 {
-	public function testValidStaticUnitMethods()
+	public function testValidStaticUnitMethods(): void
 	{
 		$px = CSS::px("10");
 		$this->assertInstanceOf(CSSUnitValue::class, $px);
@@ -36,45 +36,47 @@ class CSSTest extends TestCase
 		$this->assertEquals(new CSSUnitValue(10.5, CSSUnitEnum::LENGTH_px), CSS::px(10.5));
 	}
 
-	public function testInvalidStaticUnitMethod()
+	public function testInvalidStaticUnitMethod(): void
 	{
 		$this->expectException(BadMethodCallException::class);
+		/** @phpstan-ignore staticMethod.notFound */
 		CSS::invalidUnit("10");
 	}
 
-	public function testStaticUnitMethodWithNoArgument()
+	public function testStaticUnitMethodWithNoArgument(): void
 	{
 		$this->expectException(InvalidArgumentException::class);
+		/** @phpstan-ignore arguments.count */
 		CSS::px();
 	}
 
-	public function testStaticUnitMethodWithNonNumericArgument()
+	public function testStaticUnitMethodWithNonNumericArgument(): void
 	{
 		$this->expectException(InvalidArgumentException::class);
 		CSS::px('abc');
 	}
 
-	public function testAddMethod()
+	public function testAddMethod(): void
 	{
 		$sum = CSS::px('10')->add(CSS::em('10'))->add(CSS::vh('23'));
 		$this->assertInstanceOf(CSSMathSum::class, $sum);
 		$this->assertEquals(3, $sum->length);
 	}
 
-	public function testMinMethod()
+	public function testMinMethod(): void
 	{
 		$min = CSS::px('10')->min(new CSSNumericArray([CSS::em('1324'), CSS::vh('2043')]));
 		$this->assertInstanceOf(CSSMathMin::class, $min);
 		$this->assertEquals(3, $min->length);
 	}
 
-	public function testArithmeticRejectsIncompatibleDimensions()
+	public function testArithmeticRejectsIncompatibleDimensions(): void
 	{
 		$this->expectException(InvalidArgumentException::class);
 		CSS::px(10)->add(CSS::s(1));
 	}
 
-	public function testEscape()
+	public function testEscape(): void
 	{
 		// Test basic valid identifiers
 		$this->assertEquals('hello', CSS::escape('hello'));
@@ -140,7 +142,7 @@ class CSSTest extends TestCase
 		$this->assertEquals('\30 ', CSS::escape(0));
 	}
 
-	public function testEscapeNull()
+	public function testEscapeNull(): void
 	{
 		$this->assertEquals("\u{FFFD}", CSS::escape(null));
 	}
@@ -159,8 +161,8 @@ class CSSTest extends TestCase
 			try {
 				CSSNumericValue::parse($invalid);
 				self::fail('Expected invalid CSS numeric syntax to throw: ' . $invalid);
-			} catch (InvalidArgumentException) {
-				self::assertTrue(true);
+			} catch (InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
 			}
 		}
 	}
@@ -196,8 +198,8 @@ class CSSTest extends TestCase
 			try {
 				CSS::registerProperty(['name' => '--brand-gap', 'inherits' => false]);
 				self::fail('Expected duplicate registration to throw.');
-			} catch (InvalidArgumentException) {
-				self::assertTrue(true);
+			} catch (InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
 			}
 
 			// var() in initialValue is rejected
@@ -209,8 +211,8 @@ class CSSTest extends TestCase
 					'initialValue' => 'var(--brand-gap)',
 				]);
 				self::fail('Expected var() in initialValue to throw.');
-			} catch (InvalidArgumentException) {
-				self::assertTrue(true);
+			} catch (InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
 			}
 
 			// CSSPropertyRule input is validated identically
@@ -218,8 +220,8 @@ class CSSTest extends TestCase
 			try {
 				CSS::registerProperty($badRule);
 				self::fail('Expected invalid CSSPropertyRule to throw.');
-			} catch (InvalidArgumentException) {
-				self::assertTrue(true);
+			} catch (InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
 			}
 
 			self::assertTrue(CSS::unregisterProperty('--brand-gap'));

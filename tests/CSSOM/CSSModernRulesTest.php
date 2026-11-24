@@ -13,6 +13,7 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSMediaRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPageRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPositionTryRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPropertyRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSScopeRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleSheet;
 use PHPUnit\Framework\TestCase;
 
@@ -112,12 +113,18 @@ CSS);
 	{
 		$sheet = CSSStyleSheet::parse('@scope { a { color: red; } } @scope to (.limit) { a { color: blue; } } @scope (.card) to (.slot) { a { color: green; } }');
 		self::assertCount(3, $sheet->cssRules);
-		self::assertNull($sheet->cssRules[0]->start);
-		self::assertNull($sheet->cssRules[0]->end);
-		self::assertNull($sheet->cssRules[1]->start);
-		self::assertSame('.limit', $sheet->cssRules[1]->end);
-		self::assertSame('.card', $sheet->cssRules[2]->start);
-		self::assertSame('.slot', $sheet->cssRules[2]->end);
+		$scope0 = $sheet->cssRules[0];
+		$scope1 = $sheet->cssRules[1];
+		$scope2 = $sheet->cssRules[2];
+		self::assertInstanceOf(CSSScopeRule::class, $scope0);
+		self::assertInstanceOf(CSSScopeRule::class, $scope1);
+		self::assertInstanceOf(CSSScopeRule::class, $scope2);
+		self::assertNull($scope0->start);
+		self::assertNull($scope0->end);
+		self::assertNull($scope1->start);
+		self::assertSame('.limit', $scope1->end);
+		self::assertSame('.card', $scope2->start);
+		self::assertSame('.slot', $scope2->end);
 		self::assertSame([], $sheet->getParseErrors());
 
 		foreach ([

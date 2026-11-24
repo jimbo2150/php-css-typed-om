@@ -17,6 +17,8 @@ use Traversable;
 /**
  * Ordered collection of CSSRule objects owned by a stylesheet or grouping rule.
  *
+ * @property-read int $length
+ *
  * @implements ArrayAccess<int, CSSRule>
  * @implements IteratorAggregate<int, CSSRule>
  */

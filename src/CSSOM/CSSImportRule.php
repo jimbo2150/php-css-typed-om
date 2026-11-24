@@ -11,15 +11,21 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
  * Represents a CSS `@import` rule. Import rules retain URL, layer, supports,
  * and media query metadata without fetching external stylesheets.
  *
+ * @property-read string $href
+ * @property-read MediaList $media
+ * @property-read string $mediaText
+ * @property-read ?CSSStyleSheet $styleSheet
+ * @property-read ?string $layerName
+ * @property-read ?string $supportsText
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSImportRule
  */
 final class CSSImportRule extends CSSAtRule
 {
-	private MediaList $media;
+	private MediaList $mediaList;
 	private string $urlToken;
-	private string $href;
-	private ?string $layerName;
-	private ?string $supportsText;
+	private string $hrefValue;
+	private ?string $layerNameValue;
+	private ?string $supportsTextValue;
 	private bool $initializing = true;
 
 	public function __construct(string $prelude)
@@ -32,10 +38,10 @@ final class CSSImportRule extends CSSAtRule
 
 		$parts = self::parseTailParts($this->prelude);
 		$this->urlToken = $parts['urlToken'];
-		$this->href = $parts['href'];
-		$this->layerName = $parts['layerName'];
-		$this->supportsText = $parts['supportsText'];
-		$this->media = new MediaList($parts['media'], function (string $mediaText): void {
+		$this->hrefValue = $parts['href'];
+		$this->layerNameValue = $parts['layerName'];
+		$this->supportsTextValue = $parts['supportsText'];
+		$this->mediaList = new MediaList($parts['media'], function (string $mediaText): void {
 			if (!$this->initializing) {
 				$this->rebuildPrelude($mediaText);
 			}
@@ -45,27 +51,27 @@ final class CSSImportRule extends CSSAtRule
 
 	public function getHref(): string
 	{
-		return $this->href;
+		return $this->hrefValue;
 	}
 
 	public function getMedia(): MediaList
 	{
-		return $this->media;
+		return $this->mediaList;
 	}
 
 	public function getMediaText(): string
 	{
-		return $this->media->getMediaText();
+		return $this->mediaList->getMediaText();
 	}
 
 	public function getLayerName(): ?string
 	{
-		return $this->layerName;
+		return $this->layerNameValue;
 	}
 
 	public function getSupportsText(): ?string
 	{
-		return $this->supportsText;
+		return $this->supportsTextValue;
 	}
 
 	public function getType(): int
@@ -73,6 +79,7 @@ final class CSSImportRule extends CSSAtRule
 		return self::IMPORT_RULE;
 	}
 
+	/** @phpstan-ignore return.unusedType */
 	public function getStyleSheet(): ?CSSStyleSheet
 	{
 		return null;
@@ -81,12 +88,12 @@ final class CSSImportRule extends CSSAtRule
 	public function __get(string $name): mixed
 	{
 		return match ($name) {
-			'href' => $this->href,
-			'media' => $this->media,
-			'mediaText' => $this->media->getMediaText(),
+			'href' => $this->hrefValue,
+			'media' => $this->mediaList,
+			'mediaText' => $this->mediaList->getMediaText(),
 			'styleSheet' => null,
-			'layerName' => $this->layerName,
-			'supportsText' => $this->supportsText,
+			'layerName' => $this->layerNameValue,
+			'supportsText' => $this->supportsTextValue,
 			default => parent::__get($name),
 		};
 	}
@@ -96,8 +103,8 @@ final class CSSImportRule extends CSSAtRule
 		return match ($name) {
 			'href', 'media', 'mediaText' => true,
 			'styleSheet' => false,
-			'layerName' => $this->layerName !== null,
-			'supportsText' => $this->supportsText !== null,
+			'layerName' => $this->layerNameValue !== null,
+			'supportsText' => $this->supportsTextValue !== null,
 			default => parent::__isset($name),
 		};
 	}
@@ -105,11 +112,11 @@ final class CSSImportRule extends CSSAtRule
 	private function rebuildPrelude(string $mediaText): void
 	{
 		$parts = [$this->urlToken];
-		if ($this->layerName !== null) {
-			$parts[] = $this->layerName === '' ? 'layer' : 'layer(' . $this->layerName . ')';
+		if ($this->layerNameValue !== null) {
+			$parts[] = $this->layerNameValue === '' ? 'layer' : 'layer(' . $this->layerNameValue . ')';
 		}
-		if ($this->supportsText !== null) {
-			$parts[] = 'supports(' . $this->supportsText . ')';
+		if ($this->supportsTextValue !== null) {
+			$parts[] = 'supports(' . $this->supportsTextValue . ')';
 		}
 		if ($mediaText !== '') {
 			$parts[] = $mediaText;
@@ -154,8 +161,6 @@ final class CSSImportRule extends CSSAtRule
 		$layerName = null;
 		$supportsText = null;
 		$mediaTokens = [];
-		$inMedia = false;
-
 		$p = 0;
 		$tLen = strlen($tail);
 		while ($p < $tLen) {
@@ -164,66 +169,70 @@ final class CSSImportRule extends CSSAtRule
 				break;
 			}
 
-			if (!$inMedia) {
-				if ($p + 6 <= $tLen && substr_compare($tail, 'layer(', $p, 6, true) === 0) {
-					$close = CSSSyntaxScanner::findMatchingDelimiter($tail, $p + 5, $tLen);
-					if ($close === null) {
-						throw new InvalidArgumentException('Malformed CSS @import layer() clause.');
-					}
-					if ($supportsText !== null) {
-						throw new InvalidArgumentException('CSS @import layer() must precede supports().');
-					}
-					if ($layerName !== null) {
-						throw new InvalidArgumentException('Duplicate CSS @import layer() clause.');
-					}
-					$name = CSSSyntaxScanner::trimCssWhitespace(substr($tail, $p + 6, $close - ($p + 6)));
-					if ($name === '') {
-						throw new InvalidArgumentException('Empty CSS @import layer() clause is not allowed.');
-					}
-					$layerName = $name;
-					$p = $close + 1;
-					continue;
+			$ident = CSSSyntaxScanner::decodeIdentAt($tail, $p, $tLen);
+			$identLower = $ident !== null ? strtolower($ident['ident']) : null;
+			$identEnd = $ident !== null ? $ident['end'] : -1;
+
+			if ($identLower === 'layer' && $identEnd < $tLen && $tail[$identEnd] === '(') {
+				$close = CSSSyntaxScanner::findMatchingDelimiter($tail, $identEnd, $tLen);
+				if ($close === null) {
+					throw new InvalidArgumentException('Malformed CSS @import layer() clause.');
 				}
-				if ($p + 5 <= $tLen
-					&& substr_compare($tail, 'layer', $p, 5, true) === 0
-					&& ($p + 5 === $tLen || str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $tail[$p + 5]))
-				) {
-					if ($supportsText !== null) {
-						throw new InvalidArgumentException('CSS @import layer() must precede supports().');
-					}
-					if ($layerName !== null) {
-						throw new InvalidArgumentException('Duplicate CSS @import layer clause.');
-					}
-					$layerName = '';
-					$p += 5;
-					continue;
+				if ($supportsText !== null) {
+					throw new InvalidArgumentException('CSS @import layer() must precede supports().');
 				}
-				if ($p + 9 <= $tLen && substr_compare($tail, 'supports(', $p, 9, true) === 0) {
-					$close = CSSSyntaxScanner::findMatchingDelimiter($tail, $p + 8, $tLen);
-					if ($close === null) {
-						throw new InvalidArgumentException('Malformed CSS @import supports() clause.');
-					}
-					if ($supportsText !== null) {
-						throw new InvalidArgumentException('Duplicate CSS @import supports() clause.');
-					}
-					$cond = CSSSyntaxScanner::trimCssWhitespace(substr($tail, $p + 9, $close - ($p + 9)));
-					if ($cond === '') {
-						throw new InvalidArgumentException('Empty CSS @import supports() clause is not allowed.');
-					}
-					$supportsText = $cond;
-					$p = $close + 1;
-					continue;
+				if ($layerName !== null) {
+					throw new InvalidArgumentException('Duplicate CSS @import layer() clause.');
 				}
+				$name = CSSSyntaxScanner::trimCssWhitespace(substr($tail, $identEnd + 1, $close - ($identEnd + 1)));
+				if ($name === '') {
+					throw new InvalidArgumentException('Empty CSS @import layer() clause is not allowed.');
+				}
+				$layerName = $name;
+				$p = $close + 1;
+				continue;
+			}
+			if ($identLower === 'layer'
+				&& ($identEnd === $tLen || str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $tail[$identEnd]))
+			) {
+				if ($supportsText !== null) {
+					throw new InvalidArgumentException('CSS @import layer() must precede supports().');
+				}
+				if ($layerName !== null) {
+					throw new InvalidArgumentException('Duplicate CSS @import layer clause.');
+				}
+				$layerName = '';
+				$p = $identEnd;
+				continue;
+			}
+			if ($identLower === 'supports' && $identEnd < $tLen && $tail[$identEnd] === '(') {
+				$close = CSSSyntaxScanner::findMatchingDelimiter($tail, $identEnd, $tLen);
+				if ($close === null) {
+					throw new InvalidArgumentException('Malformed CSS @import supports() clause.');
+				}
+				if ($supportsText !== null) {
+					throw new InvalidArgumentException('Duplicate CSS @import supports() clause.');
+				}
+				$cond = CSSSyntaxScanner::trimCssWhitespace(substr($tail, $identEnd + 1, $close - ($identEnd + 1)));
+				if ($cond === '') {
+					throw new InvalidArgumentException('Empty CSS @import supports() clause is not allowed.');
+				}
+				$supportsText = $cond;
+				$p = $close + 1;
+				continue;
 			}
 
-			$inMedia = true;
 			foreach (CSSSyntaxScanner::splitTopLevelWhitespace(substr($tail, $p)) as $token) {
-				if (strcasecmp($token, 'layer') === 0
-					|| (strncasecmp($token, 'layer(', 6) === 0 && str_ends_with($token, ')'))
+				$tokLen = strlen($token);
+				$tokIdent = CSSSyntaxScanner::decodeIdentAt($token, 0, $tokLen);
+				$tokLower = $tokIdent !== null ? strtolower($tokIdent['ident']) : null;
+				$tokEnd = $tokIdent !== null ? $tokIdent['end'] : -1;
+				if (($tokLower === 'layer' && $tokEnd === $tokLen)
+					|| ($tokLower === 'layer' && $tokEnd < $tokLen && $token[$tokEnd] === '(' && str_ends_with($token, ')'))
 				) {
 					throw new InvalidArgumentException('CSS @import layer() must precede supports() and media queries.');
 				}
-				if (strncasecmp($token, 'supports(', 9) === 0 && str_ends_with($token, ')')) {
+				if ($tokLower === 'supports' && $tokEnd < $tokLen && $token[$tokEnd] === '(' && str_ends_with($token, ')')) {
 					throw new InvalidArgumentException('CSS @import supports() must precede media queries.');
 				}
 				$mediaTokens[] = $token;
@@ -260,7 +269,7 @@ final class CSSImportRule extends CSSAtRule
 	public function __clone(): void
 	{
 		parent::__clone();
-		$this->media = $this->media->cloneWithCallback(function (string $mediaText): void {
+		$this->mediaList = $this->mediaList->cloneWithCallback(function (string $mediaText): void {
 			if (!$this->initializing) {
 				$this->rebuildPrelude($mediaText);
 			}

@@ -138,8 +138,8 @@ final class CSSColorValueTest extends TestCase
 			try {
 				CSSColorValue::parse($invalid);
 				self::fail('Expected invalid color syntax to throw: ' . $invalid);
-			} catch (InvalidArgumentException) {
-				self::assertTrue(true);
+			} catch (InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
 			}
 		}
 
@@ -151,8 +151,8 @@ final class CSSColorValueTest extends TestCase
 		try {
 			$custom->toRGB();
 			self::fail('Expected custom color space conversion to throw.');
-		} catch (InvalidArgumentException) {
-			self::assertTrue(true);
+		} catch (InvalidArgumentException $e) {
+			self::assertNotSame('', $e->getMessage());
 		}
 
 		// Unresolved math channel rejects conversion
@@ -166,7 +166,7 @@ final class CSSColorValueTest extends TestCase
 		$calcRgb = CSSColorValue::parse('rgb(calc(255 * 0.5) 0 0)');
 		self::assertInstanceOf(CSSRGB::class, $calcRgb);
 		self::assertSame('percent', $calcRgb->r->getNumericCategory());
-		self::assertTrue(isset($calcRgb->r, $calcRgb->alpha));
+		self::assertInstanceOf(CSSNumericValue::class, $calcRgb->alpha);
 
 		$lch = CSSColorValue::parse('lch(50% 40 120deg)');
 		$lchRgb = $lch->toRGB();
@@ -229,8 +229,8 @@ final class CSSColorValueTest extends TestCase
 			try {
 				CSSColorValue::parse($badColor);
 				self::fail('Expected invalid color syntax to throw: ' . $badColor);
-			} catch (InvalidArgumentException) {
-				self::assertTrue(true);
+			} catch (InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
 			}
 		}
 
@@ -240,6 +240,7 @@ final class CSSColorValueTest extends TestCase
 		self::assertSame('percent', $scaledRgb->r->getNumericCategory());
 		self::assertSame('percent', $scaledRgb->alpha->getNumericCategory());
 		$parsedOklabMath = CSSColorValue::parse('oklab(calc(0.2 + 0.3) 0 0 / calc(0.2 + 0.3))');
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSOKLab::class, $parsedOklabMath);
 		self::assertSame('percent', $parsedOklabMath->l->getNumericCategory());
 		self::assertSame('percent', $parsedOklabMath->alpha->getNumericCategory());
 
@@ -257,8 +258,8 @@ final class CSSColorValueTest extends TestCase
 				0,
 			);
 			self::fail('Expected percentHint-bearing channel to throw.');
-		} catch (InvalidArgumentException) {
-			self::assertTrue(true);
+		} catch (InvalidArgumentException $e) {
+			self::assertNotSame('', $e->getMessage());
 		}
 	}
 }

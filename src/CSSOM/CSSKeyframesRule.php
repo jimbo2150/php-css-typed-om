@@ -12,6 +12,9 @@ use OutOfBoundsException;
 /**
  * Represents a CSS `@keyframes` rule.
  *
+ * @property string $name
+ * @property-read int $length
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSKeyframesRule
  */
 final class CSSKeyframesRule extends CSSGroupingRule
@@ -31,10 +34,13 @@ final class CSSKeyframesRule extends CSSGroupingRule
 	}
 
 	/**
-	 * @throws InvalidArgumentException When $name is empty or structurally invalid
+	 * @throws InvalidArgumentException When $name is empty, structurally invalid, or exceeds size limits
 	 */
 	public function setNameText(string $name): void
 	{
+		if (strlen($name) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('CSS @keyframes name exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		}
 		$this->prelude = self::validateName($name);
 	}
 
@@ -63,14 +69,15 @@ final class CSSKeyframesRule extends CSSGroupingRule
 		}
 
 		$sheet = $this->getParentStyleSheet();
+		$effectiveOptions = $sheet->resolveParserOptionsInternal($options);
 		$keyframe = CSSParser::parseSingleKeyframeRule(
 			$ruleText,
-			$options,
+			$effectiveOptions,
 			$this->getNestingDepth(),
 			$sheet->getTotalRuleCount(),
 			$sheet->getTotalDeclarationCount(),
 		);
-		$this->getCssRules()->insertWithOptionsInternal($index, $keyframe, $options);
+		$this->getCssRules()->insertWithOptionsInternal($index, $keyframe, $effectiveOptions);
 
 		return $index;
 	}

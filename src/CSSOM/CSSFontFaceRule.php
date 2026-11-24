@@ -7,6 +7,8 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 /**
  * Represents a CSS `@font-face` descriptor rule.
  *
+ * @property-read CSSFontFaceDescriptors $style
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSFontFaceRule
  */
 final class CSSFontFaceRule extends CSSAtRule
@@ -26,6 +28,7 @@ final class CSSFontFaceRule extends CSSAtRule
 
 	public function getStyle(): CSSFontFaceDescriptors
 	{
-		return $this->style;
+		assert($this->styleDeclaration instanceof CSSFontFaceDescriptors);
+		return $this->styleDeclaration;
 	}
 }

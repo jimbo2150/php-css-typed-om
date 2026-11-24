@@ -13,13 +13,17 @@ use OutOfBoundsException;
 /**
  * Represents a CSS style rule with a selector, declaration block, and optional nested rules.
  *
+ * @property string $selectorText
+ * @property-read CSSStyleProperties $style
+ * @property-read StylePropertyMap $styleMap
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSStyleRule
  */
 class CSSStyleRule extends CSSGroupingRule
 {
-	private string $selectorText;
-	private CSSStyleProperties $style;
-	private ?StylePropertyMap $styleMap = null;
+	private string $selectorTextValue;
+	private CSSStyleProperties $styleDeclaration;
+	private ?StylePropertyMap $cachedStyleMap = null;
 
 	/**
 	 * @throws InvalidArgumentException When $selectorText is empty or invalid
@@ -39,9 +43,9 @@ class CSSStyleRule extends CSSGroupingRule
 		CSSSyntaxScanner::assertValidFragment($selectorText, 'CSS selector', [';', '{', '}']);
 		parent::__construct('style', '', $maxBytes);
 		$this->prelude = $selectorText;
-		$this->selectorText = $selectorText;
-		$this->style = CSSStyleProperties::fromDeclaration($style);
-		$this->style->setParentRule($this);
+		$this->selectorTextValue = $selectorText;
+		$this->styleDeclaration = CSSStyleProperties::fromDeclaration($style);
+		$this->styleDeclaration->setParentRule($this);
 	}
 
 	public function getType(): int
@@ -51,7 +55,7 @@ class CSSStyleRule extends CSSGroupingRule
 
 	public function getSelectorText(): string
 	{
-		return $this->selectorText;
+		return $this->selectorTextValue;
 	}
 
 	/**
@@ -68,18 +72,18 @@ class CSSStyleRule extends CSSGroupingRule
 		}
 		CSSSyntaxScanner::assertValidFragment($selectorText, 'CSS selector', [';', '{', '}']);
 
-		$this->selectorText = $selectorText;
+		$this->selectorTextValue = $selectorText;
 		$this->prelude = $selectorText;
 	}
 
 	public function getStyle(): CSSStyleProperties
 	{
-		return $this->style;
+		return $this->styleDeclaration;
 	}
 
 	public function getStyleMap(): StylePropertyMap
 	{
-		return $this->styleMap ??= new StylePropertyMap($this->style);
+		return $this->cachedStyleMap ??= new StylePropertyMap($this->styleDeclaration);
 	}
 
 	/**
@@ -98,14 +102,15 @@ class CSSStyleRule extends CSSGroupingRule
 		if ($index < 0 || $index > count($this->getCssRules())) {
 			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
 		}
+		$effectiveOptions = $sheet->resolveParserOptionsInternal($options);
 		$rule = CSSParser::parseSingleNestedRule(
 			$ruleText,
-			$options,
+			$effectiveOptions,
 			$this->getNestingDepth(),
 			$sheet->getTotalRuleCount(),
 			$sheet->getTotalDeclarationCount(),
 		);
-		$this->getCssRules()->insertWithOptionsInternal($index, $rule, $options);
+		$this->getCssRules()->insertWithOptionsInternal($index, $rule, $effectiveOptions);
 
 		return $index;
 	}
@@ -113,7 +118,7 @@ class CSSStyleRule extends CSSGroupingRule
 	public function getCssText(): string
 	{
 		if ($this->getCssRules()->getRulesRaw() === []) {
-			return $this->selectorText . ' { ' . $this->style->getCssText() . ' }';
+			return $this->selectorTextValue . ' { ' . $this->styleDeclaration->getCssText() . ' }';
 		}
 
 		return CSSGroupingRule::serializeTreeIteratively($this);
@@ -122,9 +127,9 @@ class CSSStyleRule extends CSSGroupingRule
 	public function __clone(): void
 	{
 		parent::__clone();
-		$this->style = clone $this->style;
-		$this->style->setParentRule($this);
-		$this->styleMap = null;
+		$this->styleDeclaration = clone $this->styleDeclaration;
+		$this->styleDeclaration->setParentRule($this);
+		$this->cachedStyleMap = null;
 	}
 
 	public function __get(string $name): mixed

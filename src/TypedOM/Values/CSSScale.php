@@ -41,6 +41,10 @@ final class CSSScale extends CSSTransformComponent
 		}
 	}
 
+	/**
+	 * @param CSSNumericValue|int|float|string $xOrFunction
+	 * @param list<CSSStyleValue|string>|CSSNumericValue|int|float|string|null $yOrValues
+	 */
 	public function __construct(
 		CSSNumericValue|int|float|string $xOrFunction,
 		array|CSSNumericValue|int|float|string|null $yOrValues = null,
@@ -141,6 +145,12 @@ final class CSSScale extends CSSTransformComponent
 		return clone $this;
 	}
 
+	public function getFunctionName(): string
+	{
+		$this->syncLiveState();
+		return parent::getFunctionName();
+	}
+
 	public function getValues(): array
 	{
 		$this->syncLiveState();
@@ -186,7 +196,10 @@ final class CSSScale extends CSSTransformComponent
 		};
 	}
 
-	/** @param list<CSSStyleValue|string> $arguments @return array{CSSNumericValue, CSSNumericValue, CSSNumericValue, list<CSSNumericValue>, bool} */
+	/**
+	 * @param list<CSSStyleValue|string> $arguments
+	 * @return array{CSSNumericValue, CSSNumericValue, CSSNumericValue, list<CSSNumericValue>, bool}
+	 */
 	private static function parseFunction(string $function, array $arguments): array
 	{
 		$x = null;

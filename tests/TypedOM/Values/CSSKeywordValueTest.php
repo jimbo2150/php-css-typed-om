@@ -9,13 +9,13 @@ use PHPUnit\Framework\TestCase;
 
 class CSSKeywordValueTest extends TestCase
 {
-	public function testKeyword() {
+	public function testKeyword(): void {
 		$instance = new CSSKeywordValue('test');
 		$this->assertSame('test', $instance->getKeyword());
 		$this->assertSame('test', (string) $instance);
 	}
 
-	public function testClone() {
+	public function testClone(): void {
 		$instance = new CSSKeywordValue('test');
 		$clone = $instance->clone();
 		$this->assertInstanceOf(CSSKeywordValue::class, $clone);

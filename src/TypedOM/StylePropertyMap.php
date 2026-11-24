@@ -21,6 +21,7 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 	/**
 	 * Sets a property to one or more CSS values atomically.
 	 *
+	 * @param CSSStyleValue|string|array<int|string, CSSStyleValue|string> ...$values
 	 * @throws InvalidArgumentException When the property name or any value is invalid
 	 */
 	public function set(string $property, CSSStyleValue|string|array ...$values): void
@@ -54,15 +55,17 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 		$current = $existing['value'] ?? '';
 		$priority = $existing['priority'] ?? '';
 		$runningBytes = $current === '' ? 0 : strlen($current);
+		$itemCount = $current === '' ? 0 : (CSSSyntaxScanner::countTopLevelDelimiters($current, ',') + 1);
 		foreach ($values as $item) {
 			$part = $this->validateSingleValue($normalized, $item, $options, $runningBytes, $current !== '' || $parts !== [] ? 2 : 0);
+			$itemCount += CSSSyntaxScanner::countTopLevelDelimiters($part, ',') + 1;
+			if ($itemCount > CSSStyleValue::MAX_LIST_ITEMS) {
+				throw new CSSParserLimitException(sprintf('CSS property value list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
+			}
 			$parts[] = $part;
 		}
 		$serialized = implode(', ', $parts);
 		$next = $current === '' ? $serialized : $current . ', ' . $serialized;
-		if ($current !== '' || count($parts) > 1) {
-			CSSStyleDeclaration::validatePropertyValue($next);
-		}
 		$this->style->setValidatedProperty($normalized, $next, $priority);
 	}
 

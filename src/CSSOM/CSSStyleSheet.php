@@ -16,16 +16,20 @@ use OutOfBoundsException;
  * callers embedding serialized CSS into HTML must apply HTML-context escaping
  * (or enable `CSSRenderOptions::$escapeHtmlStyleTag` when embedding inside `<style>`).
  *
+ * @property-read CSSRuleList $cssRules
+ * @property-read string $cssText
+ * @property-read list<array{message: string, offset: int}> $parseErrors
+ * @property-read ?string $baseURL
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSStyleSheet
  */
 final class CSSStyleSheet extends StyleSheet
 {
-	private CSSRuleList $cssRules;
+	private CSSRuleList $cssRulesList;
 
 	/** @var list<array{message: string, offset: int}> */
-	private array $parseErrors = [];
+	private array $parseErrorsList = [];
 
-	private readonly ?string $baseURL;
+	private readonly ?string $baseURLValue;
 
 	private int $totalRuleCount = 0;
 
@@ -33,9 +37,13 @@ final class CSSStyleSheet extends StyleSheet
 
 	private ?int $maxRules = CSSParserOptions::DEFAULT_MAX_RULES;
 
-	private ?int $maxDepth = null;
+	private ?int $maxDepth = CSSParserOptions::DEFAULT_MAX_DEPTH;
 
 	private ?int $maxDeclarations = CSSParserOptions::DEFAULT_MAX_DECLARATIONS;
+
+	private ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES;
+
+	private ?int $maxMathDepth = CSSParserOptions::DEFAULT_MAX_MATH_DEPTH;
 
 	private ?int $maxErrors = null;
 
@@ -54,13 +62,13 @@ final class CSSStyleSheet extends StyleSheet
 			throw new InvalidArgumentException('CSSStyleSheet baseURL cannot contain control characters.');
 		}
 		parent::__construct($href, $title, $media, $ownerRule, $parentStyleSheet, $disabled);
-		$this->baseURL = $baseURL;
-		$this->cssRules = new CSSRuleList($this);
+		$this->baseURLValue = $baseURL;
+		$this->cssRulesList = new CSSRuleList($this);
 	}
 
 	public function getBaseURL(): ?string
 	{
-		return $this->baseURL;
+		return $this->baseURLValue;
 	}
 
 	/**
@@ -73,13 +81,13 @@ final class CSSStyleSheet extends StyleSheet
 
 	public function getCssRules(): CSSRuleList
 	{
-		return $this->cssRules;
+		return $this->cssRulesList;
 	}
 
 	/** @return list<array{message: string, offset: int}> */
 	public function getParseErrors(): array
 	{
-		return $this->parseErrors;
+		return $this->parseErrorsList;
 	}
 
 	/**
@@ -96,9 +104,27 @@ final class CSSStyleSheet extends StyleSheet
 	 */
 	public function configureLimitsInternal(CSSParserOptions $options): void
 	{
+		$this->maxBytes = $options->maxBytes;
 		$this->maxRules = $options->maxRules;
 		$this->maxDepth = $options->maxDepth;
+		$this->maxMathDepth = $options->maxMathDepth;
 		$this->maxDeclarations = $options->maxDeclarations;
+		$this->maxErrors = $options->maxErrors;
+	}
+
+	/**
+	 * @internal Resolves explicit $override options or defaults to this stylesheet's configured resource limits.
+	 */
+	public function resolveParserOptionsInternal(?CSSParserOptions $override): CSSParserOptions
+	{
+		return $override ?? new CSSParserOptions(
+			maxBytes: $this->maxBytes,
+			maxDepth: $this->maxDepth,
+			maxMathDepth: $this->maxMathDepth,
+			maxRules: $this->maxRules,
+			maxDeclarations: $this->maxDeclarations,
+			maxErrors: $this->maxErrors,
+		);
 	}
 
 	/**
@@ -159,7 +185,7 @@ final class CSSStyleSheet extends StyleSheet
 
 	public function getCssText(): string
 	{
-		$rules = $this->cssRules->getRulesRaw();
+		$rules = $this->cssRulesList->getRulesRaw();
 		if ($rules === []) {
 			return '';
 		}
@@ -190,18 +216,19 @@ final class CSSStyleSheet extends StyleSheet
 	 */
 	public function insertRule(string $ruleText, int $index = 0, ?CSSParserOptions $options = null): int
 	{
-		if ($index < 0 || $index > count($this->cssRules)) {
+		if ($index < 0 || $index > count($this->cssRulesList)) {
 			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
 		}
 
+		$effectiveOptions = $this->resolveParserOptionsInternal($options);
 		$rule = CSSParser::parseSingleRule(
 			$ruleText,
-			$options,
+			$effectiveOptions,
 			0,
 			$this->totalRuleCount,
 			$this->totalDeclarationCount,
 		);
-		$this->cssRules->insertWithOptionsInternal($index, $rule, $options);
+		$this->cssRulesList->insertWithOptionsInternal($index, $rule, $effectiveOptions);
 
 		return $index;
 	}
@@ -213,10 +240,10 @@ final class CSSStyleSheet extends StyleSheet
 	 */
 	public function deleteRule(int $index = 0): void
 	{
-		if ($index < 0 || $index >= count($this->cssRules)) {
+		if ($index < 0 || $index >= count($this->cssRulesList)) {
 			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
 		}
-		$this->cssRules->remove($index);
+		$this->cssRulesList->remove($index);
 	}
 
 	/**
@@ -228,18 +255,18 @@ final class CSSStyleSheet extends StyleSheet
 	{
 		$options ??= CSSParserOptions::default();
 		$replacement = CSSParser::parseStylesheet($cssText, $options, true);
-		$this->cssRules->replaceAllWithOptionsInternal($replacement->getCssRules(), $options);
+		$this->cssRulesList->replaceAllWithOptionsInternal($replacement->getCssRules(), $options);
 		$this->configureLimitsInternal($options);
 		$this->configureErrorLimit($options->maxErrors);
-		$this->parseErrors = $replacement->getParseErrors();
+		$this->parseErrorsList = $replacement->getParseErrors();
 	}
 
 	public function recordParseError(string $message, int $offset): void
 	{
-		if ($this->maxErrors !== null && count($this->parseErrors) >= $this->maxErrors) {
+		if ($this->maxErrors !== null && count($this->parseErrorsList) >= $this->maxErrors) {
 			if (!$this->errorsTruncated) {
 				$this->errorsTruncated = true;
-				$this->parseErrors[] = [
+				$this->parseErrorsList[] = [
 					'message' => sprintf('Maximum parse error limit of %d exceeded; further diagnostics suppressed.', $this->maxErrors),
 					'offset' => $offset,
 				];
@@ -248,7 +275,7 @@ final class CSSStyleSheet extends StyleSheet
 			return;
 		}
 
-		$this->parseErrors[] = ['message' => $message, 'offset' => $offset];
+		$this->parseErrorsList[] = ['message' => $message, 'offset' => $offset];
 	}
 
 	public function __toString(): string
@@ -271,7 +298,7 @@ final class CSSStyleSheet extends StyleSheet
 	{
 		return match ($name) {
 			'cssRules', 'cssText', 'parseErrors' => true,
-			'baseURL' => $this->baseURL !== null,
+			'baseURL' => $this->baseURLValue !== null,
 			default => parent::__isset($name),
 		};
 	}
@@ -279,12 +306,12 @@ final class CSSStyleSheet extends StyleSheet
 	public function __clone(): void
 	{
 		parent::__clone();
-		$origRules = $this->cssRules->getRulesRaw();
-		$this->cssRules = new CSSRuleList($this);
+		$origRules = $this->cssRulesList->getRulesRaw();
+		$this->cssRulesList = new CSSRuleList($this);
 		$this->totalRuleCount = 0;
 		$this->totalDeclarationCount = 0;
 		if ($origRules !== []) {
-			CSSGroupingRule::cloneRulesIntoList($origRules, $this->cssRules, $this, null);
+			CSSGroupingRule::cloneRulesIntoList($origRules, $this->cssRulesList, $this, null);
 		}
 	}
 }

@@ -10,7 +10,7 @@
 
 ## Public API
 
-The full inherited numeric API is available: `parse`, `from`, `type`, `getType`, `getNumericType`, `getNumericCategory`, `to`, `toSum`, `add`, `sub`, `mul`, `div`, `min`, `max`, `equals`, `mergeAdditiveTypes`, `unitType`, `__get`, and `__set`, with exact signatures, parameter meanings, errors, and examples in [CSSNumericValue](CSSNumericValue.md#public-api). It also inherits `parseAll` from `CSSStyleValue`. Its numeric `__toString` and `clone` implementations are overridden here.
+The full inherited numeric API is available: `parse`, `from`, `type`, `getType`, `getNumericType`, `getNumericCategory`, `to`, `toSum`, `add`, `sub`, `mul`, `div`, `min`, `max`, `equals`, `mergeAdditiveTypes` (returns an isolated clone so mutations never alter the internal unit-category cache), `unitType`, `__get`, and `__set`, with exact signatures, parameter meanings, errors, and examples in [CSSNumericValue](CSSNumericValue.md#public-api). It also inherits `parseAll` from `CSSStyleValue`. Its numeric `__toString` and `clone` implementations are overridden here.
 
 | Method | Signature and behavior |
 |---|---|

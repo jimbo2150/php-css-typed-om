@@ -48,18 +48,20 @@ final class DOMMatrixTest extends TestCase
 		self::assertSame(15.0, $translated->f);
 
 		try {
-			$ro->a = 2.0;
-			self::fail('Expected Error on read-only matrix property write.');
-		} catch (Error) {
-			self::assertSame(1.0, $ro->a);
-		}
-
-		try {
 			$ro[0] = 2.0;
 			self::fail('Expected InvalidArgumentException on read-only matrix offsetSet.');
-		} catch (InvalidArgumentException) {
+		} catch (InvalidArgumentException $e) {
+			self::assertNotSame('', $e->getMessage());
 			self::assertSame(1.0, $ro[0]);
 		}
+	}
+
+	public function testReadOnlyMatrixPropertyWriteThrowsError(): void
+	{
+		$ro = new DOMMatrixReadOnly([1, 0, 0, 1, 10, 20]);
+		$this->expectException(Error::class);
+		/** @phpstan-ignore assign.propertyReadOnly */
+		$ro->a = 2.0;
 	}
 
 	public function testDictionaryInitAndAliasConflictValidation(): void

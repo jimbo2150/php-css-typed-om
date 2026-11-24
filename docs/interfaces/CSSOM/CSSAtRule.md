@@ -7,13 +7,13 @@
 
 ## Properties
 
-Constructor-promoted protected fields `name`, `prelude`, `style`, and `hasBlock` are not public properties. Magic `__get()` exposes read-only `name`, `prelude`, and `style` in addition to inherited `type`, `cssText`, `parentStyleSheet`, and `parentRule`.
+Internal protected backing fields `$atRuleName`, `$prelude`, `$styleDeclaration`, and `$hasBlock` are not public properties. Magic `__get()` exposes read-only `name`, `prelude`, and `style` in addition to inherited `type`, `cssText`, `parentStyleSheet`, and `parentRule`.
 
 ## Public Methods
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(string $name, string $prelude = '', ?CSSStyleDeclaration $style = null, bool $hasBlock = false)` | Validates the at-rule identifier and prelude; associates the style with this rule. Throws `InvalidArgumentException` for invalid name/prelude. | `$rule = new CSSAtRule('custom', 'flag', null, false);` |
+| `__construct(string $name, string $prelude = '', ?CSSStyleDeclaration $style = null, bool $hasBlock = false, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Validates the at-rule identifier and prelude (within `$maxBytes`); clones an already-owned `$style` if needed and associates it with this rule. Throws `InvalidArgumentException` / `CSSParserLimitException` for invalid or oversized name/prelude. | `$rule = new CSSAtRule('custom', 'flag', null, false);` |
 | `getName(): string` | Returns the original at-rule name. | `$rule->getName();` |
 | `getPrelude(): string` | Returns trimmed prelude text. | `$rule->getPrelude();` |
 | `getStyle(): ?CSSStyleDeclaration` | Returns the descriptor block, or `null`. | `$rule->getStyle();` |

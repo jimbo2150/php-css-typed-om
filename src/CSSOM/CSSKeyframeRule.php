@@ -10,12 +10,15 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 /**
  * Represents a single keyframe rule inside `@keyframes`.
  *
+ * @property string $keyText
+ * @property-read CSSStyleProperties $style
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSKeyframeRule
  */
 final class CSSKeyframeRule extends CSSRule
 {
-	private string $keyText;
-	private CSSStyleProperties $style;
+	private string $keyTextValue;
+	private CSSStyleProperties $styleProperties;
 
 	/**
 	 * @throws InvalidArgumentException When $keyText is not a valid keyframe selector list
@@ -23,20 +26,23 @@ final class CSSKeyframeRule extends CSSRule
 	public function __construct(string $keyText, ?CSSStyleDeclaration $style = null)
 	{
 		$this->setKeyText($keyText);
-		$this->style = CSSStyleProperties::fromDeclaration($style);
-		$this->style->setParentRule($this);
+		$this->styleProperties = CSSStyleProperties::fromDeclaration($style);
+		$this->styleProperties->setParentRule($this);
 	}
 
 	public function getKeyText(): string
 	{
-		return $this->keyText;
+		return $this->keyTextValue;
 	}
 
 	/**
-	 * @throws InvalidArgumentException When $keyText is not a valid keyframe selector list
+	 * @throws InvalidArgumentException When $keyText is not a valid keyframe selector list or exceeds size limits
 	 */
 	public function setKeyText(string $keyText): void
 	{
+		if (strlen($keyText) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('Keyframe selector exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		}
 		$keyText = CSSSyntaxScanner::trimCssWhitespace($keyText);
 		if ($keyText === '') {
 			throw new InvalidArgumentException('Invalid keyframe selector text.');
@@ -55,12 +61,12 @@ final class CSSKeyframeRule extends CSSRule
 			}
 		}
 
-		$this->keyText = $keyText;
+		$this->keyTextValue = $keyText;
 	}
 
 	public function getStyle(): CSSStyleProperties
 	{
-		return $this->style;
+		return $this->styleProperties;
 	}
 
 	public function getType(): int
@@ -70,7 +76,7 @@ final class CSSKeyframeRule extends CSSRule
 
 	public function getCssText(): string
 	{
-		return $this->keyText . ' { ' . $this->style->getCssText() . ' }';
+		return $this->keyTextValue . ' { ' . $this->styleProperties->getCssText() . ' }';
 	}
 
 	public function __get(string $name): mixed
@@ -99,7 +105,7 @@ final class CSSKeyframeRule extends CSSRule
 	public function __clone(): void
 	{
 		parent::__clone();
-		$this->style = clone $this->style;
-		$this->style->setParentRule($this);
+		$this->styleProperties = clone $this->styleProperties;
+		$this->styleProperties->setParentRule($this);
 	}
 }

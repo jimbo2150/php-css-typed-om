@@ -47,10 +47,12 @@ Private `parentStyleSheet` and `parentRule` fields are exposed by getters and ma
 | `getCssText(): string` (abstract) | Returns CSS serialization for the node. | `$rule->getCssText();` |
 | `getParentStyleSheet(): ?CSSStyleSheet` | Returns attached stylesheet, or `null` when detached. | `$rule->getParentStyleSheet();` |
 | `getParentRule(): ?CSSGroupingRule` | Returns owning grouping rule, or `null` when not nested/attached. | `$rule->getParentRule();` |
+| `setParentLinks(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void` | Updates direct parent stylesheet and rule references without reparenting child lists. | `$rule->setParentLinks($sheet, $parent);` |
 | `attach(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void` | Updates both parent references; grouping subclasses also reparent child lists. | `$rule->attach($sheet, null);` |
 | `__clone(): void` | Deeply detaches/clones rule state iteratively (including owned style declarations and grouping child lists without recursion). | `$copy = clone $rule;` |
 | `__toString(): string` | Returns `getCssText()`. | `$css = (string) $rule;` |
 | `__get(string $name): mixed` | Maps `type`, `cssText`, `parentStyleSheet`, and `parentRule`; unknown names throw `Error`. | `$rule->cssText;` |
+| `__isset(string $name): bool` | Reports availability for `type`, `cssText`, `parentStyleSheet`, and `parentRule`. | `isset($rule->cssText);` |
 | `__set(string $name, mixed $value): void` | Rejects every magic write with `Error`. | `$rule->cssText = 'x'; // throws Error` |
 
 The class has no public constructor; subclasses provide construction.

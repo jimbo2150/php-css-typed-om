@@ -34,8 +34,8 @@ final class CSSColor extends CSSColorValue
 
 	private CSSKeywordValue $colorSpaceValue;
 
-	/** @var list<CSSNumericValue|CSSKeywordValue> */
-	private array $channelsValue;
+	/** @var ?list<CSSNumericValue|CSSKeywordValue> */
+	private ?array $channelsValue = null;
 
 	public CSSKeywordValue $colorSpace {
 		get => $this->colorSpaceValue->clone();
@@ -46,7 +46,7 @@ final class CSSColor extends CSSColorValue
 
 	/** @var list<CSSNumericValue|CSSKeywordValue> */
 	public array $channels {
-		get => self::exposeChannels($this->channelsValue);
+		get => self::exposeChannels($this->channelsValue ?? []);
 		set (array $value) {
 			$this->setChannels($value);
 		}
@@ -103,7 +103,7 @@ final class CSSColor extends CSSColorValue
 		if (!isset(self::PREDEFINED_SPACES[$lower])) {
 			throw new InvalidArgumentException('Unsupported CSS color space: ' . $raw);
 		}
-		if (isset($this->channelsValue) && count($this->channelsValue) !== 3) {
+		if ($this->channelsValue !== null && count($this->channelsValue) !== 3) {
 			throw new InvalidArgumentException(sprintf('Predefined color space "%s" requires exactly 3 channels.', $lower));
 		}
 		$this->colorSpaceValue = new CSSKeywordValue($lower);
@@ -112,7 +112,7 @@ final class CSSColor extends CSSColorValue
 	/** @return list<CSSNumericValue|CSSKeywordValue> */
 	public function getChannels(): array
 	{
-		return self::exposeChannels($this->channelsValue);
+		return self::exposeChannels($this->channelsValue ?? []);
 	}
 
 	/**
@@ -154,7 +154,7 @@ final class CSSColor extends CSSColorValue
 	{
 		$this->colorSpaceValue = $this->colorSpaceValue->clone();
 		$clonedChannels = [];
-		foreach ($this->channelsValue as $channel) {
+		foreach ($this->channelsValue ?? [] as $channel) {
 			$clonedChannels[] = $channel->clone();
 		}
 		$this->channelsValue = $clonedChannels;
@@ -171,7 +171,7 @@ final class CSSColor extends CSSColorValue
 		$space = (string) $this->colorSpaceValue;
 		$body = $space;
 		$prev = $space;
-		foreach ($this->channelsValue as $channel) {
+		foreach ($this->channelsValue ?? [] as $channel) {
 			$part = (string) $channel;
 			$body .= (CSSSyntaxScanner::endsWithBareHexEscape($prev) ? '  ' : ' ') . $part;
 			$prev = $part;

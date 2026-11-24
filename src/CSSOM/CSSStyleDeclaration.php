@@ -19,6 +19,12 @@ use Traversable;
  * Explicit setters validate against structural delimiters (`;`, `{`, `}`, unbalanced quotes/comments)
  * and leave state untouched on failure.
  *
+ * @phpstan-consistent-constructor
+ *
+ * @property string $cssText
+ * @property-read int $length
+ * @property-read ?CSSRule $parentRule
+ *
  * @implements ArrayAccess<string, string>
  * @implements IteratorAggregate<string, array{value: string, priority: string}>
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSStyleDeclaration
@@ -34,7 +40,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	/** @var ?list<string> */
 	private ?array $cachedKeys = null;
 
-	private ?CSSRule $parentRule = null;
+	private ?CSSRule $ownerRule = null;
 
 	/**
 	 * @throws InvalidArgumentException When $cssText contains invalid declarations or exceeds options limits
@@ -48,7 +54,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 
 	public function __clone(): void
 	{
-		$this->parentRule = null;
+		$this->ownerRule = null;
 		$this->cachedKeys = null;
 	}
 
@@ -145,13 +151,13 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 
 	public function getParentRule(): ?CSSRule
 	{
-		return $this->parentRule;
+		return $this->ownerRule;
 	}
 
 	/** @internal Links this declaration block to its owning CSSRule. */
 	public function setParentRule(?CSSRule $parentRule): void
 	{
-		$this->parentRule = $parentRule;
+		$this->ownerRule = $parentRule;
 	}
 
 	public function getLength(): int
@@ -310,9 +316,10 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	 */
 	public function setCssText(string $cssText, ?CSSParserOptions $options = null): void
 	{
-		$replacement = static::parse($cssText, true, $diagnostics, $options);
+		$effectiveOptions = $this->ownerRule?->getParentStyleSheet()?->resolveParserOptionsInternal($options) ?? $options;
+		$replacement = static::parse($cssText, true, $diagnostics, $effectiveOptions);
 		$delta = count($replacement->declarations) - count($this->declarations);
-		$this->assertSheetDeclarationGrowth($delta, $options);
+		$this->assertSheetDeclarationGrowth($delta, $effectiveOptions);
 		$this->declarations = $replacement->declarations;
 		$this->cachedKeys = null;
 		$this->notifySheetMutation($delta, true);
@@ -323,8 +330,12 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		if ($delta <= 0) {
 			return;
 		}
-		$sheet = $this->parentRule?->getParentStyleSheet();
+		$sheet = $this->ownerRule?->getParentStyleSheet();
 		if ($sheet === null) {
+			$maxDetached = $overrideOptions !== null ? $overrideOptions->maxDeclarations : CSSParserOptions::DEFAULT_MAX_DECLARATIONS;
+			if ($maxDetached !== null && (count($this->declarations) + $delta) > $maxDetached) {
+				throw new CSSParserLimitException(sprintf('Maximum CSS declaration limit of %d exceeded.', $maxDetached));
+			}
 			return;
 		}
 		$maxDeclarations = $overrideOptions !== null ? $overrideOptions->maxDeclarations : $sheet->getMaxDeclarationsInternal();
@@ -336,10 +347,10 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	private function notifySheetMutation(int $delta, bool $clearEmptyInitialValue): void
 	{
 		if ($delta !== 0) {
-			$this->parentRule?->getParentStyleSheet()?->adjustTotalDeclarationCount($delta);
+			$this->ownerRule?->getParentStyleSheet()?->adjustTotalDeclarationCount($delta);
 		}
-		if ($clearEmptyInitialValue && $this->parentRule instanceof CSSPropertyRule) {
-			$this->parentRule->clearEmptyInitialValueInternal();
+		if ($clearEmptyInitialValue && $this->ownerRule instanceof CSSPropertyRule) {
+			$this->ownerRule->clearEmptyInitialValueInternal();
 		}
 	}
 
@@ -399,7 +410,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	{
 		return match ($name) {
 			'cssText', 'length' => true,
-			'parentRule' => $this->parentRule !== null,
+			'parentRule' => $this->ownerRule !== null,
 			default => isset($this->declarations[self::normalizePropertyName(self::propertyNameFromAccessor($name))]),
 		};
 	}
@@ -448,6 +459,17 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				throw new InvalidArgumentException('Invalid CSS custom property name: ' . $property);
 			}
 			return $property;
+		}
+
+		if (str_contains($property, '\\')) {
+			if (CSSSyntaxScanner::scanIdentEnd($property, 0, strlen($property)) !== strlen($property)) {
+				throw new InvalidArgumentException('Invalid CSS property name: ' . $property);
+			}
+			$decoded = CSSSyntaxScanner::decodeCssIdentEscapes($property);
+			if (CSSSyntaxScanner::hasControlCharacters($decoded) || !preg_match('/^-?[a-zA-Z_][a-zA-Z0-9_-]*$/D', $decoded)) {
+				throw new InvalidArgumentException('Invalid CSS property name: ' . $property);
+			}
+			return strtolower($decoded);
 		}
 
 		if (!preg_match('/^-?[a-zA-Z_][a-zA-Z0-9_-]*$/D', $property)) {
@@ -762,7 +784,10 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		if ($baseOffset !== 0) {
 			$totalDiag = count($diagnostics);
 			for ($i = $initialDiagCount; $i < $totalDiag; $i++) {
-				$diagnostics[$i]['offset'] = $baseOffset + $diagnostics[$i]['offset'];
+				$diagnostics[$i] = [
+					'message' => $diagnostics[$i]['message'],
+					'offset' => $baseOffset + $diagnostics[$i]['offset'],
+				];
 			}
 		}
 	}

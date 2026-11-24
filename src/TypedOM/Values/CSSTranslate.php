@@ -41,6 +41,10 @@ final class CSSTranslate extends CSSTransformComponent
 		}
 	}
 
+	/**
+	 * @param CSSNumericValue|int|float|string $xOrFunction
+	 * @param list<CSSStyleValue|string>|CSSNumericValue|int|float|string|null $yOrValues
+	 */
 	public function __construct(
 		CSSNumericValue|int|float|string $xOrFunction,
 		array|CSSNumericValue|int|float|string|null $yOrValues = null,
@@ -70,7 +74,7 @@ final class CSSTranslate extends CSSTransformComponent
 					}
 					$serialized = [$this->xValue, $this->yValue];
 				} else {
-					if ($function === 'translate') {
+					if ($function !== 'translatez') {
 						$function = 'translate3d';
 					}
 					$serialized = $function === 'translatez' ? [$this->zValue] : [$this->xValue, $this->yValue, $this->zValue];
@@ -182,6 +186,12 @@ final class CSSTranslate extends CSSTransformComponent
 		return clone $this;
 	}
 
+	public function getFunctionName(): string
+	{
+		$this->syncLiveState();
+		return parent::getFunctionName();
+	}
+
 	public function getValues(): array
 	{
 		$this->syncLiveState();
@@ -227,7 +237,10 @@ final class CSSTranslate extends CSSTransformComponent
 		};
 	}
 
-	/** @param list<CSSStyleValue|string> $values @return array{CSSNumericValue, CSSNumericValue, CSSNumericValue, list<CSSNumericValue>, bool} */
+	/**
+	 * @param list<CSSStyleValue|string> $values
+	 * @return array{CSSNumericValue, CSSNumericValue, CSSNumericValue, list<CSSNumericValue>, bool}
+	 */
 	private static function fromFunctionArguments(string $function, array $values): array
 	{
 		$assertCount = static function (int $min, int $max) use ($values, $function): void {

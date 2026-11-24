@@ -64,10 +64,18 @@ class CSSCalcParser
 
 		$trimmed = CSSSyntaxScanner::trimCssWhitespace($calcString);
 		$len = strlen($trimmed);
-		if ($len < 5 || substr_compare($trimmed, 'calc(', 0, 5, true) !== 0) {
+		if ($len < 5) {
 			throw new InvalidArgumentException('Expected a calc() expression.');
 		}
-		$close = CSSSyntaxScanner::findMatchingDelimiter($trimmed, 4, $len);
+		if (substr_compare($trimmed, 'calc(', 0, 5, true) === 0) {
+			$open = 4;
+		} else {
+			$open = strpos($trimmed, '(');
+			if ($open === false || CSSSyntaxScanner::decodeLeadingFunctionName($trimmed, $open) !== 'calc') {
+				throw new InvalidArgumentException('Expected a calc() expression.');
+			}
+		}
+		$close = CSSSyntaxScanner::findMatchingDelimiter($trimmed, $open, $len);
 		if ($close === null || ($close < $len - 1 && $trimmed[$close + 1] === ')')) {
 			throw new InvalidArgumentException('Mismatched parentheses.');
 		}
@@ -75,7 +83,7 @@ class CSSCalcParser
 			throw new InvalidArgumentException('Invalid expression.');
 		}
 
-		return self::parseSliceIterative($trimmed, 5, $close, $options, $depth, 2, true);
+		return self::parseSliceIterative($trimmed, $open + 1, $close, $options, $depth, 2, true);
 	}
 
 	/**
@@ -271,6 +279,7 @@ class CSSCalcParser
 					'min' => new CSSMathMin($arguments),
 					'max' => new CSSMathMax($arguments),
 					'clamp' => new CSSMathClamp($arguments[0], $arguments[1], $arguments[2]),
+					default => throw new InvalidArgumentException('Unsupported CSS math function: ' . (string) $function),
 				};
 				continue;
 			}
@@ -333,6 +342,22 @@ class CSSCalcParser
 					$end = $close;
 					self::trimSlice($source, $start, $end);
 					$mode = 2;
+				} elseif ($sliceLen >= 6 && ($c0 === '\\' || $c0 === 'c' || $c0 === 'C')) {
+					$ident = CSSSyntaxScanner::decodeIdentAt($source, $start, $end);
+					if ($ident !== null && $ident['end'] < $end && $source[$ident['end']] === '(' && strtolower($ident['ident']) === 'calc') {
+						$mathIndex ??= self::buildMathIndex($source, $rootStart, $rootEnd);
+						$close = $mathIndex['matchingParens'][$ident['end']] ?? null;
+						if ($close !== $end - 1) {
+							if ($throwOnInvalid) {
+								throw new InvalidArgumentException('Invalid CSS calc() expression.');
+							}
+							return null;
+						}
+						$start = $ident['end'] + 1;
+						$end = $close;
+						self::trimSlice($source, $start, $end);
+						$mode = 2;
+					}
 				}
 			}
 
@@ -352,6 +377,16 @@ class CSSCalcParser
 				} elseif ($sliceLen >= 7 && ($c0 === 'c' || $c0 === 'C') && substr_compare($source, 'clamp(', $start, 6, true) === 0) {
 					$fnName = 'clamp';
 					$openOffset = $start + 5;
+				}
+				if ($fnName === null && $sliceLen >= 5 && ($c0 === '\\' || $c0 === 'm' || $c0 === 'M' || $c0 === 'c' || $c0 === 'C')) {
+					$ident = CSSSyntaxScanner::decodeIdentAt($source, $start, $end);
+					if ($ident !== null && $ident['end'] < $end && $source[$ident['end']] === '(') {
+						$lowerIdent = strtolower($ident['ident']);
+						if ($lowerIdent === 'min' || $lowerIdent === 'max' || $lowerIdent === 'clamp') {
+							$fnName = $lowerIdent;
+							$openOffset = $ident['end'];
+						}
+					}
 				}
 
 				if ($fnName !== null) {
@@ -378,7 +413,7 @@ class CSSCalcParser
 						throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
 					}
 
-					if (($fnName === 'clamp' && count($argRanges) !== 3) || ($fnName !== 'clamp' && $argRanges === [])) {
+					if ($fnName === 'clamp' && count($argRanges) !== 3) {
 						if ($throwOnInvalid) {
 							throw new InvalidArgumentException('Invalid argument count for ' . $fnName . '().');
 						}
@@ -719,7 +754,7 @@ class CSSCalcParser
 				continue;
 			}
 
-			if (($character === '+' || $character === '-') && $expectsOperand) {
+			if ($character === '+' || $character === '-') {
 				if (preg_match($numberPattern, $expression, $number, 0, $offset) && ($offset + strlen($number[0])) <= $sliceEnd) {
 					$tokens[] = self::makeNumberToken($number[0], $number[1]);
 					$offset += strlen($number[0]);
@@ -732,9 +767,23 @@ class CSSCalcParser
 				if ($options->maxMathDepth !== null && ($depth + $unaryRun) > $options->maxMathDepth) {
 					throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $options->maxMathDepth));
 				}
-				if ($offset + 1 < $sliceEnd) {
-					$nextChar = $expression[$offset + 1];
-					if ($nextChar === '+' || $nextChar === '-' || str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $nextChar)) {
+				$look = $offset + 1;
+				$sawComment = false;
+				while ($look + 1 < $sliceEnd && $expression[$look] === '/' && $expression[$look + 1] === '*') {
+					$cEnd = strpos($expression, '*/', $look + 2);
+					if ($cEnd === false || $cEnd + 1 >= $sliceEnd) {
+						throw new InvalidArgumentException('Unclosed comment in calc() expression.');
+					}
+					$sawComment = true;
+					$look = $cEnd + 2;
+				}
+				if ($look < $sliceEnd) {
+					$nextChar = $expression[$look];
+					if ($nextChar === '+'
+						|| $nextChar === '-'
+						|| str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $nextChar)
+						|| ($sawComment && (($nextChar >= '0' && $nextChar <= '9') || $nextChar === '.'))
+					) {
 						throw new InvalidArgumentException('Invalid unary operator in calc() expression.');
 					}
 				}
@@ -805,12 +854,39 @@ class CSSCalcParser
 					$unaryRun = 0;
 					continue;
 				}
-				$tokens[] = [self::T_UNKNOWN, $name];
-				$offset = $afterName;
-				$expectsOperand = false;
-				$hadWhitespace = false;
-				$unaryRun = 0;
-				continue;
+				if ($afterName >= $sliceEnd || $expression[$afterName] !== '\\') {
+					$tokens[] = [self::T_UNKNOWN, $name];
+					$offset = $afterName;
+					$expectsOperand = false;
+					$hadWhitespace = false;
+					$unaryRun = 0;
+					continue;
+				}
+			}
+			if ($character === '\\' || ($character >= 'a' && $character <= 'z') || ($character >= 'A' && $character <= 'Z')) {
+				$ident = CSSSyntaxScanner::decodeIdentAt($expression, $offset, $sliceEnd);
+				if ($ident !== null) {
+					$afterName = $ident['end'];
+					if ($afterName < $sliceEnd && $expression[$afterName] === '(') {
+						$mathIndex ??= self::buildMathIndex($expression, $rootStart, $rootEnd);
+						$close = $mathIndex['matchingParens'][$afterName] ?? null;
+						if ($close === null || $close >= $sliceEnd) {
+							throw new InvalidArgumentException('Mismatched parentheses.');
+						}
+						$tokens[] = [self::T_FUNC, $offset, $close + 1];
+						$offset = $close + 1;
+						$expectsOperand = false;
+						$hadWhitespace = false;
+						$unaryRun = 0;
+						continue;
+					}
+					$tokens[] = [self::T_UNKNOWN, $ident['ident']];
+					$offset = $afterName;
+					$expectsOperand = false;
+					$hadWhitespace = false;
+					$unaryRun = 0;
+					continue;
+				}
 			}
 
 			$start = $offset++;

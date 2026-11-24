@@ -9,6 +9,9 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 /**
  * Represents a CSS `@container` rule.
  *
+ * @property-read string $containerName
+ * @property-read string $containerQuery
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSContainerRule
  */
 final class CSSContainerRule extends CSSConditionRule

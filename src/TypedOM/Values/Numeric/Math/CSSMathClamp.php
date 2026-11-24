@@ -27,6 +27,8 @@ final class CSSMathClamp extends CSSMathValue
 	/**
 	 * Accepts either three positional arguments `(lower, value, upper)` per MDN
 	 * or a 3-element `CSSNumericArray|list<CSSNumericValue>`.
+	 *
+	 * @param CSSNumericValue|CSSNumericArray|list<CSSNumericValue> $lowerOrValues
 	 */
 	public function __construct(
 		CSSNumericValue|CSSNumericArray|array $lowerOrValues,

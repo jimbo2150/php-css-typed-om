@@ -9,6 +9,10 @@ use Error;
 /**
  * Base class for all CSSOM rule nodes.
  *
+ * @property-read int $type
+ * @property-read string $cssText
+ * @property-read ?CSSStyleSheet $parentStyleSheet
+ * @property-read ?CSSGroupingRule $parentRule
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSRule
  */
 abstract class CSSRule
@@ -40,8 +44,8 @@ abstract class CSSRule
 	public const int VIEW_TRANSITION_RULE = 26;
 	public const int NESTED_DECLARATIONS_RULE = 27;
 
-	private ?CSSStyleSheet $parentStyleSheet = null;
-	private ?CSSGroupingRule $parentRule = null;
+	private ?CSSStyleSheet $parentSheetRef = null;
+	private ?CSSGroupingRule $parentRuleRef = null;
 
 	abstract public function getType(): int;
 
@@ -49,26 +53,26 @@ abstract class CSSRule
 
 	public function getParentStyleSheet(): ?CSSStyleSheet
 	{
-		return $this->parentStyleSheet;
+		return $this->parentSheetRef;
 	}
 
 	public function getParentRule(): ?CSSGroupingRule
 	{
-		return $this->parentRule;
+		return $this->parentRuleRef;
 	}
 
 	/** @internal Updates parent pointers without traversing child subtrees. */
 	public function setParentLinks(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void
 	{
-		$this->parentStyleSheet = $sheet;
-		$this->parentRule = $parentRule;
+		$this->parentSheetRef = $sheet;
+		$this->parentRuleRef = $parentRule;
 	}
 
 	/** @internal Attaches or detaches ownership metadata on this rule node. */
 	public function attach(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void
 	{
-		$this->parentStyleSheet = $sheet;
-		$this->parentRule = $parentRule;
+		$this->parentSheetRef = $sheet;
+		$this->parentRuleRef = $parentRule;
 	}
 
 	public function __toString(): string
@@ -104,7 +108,7 @@ abstract class CSSRule
 
 	public function __clone(): void
 	{
-		$this->parentStyleSheet = null;
-		$this->parentRule = null;
+		$this->parentSheetRef = null;
+		$this->parentRuleRef = null;
 	}
 }

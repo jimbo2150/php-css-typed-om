@@ -14,7 +14,7 @@ use PHPUnit\Framework\TestCase;
 
 class CSSCalcParserTest extends TestCase
 {
-	public function testParseSimpleAddition()
+	public function testParseSimpleAddition(): void
 	{
 		$input = 'calc(10px + 5px)';
 		$result = CSSCalcParser::parse($input);
@@ -31,7 +31,7 @@ class CSSCalcParserTest extends TestCase
 		$this->assertEquals($input, (string) $result);
 	}
 
-	public function testParseSimpleSubtraction()
+	public function testParseSimpleSubtraction(): void
 	{
 		$input = 'calc(10px - 5px)';
 		$result = CSSCalcParser::parse($input);
@@ -52,7 +52,7 @@ class CSSCalcParserTest extends TestCase
 		$this->assertEquals($input, (string) $result);
 	}
 
-	public function testParseSimpleMultiplication()
+	public function testParseSimpleMultiplication(): void
 	{
 		$input = 'calc(10px * 2)';
 		$result = CSSCalcParser::parse($input);
@@ -69,7 +69,7 @@ class CSSCalcParserTest extends TestCase
 		$this->assertEquals($input, (string) $result);
 	}
 
-	public function testParseSimpleDivision()
+	public function testParseSimpleDivision(): void
 	{
 		$input = 'calc(10px / 2)';
 		$result = CSSCalcParser::parse($input);
@@ -90,7 +90,7 @@ class CSSCalcParserTest extends TestCase
 		$this->assertEquals($input, (string) $result);
 	}
 
-	public function testParseMixedOperations()
+	public function testParseMixedOperations(): void
 	{
 		$input = 'calc(10px + 5px * 2)';
 		$result = CSSCalcParser::parse($input);
@@ -104,7 +104,7 @@ class CSSCalcParserTest extends TestCase
 		$this->assertEquals($input, (string) $result);
 	}
 
-	public function testParseWithParentheses()
+	public function testParseWithParentheses(): void
 	{
 		$input = 'calc((10px + 5px) * 2)';
 		$result = CSSCalcParser::parse($input);
@@ -118,7 +118,7 @@ class CSSCalcParserTest extends TestCase
 		$this->assertEquals($input, (string) $result);
 	}
 
-	public function testParseDifferentUnits()
+	public function testParseDifferentUnits(): void
 	{
 		$input = 'calc(10px + 5em)';
 		$result = CSSCalcParser::parse($input);
@@ -131,7 +131,7 @@ class CSSCalcParserTest extends TestCase
 		$this->assertEquals($input, (string) $result);
 	}
 
-	public function testParseNegativeNumbers()
+	public function testParseNegativeNumbers(): void
 	{
 		$input = 'calc(-10px + 5px)';
 		$result = CSSCalcParser::parse($input);
@@ -144,7 +144,7 @@ class CSSCalcParserTest extends TestCase
 		$this->assertEquals($input, (string) $result);
 	}
 
-	public function testParseDecimalNumbers()
+	public function testParseDecimalNumbers(): void
 	{
 		$input = 'calc(1.5px * 2.5)';
 		$result = CSSCalcParser::parse($input);
@@ -157,7 +157,7 @@ class CSSCalcParserTest extends TestCase
 		$this->assertEquals($input, (string) $result);
 	}
 
-	public function testParseComplex()
+	public function testParseComplex(): void
 	{
 		$input = 'calc(1.5 * 2.5dvw + (2px - 5%))';
 		$result = CSSCalcParser::parse($input);
@@ -196,7 +196,7 @@ class CSSCalcParserTest extends TestCase
 		$this->assertEquals($input, (string) $result);
 	}
 
-	public function testParseSingleValue()
+	public function testParseSingleValue(): void
 	{
 		$input = 'calc(10px)';
 		$output = '10px';
@@ -208,49 +208,49 @@ class CSSCalcParserTest extends TestCase
 		$this->assertEquals($output, (string) $result);
 	}
 
-	public function testParseMismatchedParentheses()
+	public function testParseMismatchedParentheses(): void
 	{
 		$this->expectException(\InvalidArgumentException::class);
 		$this->expectExceptionMessage('Mismatched parentheses');
 		CSSCalcParser::parse('calc((10px + 5px)');
 	}
 
-	public function testParseUnknownToken()
+	public function testParseUnknownToken(): void
 	{
 		$this->expectException(\InvalidArgumentException::class);
 		$this->expectExceptionMessage('Unknown token: @');
 		CSSCalcParser::parse('calc(10px + @)');
 	}
 
-	public function testParseInsufficientOperands()
+	public function testParseInsufficientOperands(): void
 	{
 		$this->expectException(\InvalidArgumentException::class);
 		$this->expectExceptionMessage('Insufficient operands');
 		CSSCalcParser::parse('calc(10px +)');
 	}
 
-	public function testParseInvalidExpression()
+	public function testParseInvalidExpression(): void
 	{
 		$this->expectException(\InvalidArgumentException::class);
 		$this->expectExceptionMessage('Insufficient operands for operator: +');
 		CSSCalcParser::parse('calc(+)');
 	}
 
-	public function testParseInvalidExpression2()
+	public function testParseInvalidExpression2(): void
 	{
 		$this->expectException(\InvalidArgumentException::class);
 		$this->expectExceptionMessage('Invalid expression.');
 		CSSCalcParser::parse('calc(10px 5px)');
 	}
 
-	public function testParseMismatchedParenthesesClosing()
+	public function testParseMismatchedParenthesesClosing(): void
 	{
 		$this->expectException(\InvalidArgumentException::class);
 		$this->expectExceptionMessage('Mismatched parentheses.');
 		CSSCalcParser::parse('calc(10px + 5px))');
 	}
 
-	public function testParseComplexExpression()
+	public function testParseComplexExpression(): void
 	{
 		$input = 'calc((10px + 5em) * 2 - 3px)';
 		$result = CSSCalcParser::parse($input);
@@ -266,7 +266,7 @@ class CSSCalcParserTest extends TestCase
 	/**
 	 * Test parse with extra whitespace around operators.
 	 */
-	public function testParseWithExtraWhitespace()
+	public function testParseWithExtraWhitespace(): void
 	{
 		$input = 'calc( 10px  +  5px )';
 		$result = CSSCalcParser::parse($input);
@@ -284,7 +284,7 @@ class CSSCalcParserTest extends TestCase
 	/**
 	 * Test parse with negative decimal numbers.
 	 */
-	public function testParseNegativeDecimal()
+	public function testParseNegativeDecimal(): void
 	{
 		$input = 'calc(-1.5px * 2)';
 		$result = CSSCalcParser::parse($input);
@@ -302,7 +302,7 @@ class CSSCalcParserTest extends TestCase
 	/**
 	 * Test parse with mixed whitespace in complex expression.
 	 */
-	public function testParseComplexWithWhitespace()
+	public function testParseComplexWithWhitespace(): void
 	{
 		$input = 'calc( ( 10px + 5em ) * 2 - 3px )';
 		$result = CSSCalcParser::parse($input);
@@ -314,21 +314,21 @@ class CSSCalcParserTest extends TestCase
 		$this->assertInstanceOf(CSSMathNegate::class, $result->inner_values[1]);
 		$this->assertEquals('calc((10px + 5em) * 2 - 3px)', (string) $result);
 	}
-	public function testParseEmptyCalc()
+	public function testParseEmptyCalc(): void
 	{
 		$this->expectException(\InvalidArgumentException::class);
 		$this->expectExceptionMessage('Invalid expression.');
 		CSSCalcParser::parse('calc()');
 	}
 
-	public function testParseWhitespaceCalc()
+	public function testParseWhitespaceCalc(): void
 	{
 		$this->expectException(\InvalidArgumentException::class);
 		$this->expectExceptionMessage('Invalid expression.');
 		CSSCalcParser::parse('calc( )');
 	}
 
-	public function testParseWithMultipleSpaces()
+	public function testParseWithMultipleSpaces(): void
 	{
 		$input = 'calc(10px  +  5px)';
 		$result = CSSCalcParser::parse($input);
@@ -336,7 +336,7 @@ class CSSCalcParserTest extends TestCase
 		$this->assertEquals('calc(10px + 5px)', (string) $result);
 	}
 
-	public function testParseUnaryOperatorsAndScientificNotation()
+	public function testParseUnaryOperatorsAndScientificNotation(): void
 	{
 		$result = CSSCalcParser::parse('calc(-(10px + 2e1px) + .5px)');
 
@@ -346,7 +346,7 @@ class CSSCalcParserTest extends TestCase
 		$this->assertEquals('calc(-(10px + 20px) + 0.5px)', (string) $result);
 	}
 
-	public function testRejectsTrailingGarbageAfterCalc()
+	public function testRejectsTrailingGarbageAfterCalc(): void
 	{
 		$this->expectException(\InvalidArgumentException::class);
 		CSSCalcParser::parse('calc(10px + 2px) junk');
@@ -390,8 +390,8 @@ class CSSCalcParserTest extends TestCase
 			try {
 				CSSCalcParser::parse($invalid);
 				$this->fail('Expected invalid calc expression to throw: ' . $invalid);
-			} catch (\InvalidArgumentException) {
-				$this->assertTrue(true);
+			} catch (\InvalidArgumentException $e) {
+				$this->assertNotSame('', $e->getMessage());
 			}
 		}
 

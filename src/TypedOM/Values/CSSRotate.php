@@ -49,6 +49,10 @@ final class CSSRotate extends CSSTransformComponent
 		}
 	}
 
+	/**
+	 * @param CSSNumericValue|int|float|string $angleOrFunction
+	 * @param list<CSSStyleValue|string>|CSSNumericValue|int|float|string|null $valuesOrY
+	 */
 	public function __construct(
 		CSSNumericValue|int|float|string $angleOrFunction,
 		array|CSSNumericValue|int|float|string|null $valuesOrY = null,
@@ -146,7 +150,10 @@ final class CSSRotate extends CSSTransformComponent
 		if ($this->twoDimensional) {
 			$cos = cos($angleRad);
 			$sin = sin($angleRad);
-			return DOMMatrix::fromTrustedElements(self::matrix2d($cos, $sin, -$sin, $cos, 0.0, 0.0), true);
+			$cos = $cos === 0.0 ? 0.0 : $cos;
+			$sin = $sin === 0.0 ? 0.0 : $sin;
+			$negSin = $sin === 0.0 ? 0.0 : -$sin;
+			return DOMMatrix::fromTrustedElements(self::matrix2d($cos, $sin, $negSin, $cos, 0.0, 0.0), true);
 		}
 
 		$x = self::scalar($this->xValue, 'number');
@@ -176,6 +183,12 @@ final class CSSRotate extends CSSTransformComponent
 	public function clone(): static
 	{
 		return clone $this;
+	}
+
+	public function getFunctionName(): string
+	{
+		$this->syncLiveState();
+		return parent::getFunctionName();
 	}
 
 	public function getValues(): array
@@ -239,7 +252,10 @@ final class CSSRotate extends CSSTransformComponent
 		}
 	}
 
-	/** @param list<CSSStyleValue|string> $arguments @return array{CSSNumericValue, CSSNumericValue, CSSNumericValue, CSSNumericValue, list<CSSNumericValue>, bool} */
+	/**
+	 * @param list<CSSStyleValue|string> $arguments
+	 * @return array{CSSNumericValue, CSSNumericValue, CSSNumericValue, CSSNumericValue, list<CSSNumericValue>, bool}
+	 */
 	private static function parseFunction(string $function, array $arguments): array
 	{
 		$x = null;

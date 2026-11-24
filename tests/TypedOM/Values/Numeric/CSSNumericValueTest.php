@@ -18,7 +18,7 @@ use PHPUnit\Framework\TestCase;
 
 class CSSNumericValueTest extends TestCase
 {
-	public function testToMethodSameUnit()
+	public function testToMethodSameUnit(): void
 	{
 		$value = new CSSUnitValue(10, 'px');
 		$converted = $value->to('px');
@@ -29,7 +29,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertNotSame($value, $converted); // Should be a new instance
 	}
 
-	public function testToMethodPxToEm()
+	public function testToMethodPxToEm(): void
 	{
 		$value = new CSSUnitValue(16, 'px');
 		$converted = $value->to('em');
@@ -39,7 +39,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('em', $converted->unit);
 	}
 
-	public function testToMethodEmToPx()
+	public function testToMethodEmToPx(): void
 	{
 		$value = new CSSUnitValue(2, 'em');
 		$converted = $value->to('px');
@@ -49,7 +49,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('px', $converted->unit);
 	}
 
-	public function testToMethodPtToPx()
+	public function testToMethodPtToPx(): void
 	{
 		$value = new CSSUnitValue(12, 'pt');
 		$converted = $value->to('px');
@@ -59,7 +59,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('px', $converted->unit);
 	}
 
-	public function testToMethodPxToPt()
+	public function testToMethodPxToPt(): void
 	{
 		$value = new CSSUnitValue(16, 'px');
 		$converted = $value->to('pt');
@@ -69,7 +69,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('pt', $converted->unit);
 	}
 
-	public function testToMethodCmToPx()
+	public function testToMethodCmToPx(): void
 	{
 		$value = new CSSUnitValue(1, 'cm');
 		$converted = $value->to('px');
@@ -79,7 +79,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('px', $converted->unit);
 	}
 
-	public function testToMethodPxToCm()
+	public function testToMethodPxToCm(): void
 	{
 		$value = new CSSUnitValue(37.795, 'px');
 		$converted = $value->to('cm');
@@ -89,7 +89,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('cm', $converted->unit);
 	}
 
-	public function testToSumMethodSingleUnit()
+	public function testToSumMethodSingleUnit(): void
 	{
 		$value = new CSSUnitValue(10, 'px');
 		$sum = $value->toSum('em');
@@ -101,7 +101,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEqualsWithDelta(0.625, $sum->inner_values[0]->value, 0.001); // 10px / 16 = 0.625em
 	}
 
-	public function testToSumMethodMultipleUnits()
+	public function testToSumMethodMultipleUnits(): void
 	{
 		$value = new CSSUnitValue(16, 'px');
 		$sum = $value->toSum('px', 'em', 'pt');
@@ -206,7 +206,7 @@ class CSSNumericValueTest extends TestCase
 		self::assertSame('calc(1em / 2)', (string) $product);
 	}
 
-	public function testToSumMethodEmptyUnits()
+	public function testToSumMethodEmptyUnits(): void
 	{
 		$value = new CSSUnitValue(10, 'px');
 		$sum = $value->toSum();
@@ -216,7 +216,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertSame($value, $sum->inner_values[0]);
 	}
 
-	public function testEqualsSameUnitValue()
+	public function testEqualsSameUnitValue(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$value2 = new CSSUnitValue(10, 'px');
@@ -224,7 +224,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertTrue($value1->equals($value2));
 	}
 
-	public function testEqualsSameUnitDifferentValue()
+	public function testEqualsSameUnitDifferentValue(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$value2 = new CSSUnitValue(20, 'px');
@@ -232,7 +232,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertFalse($value1->equals($value2));
 	}
 
-	public function testEqualsDifferentConvertibleUnits()
+	public function testEqualsDifferentConvertibleUnits(): void
 	{
 		$value1 = new CSSUnitValue(16, 'px');
 		$value2 = new CSSUnitValue(1, 'em');
@@ -240,7 +240,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertTrue($value1->equals($value2));
 	}
 
-	public function testEqualsDifferentConvertibleUnitsNotEqual()
+	public function testEqualsDifferentConvertibleUnitsNotEqual(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$value2 = new CSSUnitValue(1, 'em');
@@ -248,7 +248,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertFalse($value1->equals($value2));
 	}
 
-	public function testEqualsDifferentConvertibleUnitsNotEqual3()
+	public function testEqualsDifferentConvertibleUnitsNotEqual3(): void
 	{
 		$value1 = new CSSUnitValue(1, 's');
 		$value2 = new CSSUnitValue(100, 'ms');
@@ -256,7 +256,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertFalse($value1->equals($value2));
 	}
 
-	public function testEqualsWithConversionError()
+	public function testEqualsWithConversionError(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$value2 = new class(10, 'em') extends CSSUnitValue {
@@ -269,7 +269,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertFalse($value1->equals($value2));
 	}
 
-	public function testEqualsIncompatibleUnits()
+	public function testEqualsIncompatibleUnits(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$value2 = new CSSUnitValue(10, 'deg');
@@ -277,7 +277,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertFalse($value1->equals($value2));
 	}
 
-	public function testEqualsMathSumSameValues()
+	public function testEqualsMathSumSameValues(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$value2 = new CSSUnitValue(5, 'px');
@@ -290,7 +290,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertTrue($sum1->equals($sum2));
 	}
 
-	public function testEqualsMathSumDifferentValues()
+	public function testEqualsMathSumDifferentValues(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$value2 = new CSSUnitValue(5, 'px');
@@ -303,7 +303,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertFalse($sum1->equals($sum2));
 	}
 
-	public function testEqualsDifferentTypes()
+	public function testEqualsDifferentTypes(): void
 	{
 		$unitValue = new CSSUnitValue(10, 'px');
 		$sum = new CSSMathSum([new CSSUnitValue(10, 'px')]);
@@ -311,7 +311,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertFalse($unitValue->equals($sum));
 	}
 
-	public function testEqualsMathSumDifferentNumberOfValues()
+	public function testEqualsMathSumDifferentNumberOfValues(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$value2 = new CSSUnitValue(5, 'px');
@@ -323,7 +323,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertFalse($sum1->equals($sum2));
 	}
 
-	public function testEqualsDifferentConvertibleUnitsNotEqual2()
+	public function testEqualsDifferentConvertibleUnitsNotEqual2(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$value2 = new CSSUnitValue(2, 'em');
@@ -331,7 +331,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertFalse($value1->equals($value2));
 	}
 
-	public function testAddMethod()
+	public function testAddMethod(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$value2 = new CSSUnitValue(5, 'px');
@@ -342,7 +342,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('px', $result->unit);
 	}
 
-	public function testAddMethodStringCast()
+	public function testAddMethodStringCast(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$value2 = new CSSUnitValue(5, 'px');
@@ -351,7 +351,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('15px', (string)$result);
 	}
 
-	public function testEqualsMathProductSameValues()
+	public function testEqualsMathProductSameValues(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$value2 = new CSSUnitValue(2, 'number');
@@ -364,7 +364,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertTrue($product1->equals($product2));
 	}
 
-	public function testSubMethod()
+	public function testSubMethod(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$sum = new CSSMathSum([new CSSUnitValue(5, 'px')]);
@@ -375,8 +375,8 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals(2, $result->length);
 		$this->assertEquals(10, $result->inner_values[0]->value);
 		$this->assertEquals('px', $result->inner_values[0]->unit);
-  /** @var CSSMathNegate $negate */
-  $negate = $result->inner_values[1];
+		/** @var CSSMathNegate $negate */
+		$negate = $result->inner_values[1];
 		$this->assertInstanceOf(CSSMathNegate::class, $negate);
 		/** @var CSSMathSum $innerSum */
 		$innerSum = $negate->inner_values[0];
@@ -386,7 +386,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('px', $innerSum->inner_values[0]->unit);
 	}
 
-	public function testSubMethodStringCast()
+	public function testSubMethodStringCast(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$value2 = new CSSUnitValue(5, 'px');
@@ -406,7 +406,7 @@ class CSSNumericValueTest extends TestCase
 		self::assertSame('px', $result->unit);
 	}
 
-	public function testMulMethod()
+	public function testMulMethod(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$value2 = new CSSUnitValue(2, 'number');
@@ -422,7 +422,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('number', $result->inner_values[1]->unit);
 	}
 
-	public function testMulMethodStringCast()
+	public function testMulMethodStringCast(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$value2 = new CSSUnitValue(2, 'number');
@@ -431,7 +431,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('calc(10px * 2)', (string)$result);
 	}
 
-	public function testDivMethod()
+	public function testDivMethod(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$value2 = new CSSUnitValue(2, 'number');
@@ -450,7 +450,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('number', $invert->inner_values[0]->unit);
 	}
 
-	public function testDivMethodStringCast()
+	public function testDivMethodStringCast(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$value2 = new CSSUnitValue(2, 'number');
@@ -459,7 +459,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('calc(10px / 2)', (string)$result);
 	}
 
-	public function testMinMethod()
+	public function testMinMethod(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$array = new CSSNumericArray([new CSSUnitValue(5, 'px'), new CSSUnitValue(15, 'px')]);
@@ -476,7 +476,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('px', $result->inner_values[2]->unit);
 	}
 
-	public function testMinMethodStringCast()
+	public function testMinMethodStringCast(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$array = new CSSNumericArray([new CSSUnitValue(5, 'px'), new CSSUnitValue(15, 'px')]);
@@ -485,7 +485,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('min(10px, 5px, 15px)', (string)$result);
 	}
 
-	public function testMaxMethod()
+	public function testMaxMethod(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$array = new CSSNumericArray([new CSSUnitValue(5, 'px'), new CSSUnitValue(15, 'px')]);
@@ -502,7 +502,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('px', $result->inner_values[2]->unit);
 	}
 
-	public function testMaxMethodStringCast()
+	public function testMaxMethodStringCast(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$array = new CSSNumericArray([new CSSUnitValue(5, 'px'), new CSSUnitValue(15, 'px')]);
@@ -511,7 +511,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('max(10px, 5px, 15px)', (string)$result);
 	}
 
-	public function testParseSimpleNumber()
+	public function testParseSimpleNumber(): void
 	{
 		$result = CSSNumericValue::parse('123');
 		$this->assertInstanceOf(CSSUnitValue::class, $result);
@@ -519,7 +519,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('number', $result->unit);
 	}
 
-	public function testParseWithUnit()
+	public function testParseWithUnit(): void
 	{
 		$result = CSSNumericValue::parse('10px');
 		$this->assertInstanceOf(CSSUnitValue::class, $result);
@@ -527,7 +527,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('px', $result->unit);
 	}
 
-	public function testParseNegative()
+	public function testParseNegative(): void
 	{
 		$result = CSSNumericValue::parse('-5em');
 		$this->assertInstanceOf(CSSUnitValue::class, $result);
@@ -535,7 +535,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('em', $result->unit);
 	}
 
-	public function testParseDecimal()
+	public function testParseDecimal(): void
 	{
 		$result = CSSNumericValue::parse('1.5rem');
 		$this->assertInstanceOf(CSSUnitValue::class, $result);
@@ -543,7 +543,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('rem', $result->unit);
 	}
 
-	public function testParsePercent()
+	public function testParsePercent(): void
 	{
 		$result = CSSNumericValue::parse('50%');
 		$this->assertInstanceOf(CSSUnitValue::class, $result);
@@ -551,7 +551,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('percent', $result->unit);
 	}
 
-	public function testParseTrimmed()
+	public function testParseTrimmed(): void
 	{
 		$result = CSSNumericValue::parse('  10px  ');
 		$this->assertInstanceOf(CSSUnitValue::class, $result);
@@ -559,7 +559,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('px', $result->unit);
 	}
 
-	public function testParseDegree()
+	public function testParseDegree(): void
 	{
 		$result = CSSNumericValue::parse('365deg');
 		$this->assertInstanceOf(CSSUnitValue::class, $result);
@@ -567,7 +567,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('deg', $result->unit);
 	}
 
-	public function testParseTurn()
+	public function testParseTurn(): void
 	{
 		$result = CSSNumericValue::parse('5turn');
 		$this->assertInstanceOf(CSSUnitValue::class, $result);
@@ -575,13 +575,13 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('turn', $result->unit);
 	}
 
-	public function testParseInvalid()
+	public function testParseInvalid(): void
 	{
 		$this->expectException(\InvalidArgumentException::class);
 		CSSNumericValue::parse('abc');
 	}
 
-	public function testParseInvalidMultiple()
+	public function testParseInvalidMultiple(): void
 	{
 		$this->expectException(\InvalidArgumentException::class);
 		CSSNumericValue::parse('10px 20px');
@@ -590,7 +590,7 @@ class CSSNumericValueTest extends TestCase
 	/**
 	 * Test to method with custom CSSContext for em conversion.
 	 */
-	public function testToMethodWithCustomContextEm()
+	public function testToMethodWithCustomContextEm(): void
 	{
 		$value = new CSSUnitValue(20, 'px');
 		$context = (new \Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext())->setFontSize(10.0);
@@ -604,7 +604,7 @@ class CSSNumericValueTest extends TestCase
 	/**
 	 * Test to method with custom CSSContext for vw conversion.
 	 */
-	public function testToMethodWithCustomContextVw()
+	public function testToMethodWithCustomContextVw(): void
 	{
 		$value = new CSSUnitValue(48, 'px');
 		$context = (new \Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext())->setViewportWidth(800.0);
@@ -618,7 +618,7 @@ class CSSNumericValueTest extends TestCase
 	/**
 	 * Test to method with default CSSContext for vh conversion.
 	 */
-	public function testToMethodWithDefaultContextVh()
+	public function testToMethodWithDefaultContextVh(): void
 	{
 		$value = new CSSUnitValue(27, 'px');
 		$converted = $value->to('vh'); // Uses default context (vh factor 5.4px)
@@ -628,12 +628,12 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals('vh', $converted->unit);
 	}
 
-	public function testFrom()
+	public function testFrom(): void
 	{
 		$this->assertEquals(CSSNumericValue::parse('10px'), (new CSSUnitValue(10, 'px'))->from('10px'));
 	}
 
-	public function testTypeMethod()
+	public function testTypeMethod(): void
 	{
 		$pxValue = new CSSUnitValue(10, 'px');
 		$this->assertSame(1, $pxValue->type()->length);
@@ -661,7 +661,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertSame(1, $percentValue->type()->percent);
 	}
 
-	public function testTypeMethodWithNoUnit()
+	public function testTypeMethodWithNoUnit(): void
 	{
 		$this->expectException(\LogicException::class);
 		$this->expectExceptionMessage('No unit set');

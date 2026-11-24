@@ -11,7 +11,7 @@ use PHPUnit\Framework\TestCase;
 
 class MultiValueArrayTraitTest extends TestCase
 {
-	public function testConstructorWithCSSNumericArray()
+	public function testConstructorWithCSSNumericArray(): void
 	{
 		$numericArray = new CSSNumericArray([new CSSUnitValue(10, 'px'), new CSSUnitValue(20, 'px')]);
 		$class = new MultiValueArrayTraitClass($numericArray);
@@ -19,7 +19,7 @@ class MultiValueArrayTraitTest extends TestCase
 		$this->assertEquals('10px, 20px', (string)$class);
 	}
 
-	public function testConstructorWithCSSNumericValue()
+	public function testConstructorWithCSSNumericValue(): void
 	{
 		$numericValue = new CSSUnitValue(10, 'px');
 		$class = new MultiValueArrayTraitClass($numericValue);
@@ -27,7 +27,7 @@ class MultiValueArrayTraitTest extends TestCase
 		$this->assertEquals('10px', (string)$class);
 	}
 
-	public function testConstructorWithArray()
+	public function testConstructorWithArray(): void
 	{
 		$array = [new CSSUnitValue(10, 'px'), new CSSUnitValue(20, 'px')];
 		$class = new MultiValueArrayTraitClass($array);
@@ -35,9 +35,10 @@ class MultiValueArrayTraitTest extends TestCase
 		$this->assertEquals('10px, 20px', (string)$class);
 	}
 
-	public function testConstructorWithInvalidArray()
+	public function testConstructorWithInvalidArray(): void
 	{
 		$this->expectException(\InvalidArgumentException::class);
+		/** @phpstan-ignore argument.type */
 		new MultiValueArrayTraitClass(['invalid']);
 	}
 }

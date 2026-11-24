@@ -7,19 +7,21 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 /**
  * Represents a CSS `@media` rule.
  *
+ * @property-read MediaList $media
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSMediaRule
  */
 final class CSSMediaRule extends CSSConditionRule
 {
-	private MediaList $media;
+	private MediaList $mediaList;
 
 	public function __construct(string $conditionText)
 	{
 		parent::__construct('media', $conditionText);
-		$this->media = new MediaList($conditionText, function (string $text): void {
+		$this->mediaList = new MediaList($conditionText, function (string $text): void {
 			$this->prelude = $text;
 		});
-		$this->prelude = $this->media->getMediaText();
+		$this->prelude = $this->mediaList->getMediaText();
 	}
 
 	public function getType(): int
@@ -29,17 +31,17 @@ final class CSSMediaRule extends CSSConditionRule
 
 	public function getMedia(): MediaList
 	{
-		return $this->media;
+		return $this->mediaList;
 	}
 
 	public function getConditionText(): string
 	{
-		return $this->media->getMediaText();
+		return $this->mediaList->getMediaText();
 	}
 
 	public function setConditionText(string $conditionText): void
 	{
-		$this->media->setMediaText($conditionText);
+		$this->mediaList->setMediaText($conditionText);
 	}
 
 	public function __get(string $name): mixed
@@ -55,7 +57,7 @@ final class CSSMediaRule extends CSSConditionRule
 	public function __clone(): void
 	{
 		parent::__clone();
-		$this->media = $this->media->cloneWithCallback(function (string $text): void {
+		$this->mediaList = $this->mediaList->cloneWithCallback(function (string $text): void {
 			$this->prelude = $text;
 		});
 	}

@@ -7,6 +7,9 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 
+/**
+ * @property-read list<string> $nameList
+ */
 final class CSSLayerStatementRule extends CSSAtRule
 {
 	/**
@@ -32,6 +35,7 @@ final class CSSLayerStatementRule extends CSSAtRule
 		return self::LAYER_STATEMENT_RULE;
 	}
 
+	/** @return list<string> */
 	public function getLayerNames(): array
 	{
 		return array_values(array_filter(

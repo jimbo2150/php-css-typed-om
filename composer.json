@@ -28,10 +28,13 @@
         "test-coverage": "XDEBUG_MODE=coverage ./vendor/bin/phpunit --coverage-text",
         "test-coverage-html": "XDEBUG_MODE=coverage ./vendor/bin/phpunit --coverage-html ./.test/coverage",
         "cs-check": "./vendor/bin/php-cs-fixer fix --dry-run --diff",
-        "cs-fix": "./vendor/bin/php-cs-fixer fix"
+        "cs-fix": "./vendor/bin/php-cs-fixer fix",
+        "stan": "./vendor/bin/phpstan analyse --memory-limit=512M",
+        "bench": "XDEBUG_MODE=off php -d opcache.enable_cli=1 benchmarks/bench.php"
     },
     "require-dev": {
         "phpunit/phpunit": "^11|^12",
-        "friendsofphp/php-cs-fixer": "^3.64"
+        "friendsofphp/php-cs-fixer": "^3.75",
+        "phpstan/phpstan": "^2.3"
     }
 }

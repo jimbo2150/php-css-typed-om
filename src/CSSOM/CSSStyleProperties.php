@@ -7,6 +7,8 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 /**
  * Style declaration block for CSS style rules, keyframe rules, and nested declarations.
  *
+ * @property string $cssFloat
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSStyleProperties
  */
 final class CSSStyleProperties extends CSSStyleDeclaration

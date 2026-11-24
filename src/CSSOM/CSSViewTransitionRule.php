@@ -9,6 +9,9 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 /**
  * Represents a CSS `@view-transition` rule.
  *
+ * @property-read string $navigation
+ * @property-read list<string> $types
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSViewTransitionRule
  */
 final class CSSViewTransitionRule extends CSSAtRule
@@ -20,13 +23,13 @@ final class CSSViewTransitionRule extends CSSAtRule
 
 	public function getNavigation(): string
 	{
-		return $this->style?->getPropertyValue('navigation') ?? '';
+		return $this->styleDeclaration?->getPropertyValue('navigation') ?? '';
 	}
 
 	/** @return list<string> */
 	public function getTypes(): array
 	{
-		$raw = CSSSyntaxScanner::trimCssWhitespace($this->style?->getPropertyValue('types') ?? '');
+		$raw = CSSSyntaxScanner::trimCssWhitespace($this->styleDeclaration?->getPropertyValue('types') ?? '');
 		if ($raw === '' || strtolower($raw) === 'none') {
 			return [];
 		}

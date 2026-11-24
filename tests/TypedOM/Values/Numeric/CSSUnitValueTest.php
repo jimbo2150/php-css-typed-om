@@ -83,7 +83,7 @@ class CSSUnitValueTest extends TestCase
 		self::assertSame('px', $result->unit);
 	}
 
-	public function testSubDifferentUnit()
+	public function testSubDifferentUnit(): void
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$value2 = new CSSUnitValue(5, 'em');
@@ -92,7 +92,7 @@ class CSSUnitValueTest extends TestCase
 		$this->assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum::class, $result);
 	}
 
-	public function testClone()
+	public function testClone(): void
 	{
 		$value = new CSSUnitValue(10, 'px');
 		$clone = $value->clone();

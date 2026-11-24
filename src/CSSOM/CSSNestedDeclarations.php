@@ -7,16 +7,18 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 /**
  * Represents declarations interleaved inside a nested grouping or style rule.
  *
+ * @property-read CSSStyleProperties $style
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSNestedDeclarations
  */
 final class CSSNestedDeclarations extends CSSRule
 {
-	private readonly CSSStyleProperties $style;
+	private readonly CSSStyleProperties $styleProperties;
 
 	public function __construct(CSSStyleDeclaration $style)
 	{
-		$this->style = CSSStyleProperties::fromDeclaration($style);
-		$this->style->setParentRule($this);
+		$this->styleProperties = CSSStyleProperties::fromDeclaration($style);
+		$this->styleProperties->setParentRule($this);
 	}
 
 	public function getType(): int
@@ -26,17 +28,17 @@ final class CSSNestedDeclarations extends CSSRule
 
 	public function getStyle(): CSSStyleProperties
 	{
-		return $this->style;
+		return $this->styleProperties;
 	}
 
 	public function getCssText(): string
 	{
-		return $this->style->getCssText();
+		return $this->styleProperties->getCssText();
 	}
 
 	public function __get(string $name): mixed
 	{
-		return $name === 'style' ? $this->style : parent::__get($name);
+		return $name === 'style' ? $this->styleProperties : parent::__get($name);
 	}
 
 	public function __isset(string $name): bool
@@ -47,7 +49,7 @@ final class CSSNestedDeclarations extends CSSRule
 	public function __clone(): void
 	{
 		parent::__clone();
-		$this->style = clone $this->style;
-		$this->style->setParentRule($this);
+		$this->styleProperties = clone $this->styleProperties;
+		$this->styleProperties->setParentRule($this);
 	}
 }

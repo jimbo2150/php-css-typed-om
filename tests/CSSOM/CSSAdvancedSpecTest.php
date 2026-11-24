@@ -169,6 +169,7 @@ CSS;
 		/** @var CSSGroupingRule $media */
 		$media = $sheet->cssRules[0];
 		$media->insertRule('a { color: red }');
+		self::assertInstanceOf(CSSStyleRule::class, $media->cssRules[0]);
 		self::assertSame('a', $media->cssRules[0]->selectorText);
 
 		$list = new StyleSheetList([$sheet]);
@@ -184,11 +185,15 @@ CSS;
 
 		self::assertSame([], $largeSheet->getParseErrors());
 		$current = $largeSheet->cssRules[0];
+		self::assertInstanceOf(CSSGroupingRule::class, $current);
 		for ($depth = 1; $depth < 60; $depth++) {
 			$current = $current->cssRules[0];
+			self::assertInstanceOf(CSSGroupingRule::class, $current);
 		}
 		self::assertCount(1500, $current->cssRules);
+		self::assertInstanceOf(CSSStyleRule::class, $current->cssRules[0]);
 		self::assertSame('.c0', $current->cssRules[0]->selectorText);
+		self::assertInstanceOf(CSSStyleRule::class, $current->cssRules[1499]);
 		self::assertSame('.c1499', $current->cssRules[1499]->selectorText);
 		self::assertSame('1499px', $current->cssRules[1499]->style->getPropertyValue('width'));
 	}
@@ -202,7 +207,9 @@ CSS;
 		$card->insertRule('&:focus { color: blue; }');
 
 		self::assertSame($card, $card->style->parentRule);
+		self::assertInstanceOf(CSSStyleRule::class, $card->cssRules[0]);
 		self::assertSame('&:focus', $card->cssRules[0]->selectorText);
+		self::assertInstanceOf(CSSStyleRule::class, $card->cssRules[1]);
 		self::assertSame('&:hover', $card->cssRules[1]->selectorText);
 	}
 
@@ -229,6 +236,9 @@ CSS;
 @container style(--theme: dark) { .b { color: blue; } }
 @container sidebar style(--compact: 1) { .c { color: green; } }
 CSS);
+		self::assertInstanceOf(CSSContainerRule::class, $containerSheet->cssRules[0]);
+		self::assertInstanceOf(CSSContainerRule::class, $containerSheet->cssRules[1]);
+		self::assertInstanceOf(CSSContainerRule::class, $containerSheet->cssRules[2]);
 		self::assertSame('', $containerSheet->cssRules[0]->containerName);
 		self::assertSame('not (width > 400px)', $containerSheet->cssRules[0]->containerQuery);
 		self::assertSame('', $containerSheet->cssRules[1]->containerName);
@@ -244,14 +254,14 @@ CSS);
 		self::assertSame(2, $keyframes->length);
 		$kf = $keyframes->cssRules[0];
 		self::assertInstanceOf(CSSKeyframeRule::class, $kf);
-		self::assertNotInstanceOf(CSSStyleRule::class, $kf);
+		self::assertFalse((new \ReflectionClass($kf))->isSubclassOf(CSSStyleRule::class));
 		self::assertInstanceOf(CSSStyleProperties::class, $kf->style);
 
 		try {
 			new CSSKeyframeRule('150%');
 			self::fail('Expected out-of-range keyframe percentage to throw.');
-		} catch (InvalidArgumentException) {
-			self::assertTrue(true);
+		} catch (InvalidArgumentException $e) {
+			self::assertNotSame('', $e->getMessage());
 		}
 
 		try {
@@ -263,11 +273,14 @@ CSS);
 
 		// Nullable optional accessors on CSSPropertyRule and CSSImportRule
 		$optSheet = CSSStyleSheet::parse('@import url("base.css") screen; @property --free { syntax: "*"; inherits: true; }');
+		self::assertInstanceOf(CSSImportRule::class, $optSheet->cssRules[0]);
+		self::assertInstanceOf(CSSPropertyRule::class, $optSheet->cssRules[1]);
 		self::assertNull($optSheet->cssRules[0]->supportsText);
 		self::assertNull($optSheet->cssRules[1]->initialValue);
 
 		// CSSNestedDeclarations::getStyle() returns CSSStyleProperties
 		$nestedSheet = CSSStyleSheet::parse('a { color: black; &:hover { color: blue; } color: green; }');
+		self::assertInstanceOf(CSSStyleRule::class, $nestedSheet->cssRules[0]);
 		/** @var CSSNestedDeclarations $nestedDecl */
 		$nestedDecl = $nestedSheet->cssRules[0]->cssRules[1];
 		self::assertInstanceOf(CSSStyleProperties::class, $nestedDecl->style);

@@ -10,11 +10,16 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 /**
  * Base class for statement and descriptor-block CSS at-rules.
  */
+/**
+ * @property-read string $name
+ * @property-read string $prelude
+ * @property-read ?CSSStyleDeclaration $style
+ */
 class CSSAtRule extends CSSRule
 {
-	protected readonly string $name;
+	protected readonly string $atRuleName;
 	protected string $prelude;
-	protected readonly ?CSSStyleDeclaration $style;
+	protected readonly ?CSSStyleDeclaration $styleDeclaration;
 
 	/**
 	 * @throws InvalidArgumentException When $name or $prelude contains invalid syntax
@@ -33,18 +38,18 @@ class CSSAtRule extends CSSRule
 		if (!preg_match('/^-?[a-zA-Z_][a-zA-Z0-9_-]*$/D', $trimmedName)) {
 			throw new InvalidArgumentException('Invalid CSS at-rule name: ' . $name);
 		}
-		$this->name = $trimmedName;
+		$this->atRuleName = $trimmedName;
 		$this->prelude = CSSSyntaxScanner::trimCssWhitespace($prelude);
 		if ($this->prelude !== '') {
 			CSSSyntaxScanner::assertValidFragment($this->prelude, 'CSS at-rule prelude', [';', '{', '}']);
 		}
-		$this->style = $style !== null && $style->getParentRule() !== null ? clone $style : $style;
-		$this->style?->setParentRule($this);
+		$this->styleDeclaration = $style !== null && $style->getParentRule() !== null ? clone $style : $style;
+		$this->styleDeclaration?->setParentRule($this);
 	}
 
 	public function getType(): int
 	{
-		return match (strtolower($this->name)) {
+		return match (strtolower($this->atRuleName)) {
 			'charset' => self::CHARSET_RULE,
 			'import' => self::IMPORT_RULE,
 			'namespace' => self::NAMESPACE_RULE,
@@ -62,7 +67,7 @@ class CSSAtRule extends CSSRule
 
 	public function getName(): string
 	{
-		return $this->name;
+		return $this->atRuleName;
 	}
 
 	public function getPrelude(): string
@@ -72,7 +77,7 @@ class CSSAtRule extends CSSRule
 
 	public function getStyle(): ?CSSStyleDeclaration
 	{
-		return $this->style;
+		return $this->styleDeclaration;
 	}
 
 	public function hasBlock(): bool
@@ -84,18 +89,18 @@ class CSSAtRule extends CSSRule
 	{
 		$prelude = $this->prelude === '' ? '' : ' ' . $this->prelude;
 		if (!$this->hasBlock) {
-			return '@' . $this->name . $prelude . ';';
+			return '@' . $this->atRuleName . $prelude . ';';
 		}
 
-		return '@' . $this->name . $prelude . ' { ' . ($this->style?->getCssText() ?? '') . ' }';
+		return '@' . $this->atRuleName . $prelude . ' { ' . ($this->styleDeclaration?->getCssText() ?? '') . ' }';
 	}
 
 	public function __get(string $name): mixed
 	{
 		return match ($name) {
-			'name' => $this->name,
+			'name' => $this->atRuleName,
 			'prelude' => $this->prelude,
-			'style' => $this->style,
+			'style' => $this->styleDeclaration,
 			default => parent::__get($name),
 		};
 	}
@@ -104,7 +109,7 @@ class CSSAtRule extends CSSRule
 	{
 		return match ($name) {
 			'name', 'prelude' => true,
-			'style' => $this->style !== null,
+			'style' => $this->styleDeclaration !== null,
 			default => parent::__isset($name),
 		};
 	}
@@ -112,9 +117,9 @@ class CSSAtRule extends CSSRule
 	public function __clone(): void
 	{
 		parent::__clone();
-		if ($this->style !== null) {
-			$this->style = clone $this->style;
-			$this->style->setParentRule($this);
+		if ($this->styleDeclaration !== null) {
+			$this->styleDeclaration = clone $this->styleDeclaration;
+			$this->styleDeclaration->setParentRule($this);
 		}
 	}
 }

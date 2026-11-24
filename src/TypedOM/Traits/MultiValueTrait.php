@@ -38,8 +38,13 @@ trait MultiValueTrait
 		return (string) $this->values;
 	}
 
+	public function __clone(): void
+	{
+		$this->values = $this->values->clone();
+	}
+
 	public function clone(): static
 	{
-		return new static($this->values->clone());
+		return clone $this;
 	}
 }

@@ -11,6 +11,14 @@ use TypeError;
 /**
  * Represents the dimensional exponent map of a CSS numeric value.
  *
+ * @property int $length
+ * @property int $angle
+ * @property int $time
+ * @property int $frequency
+ * @property int $resolution
+ * @property int $flex
+ * @property int $percent
+ * @property ?string $percentHint
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSNumericType
  */
 class CSSNumericType

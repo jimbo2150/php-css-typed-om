@@ -46,11 +46,34 @@ final class CSSSyntaxScanner
 	 */
 	public static function splitTopLevel(string $source, string $delimiter, int $start = 0, ?int $end = null): array
 	{
+		$parts = [];
+		self::scanTopLevel($source, $delimiter, $start, $end, $parts);
+
+		return $parts;
+	}
+
+	/**
+	 * Counts top-level occurrences of a single-byte delimiter without allocating substrings.
+	 *
+	 * @throws InvalidArgumentException When $delimiter is not a single byte
+	 */
+	public static function countTopLevelDelimiters(string $source, string $delimiter, int $start = 0, ?int $end = null): int
+	{
+		$parts = null;
+
+		return self::scanTopLevel($source, $delimiter, $start, $end, $parts);
+	}
+
+	/**
+	 * @param ?list<string> $parts
+	 */
+	private static function scanTopLevel(string $source, string $delimiter, int $start, ?int $end, ?array &$parts): int
+	{
 		if (strlen($delimiter) !== 1) {
 			throw new InvalidArgumentException('The delimiter must be a single byte.');
 		}
 
-		$parts = [];
+		$count = 0;
 		$length = $end === null ? strlen($source) : min($end, strlen($source));
 		$offset = max(0, $start);
 		$segmentStart = $offset;
@@ -83,7 +106,10 @@ final class CSSSyntaxScanner
 					continue;
 				}
 				if ($character === $delimiter && $stack === []) {
-					$parts[] = substr($source, $segmentStart, $offset - $segmentStart);
+					$count++;
+					if ($parts !== null) {
+						$parts[] = substr($source, $segmentStart, $offset - $segmentStart);
+					}
 					$segmentStart = $offset + 1;
 				}
 				$offset++;
@@ -97,7 +123,10 @@ final class CSSSyntaxScanner
 			}
 
 			if ($character === $delimiter && $stack === []) {
-				$parts[] = substr($source, $segmentStart, $offset - $segmentStart);
+				$count++;
+				if ($parts !== null) {
+					$parts[] = substr($source, $segmentStart, $offset - $segmentStart);
+				}
 				$segmentStart = $offset + 1;
 				$offset++;
 				continue;
@@ -122,9 +151,11 @@ final class CSSSyntaxScanner
 			$offset++;
 		}
 
-		$parts[] = substr($source, $segmentStart, $length - $segmentStart);
+		if ($parts !== null) {
+			$parts[] = substr($source, $segmentStart, $length - $segmentStart);
+		}
 
-		return $parts;
+		return $count;
 	}
 
 	/**
@@ -618,9 +649,9 @@ final class CSSSyntaxScanner
 					}
 				} elseif ($character === '}' && count($stack) > 1) {
 					// If '}' closes an enclosing '{' past unclosed inner '(' or '[', unwind to that '{' or outer block.
-					while ($stack !== [] && end($stack) !== '}') {
+					do {
 						array_pop($stack);
-					}
+					} while ($stack !== [] && end($stack) !== '}');
 					if ($stack !== [] && end($stack) === '}') {
 						array_pop($stack);
 						if ($stack === []) {
@@ -1282,6 +1313,130 @@ final class CSSSyntaxScanner
 	}
 
 	/**
+	 * Scans and decodes a CSS identifier starting at $start, returning null on invalid syntax or control bytes.
+	 *
+	 * @return array{ident: string, end: int}|null
+	 */
+	public static function decodeIdentAt(string $source, int $start, ?int $end = null): ?array
+	{
+		$length = $end === null ? strlen($source) : min($end, strlen($source));
+		$identEnd = self::scanIdentEnd($source, $start, $length);
+		if ($identEnd === null || $identEnd <= $start) {
+			return null;
+		}
+		$raw = substr($source, $start, $identEnd - $start);
+		$decoded = str_contains($raw, '\\') ? self::decodeCssIdentEscapes($raw) : $raw;
+		if (self::hasControlCharacters($decoded)) {
+			return null;
+		}
+
+		return ['ident' => $decoded, 'end' => $identEnd];
+	}
+
+	/**
+	 * Locates the start offset of a CSS identifier ending at $openParen matching lowercase $expectedLower, or null.
+	 */
+	public static function findPrecedingEscapedIdentStart(
+		string $source,
+		int $openParen,
+		int $sliceStart,
+		string $expectedLower,
+	): ?int {
+		if ($openParen <= $sliceStart) {
+			return null;
+		}
+
+		// Scan backward within a bounded window to find the start of the escaped identifier token.
+		$windowStart = max($sliceStart, $openParen - self::ESCAPED_URL_WINDOW);
+		$cursor = $openParen - 1;
+
+		while ($cursor >= $windowStart) {
+			$ch = $source[$cursor];
+			if (self::isIdentByte($ch)) {
+				$cursor--;
+				continue;
+			}
+
+			// A single whitespace immediately following a hex escape (e.g. `\75 rl(`), or an escaped space (`\ `).
+			if ($ch === ' ' || $ch === "\t" || $ch === "\n" || $ch === "\r" || $ch === "\f") {
+				$hexEnd = $cursor - 1;
+				if ($ch === "\n" && $hexEnd >= $windowStart && $source[$hexEnd] === "\r") {
+					$hexEnd--;
+				}
+				$hexCursor = $hexEnd;
+				$hexCount = 0;
+				while ($hexCursor >= $windowStart && $hexCount < 6 && str_contains(self::HEX_DIGITS, $source[$hexCursor])) {
+					$hexCursor--;
+					$hexCount++;
+				}
+				if ($hexCount > 0 && $hexCursor >= $windowStart && $source[$hexCursor] === '\\' && !self::isEscapedBackslash($source, $hexCursor, $sliceStart)) {
+					$cursor = $hexCursor - 1;
+					continue;
+				}
+				if ($hexCount > 0 && $hexCursor < $windowStart && $windowStart > $sliceStart) {
+					return null;
+				}
+				if ($hexCount === 0 && ($ch === ' ' || $ch === "\t") && $cursor > $sliceStart && $source[$cursor - 1] === '\\' && !self::isEscapedBackslash($source, $cursor - 1, $sliceStart)) {
+					$cursor -= 2;
+					continue;
+				}
+				break;
+			}
+
+			if ($ch === '\\') {
+				if ($cursor > $sliceStart && $source[$cursor - 1] === '\\') {
+					return null;
+				}
+				$cursor--;
+				continue;
+			}
+
+			if ($cursor > $sliceStart && $source[$cursor - 1] === '\\' && !self::isEscapedBackslash($source, $cursor - 1, $sliceStart)) {
+				$cursor -= 2;
+				continue;
+			}
+
+			break;
+		}
+
+		$identStart = $cursor + 1;
+		if ($identStart >= $openParen) {
+			return null;
+		}
+		if ($identStart > $sliceStart) {
+			$prev = $source[$identStart - 1];
+			if ($prev === '#' || $prev === '@') {
+				return null;
+			}
+			if ($cursor < $windowStart && $windowStart > $sliceStart) {
+				if (self::isIdentByte($prev) || $prev === '\\') {
+					return null;
+				}
+				if (str_contains(self::CSS_WHITESPACE, $prev)) {
+					$beforeWs = $identStart - 2;
+					if ($prev === "\n" && $beforeWs >= $sliceStart && $source[$beforeWs] === "\r") {
+						$beforeWs--;
+					}
+					if ($beforeWs >= $sliceStart && self::endsWithBareHexEscape(substr($source, max($sliceStart, $beforeWs - 6), $beforeWs - max($sliceStart, $beforeWs - 6) + 1))) {
+						return null;
+					}
+				}
+			}
+		}
+
+		if (self::scanIdentEnd($source, $identStart, $openParen) !== $openParen) {
+			return null;
+		}
+		$raw = substr($source, $identStart, $openParen - $identStart);
+		$decoded = str_contains($raw, '\\') ? self::decodeCssIdentEscapes($raw) : $raw;
+		if (self::hasControlCharacters($decoded) || strtolower($decoded) !== $expectedLower) {
+			return null;
+		}
+
+		return $identStart;
+	}
+
+	/**
 	 * Scans a CSS identifier per CSS Syntax Level 3 §4.3.9 and returns its end offset, or null if invalid.
 	 */
 	public static function scanIdentEnd(string $source, int $start, ?int $end = null): ?int
@@ -1559,70 +1714,7 @@ final class CSSSyntaxScanner
 			return $prev !== '#' && $prev !== '@' && !self::isIdentByte($prev);
 		}
 
-		// Scan backward within a bounded window to find the start of the escaped identifier token.
-		$windowStart = max($start, $openParenOffset - self::ESCAPED_URL_WINDOW);
-		$cursor = $openParenOffset - 1;
-
-		while ($cursor >= $windowStart) {
-			$ch = $source[$cursor];
-			if (self::isIdentByte($ch)) {
-				$cursor--;
-				continue;
-			}
-
-			// A single whitespace immediately following a hex escape (e.g. `\75 rl(`), or an escaped space (`\ `).
-			if ($ch === ' ' || $ch === "\t" || $ch === "\n" || $ch === "\r" || $ch === "\f") {
-				$hexEnd = $cursor - 1;
-				if ($ch === "\n" && $hexEnd >= $windowStart && $source[$hexEnd] === "\r") {
-					$hexEnd--;
-				}
-				$hexCursor = $hexEnd;
-				$hexCount = 0;
-				while ($hexCursor >= $windowStart && $hexCount < 6 && str_contains(self::HEX_DIGITS, $source[$hexCursor])) {
-					$hexCursor--;
-					$hexCount++;
-				}
-				if ($hexCount > 0 && $hexCursor >= $windowStart && $source[$hexCursor] === '\\' && !self::isEscapedBackslash($source, $hexCursor, $start)) {
-					$cursor = $hexCursor - 1;
-					continue;
-				}
-				if ($hexCount > 0 && $hexCursor < $windowStart && $windowStart > $start) {
-					return false;
-				}
-				if ($hexCount === 0 && ($ch === ' ' || $ch === "\t") && $cursor > $start && $source[$cursor - 1] === '\\' && !self::isEscapedBackslash($source, $cursor - 1, $start)) {
-					$cursor -= 2;
-					continue;
-				}
-				break;
-			}
-
-			if ($ch === '\\') {
-				if ($cursor > $start && $source[$cursor - 1] === '\\') {
-					return false;
-				}
-				$cursor--;
-				continue;
-			}
-
-			if ($cursor > $start && $source[$cursor - 1] === '\\' && !self::isEscapedBackslash($source, $cursor - 1, $start)) {
-				$cursor -= 2;
-				continue;
-			}
-
-			break;
-		}
-
-		$identStart = $cursor + 1;
-		if ($identStart >= $openParenOffset) {
-			return false;
-		}
-		if ($identStart > $start && ($source[$identStart - 1] === '#' || $source[$identStart - 1] === '@')) {
-			return false;
-		}
-
-		$decoded = self::decodeCssIdentEscapes(substr($source, $identStart, $openParenOffset - $identStart));
-
-		return strcasecmp($decoded, 'url') === 0;
+		return self::findPrecedingEscapedIdentStart($source, $openParenOffset, $start, 'url') !== null;
 	}
 
 	private static function isEscapedBackslash(string $source, int $slashOffset, int $start): bool

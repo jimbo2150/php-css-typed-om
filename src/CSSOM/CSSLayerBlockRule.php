@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
+/**
+ * @property-read string $name
+ */
 final class CSSLayerBlockRule extends CSSGroupingRule
 {
 	public function __construct(string $layerName = '')

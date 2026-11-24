@@ -18,7 +18,8 @@ Magic read-only `selectorText` and `style`; `selectorText` accepts string assign
 | `getStyle(): CSSPageDescriptors` | Returns page descriptor declarations. | `$page->getStyle()->getPropertyValue('size');` |
 | `getMarginRules(): array` | Returns nested rules that are instances of `CSSMarginRule`, in list order. | `$page->getMarginRules();` |
 | `getSelectorText(): string` | Returns the page selector from the prelude. | `$page->getSelectorText();` |
-| `setSelectorText(string $selector): void` | Trims and validates structural syntax, allows empty text, then updates the prelude. Throws `InvalidArgumentException` on invalid syntax. | `$page->setSelectorText(':left');` |
+| `setSelectorText(string $selector): void` | Trims and validates structural syntax within `DEFAULT_MAX_BYTES`, allows empty text, then updates the prelude. Throws `InvalidArgumentException` / `CSSParserLimitException` on invalid or oversized syntax. | `$page->setSelectorText(':left');` |
+| `insertRule(string $ruleText, int $index = 0, ?CSSParserOptions $options = null): int` | Parses and inserts one `@margin` rule at `$index`, inheriting owning stylesheet `CSSParserOptions` limits when `$options` is `null`. Throws `LogicException` if detached, `OutOfBoundsException` for invalid index, `InvalidArgumentException` / `CSSParserLimitException` on non-margin or invalid rules. | `$page->insertRule('@top-left { content: "A"; }', 0);` |
 | `getCssText(): string` | Serializes descriptors and nested rules in one `@page` block. | `$page->getCssText();` |
 | `__get(string $name): mixed` | Exposes `selectorText` and `style`, otherwise delegates to `CSSGroupingRule::__get()`. | `$page->style;` |
 | `__set(string $name, mixed $value): void` | String `selectorText` assignment invokes its setter; other assignments delegate to the parent. | `$page->selectorText = ':right';` |

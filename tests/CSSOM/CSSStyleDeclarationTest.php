@@ -81,7 +81,9 @@ final class CSSStyleDeclarationTest extends TestCase
 	public function testStylePropertiesSupportCamelCaseAccessors(): void
 	{
 		$style = new CSSStyleDeclaration();
+		/** @phpstan-ignore property.notFound */
 		$style->backgroundColor = 'red';
+		/** @phpstan-ignore property.notFound */
 		$style->cssFloat = 'left';
 
 		self::assertSame('red', $style->getPropertyValue('background-color'));
@@ -93,6 +95,7 @@ final class CSSStyleDeclarationTest extends TestCase
 	{
 		$sheet = \Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleSheet::parse('@import url("tokens.css") screen; .card { color: red; --empty: ; }');
 		$importRule = $sheet->cssRules[0];
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\CSSOM\CSSImportRule::class, $importRule);
 		self::assertTrue(isset($sheet->cssRules));
 		self::assertTrue(isset($importRule->cssText));
 		self::assertTrue(isset($importRule->media));
@@ -101,6 +104,7 @@ final class CSSStyleDeclarationTest extends TestCase
 		self::assertSame('@import url("tokens.css") screen, print;', $importRule->cssText);
 
 		$card = $sheet->cssRules[1];
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleRule::class, $card);
 		self::assertSame($card->styleMap, $card->styleMap);
 		$card->styleMap->set('margin', '10px 20px');
 		$card->styleMap->set('background-image', 'url(a.png), url(b.png)');
@@ -117,7 +121,9 @@ final class CSSStyleDeclarationTest extends TestCase
 	{
 		$sheet = \Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleSheet::parse("a {\x0Bmargin: 0; color: blue; }\nb {\fmargin: 4px; }");
 		self::assertNotEmpty($sheet->getParseErrors());
-		self::assertSame('4px', $sheet->cssRules[1]->style->getPropertyValue('margin'));
+		$secondRule = $sheet->cssRules[1];
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleRule::class, $secondRule);
+		self::assertSame('4px', $secondRule->style->getPropertyValue('margin'));
 
 		$cleanStyle = CSSStyleDeclaration::parse("--font-stack: Inter, sans-serif; --reset: inherit;");
 		$map = new \Jimbo2150\PhpCssTypedOm\TypedOM\StylePropertyMap($cleanStyle);
@@ -127,6 +133,7 @@ final class CSSStyleDeclarationTest extends TestCase
 		self::assertSame('inherit', (string) $map->get('--reset'));
 
 		$this->expectException(\Error::class);
-		$map->unknownProp;
+		/** @phpstan-ignore property.notFound */
+		$_ = $map->unknownProp;
 	}
 }

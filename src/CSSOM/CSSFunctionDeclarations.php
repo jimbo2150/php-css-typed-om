@@ -7,16 +7,18 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 /**
  * Represents descriptor declarations nested inside a `@function` rule.
  *
+ * @property-read CSSFunctionDescriptors $style
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSFunctionDeclarations
  */
 final class CSSFunctionDeclarations extends CSSRule
 {
-	private readonly CSSFunctionDescriptors $style;
+	private readonly CSSFunctionDescriptors $styleDescriptors;
 
 	public function __construct(CSSFunctionDescriptors $style)
 	{
-		$this->style = $style->getParentRule() !== null ? clone $style : $style;
-		$this->style->setParentRule($this);
+		$this->styleDescriptors = $style->getParentRule() !== null ? clone $style : $style;
+		$this->styleDescriptors->setParentRule($this);
 	}
 
 	public function getType(): int
@@ -26,12 +28,12 @@ final class CSSFunctionDeclarations extends CSSRule
 
 	public function getStyle(): CSSFunctionDescriptors
 	{
-		return $this->style;
+		return $this->styleDescriptors;
 	}
 
 	public function getCssText(): string
 	{
-		return $this->style->getCssText();
+		return $this->styleDescriptors->getCssText();
 	}
 
 	public function __get(string $name): mixed
@@ -47,7 +49,7 @@ final class CSSFunctionDeclarations extends CSSRule
 	public function __clone(): void
 	{
 		parent::__clone();
-		$this->style = clone $this->style;
-		$this->style->setParentRule($this);
+		$this->styleDescriptors = clone $this->styleDescriptors;
+		$this->styleDescriptors->setParentRule($this);
 	}
 }

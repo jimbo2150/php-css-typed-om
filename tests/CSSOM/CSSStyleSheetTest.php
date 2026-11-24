@@ -69,7 +69,9 @@ final class CSSStyleSheetTest extends TestCase
 
 		self::assertCount(2, $sheet->getCssRules());
 		self::assertNotEmpty($sheet->getParseErrors());
-		self::assertSame('b', $sheet->getCssRules()[1]->getSelectorText());
+		$second = $sheet->getCssRules()[1];
+		self::assertInstanceOf(CSSStyleRule::class, $second);
+		self::assertSame('b', $second->getSelectorText());
 	}
 
 	public function testParsesStandaloneAtRuleTypesAndPreservesUnknownRules(): void
@@ -104,10 +106,12 @@ final class CSSStyleSheetTest extends TestCase
 	{
 		$sheet = CSSStyleSheet::parse('article { color: black; &:hover { color: blue } }');
 		$rule = $sheet->getCssRules()[0];
+		self::assertInstanceOf(CSSStyleRule::class, $rule);
 
 		self::assertCount(1, $rule->getCssRules());
-		self::assertInstanceOf(CSSStyleRule::class, $rule->getCssRules()[0]);
-		self::assertSame('blue', $rule->getCssRules()[0]->getStyle()->getPropertyValue('color'));
+		$nested = $rule->getCssRules()[0];
+		self::assertInstanceOf(CSSStyleRule::class, $nested);
+		self::assertSame('blue', $nested->getStyle()->getPropertyValue('color'));
 		self::assertSame('article { color: black; &:hover { color: blue; } }', $sheet->getCssText());
 		self::assertSame([], $sheet->getParseErrors());
 	}
@@ -124,20 +128,27 @@ final class CSSStyleSheetTest extends TestCase
 	public function testDeclarationRecoveryReportsSourceOffset(): void
 	{
 		$sheet = CSSStyleSheet::parse('a { broken; color: red }');
+		$rule = $sheet->getCssRules()[0];
+		self::assertInstanceOf(CSSStyleRule::class, $rule);
 
-		self::assertSame('red', $sheet->getCssRules()[0]->getStyle()->getPropertyValue('color'));
+		self::assertSame('red', $rule->getStyle()->getPropertyValue('color'));
 		self::assertSame(4, $sheet->getParseErrors()[0]['offset']);
 	}
 
 	public function testParsesNestedConditionalDeclarationsAndRules(): void
 	{
 		$sheet = CSSStyleSheet::parse('article { color: black; @media (width > 10px) { color: blue; & > a { color: red } } }');
-		$mediaRule = $sheet->getCssRules()[0]->getCssRules()[0];
+		$outer = $sheet->getCssRules()[0];
+		self::assertInstanceOf(CSSStyleRule::class, $outer);
+		$mediaRule = $outer->getCssRules()[0];
 
 		self::assertInstanceOf(CSSMediaRule::class, $mediaRule);
-		self::assertInstanceOf(CSSNestedDeclarations::class, $mediaRule->getCssRules()[0]);
-		self::assertSame('blue', $mediaRule->getCssRules()[0]->getStyle()->getPropertyValue('color'));
-		self::assertSame('red', $mediaRule->getCssRules()[1]->getStyle()->getPropertyValue('color'));
+		$nestedDecl = $mediaRule->getCssRules()[0];
+		$nestedStyle = $mediaRule->getCssRules()[1];
+		self::assertInstanceOf(CSSNestedDeclarations::class, $nestedDecl);
+		self::assertInstanceOf(CSSStyleRule::class, $nestedStyle);
+		self::assertSame('blue', $nestedDecl->getStyle()->getPropertyValue('color'));
+		self::assertSame('red', $nestedStyle->getStyle()->getPropertyValue('color'));
 		self::assertSame([], $sheet->getParseErrors());
 	}
 
@@ -145,10 +156,12 @@ final class CSSStyleSheetTest extends TestCase
 	{
 		$sheet = CSSStyleSheet::parse('a { color: black; &:hover { color: blue } color: green; }');
 		$rule = $sheet->getCssRules()[0];
+		self::assertInstanceOf(CSSStyleRule::class, $rule);
 
 		self::assertSame('black', $rule->getStyle()->getPropertyValue('color'));
-		self::assertInstanceOf(CSSNestedDeclarations::class, $rule->getCssRules()[1]);
-		self::assertSame('green', $rule->getCssRules()[1]->getStyle()->getPropertyValue('color'));
+		$afterDecl = $rule->getCssRules()[1];
+		self::assertInstanceOf(CSSNestedDeclarations::class, $afterDecl);
+		self::assertSame('green', $afterDecl->getStyle()->getPropertyValue('color'));
 		self::assertSame('a { color: black; &:hover { color: blue; } color: green; }', $sheet->getCssText());
 	}
 
@@ -179,6 +192,7 @@ final class CSSStyleSheetTest extends TestCase
 	{
 		$sheet = CSSStyleSheet::parse('@media screen { a { color: red } }');
 		$mediaRule = $sheet->getCssRules()[0];
+		self::assertInstanceOf(CSSMediaRule::class, $mediaRule);
 		$mediaRule->media->appendMedium('print');
 
 		self::assertSame('screen, print', $mediaRule->conditionText);
@@ -217,12 +231,14 @@ final class CSSStyleSheetTest extends TestCase
 	{
 		$trailingGroup = CSSStyleSheet::parse('@media screen { a { color: red; } trailing }');
 		self::assertNotEmpty($trailingGroup->getParseErrors());
+		self::assertInstanceOf(CSSMediaRule::class, $trailingGroup->cssRules[0]);
 		self::assertCount(1, $trailingGroup->cssRules[0]->cssRules);
 
 		$trailingFfv = CSSStyleSheet::parse('@font-feature-values Inter { @styleset { alt: 1; } junk }');
 		self::assertNotEmpty($trailingFfv->getParseErrors());
 
 		$nestedKeyframes = CSSStyleSheet::parse('a { @keyframes spin { from { opacity: 0; } } }');
+		self::assertInstanceOf(CSSStyleRule::class, $nestedKeyframes->cssRules[0]);
 		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\CSSOM\CSSOpaqueRule::class, $nestedKeyframes->cssRules[0]->cssRules[0]);
 
 		foreach ([
@@ -242,11 +258,13 @@ final class CSSStyleSheetTest extends TestCase
 		$stray = CSSStyleSheet::parse('@unknown { stray) } .next { color: red; }');
 		self::assertNotEmpty($stray->getParseErrors());
 		self::assertCount(1, $stray->cssRules);
+		self::assertInstanceOf(CSSStyleRule::class, $stray->cssRules[0]);
 		self::assertSame('.next', $stray->cssRules[0]->selectorText);
 
 		// @page:first without intervening space
 		$page = CSSStyleSheet::parse('@page:first { margin: 1cm; }');
 		self::assertSame([], $page->getParseErrors());
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\CSSOM\CSSPageRule::class, $page->cssRules[0]);
 		self::assertSame(':first', $page->cssRules[0]->selectorText);
 
 		// Invalid at-rule names starting with '@-' or '@-1'
@@ -259,15 +277,18 @@ final class CSSStyleSheetTest extends TestCase
 		// Statement at-rules inside @keyframes are rejected
 		$kfSheet = CSSStyleSheet::parse('@keyframes fade { @import "a.css"; from { opacity: 0; } }');
 		self::assertNotEmpty($kfSheet->getParseErrors());
+		self::assertInstanceOf(CSSKeyframesRule::class, $kfSheet->cssRules[0]);
 		self::assertCount(1, $kfSheet->cssRules[0]->cssRules);
 
 		// @font-feature-values preserves <feature-value-name> case
 		$ffv = CSSStyleSheet::parse('@font-feature-values Inter { @styleset { PrettyAlt: 1; } }');
 		self::assertSame([], $ffv->getParseErrors());
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\CSSOM\CSSFontFeatureValuesRule::class, $ffv->cssRules[0]);
 		self::assertSame([1], $ffv->cssRules[0]->styleset->get('PrettyAlt'));
 
 		// Owned declarations passed to rule constructors are cloned, never aliased
 		$ownedSheet = CSSStyleSheet::parse('a { color: red; }');
+		self::assertInstanceOf(CSSStyleRule::class, $ownedSheet->cssRules[0]);
 		$ownedDecl = $ownedSheet->cssRules[0]->style;
 		$pageWithClonedDecl = new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSPageRule(':first', $ownedDecl);
 		self::assertNotSame($ownedDecl, $pageWithClonedDecl->style);
@@ -289,7 +310,7 @@ final class CSSStyleSheetTest extends TestCase
 		}
 	}
 
-	public function testAtRulePrecludesDeepIterativeCloneAndPropertyEmptyInitialRoundTrip(): void
+	public function testAtRulePreludesDeepIterativeCloneAndPropertyEmptyInitialRoundTrip(): void
 	{
 		// Escaped @media\65 and non-ASCII @mediaé become opaque at-rules, while @media (screen) is structured
 		$identSheet = CSSStyleSheet::parse('@mediaé { a { color: red; } } @media\65 { a { color: red; } } @--custom { a: 1; }');
@@ -303,14 +324,18 @@ final class CSSStyleSheetTest extends TestCase
 		$propCss = '@property --empty-init { syntax: "*"; inherits: false; initial-value: ; }';
 		$propSheet = CSSStyleSheet::parse($propCss);
 		self::assertSame([], $propSheet->getParseErrors());
-		self::assertSame('', $propSheet->cssRules[0]->getInitialValue());
+		$propRule = $propSheet->cssRules[0];
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\CSSOM\CSSPropertyRule::class, $propRule);
+		self::assertSame('', $propRule->getInitialValue());
 		self::assertSame(
 			'@property --empty-init { syntax: "*"; inherits: false; initial-value: ; }',
-			$propSheet->cssRules[0]->getCssText(),
+			$propRule->getCssText(),
 		);
 		$reparsedProp = CSSStyleSheet::parse(\Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderer::render($propSheet));
 		self::assertSame([], $reparsedProp->getParseErrors());
-		self::assertSame('', $reparsedProp->cssRules[0]->getInitialValue());
+		$reparsedPropRule = $reparsedProp->cssRules[0];
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\CSSOM\CSSPropertyRule::class, $reparsedPropRule);
+		self::assertSame('', $reparsedPropRule->getInitialValue());
 
 		// @import clause order/adjacent parens, @namespace url( mid-ident, @container escaped reserved keyword, @scope `to` whitespace
 		$imp = new CSSImportRule('url("a.css") layer(base)supports(display: grid) screen');
@@ -339,25 +364,41 @@ final class CSSStyleSheetTest extends TestCase
 		self::assertNotSame($orig->cssRules[0], $cloned->cssRules[0]);
 		self::assertNotSame($orig->cssRules[1], $cloned->cssRules[1]);
 		self::assertSame($orig->cssRules[0]->cssText, $cloned->cssRules[0]->cssText);
-		self::assertSame('screen', $cloned->cssRules[1]->conditionText);
-		self::assertSame('screen', $cloned->cssRules[1]->media->mediaText);
-		self::assertSame($cloned, $cloned->cssRules[1]->cssRules[0]->cssRules[0]->parentStyleSheet);
+		$origMedia = $orig->cssRules[1];
+		$clonedMedia = $cloned->cssRules[1];
+		self::assertInstanceOf(CSSMediaRule::class, $origMedia);
+		self::assertInstanceOf(CSSMediaRule::class, $clonedMedia);
+		self::assertSame('screen', $clonedMedia->conditionText);
+		self::assertSame('screen', $clonedMedia->media->mediaText);
+		$origSupports = $origMedia->cssRules[0];
+		$origEmptyMedia = $origMedia->cssRules[1];
+		$clonedSupports = $clonedMedia->cssRules[0];
+		$clonedEmptyMedia = $clonedMedia->cssRules[1];
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\CSSOM\CSSGroupingRule::class, $origSupports);
+		self::assertInstanceOf(CSSMediaRule::class, $origEmptyMedia);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\CSSOM\CSSGroupingRule::class, $clonedSupports);
+		self::assertInstanceOf(CSSMediaRule::class, $clonedEmptyMedia);
+		$origLeafStyle = $origSupports->cssRules[0];
+		$clonedLeafStyle = $clonedSupports->cssRules[0];
+		self::assertInstanceOf(CSSStyleRule::class, $origLeafStyle);
+		self::assertInstanceOf(CSSStyleRule::class, $clonedLeafStyle);
+		self::assertSame($cloned, $clonedLeafStyle->parentStyleSheet);
 		self::assertSame($orig->getTotalRuleCount(), $cloned->getTotalRuleCount());
-		$cloned->cssRules[1]->cssRules[0]->cssRules[0]->style->setProperty('color', 'blue');
-		self::assertSame('red', $orig->cssRules[1]->cssRules[0]->cssRules[0]->style->getPropertyValue('color'));
-		self::assertSame('blue', $cloned->cssRules[1]->cssRules[0]->cssRules[0]->style->getPropertyValue('color'));
+		$clonedLeafStyle->style->setProperty('color', 'blue');
+		self::assertSame('red', $origLeafStyle->style->getPropertyValue('color'));
+		self::assertSame('blue', $clonedLeafStyle->style->getPropertyValue('color'));
 		// Cloned empty media rule & cloned leaf rule retain sheet association for insertRule()
-		$cloned->cssRules[1]->cssRules[1]->insertRule('p { margin: 0; }');
-		$cloned->cssRules[1]->cssRules[0]->cssRules[0]->insertRule('&:hover { color: green; }');
-		self::assertCount(1, $cloned->cssRules[1]->cssRules[1]->cssRules);
-		self::assertCount(1, $cloned->cssRules[1]->cssRules[0]->cssRules[0]->cssRules);
-		self::assertCount(0, $orig->cssRules[1]->cssRules[1]->cssRules);
-		self::assertCount(0, $orig->cssRules[1]->cssRules[0]->cssRules[0]->cssRules);
+		$clonedEmptyMedia->insertRule('p { margin: 0; }');
+		$clonedLeafStyle->insertRule('&:hover { color: green; }');
+		self::assertCount(1, $clonedEmptyMedia->cssRules);
+		self::assertCount(1, $clonedLeafStyle->cssRules);
+		self::assertCount(0, $origEmptyMedia->cssRules);
+		self::assertCount(0, $origLeafStyle->cssRules);
 
 		// StyleSheet constructed with an existing rule's MediaList clones and detaches callback
-		$sheetFromMedia = new CSSStyleSheet(media: $orig->cssRules[1]->media);
+		$sheetFromMedia = new CSSStyleSheet(media: $origMedia->media);
 		$sheetFromMedia->media->appendMedium('handheld');
-		self::assertSame('screen', $orig->cssRules[1]->media->mediaText);
+		self::assertSame('screen', $origMedia->media->mediaText);
 		self::assertSame('screen, handheld', $sheetFromMedia->media->mediaText);
 	}
 }

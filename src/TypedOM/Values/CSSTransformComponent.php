@@ -68,13 +68,18 @@ abstract class CSSTransformComponent extends CSSStyleValue
 		return DOMMatrix::fromTrustedElements(self::IDENTITY_MATRIX, $this->twoDimensional);
 	}
 
+	public function __clone(): void
+	{
+		$cloned = [];
+		foreach ($this->values as $value) {
+			$cloned[] = $value instanceof CSSStyleValue ? $value->clone() : $value;
+		}
+		$this->values = $cloned;
+	}
+
 	public function clone(): static
 	{
-		$values = [];
-		foreach ($this->values as $value) {
-			$values[] = $value instanceof CSSStyleValue ? $value->clone() : $value;
-		}
-		return new static($this->functionName, $values, $this->twoDimensional);
+		return clone $this;
 	}
 
 	public function __toString(): string
@@ -113,7 +118,11 @@ abstract class CSSTransformComponent extends CSSStyleValue
 		return [$a, $b, 0.0, 0.0, $c, $d, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, $e, $f, 0.0, 1.0];
 	}
 
-	/** @param list<float> $left @param list<float> $right @return list<float> */
+	/**
+	 * @param list<float> $left
+	 * @param list<float> $right
+	 * @return list<float>
+	 */
 	public static function multiplyMatrices(array $left, array $right): array
 	{
 		return DOMMatrixReadOnly::multiplyElements($left, $right);

@@ -12,11 +12,14 @@ use OutOfBoundsException;
 /**
  * Represents a CSS `@page` rule, including its page descriptors and nested `@margin` rules.
  *
+ * @property string $selectorText
+ * @property-read CSSPageDescriptors $style
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSPageRule
  */
 final class CSSPageRule extends CSSGroupingRule
 {
-	private CSSPageDescriptors $style;
+	private CSSPageDescriptors $styleDescriptors;
 
 	/** @param list<CSSMarginRule> $marginRules */
 	public function __construct(string $selector, ?CSSStyleDeclaration $style = null, array $marginRules = [])
@@ -35,7 +38,7 @@ final class CSSPageRule extends CSSGroupingRule
 			}
 		}
 		$descriptors->setParentRule($this);
-		$this->style = $descriptors;
+		$this->styleDescriptors = $descriptors;
 
 		if ($marginRules !== []) {
 			foreach ($marginRules as $rule) {
@@ -51,7 +54,7 @@ final class CSSPageRule extends CSSGroupingRule
 
 	public function getStyle(): CSSPageDescriptors
 	{
-		return $this->style;
+		return $this->styleDescriptors;
 	}
 
 	/** @return list<CSSMarginRule> */
@@ -73,10 +76,13 @@ final class CSSPageRule extends CSSGroupingRule
 	}
 
 	/**
-	 * @throws InvalidArgumentException When $selector contains disallowed syntax
+	 * @throws InvalidArgumentException When $selector contains disallowed syntax or exceeds size limits
 	 */
 	public function setSelectorText(string $selector): void
 	{
+		if (strlen($selector) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('CSS @page selector exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		}
 		$selector = CSSSyntaxScanner::trimCssWhitespace($selector);
 		if ($selector !== '') {
 			CSSSyntaxScanner::assertValidFragment($selector, '@page selector', [';', '{', '}']);
@@ -101,14 +107,15 @@ final class CSSPageRule extends CSSGroupingRule
 			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
 		}
 
+		$effectiveOptions = $sheet->resolveParserOptionsInternal($options);
 		$marginRule = CSSParser::parseSingleMarginRule(
 			$ruleText,
-			$options,
+			$effectiveOptions,
 			$this->getNestingDepth(),
 			$sheet->getTotalRuleCount(),
 			$sheet->getTotalDeclarationCount(),
 		);
-		$this->getCssRules()->insertWithOptionsInternal($index, $marginRule, $options);
+		$this->getCssRules()->insertWithOptionsInternal($index, $marginRule, $effectiveOptions);
 
 		return $index;
 	}
@@ -117,7 +124,7 @@ final class CSSPageRule extends CSSGroupingRule
 	{
 		if ($this->getCssRules()->getRulesRaw() === []) {
 			$prelude = $this->prelude === '' ? '' : ' ' . $this->prelude;
-			return '@page' . $prelude . ' { ' . $this->style->getCssText() . ' }';
+			return '@page' . $prelude . ' { ' . $this->styleDescriptors->getCssText() . ' }';
 		}
 
 		return CSSGroupingRule::serializeTreeIteratively($this);
@@ -126,8 +133,8 @@ final class CSSPageRule extends CSSGroupingRule
 	public function __clone(): void
 	{
 		parent::__clone();
-		$this->style = clone $this->style;
-		$this->style->setParentRule($this);
+		$this->styleDescriptors = clone $this->styleDescriptors;
+		$this->styleDescriptors->setParentRule($this);
 	}
 
 	public function __get(string $name): mixed

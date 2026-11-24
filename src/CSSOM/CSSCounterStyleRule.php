@@ -10,6 +10,18 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 /**
  * Represents a CSS `@counter-style` rule.
  *
+ * @property string $name
+ * @property string $system
+ * @property string $symbols
+ * @property string $additiveSymbols
+ * @property string $negative
+ * @property string $prefix
+ * @property string $suffix
+ * @property string $range
+ * @property string $pad
+ * @property string $speakAs
+ * @property string $fallback
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSCounterStyleRule
  */
 final class CSSCounterStyleRule extends CSSAtRule
@@ -38,12 +50,12 @@ final class CSSCounterStyleRule extends CSSAtRule
 
 	public function getDescriptor(string $name): string
 	{
-		return $this->style?->getPropertyValue($name) ?? '';
+		return $this->styleDeclaration?->getPropertyValue($name) ?? '';
 	}
 
 	public function setDescriptor(string $name, string $value): void
 	{
-		$this->style?->setProperty($name, $value);
+		$this->styleDeclaration?->setProperty($name, $value);
 	}
 
 	public function __get(string $name): mixed
@@ -88,6 +100,9 @@ final class CSSCounterStyleRule extends CSSAtRule
 
 	private static function validateName(string $name): string
 	{
+		if (strlen($name) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('CSS @counter-style name exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		}
 		$name = CSSSyntaxScanner::trimCssWhitespace($name);
 		if ($name === '') {
 			throw new InvalidArgumentException('@counter-style name cannot be empty.');
@@ -95,7 +110,7 @@ final class CSSCounterStyleRule extends CSSAtRule
 		if (CSSSyntaxScanner::hasControlCharacters($name)) {
 			throw new InvalidArgumentException('Invalid @counter-style name.');
 		}
-		if (!preg_match('/^(?:--[a-zA-Z0-9_-]|-?[a-zA-Z_]|[^\x00-\x7F]|' . CSSSyntaxScanner::IDENT_ESCAPE_REGEX . ')(?:[-_a-zA-Z0-9]|[^\x00-\x7F]|' . CSSSyntaxScanner::IDENT_ESCAPE_REGEX . ')*$/uD', $name)) {
+		if (CSSSyntaxScanner::scanIdentEnd($name, 0, strlen($name)) !== strlen($name)) {
 			throw new InvalidArgumentException('Invalid @counter-style name: ' . $name);
 		}
 

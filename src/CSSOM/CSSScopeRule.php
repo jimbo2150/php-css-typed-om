@@ -10,17 +10,20 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 /**
  * Represents a CSS `@scope` rule.
  *
+ * @property-read ?string $start
+ * @property-read ?string $end
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSScopeRule
  */
 final class CSSScopeRule extends CSSGroupingRule
 {
-	private ?string $start = null;
-	private ?string $end = null;
+	private ?string $startSelector = null;
+	private ?string $endSelector = null;
 
 	public function __construct(string $prelude = '')
 	{
 		parent::__construct('scope', $prelude);
-		[$this->start, $this->end] = self::parseBounds($this->prelude);
+		[$this->startSelector, $this->endSelector] = self::parseBounds($this->prelude);
 	}
 
 	public function getType(): int
@@ -30,19 +33,19 @@ final class CSSScopeRule extends CSSGroupingRule
 
 	public function getStart(): ?string
 	{
-		return $this->start;
+		return $this->startSelector;
 	}
 
 	public function getEnd(): ?string
 	{
-		return $this->end;
+		return $this->endSelector;
 	}
 
 	public function __get(string $name): mixed
 	{
 		return match ($name) {
-			'start' => $this->start,
-			'end' => $this->end,
+			'start' => $this->startSelector,
+			'end' => $this->endSelector,
 			default => parent::__get($name),
 		};
 	}
@@ -50,8 +53,8 @@ final class CSSScopeRule extends CSSGroupingRule
 	public function __isset(string $name): bool
 	{
 		return match ($name) {
-			'start' => $this->start !== null,
-			'end' => $this->end !== null,
+			'start' => $this->startSelector !== null,
+			'end' => $this->endSelector !== null,
 			default => parent::__isset($name),
 		};
 	}
@@ -82,12 +85,22 @@ final class CSSScopeRule extends CSSGroupingRule
 
 		$rest = CSSSyntaxScanner::trimCssWhitespace(substr($prelude, $offset));
 		if ($rest !== '') {
-			if (!preg_match('/^to[ \t\n\r\f]+\(/i', $rest)) {
-				throw new InvalidArgumentException('Malformed @scope prelude: ' . $prelude);
+			$restLen = strlen($rest);
+			if (preg_match('/^to[ \t\n\r\f]+\(/i', $rest)) {
+				$open = strpos($rest, '(');
+			} else {
+				$ident = CSSSyntaxScanner::decodeIdentAt($rest, 0, $restLen);
+				if ($ident === null || strtolower($ident['ident']) !== 'to' || $ident['end'] >= $restLen || !str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $rest[$ident['end']])) {
+					throw new InvalidArgumentException('Malformed @scope prelude: ' . $prelude);
+				}
+				$afterWs = $ident['end'] + strspn($rest, CSSSyntaxScanner::CSS_WHITESPACE, $ident['end']);
+				if ($afterWs >= $restLen || $rest[$afterWs] !== '(') {
+					throw new InvalidArgumentException('Malformed @scope prelude: ' . $prelude);
+				}
+				$open = $afterWs;
 			}
-			$open = strpos($rest, '(');
 			$close = $open === false ? null : CSSSyntaxScanner::findMatchingDelimiter($rest, $open);
-			if ($close !== strlen($rest) - 1) {
+			if ($close !== $restLen - 1) {
 				throw new InvalidArgumentException('Malformed @scope end selector.');
 			}
 			$end = CSSSyntaxScanner::trimCssWhitespace(substr($rest, $open + 1, $close - $open - 1));
