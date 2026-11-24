@@ -32,6 +32,25 @@ final class CSSCounterStyleRule extends CSSAtRule
 		'suffix', 'range', 'pad', 'speak-as', 'fallback',
 	];
 
+	/** @var array<string, true> Names disallowed by CSS Counter Styles Level 3 */
+	private const array DISALLOWED_NAMES = [
+		'none' => true,
+		'initial' => true,
+		'inherit' => true,
+		'unset' => true,
+		'revert' => true,
+		'revert-layer' => true,
+		'default' => true,
+		'decimal' => true,
+		'disc' => true,
+		'square' => true,
+		'circle' => true,
+		'disclosure-open' => true,
+		'disclosure-closed' => true,
+		'inside' => true,
+		'outside' => true,
+	];
+
 	public function __construct(string $name, CSSStyleDeclaration $descriptors)
 	{
 		$validated = self::validateName($name);
@@ -45,7 +64,7 @@ final class CSSCounterStyleRule extends CSSAtRule
 
 	public function setNameText(string $name): void
 	{
-		$this->prelude = self::validateName($name);
+		$this->prelude = self::validateName($name, $this->resolveMaxBytesInternal());
 	}
 
 	public function getDescriptor(string $name): string
@@ -98,10 +117,10 @@ final class CSSCounterStyleRule extends CSSAtRule
 		parent::__set($name, $value);
 	}
 
-	private static function validateName(string $name): string
+	private static function validateName(string $name, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES): string
 	{
-		if (strlen($name) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-			throw new CSSParserLimitException(sprintf('CSS @counter-style name exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		if ($maxBytes !== null && strlen($name) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS @counter-style name exceeds maximum size of %d bytes.', $maxBytes));
 		}
 		$name = CSSSyntaxScanner::trimCssWhitespace($name);
 		if ($name === '') {
@@ -110,8 +129,12 @@ final class CSSCounterStyleRule extends CSSAtRule
 		if (CSSSyntaxScanner::hasControlCharacters($name)) {
 			throw new InvalidArgumentException('Invalid @counter-style name.');
 		}
-		if (CSSSyntaxScanner::scanIdentEnd($name, 0, strlen($name)) !== strlen($name)) {
+		$decoded = CSSSyntaxScanner::decodeIdentAt($name, 0, strlen($name));
+		if ($decoded === null || $decoded['end'] !== strlen($name)) {
 			throw new InvalidArgumentException('Invalid @counter-style name: ' . $name);
+		}
+		if (isset(self::DISALLOWED_NAMES[strtolower($decoded['ident'])])) {
+			throw new InvalidArgumentException('Disallowed @counter-style name: ' . $name);
 		}
 
 		return $name;

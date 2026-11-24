@@ -15,8 +15,9 @@ Magic read-only properties: `containerName`, `containerQuery`, and inherited `co
 |---|---|---|
 | `__construct(string $conditionText)` | Uses the condition text as the `@container` prelude; parent validation applies. | `$rule = new CSSContainerRule('sidebar (width > 30rem)');` |
 | `getType(): int` | Returns `CSSRule::CONTAINER_RULE`. | `$rule->getType();` |
-| `getContainerName(): string` | Returns text before the first top-level `(`, or the entire trimmed prelude when none occurs. | `$rule->getContainerName();` |
-| `getContainerQuery(): string` | Returns text from the first top-level `(` onward, or `''` when no parenthesized query occurs. | `$rule->getContainerQuery();` |
+| `getContainerName(): string` | Parses leading validated `<container-name>` via `decodeIdentAt()` (supporting CSS escapes such as `card\(1` and rejecting `none`, `and`, `not`, `or`, and CSS-wide keywords), or `''` if the prelude starts directly with a query. | `$rule->getContainerName();` |
+| `getContainerQuery(): string` | Returns the query portion following any valid `<container-name>`, or the entire trimmed prelude when unnamed. | `$rule->getContainerQuery();` |
 | `__get(string $name): mixed` | Adds `containerName` and `containerQuery`, then delegates to inherited magic access. | `$rule->containerQuery;` |
+| `__isset(string $name): bool` | True for `containerName` and `containerQuery`, otherwise delegates to parent `__isset()`. | `isset($rule->containerName);` |
 
 All inherited public methods and their behavior/examples are documented in the linked parent pages.

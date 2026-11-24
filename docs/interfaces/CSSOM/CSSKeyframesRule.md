@@ -20,9 +20,10 @@ Magic `name` reads/writes the prelude; magic read-only `length` returns the numb
 | `getLength(): int` | Returns the number of keyframe rules in `cssRules`. | `$rule->getLength();` |
 | `appendRule(string $ruleText, ?CSSParserOptions $options = null): void` | Inserts a keyframe at the end by calling `insertRule()`. It requires the rule be attached to a stylesheet; parser and bounds errors propagate. | `$rule->appendRule('to { opacity: 1 }');` |
 | `insertRule(string $ruleText, int $index = 0, ?CSSParserOptions $options = null): int` | Strictly parses a single keyframe rule via `CSSParser::parseSingleKeyframeRule()` (rejecting nested blocks and out-of-range keyframe selectors), inserts at index, and returns index. | `$rule->insertRule('from { opacity: 0 }');` |
-| `deleteRule(int|string $keyText): void` | Integer removes by list index (and can throw `OutOfBoundsException`); string removes the first case-insensitive key-text match. Missing strings are ignored. | `$rule->deleteRule('from');` |
+| `deleteRule(int|string $keyText): void` | Requires the rule to be attached to a stylesheet (`LogicException` if detached). Integer removes by list index (and can throw `OutOfBoundsException`); string removes the first case-insensitive key-text match. Missing strings are ignored. | `$rule->deleteRule('from');` |
 | `findRule(string $keyText): ?CSSKeyframeRule` | Returns first case-insensitive trimmed key-text match or `null`. | `$keyframe = $rule->findRule('50%');` |
 | `__get(string $name): mixed` | Exposes `name` and `length`; other names delegate to `CSSGroupingRule::__get()`. | `$rule->length;` |
+| `__isset(string $name): bool` | Returns `true` for `name`, `length`, or parent virtual properties. | `isset($rule->name);` |
 | `__set(string $name, mixed $value): void` | String `name` assignments call `setNameText()`; other assignments delegate to the parent. | `$rule->name = 'fade';` |
 
 Inherited grouping and CSSRule methods are documented in the linked parent pages.

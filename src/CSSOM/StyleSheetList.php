@@ -86,4 +86,9 @@ final class StyleSheetList implements ArrayAccess, Countable, IteratorAggregate
 	{
 		return $name === 'length';
 	}
+
+	public function __set(string $name, mixed $value): void
+	{
+		throw new Error('Cannot set property ' . static::class . '::$' . $name);
+	}
 }

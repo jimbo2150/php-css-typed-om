@@ -33,7 +33,7 @@ final class CSSPageRule extends CSSGroupingRule
 			$descriptors = new CSSPageDescriptors();
 			if ($style !== null) {
 				foreach ($style->getDeclarationsRaw() as $property => $declaration) {
-					$descriptors->setProperty($property, $declaration['value'], $declaration['priority']);
+					$descriptors->setValidatedProperty($property, $declaration['value'], $declaration['priority']);
 				}
 			}
 		}
@@ -80,8 +80,9 @@ final class CSSPageRule extends CSSGroupingRule
 	 */
 	public function setSelectorText(string $selector): void
 	{
-		if (strlen($selector) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-			throw new CSSParserLimitException(sprintf('CSS @page selector exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		$maxBytes = $this->resolveMaxBytesInternal();
+		if ($maxBytes !== null && strlen($selector) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS @page selector exceeds maximum size of %d bytes.', $maxBytes));
 		}
 		$selector = CSSSyntaxScanner::trimCssWhitespace($selector);
 		if ($selector !== '') {

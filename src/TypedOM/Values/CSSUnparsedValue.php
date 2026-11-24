@@ -14,7 +14,9 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use Throwable;
 use Traversable;
+use WeakReference;
 
 /**
  * Represents a sequence of CSS text fragments and `CSSVariableReferenceValue` objects.
@@ -27,10 +29,19 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 {
 	public const int MAX_UNPARSED_DEPTH = 512;
 
+	private const int MAX_PREPASS_DELIM_DEPTH = 4096;
+
+	private const int MAX_PREPASS_INDEXED_PARENS = 65_536;
+
 	/** @var list<string|CSSVariableReferenceValue> */
 	private array $values;
 
 	private ?int $maxBytes;
+
+	private int $maxDepth;
+
+	/** @var ?WeakReference<CSSVariableReferenceValue> */
+	private ?WeakReference $parentRef = null;
 
 	public int $length {
 		get => count($this->values);
@@ -44,27 +55,36 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 	{
 		$this->maxBytes = $options !== null ? $options->maxBytes : CSSParserOptions::DEFAULT_MAX_BYTES;
 		$options ??= CSSParserOptions::default();
+		$effectiveMaxDepth = $options->maxDepth !== null
+			? min(self::MAX_UNPARSED_DEPTH, $options->maxDepth)
+			: self::MAX_UNPARSED_DEPTH;
+		$this->maxDepth = $effectiveMaxDepth;
 
 		if (is_string($value)) {
 			if ($this->maxBytes !== null && strlen($value) > $this->maxBytes) {
 				throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum size of %d bytes.', $this->maxBytes));
 			}
-			$maxDepth = $options->maxDepth;
-			if ($maxDepth !== null && $depth > $maxDepth) {
-				throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', $maxDepth));
+			if ($depth > $effectiveMaxDepth) {
+				throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', $effectiveMaxDepth));
 			}
 			if ($value !== '') {
 				CSSSyntaxScanner::assertValidFragment($value, 'CSS unparsed value', [';', '{', '}']);
 			}
-			$this->values = self::parseFragmentsIterative($value, $options, $depth, $this->maxBytes);
+			$this->values = self::parseFragmentsIterative($value, $depth, $this->maxBytes, $effectiveMaxDepth);
+			foreach ($this->values as $item) {
+				if ($item instanceof CSSVariableReferenceValue) {
+					$item->setParentUnparsedInternal($this);
+				}
+			}
 			return;
 		}
 
-		$maxDepth = $options->maxDepth;
-		if ($maxDepth !== null && $depth > $maxDepth) {
-			throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', $maxDepth));
+		if ($depth > $effectiveMaxDepth) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', $effectiveMaxDepth));
 		}
-		$effectiveMaxDepth = $maxDepth !== null ? min(self::MAX_UNPARSED_DEPTH, $maxDepth) : self::MAX_UNPARSED_DEPTH;
+		if (count($value) > CSSStyleValue::MAX_LIST_ITEMS) {
+			throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
+		}
 
 		$normalized = [];
 		foreach ($value as $fragment) {
@@ -84,13 +104,19 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 		}
 		self::validateFragmentArray($normalized, $this->maxBytes);
 		$this->values = $normalized;
+		foreach ($this->values as $item) {
+			if ($item instanceof CSSVariableReferenceValue) {
+				$item->setParentUnparsedInternal($this);
+			}
+		}
 	}
 
 	/** @internal */
-	public static function createShell(?int $maxBytes): self
+	public static function createShell(?int $maxBytes, int $maxDepth = self::MAX_UNPARSED_DEPTH): self
 	{
 		$shell = new self([], CSSParserOptions::unlimited());
 		$shell->maxBytes = $maxBytes;
+		$shell->maxDepth = $maxDepth;
 		return $shell;
 	}
 
@@ -101,12 +127,98 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 	public function setParsedValuesInternal(array $fragments): void
 	{
 		$this->values = $fragments;
+		foreach ($this->values as $item) {
+			if ($item instanceof CSSVariableReferenceValue) {
+				$item->setParentUnparsedInternal($this);
+			}
+		}
 	}
 
 	/** @internal */
 	public function getMaxBytesInternal(): ?int
 	{
 		return $this->maxBytes;
+	}
+
+	/** @internal */
+	public function getMaxDepthInternal(): int
+	{
+		return $this->maxDepth;
+	}
+
+	/** @internal */
+	public function setParentRefInternal(?CSSVariableReferenceValue $parent): void
+	{
+		$this->parentRef = $parent !== null ? WeakReference::create($parent) : null;
+	}
+
+	/** @internal */
+	public function getParentRefInternal(): ?CSSVariableReferenceValue
+	{
+		return $this->parentRef?->get();
+	}
+
+	/**
+	 * @internal
+	 * @return array{root: CSSUnparsedValue|CSSVariableReferenceValue, depth: int, maxBytes: ?int, maxDepth: int}
+	 */
+	public function resolveRootBudgetInternal(): array
+	{
+		$current = $this;
+		$varDepth = 0;
+		$maxBytes = $this->maxBytes;
+		$maxDepth = $this->maxDepth;
+		$visited = [spl_object_id($this) => true];
+
+		while (true) {
+			if ($current instanceof self) {
+				$parent = $current->getParentRefInternal();
+				if ($parent === null) {
+					break;
+				}
+				$id = spl_object_id($parent);
+				if (isset($visited[$id])) {
+					break;
+				}
+				$visited[$id] = true;
+				$varDepth++;
+				$pBytes = $parent->getMaxBytesInternal();
+				if ($pBytes !== null && ($maxBytes === null || $pBytes < $maxBytes)) {
+					$maxBytes = $pBytes;
+				}
+				$pDepth = $parent->getMaxDepthInternal();
+				if ($pDepth < $maxDepth) {
+					$maxDepth = $pDepth;
+				}
+				$current = $parent;
+			} else {
+				$parent = $current->getParentUnparsedInternal();
+				if ($parent === null) {
+					break;
+				}
+				$id = spl_object_id($parent);
+				if (isset($visited[$id])) {
+					break;
+				}
+				$visited[$id] = true;
+				$pBytes = $parent->getMaxBytesInternal();
+				if ($pBytes !== null && ($maxBytes === null || $pBytes < $maxBytes)) {
+					$maxBytes = $pBytes;
+				}
+				$pDepth = $parent->getMaxDepthInternal();
+				if ($pDepth < $maxDepth) {
+					$maxDepth = $pDepth;
+				}
+				$current = $parent;
+			}
+		}
+
+		return [
+			'root' => $current,
+			'depth' => $varDepth,
+			'maxBytes' => $maxBytes,
+			'maxDepth' => $maxDepth,
+		];
 	}
 
 	/** @internal Updates only this CSSUnparsedValue node's scalar byte limit. */
@@ -206,29 +318,62 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 
 	public function offsetSet(mixed $offset, mixed $value): void
 	{
+		if ($offset !== null && (!is_int($offset) || !array_key_exists($offset, $this->values))) {
+			throw new InvalidArgumentException('Unparsed value index is out of range.');
+		}
+		if ($offset === null && count($this->values) >= CSSStyleValue::MAX_LIST_ITEMS) {
+			throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
+		}
+
+		$budget = $this->resolveRootBudgetInternal();
+		$root = $budget['root'];
+		$ancestorVarDepth = $budget['depth'];
+		$strictestMaxBytes = $budget['maxBytes'];
+		$strictestMaxDepth = $budget['maxDepth'];
+
 		if (is_string($value)) {
 			if (CSSSyntaxScanner::hasControlCharacters($value)) {
 				throw new InvalidArgumentException('CSS unparsed fragment contains disallowed control characters.');
 			}
 		} elseif ($value instanceof CSSVariableReferenceValue) {
-			$this->assertNoReferenceCycleAndDepth($value, 0, self::MAX_UNPARSED_DEPTH);
+			$this->assertNoReferenceCycleAndDepth($value, $ancestorVarDepth, $strictestMaxDepth);
 			$value = $value->clone();
-			$value->clampMaxBytesInternal($this->maxBytes);
+			$value->clampMaxBytesInternal($strictestMaxBytes);
 		} else {
 			throw new InvalidArgumentException('Unparsed values contain only strings and variable references.');
 		}
 
+		$previous = $offset === null ? null : $this->values[$offset];
 		$next = $this->values;
 		if ($offset === null) {
 			$next[] = $value;
-		} elseif (!is_int($offset) || !array_key_exists($offset, $next)) {
-			throw new InvalidArgumentException('Unparsed value index is out of range.');
 		} else {
 			$next[$offset] = $value;
 		}
 
-		self::validateFragmentArray($next, $this->maxBytes);
+		self::validateFragmentArray($next, $strictestMaxBytes);
+
+		$oldValues = $this->values;
 		$this->values = $next;
+		if ($root !== $this) {
+			try {
+				if ($root instanceof self) {
+					self::stringifyIteratively($root->values, $strictestMaxBytes);
+				} else {
+					$root->assertRenderedWithinMaxBytesInternal($strictestMaxBytes);
+				}
+			} catch (Throwable $e) {
+				$this->values = $oldValues;
+				throw $e;
+			}
+		}
+
+		if ($previous instanceof CSSVariableReferenceValue && $previous !== $value) {
+			$previous->setParentUnparsedInternal(null);
+		}
+		if ($value instanceof CSSVariableReferenceValue) {
+			$value->setParentUnparsedInternal($this);
+		}
 	}
 
 	public function offsetUnset(mixed $offset): void
@@ -236,10 +381,30 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 		if (!is_int($offset) || !array_key_exists($offset, $this->values)) {
 			throw new InvalidArgumentException('Unparsed value index is out of range.');
 		}
+		$budget = $this->resolveRootBudgetInternal();
+		$removed = $this->values[$offset];
 		$next = $this->values;
 		array_splice($next, $offset, 1);
-		self::validateFragmentArray($next, $this->maxBytes);
+		self::validateFragmentArray($next, $budget['maxBytes']);
+
+		$oldValues = $this->values;
 		$this->values = $next;
+		if ($budget['root'] !== $this) {
+			try {
+				if ($budget['root'] instanceof self) {
+					self::stringifyIteratively($budget['root']->values, $budget['maxBytes']);
+				} else {
+					$budget['root']->assertRenderedWithinMaxBytesInternal($budget['maxBytes']);
+				}
+			} catch (Throwable $e) {
+				$this->values = $oldValues;
+				throw $e;
+			}
+		}
+
+		if ($removed instanceof CSSVariableReferenceValue) {
+			$removed->setParentUnparsedInternal(null);
+		}
 	}
 
 	/** @return Traversable<int, string|CSSVariableReferenceValue> */
@@ -250,14 +415,16 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 
 	public function __clone(): void
 	{
+		$this->parentRef = null;
 		// Iteratively clone descendant var() / unparsed trees with scalar limit propagation (O(N), O(1) PHP frames).
-		$stack = [[&$this->values, 0, $this->maxBytes]];
+		$stack = [[&$this->values, 0, $this->maxBytes, $this]];
 		while ($stack !== []) {
 			$entry = array_pop($stack);
 			/** @var list<string|CSSVariableReferenceValue> $list */
 			$list = &$entry[0];
 			$depth = $entry[1];
 			$effectiveLimit = $entry[2];
+			$ownerUnparsed = $entry[3];
 			if ($depth > self::MAX_UNPARSED_DEPTH) {
 				throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', self::MAX_UNPARSED_DEPTH));
 			}
@@ -265,14 +432,16 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 				if ($item instanceof CSSVariableReferenceValue) {
 					$clonedRef = $item->shallowCloneInternal();
 					$clonedRef->clampMaxBytesScalarInternal($effectiveLimit);
+					$clonedRef->setParentUnparsedInternal($ownerUnparsed);
 					$refLimit = $clonedRef->getMaxBytesInternal();
 					$list[$i] = $clonedRef;
 					$fb = $clonedRef->getFallback();
 					if ($fb !== null) {
 						$clonedFb = $fb->shallowCloneInternal();
 						$clonedFb->clampMaxBytesScalarInternal($refLimit);
+						$clonedFb->setParentRefInternal($clonedRef);
 						$clonedRef->setFallbackInternal($clonedFb);
-						$stack[] = [&$clonedFb->values, $depth + 1, $clonedFb->maxBytes];
+						$stack[] = [&$clonedFb->values, $depth + 1, $clonedFb->maxBytes, $clonedFb];
 					}
 				}
 			}
@@ -285,6 +454,7 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 	{
 		$copy = new self([], CSSParserOptions::unlimited());
 		$copy->maxBytes = $this->maxBytes;
+		$copy->maxDepth = $this->maxDepth;
 		$copy->values = $this->values;
 		return $copy;
 	}
@@ -510,7 +680,7 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 	}
 
 	/** @return list<string|CSSVariableReferenceValue> */
-	private static function parseFragmentsIterative(string $source, CSSParserOptions $options, int $rootDepth, ?int $maxBytes): array
+	private static function parseFragmentsIterative(string $source, int $rootDepth, ?int $maxBytes, int $effectiveMaxDepth): array
 	{
 		if (stripos($source, 'var(') === false && !str_contains($source, '\\')) {
 			return [$source];
@@ -521,6 +691,8 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 		$matchingParens = [];
 		$parenHasForbidden = [];
 		$delimStack = [];
+		$maxDelimDepth = max(self::MAX_PREPASS_DELIM_DEPTH, $effectiveMaxDepth * 4);
+		$indexedParens = 0;
 		$offset = 0;
 		$lastEscapeOffset = -1;
 		$mask = "\\\"'/();{}[]";
@@ -562,6 +734,9 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 				}
 				if ($ch === '{' || $ch === '[') {
 					$delimStack[] = [$ch, $offset];
+					if (count($delimStack) > $maxDelimDepth) {
+						throw new CSSParserLimitException(sprintf('Maximum CSS nesting depth of %d exceeded.', $maxDelimDepth));
+					}
 				} elseif (($ch === '}' && $topDelim !== null && $topDelim[0] === '{')
 					|| ($ch === ']' && $topDelim !== null && $topDelim[0] === '[')
 				) {
@@ -577,7 +752,13 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 					$offset = $urlEnd < $length ? $urlEnd + 1 : $length;
 					continue;
 				}
+				if (++$indexedParens > self::MAX_PREPASS_INDEXED_PARENS) {
+					throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum limit of %d parenthesized groups.', self::MAX_PREPASS_INDEXED_PARENS));
+				}
 				$delimStack[] = ['(', $offset];
+				if (count($delimStack) > $maxDelimDepth) {
+					throw new CSSParserLimitException(sprintf('Maximum CSS nesting depth of %d exceeded.', $maxDelimDepth));
+				}
 				$offset++;
 				continue;
 			}
@@ -674,9 +855,8 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 									$pos++;
 									continue;
 								}
-								$maxAllowedDepth = $options->maxDepth;
-								if ($maxAllowedDepth !== null && ($depth + 1) > $maxAllowedDepth) {
-									throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', $maxAllowedDepth));
+								if (($depth + 1) > $effectiveMaxDepth) {
+									throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', $effectiveMaxDepth));
 								}
 
 								$fbObj = null;
@@ -689,16 +869,22 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 									while ($fbEnd > $fbStart && str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$fbEnd - 1])) {
 										$fbEnd--;
 									}
-									$fbObj = self::createShell($maxBytes);
+									$fbObj = self::createShell($maxBytes, $effectiveMaxDepth);
 									if ($fbStart < $fbEnd) {
 										$workStack[] = [$fbStart, $fbEnd, $depth + 1, $fbObj];
 									}
 								}
 
 								if ($varStart > $fragmentStart) {
+									if (count($fragments) >= CSSStyleValue::MAX_LIST_ITEMS) {
+										throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
+									}
 									$fragments[] = substr($source, $fragmentStart, $varStart - $fragmentStart);
 								}
-								$fragments[] = CSSVariableReferenceValue::createParsed($normalizedVariable, $fbObj, $maxBytes);
+								if (count($fragments) >= CSSStyleValue::MAX_LIST_ITEMS) {
+									throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
+								}
+								$fragments[] = CSSVariableReferenceValue::createParsed($normalizedVariable, $fbObj, $maxBytes, $effectiveMaxDepth);
 								$pos = $close + 1;
 								$fragmentStart = $pos;
 								continue;
@@ -720,6 +906,9 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 			}
 
 			if ($fragmentStart < $sliceEnd || $fragments === []) {
+				if (count($fragments) >= CSSStyleValue::MAX_LIST_ITEMS) {
+					throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
+				}
 				$fragments[] = substr($source, $fragmentStart, $sliceEnd - $fragmentStart);
 			}
 

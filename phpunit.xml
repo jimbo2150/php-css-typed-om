@@ -11,6 +11,8 @@
 	failOnWarning="true"
 	failOnDeprecation="true"
 	failOnPhpunitDeprecation="true"
+	failOnIncomplete="true"
+	failOnSkipped="true"
 	failOnRisky="true">
 	<testsuites>
 		<testsuite name="Unit">

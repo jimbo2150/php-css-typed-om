@@ -60,9 +60,10 @@ final class CSSFontFeatureValuesMap implements Countable, IteratorAggregate
 	 */
 	public function set(string $name, int|array $values): void
 	{
-		[$name, $normalizedValues] = self::validateFeatureEntry($name, $values, CSSParserOptions::DEFAULT_MAX_BYTES);
-		$isNewKey = !array_key_exists($name, $this->values);
 		$sheet = $this->ownerRule?->getParentStyleSheet();
+		$maxBytes = $sheet !== null ? $sheet->getMaxBytesInternal() : CSSParserOptions::DEFAULT_MAX_BYTES;
+		[$name, $normalizedValues] = self::validateFeatureEntry($name, $values, $maxBytes);
+		$isNewKey = !array_key_exists($name, $this->values);
 
 		if ($isNewKey) {
 			if ($sheet !== null) {
@@ -125,7 +126,11 @@ final class CSSFontFeatureValuesMap implements Countable, IteratorAggregate
 			throw new CSSParserLimitException(sprintf('CSS font feature name exceeds maximum size of %d bytes.', $maxBytes));
 		}
 		$name = CSSSyntaxScanner::trimCssWhitespace($name);
-		if ($name === '' || CSSSyntaxScanner::hasControlCharacters($name) || CSSSyntaxScanner::scanIdentEnd($name, 0, strlen($name)) !== strlen($name)) {
+		if ($name === '' || CSSSyntaxScanner::hasControlCharacters($name)) {
+			throw new InvalidArgumentException('A valid non-empty font feature identifier is required.');
+		}
+		$decoded = CSSSyntaxScanner::decodeIdentAt($name, 0, strlen($name));
+		if ($decoded === null || $decoded['end'] !== strlen($name)) {
 			throw new InvalidArgumentException('A valid non-empty font feature identifier is required.');
 		}
 		if (is_int($values)) {
@@ -206,5 +211,10 @@ final class CSSFontFeatureValuesMap implements Countable, IteratorAggregate
 	public function __isset(string $name): bool
 	{
 		return $name === 'size';
+	}
+
+	public function __set(string $name, mixed $value): void
+	{
+		throw new Error('Cannot set property ' . static::class . '::$' . $name);
 	}
 }

@@ -830,6 +830,8 @@ abstract class CSSColorValue extends CSSStyleValue
 		$out = '';
 		$chunkStart = 0;
 		$i = 0;
+		$lastEscapeEnd = -1;
+		$lastEscapeWasBareHex = false;
 
 		while ($i < $len) {
 			$ch = $body[$i];
@@ -842,6 +844,44 @@ abstract class CSSColorValue extends CSSStyleValue
 					$quote = '';
 				}
 				$i++;
+				continue;
+			}
+
+			if ($ch === '\\') {
+				if ($i + 1 >= $len) {
+					$lastEscapeEnd = $len;
+					$lastEscapeWasBareHex = false;
+					$i = $len;
+				} else {
+					$hexLen = strspn($body, '0123456789abcdefABCDEF', $i + 1, min(6, $len - ($i + 1)));
+					if ($hexLen > 0) {
+						$endEsc = $i + 1 + $hexLen;
+						$consumedWs = false;
+						if ($endEsc < $len) {
+							$ws = $body[$endEsc];
+							if ($ws === "\r" && $endEsc + 1 < $len && $body[$endEsc + 1] === "\n") {
+								$endEsc += 2;
+								$consumedWs = true;
+							} elseif ($ws === ' ' || $ws === "\t" || $ws === "\n" || $ws === "\r" || $ws === "\f") {
+								$endEsc++;
+								$consumedWs = true;
+							}
+						}
+						$lastEscapeEnd = $endEsc;
+						$lastEscapeWasBareHex = !$consumedWs;
+						$i = $endEsc;
+					} else {
+						$escapedByte = $body[$i + 1];
+						if ($escapedByte === "\n" || $escapedByte === "\r" || $escapedByte === "\f") {
+							$lastEscapeWasBareHex = false;
+							$i++;
+						} else {
+							$lastEscapeEnd = $i + 2;
+							$lastEscapeWasBareHex = false;
+							$i = $lastEscapeEnd;
+						}
+					}
+				}
 				continue;
 			}
 
@@ -863,10 +903,12 @@ abstract class CSSColorValue extends CSSStyleValue
 				continue;
 			}
 			if ($ch === '/' && $i + 1 < $len && $body[$i + 1] === '*') {
+				$prevWasBareHex = $lastEscapeEnd === $i && $lastEscapeWasBareHex;
 				$end = strpos($body, '*/', $i + 2);
 				$commentEnd = $end === false ? $len : $end + 2;
 				if ($depth === 0) {
-					$out .= substr($body, $chunkStart, $i - $chunkStart) . ' ';
+					$sep = $prevWasBareHex ? '  ' : ' ';
+					$out .= substr($body, $chunkStart, $i - $chunkStart) . $sep;
 					$chunkStart = $commentEnd;
 				}
 				$i = $commentEnd;
@@ -889,10 +931,11 @@ abstract class CSSColorValue extends CSSStyleValue
 	 */
 	private static function splitColorArguments(string $body, bool $allowLegacyComma): array
 	{
-		$commaParts = str_contains($body, ',') ? CSSSyntaxScanner::splitTopLevel($body, ',') : [$body];
+		$maxParts = CSSColor::MAX_CUSTOM_CHANNELS + 4;
+		$commaParts = str_contains($body, ',') ? CSSSyntaxScanner::splitTopLevel($body, ',', 0, null, $maxParts) : [$body];
 
 		if (count($commaParts) > 1) {
-			if (!$allowLegacyComma || (str_contains($body, '/') && count(CSSSyntaxScanner::splitTopLevel($body, '/')) > 1)) {
+			if (!$allowLegacyComma || (str_contains($body, '/') && count(CSSSyntaxScanner::splitTopLevel($body, '/', 0, null, $maxParts)) > 1)) {
 				throw new InvalidArgumentException('Invalid comma syntax in CSS color function.');
 			}
 			$trimmed = [];
@@ -912,15 +955,15 @@ abstract class CSSColorValue extends CSSStyleValue
 			throw new InvalidArgumentException('Invalid argument count in legacy CSS color function.');
 		}
 
-		$slashParts = str_contains($body, '/') ? CSSSyntaxScanner::splitTopLevel($body, '/') : [$body];
+		$slashParts = str_contains($body, '/') ? CSSSyntaxScanner::splitTopLevel($body, '/', 0, null, $maxParts) : [$body];
 		if (count($slashParts) > 2) {
 			throw new InvalidArgumentException('Too many "/" separators in CSS color function.');
 		}
 
-		$channels = CSSSyntaxScanner::splitTopLevelWhitespace(CSSSyntaxScanner::trimCssWhitespace($slashParts[0]));
+		$channels = CSSSyntaxScanner::splitTopLevelWhitespace(CSSSyntaxScanner::trimCssWhitespace($slashParts[0]), 0, null, $maxParts);
 		$alpha = null;
 		if (count($slashParts) === 2) {
-			$alphaTokens = CSSSyntaxScanner::splitTopLevelWhitespace(CSSSyntaxScanner::trimCssWhitespace($slashParts[1]));
+			$alphaTokens = CSSSyntaxScanner::splitTopLevelWhitespace(CSSSyntaxScanner::trimCssWhitespace($slashParts[1]), 0, null, $maxParts);
 			if (count($alphaTokens) !== 1) {
 				throw new InvalidArgumentException('Invalid alpha component in CSS color function.');
 			}
@@ -939,7 +982,14 @@ abstract class CSSColorValue extends CSSStyleValue
 		if ($token === '') {
 			throw new InvalidArgumentException('Empty color component.');
 		}
+		$decodedNone = false;
 		if (strcasecmp($token, 'none') === 0) {
+			$decodedNone = true;
+		} elseif (str_contains($token, '\\')) {
+			$ident = CSSSyntaxScanner::decodeIdentAt($token, 0, strlen($token));
+			$decodedNone = $ident !== null && $ident['end'] === strlen($token) && strcasecmp($ident['ident'], 'none') === 0;
+		}
+		if ($decodedNone) {
 			if (!$allowNone) {
 				throw new InvalidArgumentException('"none" keyword is not allowed in legacy comma-separated color syntax.');
 			}
@@ -1122,10 +1172,13 @@ abstract class CSSColorValue extends CSSStyleValue
 		}
 
 		$rawSpace = CSSSyntaxScanner::trimCssWhitespace(array_shift($tokens));
-		if (str_starts_with($rawSpace, '--')) {
+		$decodedSpace = CSSSyntaxScanner::decodeIdentAt($rawSpace, 0, strlen($rawSpace));
+		if ($decodedSpace !== null && $decodedSpace['end'] === strlen($rawSpace) && str_starts_with($decodedSpace['ident'], '--')) {
 			$space = new CSSKeywordValue(CSSStyleDeclaration::normalizePropertyName($rawSpace));
 		} else {
-			$lower = strtolower($rawSpace);
+			$lower = ($decodedSpace !== null && $decodedSpace['end'] === strlen($rawSpace))
+				? strtolower($decodedSpace['ident'])
+				: strtolower($rawSpace);
 			if (!isset(CSSColor::PREDEFINED_SPACES[$lower])) {
 				throw new InvalidArgumentException('Unsupported CSS color space: ' . $rawSpace);
 			}

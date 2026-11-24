@@ -205,11 +205,13 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	 */
 	public function setProperty(string $property, string $value, string $priority = ''): void
 	{
-		if (strlen($property) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-			throw new CSSParserLimitException(sprintf('CSS property name exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		$sheet = $this->ownerRule?->getParentStyleSheet();
+		$maxBytes = $sheet !== null ? $sheet->getMaxBytesInternal() : CSSParserOptions::DEFAULT_MAX_BYTES;
+		if ($maxBytes !== null && strlen($property) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS property name exceeds maximum size of %d bytes.', $maxBytes));
 		}
-		if (strlen($value) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-			throw new CSSParserLimitException(sprintf('CSS property value exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		if ($maxBytes !== null && strlen($value) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS property value exceeds maximum size of %d bytes.', $maxBytes));
 		}
 
 		$name = self::normalizePropertyName($property);
@@ -222,7 +224,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			throw new InvalidArgumentException(sprintf('!important is not allowed in %s.', static::class));
 		}
 
-		$value = trim($value, self::CSS_WHITESPACE);
+		$value = str_contains($value, '\\')
+			? CSSSyntaxScanner::trimCssWhitespace($value)
+			: trim($value, self::CSS_WHITESPACE);
 		if ($value === '') {
 			$delta = isset($this->declarations[$name]) ? -1 : 0;
 			unset($this->declarations[$name]);
@@ -232,6 +236,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		}
 
 		self::validatePropertyValue($value);
+		if (!str_starts_with($name, '--') && str_contains($value, '/*') && CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($value)) === '') {
+			throw new InvalidArgumentException('CSS property value cannot be empty.');
+		}
 		$delta = isset($this->declarations[$name]) ? 0 : 1;
 		$this->assertSheetDeclarationGrowth($delta, null);
 		$this->declarations[$name] = ['value' => $value, 'priority' => $priority];
@@ -317,12 +324,19 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	public function setCssText(string $cssText, ?CSSParserOptions $options = null): void
 	{
 		$effectiveOptions = $this->ownerRule?->getParentStyleSheet()?->resolveParserOptionsInternal($options) ?? $options;
-		$replacement = static::parse($cssText, true, $diagnostics, $effectiveOptions);
+		$allowEmptyInitialValue = $this->ownerRule instanceof CSSPropertyRule;
+		$sawEmptyInitialValue = false;
+		$replacement = new static();
+		$detailed = [];
+		$replacement->parseInto($cssText, true, $detailed, 0, $effectiveOptions, $allowEmptyInitialValue, $sawEmptyInitialValue);
 		$delta = count($replacement->declarations) - count($this->declarations);
 		$this->assertSheetDeclarationGrowth($delta, $effectiveOptions);
 		$this->declarations = $replacement->declarations;
 		$this->cachedKeys = null;
 		$this->notifySheetMutation($delta, true);
+		if ($this->ownerRule instanceof CSSPropertyRule) {
+			$this->ownerRule->setEmptyInitialValueInternal($sawEmptyInitialValue);
+		}
 	}
 
 	private function assertSheetDeclarationGrowth(int $delta, ?CSSParserOptions $overrideOptions): void
@@ -450,26 +464,43 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			}
 		}
 
-		$property = trim($property, self::CSS_WHITESPACE);
+		$hasBackslash = str_contains($property, '\\');
+		$property = $hasBackslash
+			? CSSSyntaxScanner::trimCssWhitespace($property)
+			: trim($property, self::CSS_WHITESPACE);
 		if (CSSSyntaxScanner::hasControlCharacters($property)) {
 			throw new InvalidArgumentException('Invalid CSS property name.');
 		}
 		if (str_starts_with($property, '--')) {
-			if (!preg_match('/^--(?:[-_a-zA-Z0-9]|[^\x00-\x7F]|' . CSSSyntaxScanner::IDENT_ESCAPE_REGEX . ')+$/uD', $property)) {
+			if ($hasBackslash) {
+				$decoded = CSSSyntaxScanner::decodeIdentAt($property, 0, strlen($property));
+				if ($decoded === null || $decoded['end'] !== strlen($property) || strlen($decoded['ident']) <= 2) {
+					throw new InvalidArgumentException('Invalid CSS custom property name: ' . $property);
+				}
+			} elseif (!preg_match('/^--(?:[-_a-zA-Z0-9]|[^\x00-\x7F])+$/uD', $property)) {
 				throw new InvalidArgumentException('Invalid CSS custom property name: ' . $property);
 			}
+
 			return $property;
 		}
 
-		if (str_contains($property, '\\')) {
-			if (CSSSyntaxScanner::scanIdentEnd($property, 0, strlen($property)) !== strlen($property)) {
+		if ($hasBackslash) {
+			$decoded = CSSSyntaxScanner::decodeIdentAt($property, 0, strlen($property));
+			if ($decoded === null || $decoded['end'] !== strlen($property)) {
 				throw new InvalidArgumentException('Invalid CSS property name: ' . $property);
 			}
-			$decoded = CSSSyntaxScanner::decodeCssIdentEscapes($property);
-			if (CSSSyntaxScanner::hasControlCharacters($decoded) || !preg_match('/^-?[a-zA-Z_][a-zA-Z0-9_-]*$/D', $decoded)) {
+			if (str_starts_with($decoded['ident'], '--')) {
+				if (strlen($decoded['ident']) <= 2) {
+					throw new InvalidArgumentException('Invalid CSS custom property name: ' . $property);
+				}
+
+				return '--' . substr($property, self::findAfterLeadingTwoHyphens($property));
+			}
+			if (!preg_match('/^-?[a-zA-Z_][a-zA-Z0-9_-]*$/D', $decoded['ident'])) {
 				throw new InvalidArgumentException('Invalid CSS property name: ' . $property);
 			}
-			return strtolower($decoded);
+
+			return strtolower($decoded['ident']);
 		}
 
 		if (!preg_match('/^-?[a-zA-Z_][a-zA-Z0-9_-]*$/D', $property)) {
@@ -477,6 +508,35 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		}
 
 		return strtolower($property);
+	}
+
+	private static function findAfterLeadingTwoHyphens(string $raw): int
+	{
+		$length = strlen($raw);
+		$pos = 0;
+		for ($i = 0; $i < 2; $i++) {
+			if ($pos < $length && $raw[$pos] === '-') {
+				$pos++;
+				continue;
+			}
+			$next = $pos + 1;
+			$hexLen = strspn($raw, '0123456789abcdefABCDEF', $next, min(6, $length - $next));
+			if ($hexLen > 0) {
+				$pos = $next + $hexLen;
+				if ($pos < $length) {
+					$ws = $raw[$pos];
+					if ($ws === "\r" && $pos + 1 < $length && $raw[$pos + 1] === "\n") {
+						$pos += 2;
+					} elseif (str_contains(self::CSS_WHITESPACE, $ws)) {
+						$pos++;
+					}
+				}
+			} else {
+				$pos += 2;
+			}
+		}
+
+		return $pos;
 	}
 
 	/**
@@ -637,8 +697,14 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			return true;
 		}
 
-		$property = trim(substr($declaration, 0, $colon), self::CSS_WHITESPACE);
-		$value = trim(substr($declaration, $colon + 1), self::CSS_WHITESPACE);
+		$rawProp = substr($declaration, 0, $colon);
+		$property = str_contains($rawProp, '\\')
+			? CSSSyntaxScanner::trimCssWhitespace($rawProp)
+			: trim($rawProp, self::CSS_WHITESPACE);
+		$rawVal = substr($declaration, $colon + 1);
+		$value = str_contains($rawVal, '\\')
+			? CSSSyntaxScanner::trimCssWhitespace($rawVal)
+			: trim($rawVal, self::CSS_WHITESPACE);
 
 		try {
 			$name = self::normalizePropertyName($property);
@@ -669,7 +735,10 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 					return true;
 				}
 				$priority = 'important';
-				$value = rtrim(substr($value, 0, $important), self::CSS_WHITESPACE);
+				$beforeBang = substr($value, 0, $important);
+				$value = str_contains($beforeBang, '\\')
+					? CSSSyntaxScanner::trimCssWhitespace($beforeBang)
+					: rtrim($beforeBang, self::CSS_WHITESPACE);
 				if ($value !== '' && str_contains($value, '!') && CSSSyntaxScanner::findLastTopLevelImportant($value) !== null) {
 					self::handleInvalidDeclaration('Duplicate !important in CSS declaration (' . $name . ').', $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
 					return true;
@@ -744,6 +813,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		array &$diagnostics,
 		int $baseOffset,
 		?CSSParserOptions $options = null,
+		bool $allowEmptyInitialValue = false,
+		bool &$sawEmptyInitialValue = false,
 	): void {
 		$options ??= CSSParserOptions::default();
 		if ($options->maxBytes !== null && strlen($cssText) > $options->maxBytes) {
@@ -761,6 +832,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		$offset = 0;
 		$declarationCount = 0;
 		$initialDiagCount = count($diagnostics);
+		$sawEmptyInitialValue = false;
 
 		while ($offset < $length) {
 			$next = CSSSyntaxScanner::findTopLevel($cssText, ';', $offset, $length);
@@ -774,6 +846,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				$options,
 				$declarationCount,
 				$strict,
+				false,
+				$allowEmptyInitialValue,
+				$sawEmptyInitialValue,
 			);
 			if (!$ok) {
 				break;

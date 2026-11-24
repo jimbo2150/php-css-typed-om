@@ -562,10 +562,23 @@ abstract class CSS
 					break;
 				}
 				if ($offset < $length && $clean[$offset] === '(') {
-					$ident = substr($clean, $start, $offset - $start);
-					$decoded = str_contains($ident, '\\') ? CSSSyntaxScanner::decodeCssIdentEscapes($ident) : $ident;
-					if (strcasecmp($decoded, 'var') === 0) {
-						return true;
+					$prevByte = $start > 0 ? $clean[$start - 1] : null;
+					$precededByBoundaryBreak = $prevByte !== null && (
+						$prevByte === '#'
+						|| $prevByte === '@'
+						|| ($prevByte >= '0' && $prevByte <= '9')
+						|| ($prevByte >= 'a' && $prevByte <= 'z')
+						|| ($prevByte >= 'A' && $prevByte <= 'Z')
+						|| $prevByte === '_'
+						|| $prevByte === '-'
+						|| ord($prevByte) >= 0x80
+					);
+					if (!$precededByBoundaryBreak) {
+						$ident = substr($clean, $start, $offset - $start);
+						$decoded = str_contains($ident, '\\') ? CSSSyntaxScanner::decodeCssIdentEscapes($ident) : $ident;
+						if (strcasecmp($decoded, 'var') === 0) {
+							return true;
+						}
 					}
 				}
 				continue;

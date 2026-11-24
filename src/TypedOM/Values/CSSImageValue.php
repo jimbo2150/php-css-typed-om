@@ -22,10 +22,11 @@ final class CSSImageValue extends CSSStyleValue
 	/**
 	 * @throws InvalidArgumentException When $image is not a single balanced CSS image function or exceeds size limits
 	 */
-	public function __construct(string $image)
+	public function __construct(string $image, ?CSSParserOptions $options = null)
 	{
-		if (strlen($image) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-			throw new CSSParserLimitException(sprintf('CSS image value exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		$maxBytes = $options !== null ? $options->maxBytes : CSSParserOptions::DEFAULT_MAX_BYTES;
+		if ($maxBytes !== null && strlen($image) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS image value exceeds maximum size of %d bytes.', $maxBytes));
 		}
 		$image = CSSSyntaxScanner::trimCssWhitespace($image);
 		if ($image === '' || CSSSyntaxScanner::hasControlCharacters($image) || !CSSSyntaxScanner::isBalanced($image)) {

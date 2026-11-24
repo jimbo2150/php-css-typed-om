@@ -7,7 +7,9 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM;
 use Countable;
 use Error;
 use Generator;
+use InvalidArgumentException;
 use IteratorAggregate;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
@@ -31,9 +33,26 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 	{
 	}
 
+	protected function resolveSheetParserOptions(): CSSParserOptions
+	{
+		$sheet = $this->style->getParentRule()?->getParentStyleSheet();
+
+		return $sheet !== null ? $sheet->resolveParserOptionsInternal(null) : CSSParserOptions::default();
+	}
+
+	protected function normalizeBoundedPropertyName(string $property, CSSParserOptions $options): string
+	{
+		if ($options->maxBytes !== null && strlen($property) > $options->maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS property name exceeds maximum size of %d bytes.', $options->maxBytes));
+		}
+
+		return CSSStyleDeclaration::normalizePropertyName($property);
+	}
+
 	public function get(string $property): ?CSSStyleValue
 	{
-		$normalized = CSSStyleDeclaration::normalizePropertyName($property);
+		$options = $this->resolveSheetParserOptions();
+		$normalized = $this->normalizeBoundedPropertyName($property, $options);
 		$declaration = $this->style->getDeclarationsRaw()[$normalized] ?? null;
 		if ($declaration === null) {
 			return null;
@@ -43,7 +62,6 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 			return new CSSUnparsedValue([]);
 		}
 
-		$options = CSSParserOptions::default();
 		if (str_starts_with($normalized, '--')) {
 			return CSSStyleValue::parseValidated($normalized, $value, $options);
 		}
@@ -65,20 +83,22 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 	/** @return list<CSSStyleValue> */
 	public function getAll(string $property): array
 	{
-		$normalized = CSSStyleDeclaration::normalizePropertyName($property);
+		$options = $this->resolveSheetParserOptions();
+		$normalized = $this->normalizeBoundedPropertyName($property, $options);
 		$declaration = $this->style->getDeclarationsRaw()[$normalized] ?? null;
 		if ($declaration === null) {
 			return [];
 		}
 
-		return $declaration['value'] === ''
-			? [new CSSUnparsedValue([])]
-			: CSSStyleValue::parseAllValidated($normalized, $declaration['value'], CSSParserOptions::default());
+		return $this->parseAllDeclarationValues($normalized, $declaration['value'], $options);
 	}
 
 	public function has(string $property): bool
 	{
-		return $this->style->offsetExists($property);
+		$options = $this->resolveSheetParserOptions();
+		$normalized = $this->normalizeBoundedPropertyName($property, $options);
+
+		return isset($this->style->getDeclarationsRaw()[$normalized]);
 	}
 
 	public function count(): int
@@ -105,12 +125,10 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 	/** @return list<list<CSSStyleValue>> */
 	public function values(): array
 	{
-		$options = CSSParserOptions::default();
+		$options = $this->resolveSheetParserOptions();
 		$values = [];
 		foreach ($this->style->getDeclarationsRaw() as $property => $declaration) {
-			$values[] = $declaration['value'] === ''
-				? [new CSSUnparsedValue([])]
-				: CSSStyleValue::parseAllValidated($property, $declaration['value'], $options);
+			$values[] = $this->parseAllDeclarationValues($property, $declaration['value'], $options);
 		}
 		return $values;
 	}
@@ -118,13 +136,10 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 	/** @return list<array{string, list<CSSStyleValue>}> */
 	public function entries(): array
 	{
-		$options = CSSParserOptions::default();
+		$options = $this->resolveSheetParserOptions();
 		$entries = [];
 		foreach ($this->style->getDeclarationsRaw() as $property => $declaration) {
-			$parsed = $declaration['value'] === ''
-				? [new CSSUnparsedValue([])]
-				: CSSStyleValue::parseAllValidated($property, $declaration['value'], $options);
-			$entries[] = [$property, $parsed];
+			$entries[] = [$property, $this->parseAllDeclarationValues($property, $declaration['value'], $options)];
 		}
 		return $entries;
 	}
@@ -134,12 +149,9 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 	 */
 	public function forEach(callable $callback): void
 	{
-		$options = CSSParserOptions::default();
+		$options = $this->resolveSheetParserOptions();
 		foreach ($this->style->getDeclarationsRaw() as $property => $declaration) {
-			$parsed = $declaration['value'] === ''
-				? [new CSSUnparsedValue([])]
-				: CSSStyleValue::parseAllValidated($property, $declaration['value'], $options);
-			$callback($parsed, $property, $this);
+			$callback($this->parseAllDeclarationValues($property, $declaration['value'], $options), $property, $this);
 		}
 	}
 
@@ -147,13 +159,33 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 	public function getIterator(): Traversable
 	{
 		return (function (): Generator {
-			$options = CSSParserOptions::default();
+			$options = $this->resolveSheetParserOptions();
 			foreach ($this->style->getDeclarationsRaw() as $property => $declaration) {
-				yield $property => $declaration['value'] === ''
-					? [new CSSUnparsedValue([])]
-					: CSSStyleValue::parseAllValidated($property, $declaration['value'], $options);
+				yield $property => $this->parseAllDeclarationValues($property, $declaration['value'], $options);
 			}
 		})();
+	}
+
+	/** @return list<CSSStyleValue> */
+	private function parseAllDeclarationValues(string $property, string $value, CSSParserOptions $options): array
+	{
+		if ($value === '') {
+			return [new CSSUnparsedValue([])];
+		}
+		if (!str_starts_with($property, '--') && preg_match('/^[,\s\t\n\r\f]+$/D', $value) === 1) {
+			return [];
+		}
+
+		try {
+			return CSSStyleValue::parseAllValidated($property, $value, $options);
+		} catch (CSSParserLimitException $e) {
+			throw $e;
+		} catch (InvalidArgumentException $e) {
+			if (!str_starts_with($property, '--') && $e->getMessage() === 'CSS value list cannot be empty.') {
+				return [];
+			}
+			throw $e;
+		}
 	}
 
 	public function __get(string $name): mixed

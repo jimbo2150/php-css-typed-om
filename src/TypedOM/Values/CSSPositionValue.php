@@ -60,7 +60,11 @@ final class CSSPositionValue extends CSSStyleValue
 			CSSSyntaxScanner::assertValidFragment($cssText, 'CSS position', [';', '{', '}']);
 		}
 
-		$parts = CSSSyntaxScanner::splitTopLevelWhitespace(CSSSyntaxScanner::trimCssWhitespace($cssText));
+		try {
+			$parts = CSSSyntaxScanner::splitTopLevelWhitespace(CSSSyntaxScanner::trimCssWhitespace($cssText), 0, null, 3);
+		} catch (CSSParserLimitException) {
+			throw new InvalidArgumentException('Only one- and two-component positions are supported.');
+		}
 		if ($parts === [] || count($parts) > 2) {
 			throw new InvalidArgumentException('Only one- and two-component positions are supported.');
 		}

@@ -26,11 +26,17 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 	 */
 	public function set(string $property, CSSStyleValue|string|array ...$values): void
 	{
-		$normalized = CSSStyleDeclaration::normalizePropertyName($property);
-		$options = CSSParserOptions::default();
+		$options = $this->resolveSheetParserOptions();
+		$normalized = $this->normalizeBoundedPropertyName($property, $options);
 		[$serialized, $partCount] = $this->serializeValues($normalized, $values, $options);
 		if ($options->maxBytes !== null && strlen($serialized) > $options->maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS property value exceeds maximum size of %d bytes.', $options->maxBytes));
+		}
+		if (!str_starts_with($normalized, '--')
+			&& str_contains($serialized, ',')
+			&& CSSSyntaxScanner::countTopLevelDelimiters($serialized, ',') >= CSSStyleValue::MAX_LIST_ITEMS
+		) {
+			throw new CSSParserLimitException(sprintf('CSS property value list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
 		}
 		if ($partCount > 1) {
 			CSSStyleDeclaration::validatePropertyValue($serialized);
@@ -48,8 +54,8 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 		if ($values === []) {
 			throw new InvalidArgumentException('A style property requires at least one value.');
 		}
-		$normalized = CSSStyleDeclaration::normalizePropertyName($property);
-		$options = CSSParserOptions::default();
+		$options = $this->resolveSheetParserOptions();
+		$normalized = $this->normalizeBoundedPropertyName($property, $options);
 		$parts = [];
 		$existing = $this->style->getDeclarationsRaw()[$normalized] ?? null;
 		$current = $existing['value'] ?? '';
@@ -71,7 +77,9 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 
 	public function delete(string $property): void
 	{
-		$this->style->removeProperty($property);
+		$options = $this->resolveSheetParserOptions();
+		$normalized = $this->normalizeBoundedPropertyName($property, $options);
+		$this->style->removeProperty($normalized);
 	}
 
 	public function clear(): void
@@ -86,10 +94,19 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 	private function serializeValues(string $normalizedProperty, array $values, CSSParserOptions $options): array
 	{
 		$flat = [];
+		$isCustom = str_starts_with($normalizedProperty, '--');
 		foreach ($values as $value) {
 			if (is_array($value)) {
-				array_push($flat, ...array_values($value));
+				if (!$isCustom && (count($flat) + count($value)) > CSSStyleValue::MAX_LIST_ITEMS) {
+					throw new CSSParserLimitException(sprintf('CSS property value list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
+				}
+				foreach ($value as $item) {
+					$flat[] = $item;
+				}
 			} else {
+				if (!$isCustom && count($flat) >= CSSStyleValue::MAX_LIST_ITEMS) {
+					throw new CSSParserLimitException(sprintf('CSS property value list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
+				}
 				$flat[] = $value;
 			}
 		}

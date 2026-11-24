@@ -128,6 +128,9 @@ final class CSSRotate extends CSSTransformComponent
 
 	public function setIs2D(bool $is2D): void
 	{
+		if (!$is2D) {
+			self::assertNonZeroAxis($this->xValue, $this->yValue, $this->zValue);
+		}
 		parent::setIs2D($is2D);
 		if ($is2D) {
 			if (

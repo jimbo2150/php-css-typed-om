@@ -669,7 +669,7 @@ final class CSSParser
 			'charset' => new CSSCharsetRule($condition),
 			'import' => new CSSImportRule($condition),
 			'namespace' => new CSSNamespaceRule($condition),
-			'layer' => new CSSLayerStatementRule($condition),
+			'layer' => new CSSLayerStatementRule($condition, $maxBytes),
 			default => new CSSAtRule($name, $condition, null, false, $maxBytes),
 		};
 	}
@@ -1413,10 +1413,8 @@ final class CSSParser
 					}
 
 					$rawName = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($source, $segStart, $colon));
-					if ($rawName === ''
-						|| CSSSyntaxScanner::hasControlCharacters($rawName)
-						|| CSSSyntaxScanner::scanIdentEnd($rawName, 0, strlen($rawName)) !== strlen($rawName)
-					) {
+					$decodedName = $rawName !== '' ? CSSSyntaxScanner::decodeIdentAt($rawName, 0, strlen($rawName)) : null;
+					if ($decodedName === null || $decodedName['end'] !== strlen($rawName)) {
 						$sheet->recordParseError('Invalid font feature value name.', $segStart);
 						continue;
 					}

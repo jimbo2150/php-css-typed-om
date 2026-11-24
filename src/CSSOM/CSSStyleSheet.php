@@ -45,9 +45,11 @@ final class CSSStyleSheet extends StyleSheet
 
 	private ?int $maxMathDepth = CSSParserOptions::DEFAULT_MAX_MATH_DEPTH;
 
-	private ?int $maxErrors = null;
+	private ?int $maxErrors = CSSParserOptions::DEFAULT_MAX_ERRORS;
 
 	private bool $errorsTruncated = false;
+
+	private ?CSSParserOptions $cachedParserOptions = null;
 
 	public function __construct(
 		?string $href = null,
@@ -64,6 +66,7 @@ final class CSSStyleSheet extends StyleSheet
 		parent::__construct($href, $title, $media, $ownerRule, $parentStyleSheet, $disabled);
 		$this->baseURLValue = $baseURL;
 		$this->cssRulesList = new CSSRuleList($this);
+		$this->getMedia()->setOwnerInternal($this);
 	}
 
 	public function getBaseURL(): ?string
@@ -97,6 +100,7 @@ final class CSSStyleSheet extends StyleSheet
 	{
 		$this->maxErrors = $maxErrors;
 		$this->errorsTruncated = false;
+		$this->cachedParserOptions = null;
 	}
 
 	/**
@@ -110,6 +114,7 @@ final class CSSStyleSheet extends StyleSheet
 		$this->maxMathDepth = $options->maxMathDepth;
 		$this->maxDeclarations = $options->maxDeclarations;
 		$this->maxErrors = $options->maxErrors;
+		$this->cachedParserOptions = null;
 	}
 
 	/**
@@ -117,14 +122,22 @@ final class CSSStyleSheet extends StyleSheet
 	 */
 	public function resolveParserOptionsInternal(?CSSParserOptions $override): CSSParserOptions
 	{
-		return $override ?? new CSSParserOptions(
+		return $override ?? ($this->cachedParserOptions ??= new CSSParserOptions(
 			maxBytes: $this->maxBytes,
 			maxDepth: $this->maxDepth,
 			maxMathDepth: $this->maxMathDepth,
 			maxRules: $this->maxRules,
 			maxDeclarations: $this->maxDeclarations,
 			maxErrors: $this->maxErrors,
-		);
+		));
+	}
+
+	/**
+	 * @internal
+	 */
+	public function getMaxBytesInternal(): ?int
+	{
+		return $this->maxBytes;
 	}
 
 	/**
@@ -253,12 +266,15 @@ final class CSSStyleSheet extends StyleSheet
 	 */
 	public function replaceSync(string $cssText, ?CSSParserOptions $options = null): void
 	{
-		$options ??= CSSParserOptions::default();
-		$replacement = CSSParser::parseStylesheet($cssText, $options, true);
-		$this->cssRulesList->replaceAllWithOptionsInternal($replacement->getCssRules(), $options);
-		$this->configureLimitsInternal($options);
-		$this->configureErrorLimit($options->maxErrors);
+		$effectiveOptions = $this->resolveParserOptionsInternal($options);
+		$replacement = CSSParser::parseStylesheet($cssText, $effectiveOptions, true);
+		$this->cssRulesList->replaceAllWithOptionsInternal($replacement->getCssRules(), $effectiveOptions);
+		if ($options !== null) {
+			$this->configureLimitsInternal($options);
+			$this->configureErrorLimit($options->maxErrors);
+		}
 		$this->parseErrorsList = $replacement->getParseErrors();
+		$this->errorsTruncated = $replacement->errorsTruncated;
 	}
 
 	public function recordParseError(string $message, int $offset): void
@@ -306,6 +322,8 @@ final class CSSStyleSheet extends StyleSheet
 	public function __clone(): void
 	{
 		parent::__clone();
+		$this->cachedParserOptions = null;
+		$this->getMedia()->setOwnerInternal($this);
 		$origRules = $this->cssRulesList->getRulesRaw();
 		$this->cssRulesList = new CSSRuleList($this);
 		$this->totalRuleCount = 0;

@@ -10,10 +10,10 @@ No declared public constants or enum cases. Inherited parsing APIs are [`CSSStyl
 
 | Method/property | Signature and behavior |
 |---|---|
-| `__construct` | `public function __construct(string $keyword)`; enforces `CSSParserOptions::DEFAULT_MAX_BYTES`, validates and stores a trimmed non-empty CSS identifier (preserving CSS escape syntax). Throws `InvalidArgumentException` / `CSSParserLimitException` for invalid or oversized identifiers. Example: `$value = new CSSKeywordValue('auto');`. |
+| `__construct` | `public function __construct(string $keyword)`; enforces `CSSParserOptions::DEFAULT_MAX_BYTES`, trims CSS whitespace, and validates a single CSS identifier via `decodeIdentAt()` (preserving CSS escape syntax while rejecting bare `'--'` and decoded control bytes). Throws `InvalidArgumentException` / `CSSParserLimitException` for invalid or oversized identifiers. Example: `$value = new CSSKeywordValue('auto');`. |
 | `getKeyword` | `public function getKeyword(): string`; returns the stored keyword. Example: `$keyword = $value->getKeyword();`. |
 | `getValue` | `public function getValue(): string`; alias returning the keyword. Example: `$raw = $value->getValue();`. |
-| `setValue` | `public function setValue(string $value): void`; enforces `DEFAULT_MAX_BYTES`, trims, validates as a CSS identifier and replaces the keyword; throws `InvalidArgumentException` / `CSSParserLimitException` if invalid. Example: `$value->setValue('max-content');`. |
+| `setValue` | `public function setValue(string $value): void`; enforces `DEFAULT_MAX_BYTES`, trims, validates as a single CSS identifier (rejecting bare `'--'` and decoded control bytes) and replaces the keyword; throws `InvalidArgumentException` / `CSSParserLimitException` if invalid. Example: `$value->setValue('max-content');`. |
 | `__toString` | `public function __toString(): string`; returns the keyword verbatim. Example: `$css = (string) $value;`. |
 | `clone` | `public function clone(): static`; creates a new instance with the current keyword. Example: `$copy = $value->clone();`. |
 

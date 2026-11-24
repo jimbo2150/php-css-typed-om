@@ -40,8 +40,9 @@ final class CSSKeyframeRule extends CSSRule
 	 */
 	public function setKeyText(string $keyText): void
 	{
-		if (strlen($keyText) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-			throw new CSSParserLimitException(sprintf('Keyframe selector exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		$maxBytes = $this->resolveMaxBytesInternal();
+		if ($maxBytes !== null && strlen($keyText) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('Keyframe selector exceeds maximum size of %d bytes.', $maxBytes));
 		}
 		$keyText = CSSSyntaxScanner::trimCssWhitespace($keyText);
 		if ($keyText === '') {

@@ -13,7 +13,7 @@ Magic read-only `media` returns the associated `MediaList`; inherited `condition
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(string $conditionText)` | Initializes the `media` grouping rule and normalizes condition text through `MediaList`. | `$rule = new CSSMediaRule('screen and (width > 40rem)');` |
+| `__construct(string $conditionText)` | Initializes the `media` grouping rule, binds the `MediaList` owner for byte-budget inheritance, and normalizes condition text through `MediaList`. | `$rule = new CSSMediaRule('screen and (width > 40rem)');` |
 | `getType(): int` | Returns `CSSRule::MEDIA_RULE`. | `$rule->getType();` |
 | `getMedia(): MediaList` | Returns the list whose change callback updates this rule's prelude. | `$rule->getMedia()->appendMedium('print');` |
 | `getConditionText(): string` | Returns normalized media-list text. | `$rule->getConditionText();` |

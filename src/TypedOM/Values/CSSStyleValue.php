@@ -133,7 +133,7 @@ abstract class CSSStyleValue implements Stringable
 		}
 
 		$values = [];
-		foreach (CSSSyntaxScanner::splitTopLevel($validatedCssText, ',') as $value) {
+		foreach (CSSSyntaxScanner::splitTopLevel($validatedCssText, ',', 0, null, self::MAX_LIST_ITEMS) as $value) {
 			$value = CSSSyntaxScanner::trimCssWhitespace($value);
 			if ($value !== '') {
 				if (count($values) >= self::MAX_LIST_ITEMS) {
@@ -183,7 +183,9 @@ abstract class CSSStyleValue implements Stringable
 			&& ($fn === 'url' || !CSS::hasVarReference($trimmedValue))
 		) {
 			try {
-				return new CSSImageValue($trimmedValue);
+				return new CSSImageValue($trimmedValue, $options);
+			} catch (CSSParserLimitException $e) {
+				throw $e;
 			} catch (InvalidArgumentException) {
 				// Fall through to generic unparsed value when extra trailing tokens are present.
 			}

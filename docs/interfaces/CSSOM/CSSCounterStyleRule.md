@@ -15,10 +15,11 @@ Magic `name` reads/writes the prelude; named descriptor properties are recognize
 |---|---|---|
 | `__construct(string $name, CSSStyleDeclaration $descriptors)` | Requires a non-empty name and associates the descriptor block. Throws `InvalidArgumentException` for an empty name. | `$rule = new CSSCounterStyleRule('custom', new CSSStyleDeclaration('system: cyclic; symbols: "*"'));` |
 | `getNameText(): string` | Returns the current prelude/name. | `$rule->getNameText();` |
-| `setNameText(string $name): void` | Trims and validates a case-preserving `<custom-ident>` (rejecting disallowed names like `none`, `inside`, `outside`, `decimal`, or empty/invalid strings) with `InvalidArgumentException`. | `$rule->setNameText('Custom');` |
+| `setNameText(string $name): void` | Trims and validates a case-preserving `<custom-ident>` within the owning sheet's `maxBytes` (or `DEFAULT_MAX_BYTES`), rejecting control bytes (raw or escape-decoded) and CSS Counter Styles Level 3 disallowed names (`none`, `initial`, `inherit`, `unset`, `revert`, `revert-layer`, `default`, `decimal`, `disc`, `square`, `circle`, `disclosure-open`, `disclosure-closed`, `inside`, `outside`, including CSS-escaped forms). | `$rule->setNameText('Custom');` |
 | `getDescriptor(string $name): string` | Reads a descriptor value; absent descriptors return `''`. | `$rule->getDescriptor('system');` |
 | `setDescriptor(string $name, string $value): void` | Sets the named declaration through the attached style object. | `$rule->setDescriptor('suffix', ' "."');` |
 | `__get(string $name): mixed` | Reads `name` or a recognized descriptor accessor; other names delegate to `CSSAtRule::__get()`. | `$rule->symbols;` |
+| `__isset(string $name): bool` | True for `name` or recognized descriptor properties, otherwise delegates to `CSSAtRule::__isset()`. | `isset($rule->name);` |
 | `__set(string $name, mixed $value): void` | String writes to `name` or known descriptor properties are routed to their setters; other writes delegate and normally throw `Error`. | `$rule->suffix = ' "."';` |
 
 Inherited `getType()`, `getName()`, `getPrelude()`, `getStyle()`, `hasBlock()`, `getCssText()`, and CSSRule methods are documented in the parent pages.

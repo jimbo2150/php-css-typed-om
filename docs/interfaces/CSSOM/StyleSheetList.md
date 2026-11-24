@@ -22,3 +22,5 @@ Magic read-only `length` returns item count. Array assignment/unset throws `Inva
 | `offsetUnset(mixed $offset): void` | Always rejects mutation. | `InvalidArgumentException`. | `unset($list[0]); // throws` |
 | `getIterator(): Traversable` | Iterates sheets in order. | | `foreach ($list as $sheet) {}` |
 | `__get(string $name): mixed` | Supports `length`; unknown names throw `Error`. | | `$list->length;` |
+| `__isset(string $name): bool` | Returns `true` only for `length`. | | `isset($list->length);` |
+| `__set(string $name, mixed $value): void` | Always rejects writes (`Error`), preventing dynamic properties. | `Error`. | `$list->length = 0; // throws` |

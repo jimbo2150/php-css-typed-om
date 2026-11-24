@@ -28,22 +28,51 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSTransformValue;
 
 $cliArgv = is_array($GLOBALS['argv'] ?? null) ? $GLOBALS['argv'] : [];
-$jsonOutput = in_array('--json', $cliArgv, true);
+$jsonOutput = false;
 $iterations = 25;
 $warmup = 5;
+foreach ($cliArgv as $idx => $arg) {
+	if ($idx === 0) {
+		continue;
+	}
+	if ($arg === '--json') {
+		$jsonOutput = true;
+		continue;
+	}
+	if (str_starts_with($arg, '--iterations=')) {
+		$raw = substr($arg, 13);
+		if (!ctype_digit($raw) || (int) $raw < 1) {
+			fwrite(STDERR, "ERROR: --iterations must be a positive integer.\n");
+			exit(1);
+		}
+		$iterations = (int) $raw;
+		continue;
+	}
+	if (str_starts_with($arg, '--warmup=')) {
+		$raw = substr($arg, 9);
+		if (!ctype_digit($raw)) {
+			fwrite(STDERR, "ERROR: --warmup must be a non-negative integer.\n");
+			exit(1);
+		}
+		$warmup = (int) $raw;
+		continue;
+	}
+	fwrite(STDERR, "ERROR: Unknown option: $arg\n");
+	exit(1);
+}
 
 /**
  * @return array<string, string>
  */
 function buildFixtures(): array
 {
-	// 1. small-component (~2 KB)
+	// 1. small-component (~1.3 KB)
 	$small = '';
 	for ($i = 0; $i < 8; $i++) {
 		$small .= ".btn-$i { display: inline-flex; padding: 8px 16px; width: calc(100% - 16px); color: oklch(62% 0.21 255 / 0.9); --bg: var(--surface, #fff); &:hover { opacity: 0.9; } }\n";
 	}
 
-	// 2. medium-app (~50 KB)
+	// 2. medium-app (~35 KB)
 	$mediumParts = [
 		"@layer reset, components, utilities;\n",
 		"@font-face { font-family: \"Inter\"; src: url(\"inter.woff2\") format(\"woff2\"); font-display: swap; }\n",
@@ -63,14 +92,14 @@ function buildFixtures(): array
 	$mediumParts[] = "@supports (display: grid) { @container sidebar (width > 300px) { @scope (.panel) to (.footer) { .item { display: grid; gap: 1rem; } } } }\n";
 	$medium = implode('', $mediumParts);
 
-	// 3. large-pretty (~300 KB)
+	// 3. large-pretty (~330 KB)
 	$largePrettyParts = [];
 	for ($i = 0; $i < 1250; $i++) {
 		$largePrettyParts[] = ".comp-$i, .comp-$i:hover > .inner {\n  display: flex;\n  position: relative;\n  width: calc(100% - 24px);\n  padding: 12px 16px;\n  margin: 0 auto;\n  color: #1e293b;\n  background-color: #ffffff;\n  border: 1px solid #cbd5e1;\n  border-radius: 8px;\n  --token-$i: var(--base-size, 16px);\n}\n";
 	}
 	$largePretty = implode('', $largePrettyParts);
 
-	// 4. large-minified (~250 KB) with space-free @media(...) and data URI url(...)
+	// 4. large-minified (~200 KB) with space-free @media(...) and data URI url(...)
 	$largeMinParts = [];
 	for ($i = 0; $i < 600; $i++) {
 		$largeMinParts[] = ".m-$i:is(.active,.open):has(> .icon){display:grid;width:calc(50% - 8px);color:rgb(15 23 42 / 0.95);background-image:url(data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%3E%3C/svg%3E);transform:translate3d(4px,8px,0) rotate(15deg);padding:4px 8px 12px 16px;}";
@@ -84,7 +113,7 @@ function buildFixtures(): array
 	}
 	$largeMinified = implode('', $largeMinParts);
 
-	// 5. deep-nested (~25 KB, depth 64)
+	// 5. deep-nested (~23 KB, depth 64)
 	$deepPrefix = '';
 	$deepSuffix = '';
 	$filler = '';
@@ -97,7 +126,7 @@ function buildFixtures(): array
 	}
 	$deepNested = $deepPrefix . ".leaf { color: red; width: 100px; }\n" . $deepSuffix;
 
-	// 6. opaque-comments (~100 KB)
+	// 6. opaque-comments (~77 KB)
 	$opaqueParts = [];
 	for ($i = 0; $i < 700; $i++) {
 		$opaqueParts[] = "/* block comment $i with metadata */ @custom-unknown-$i foo bar /* inner */ baz { alpha: 1; beta: 2; /* nested */ gamma: \"/* preserved */\"; }\n";
@@ -115,7 +144,7 @@ function buildFixtures(): array
 }
 
 /**
- * @return array{median_ms: float, p95_ms: float, min_ms: float, mem_delta_kb: float, post_gc_delta_kb: float, peak_delta_kb: float, ops_per_sec: float, ops_unit: string, mb_per_sec: ?float}
+ * @return array{median_ms: float, p95_ms: float, min_ms: float, mem_delta_kb: float, post_gc_delta_kb: float, peak_delta_kb: float, ops_per_sec: float, ops_unit: string, bytes_processed: ?int, bytes_basis: ?string, mb_per_sec: ?float}
  */
 function measure(
 	callable $fn,
@@ -125,6 +154,7 @@ function measure(
 	int $opsPerIter = 1,
 	?callable $setup = null,
 	string $opsUnit = 'ops',
+	?string $bytesBasis = null,
 ): array {
 	for ($i = 0; $i < $warmup; $i++) {
 		$state = $setup !== null ? $setup($i) : null;
@@ -176,6 +206,8 @@ function measure(
 		'peak_delta_kb' => $peakDeltaKb,
 		'ops_per_sec' => round($opsPerIter / $medianSec, 1),
 		'ops_unit' => $opsUnit,
+		'bytes_processed' => $bytesProcessed,
+		'bytes_basis' => $bytesBasis,
 		'mb_per_sec' => $mbPerSec,
 	];
 }
@@ -216,6 +248,7 @@ $results['benchmarks']['micro.scanner_split_top_level'] = measure(
 	1,
 	null,
 	'splits',
+	'input',
 );
 
 $assertValInput = '1px solid rgba(10, 20, 30, 0.5)';
@@ -232,6 +265,7 @@ $results['benchmarks']['micro.scanner_assert_valid'] = measure(
 	1000,
 	null,
 	'validations',
+	'input',
 );
 
 $declBlock = 'display: flex; position: relative; width: calc(100% - 24px); padding: 12px 16px; color: #1e293b; background-color: #fff; border-radius: 6px; opacity: 0.95 !important';
@@ -251,6 +285,7 @@ $results['benchmarks']['micro.decl_parse_and_render'] = measure(
 	500,
 	null,
 	'decls',
+	'input',
 );
 
 $calcSample = 'calc((100% - 24px) * 2 + 10px / 2)';
@@ -268,18 +303,20 @@ $results['benchmarks']['micro.calc_parse'] = measure(
 	500,
 	null,
 	'exprs',
+	'input',
 );
 
 $colorSample = 'oklch(62% 0.21 255 / 0.85)';
 $results['benchmarks']['micro.color_parse_and_convert'] = measure(
-	static function () use ($colorSample) {
-		$last = null;
+	static function () use ($colorSample): int {
+		$sink = 0;
 		for ($i = 0; $i < 250; $i++) {
 			$c = CSSColorValue::parse($colorSample);
-			$c->toRGB();
-			$last = $c->toHSL();
+			$rgb = $c->toRGB();
+			$hsl = $c->toHSL();
+			$sink ^= spl_object_id($rgb) ^ spl_object_id($hsl);
 		}
-		return $last;
+		return $sink;
 	},
 	$warmup,
 	$iterations,
@@ -287,6 +324,7 @@ $results['benchmarks']['micro.color_parse_and_convert'] = measure(
 	250,
 	null,
 	'colors',
+	'input',
 );
 
 $transformSample = 'translate(10px, 20px) rotate(45deg) scale(1.5, 2)';
@@ -306,6 +344,7 @@ $results['benchmarks']['micro.transform_and_matrix'] = measure(
 	250,
 	null,
 	'transforms',
+	'input',
 );
 
 $supportsSampleBytes = strlen('(display: grid) and (not (color: oklch(50% 0.2 200)))') + strlen('section#main.card[data-x="1"]');
@@ -322,9 +361,10 @@ $results['benchmarks']['micro.css_supports_and_escape'] = measure(
 	$warmup,
 	$iterations,
 	300 * $supportsSampleBytes,
-	300,
+	600,
 	null,
 	'checks',
+	'input',
 );
 
 $mixedSampleBytes = strlen('display') + strlen('flex')
@@ -333,16 +373,16 @@ $mixedSampleBytes = strlen('display') + strlen('flex')
 	+ strlen('color') + strlen('#336699')
 	+ strlen('font-family') + strlen('Inter, sans-serif');
 $results['benchmarks']['micro.style_value_parse_mixed'] = measure(
-	static function () {
-		$last = null;
+	static function (): int {
+		$sink = 0;
 		for ($i = 0; $i < 300; $i++) {
-			CSSStyleValue::parse('display', 'flex');
-			CSSStyleValue::parse('width', '120px');
-			CSSStyleValue::parse('margin', '10px 20px');
-			CSSStyleValue::parse('color', '#336699');
-			$last = CSSStyleValue::parse('font-family', 'Inter, sans-serif');
+			$sink ^= spl_object_id(CSSStyleValue::parse('display', 'flex'));
+			$sink ^= spl_object_id(CSSStyleValue::parse('width', '120px'));
+			$sink ^= spl_object_id(CSSStyleValue::parse('margin', '10px 20px'));
+			$sink ^= spl_object_id(CSSStyleValue::parse('color', '#336699'));
+			$sink ^= spl_object_id(CSSStyleValue::parse('font-family', 'Inter, sans-serif'));
 		}
-		return $last;
+		return $sink;
 	},
 	$warmup,
 	$iterations,
@@ -350,6 +390,7 @@ $results['benchmarks']['micro.style_value_parse_mixed'] = measure(
 	1500,
 	null,
 	'values',
+	'input',
 );
 
 // Macro Parse benchmarks
@@ -362,6 +403,7 @@ foreach ($fixtures as $name => $css) {
 		1,
 		null,
 		'sheets',
+		'input',
 	);
 }
 unset($scannerBlob);
@@ -419,23 +461,25 @@ $results['benchmarks']['macro.parse_and_modify_cssom_medium'] = measure(
 	1,
 	null,
 	'sheets',
+	'input',
 );
 
 // Macro Modify TypedOM (fresh sheet parsed per iteration in setup)
 $results['benchmarks']['macro.typed_om_medium'] = measure(
 	static function (CSSStyleSheet $sheet): int {
 		$ops = 0;
+		$sink = 0;
 		foreach ($sheet->cssRules as $rule) {
 			if ($rule instanceof CSSStyleRule) {
 				$map = $rule->getStyleMap();
-				$map->get('width');
-				$map->get('display');
-				$map->get('color');
+				$sink ^= ($map->get('width') !== null ? 1 : 0);
+				$sink ^= ($map->get('display') !== null ? 2 : 0);
+				$sink ^= ($map->get('color') !== null ? 4 : 0);
 				$map->set('padding', '16px');
 				$ops++;
 			}
 		}
-		return $ops;
+		return $ops + ($sink & 0);
 	},
 	$warmup,
 	$iterations,
@@ -461,8 +505,13 @@ $largeWithStyleClose = str_replace(
 	'padding: 12px 16px;',
 	'padding: 12px 16px; content: "</style>"; /* </style> */',
 	$fixtures['large-pretty'],
-);
+) . "\n@custom-opaque { content: \"x\"; /* </style> */ }\n";
 $parsedLargeWithStyleClose = CSSStyleSheet::parse($largeWithStyleClose);
+if ($parsedLargeWithStyleClose->getParseErrors() !== []) {
+	fwrite(STDERR, "ERROR: Benchmark fixture 'large-pretty-style-close' produced parse errors.\n");
+	exit(1);
+}
+$results['meta']['fixture_bytes']['large-pretty-style-close'] = strlen($largeWithStyleClose);
 $escapeStyleOutBytes = strlen(CSSRenderer::render($parsedLargeWithStyleClose, $escapeMiniOpts));
 $opaqueStripOutBytes = strlen(CSSRenderer::render($parsedOpaque, $stripCommentsOpts));
 $prettyOutBytes = strlen(CSSRenderer::render($parsedLarge, $prettyOpts));
@@ -477,6 +526,7 @@ $results['benchmarks']['macro.render_pretty_large'] = measure(
 	1,
 	null,
 	'renders',
+	'output',
 );
 $results['benchmarks']['macro.render_minified_large'] = measure(
 	static fn () => CSSRenderer::render($parsedLarge, $miniOpts),
@@ -486,6 +536,7 @@ $results['benchmarks']['macro.render_minified_large'] = measure(
 	1,
 	null,
 	'renders',
+	'output',
 );
 $results['benchmarks']['macro.render_escape_style_large'] = measure(
 	static fn () => CSSRenderer::render($parsedLargeWithStyleClose, $escapeMiniOpts),
@@ -495,6 +546,7 @@ $results['benchmarks']['macro.render_escape_style_large'] = measure(
 	1,
 	null,
 	'renders',
+	'output',
 );
 $results['benchmarks']['macro.get_css_text_large'] = measure(
 	static fn () => $parsedLarge->getCssText(),
@@ -504,6 +556,7 @@ $results['benchmarks']['macro.get_css_text_large'] = measure(
 	1,
 	null,
 	'renders',
+	'output',
 );
 $results['benchmarks']['macro.render_opaque_strip_comments'] = measure(
 	static fn () => CSSRenderer::render($parsedOpaque, $stripCommentsOpts),
@@ -513,6 +566,7 @@ $results['benchmarks']['macro.render_opaque_strip_comments'] = measure(
 	1,
 	null,
 	'renders',
+	'output',
 );
 unset($parsedLarge, $parsedLargeWithStyleClose, $largeWithStyleClose, $parsedOpaque);
 $parsedMediumForRender = CSSStyleSheet::parse($fixtures['medium-app']);
@@ -525,6 +579,7 @@ $results['benchmarks']['macro.render_callback_medium'] = measure(
 	1,
 	null,
 	'renders',
+	'output',
 );
 unset($parsedMediumForRender);
 
@@ -546,6 +601,7 @@ $results['benchmarks']['macro.e2e_parse_mutate_render'] = measure(
 	1,
 	null,
 	'runs',
+	'input',
 );
 
 $results['meta']['peak_slab_mb'] = round(trackSuitePeakSlab() / (1024 * 1024), 2);

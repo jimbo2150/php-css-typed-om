@@ -13,9 +13,9 @@ Magic read-only `prefix` and `namespaceURI` expose parsed prelude components. Ot
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(string $prelude)` | Requires a non-empty namespace URI prelude; throws `InvalidArgumentException` if empty. | `$rule = new CSSNamespaceRule('svg "http://www.w3.org/2000/svg"');` |
-| `getPrefix(): string` | Returns the first whitespace-separated token only when at least two tokens exist; otherwise `''`. | `$rule->getPrefix();` |
-| `getNamespaceURI(): string` | Returns second token for prefixed form or first token for default namespace; unwraps `url(...)` and quotes. | `$rule->getNamespaceURI();` |
+| `__construct(string $prelude)` | Requires a non-empty, structurally valid namespace URI prelude (rejecting comment-only preludes); throws `InvalidArgumentException` if empty or invalid. | `$rule = new CSSNamespaceRule('svg "http://www.w3.org/2000/svg"');` |
+| `getPrefix(): string` | Returns the optional leading identifier prefix (strip-commented and escape-aware when recognizing unprefixed `url(...)` or quoted URIs); otherwise `''`. | `$rule->getPrefix();` |
+| `getNamespaceURI(): string` | Returns second token for prefixed form or first token for default namespace; unwraps `url(...)` (including escaped `url`) and quotes. | `$rule->getNamespaceURI();` |
 | `getType(): int` | Returns `CSSRule::NAMESPACE_RULE`. | `$rule->getType();` |
 | `__get(string $name): mixed` | Exposes `prefix` and `namespaceURI`, otherwise delegates to `CSSAtRule::__get()`. | `$rule->namespaceURI;` |
 

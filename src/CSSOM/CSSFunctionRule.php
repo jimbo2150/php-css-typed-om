@@ -6,6 +6,7 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 
 /**
  * Represents a CSS `@function` rule, including its parameter signatures and return type.
@@ -49,6 +50,9 @@ final class CSSFunctionRule extends CSSGroupingRule
 		CSSSyntaxScanner::assertValidFragment($normalizedReturnType, '@function return type', [';', '{', '}']);
 
 		$normalizedParameters = [];
+		if (count($parameters) > CSSStyleValue::MAX_LIST_ITEMS) {
+			throw new CSSParserLimitException(sprintf('CSS @function parameter list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
+		}
 		foreach ($parameters as $parameter) {
 			if (!is_array($parameter)
 				|| !isset($parameter['name'], $parameter['type'])
@@ -106,8 +110,8 @@ final class CSSFunctionRule extends CSSGroupingRule
 			throw new CSSParserLimitException(sprintf('CSS @function prelude exceeds maximum size of %d bytes.', $maxBytes));
 		}
 		$prelude = CSSSyntaxScanner::trimCssWhitespace($prelude);
-		$open = strpos($prelude, '(');
-		if ($open === false) {
+		$open = CSSSyntaxScanner::findTopLevel($prelude, '(');
+		if ($open === null) {
 			throw new InvalidArgumentException('Malformed @function name or parameter list.');
 		}
 		$name = CSSSyntaxScanner::trimCssWhitespace(substr($prelude, 0, $open));
@@ -125,11 +129,20 @@ final class CSSFunctionRule extends CSSGroupingRule
 		$returnTail = CSSSyntaxScanner::trimCssWhitespace(substr($prelude, $close + 1));
 		$returnType = '*';
 		if ($returnTail !== '') {
-			if (!preg_match('/^returns\s+(<[^>]+>|\*)$/iD', $returnTail, $match)) {
+			$tailLength = strlen($returnTail);
+			$retIdent = CSSSyntaxScanner::decodeIdentAt($returnTail, 0, $tailLength);
+			if ($retIdent === null
+				|| strtolower($retIdent['ident']) !== 'returns'
+				|| $retIdent['end'] >= $tailLength
+				|| !str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $returnTail[$retIdent['end']])
+			) {
 				throw new InvalidArgumentException('Malformed @function return type.');
 			}
-			CSSSyntaxScanner::assertValidFragment($match[1], '@function return type', [';', '{', '}']);
-			$returnType = $match[1];
+			$returnType = CSSSyntaxScanner::trimCssWhitespace(substr($returnTail, $retIdent['end']));
+			if (preg_match('/^(?:<[^>]+>|\*)$/D', $returnType) !== 1) {
+				throw new InvalidArgumentException('Malformed @function return type.');
+			}
+			CSSSyntaxScanner::assertValidFragment($returnType, '@function return type', [';', '{', '}']);
 		}
 
 		return new self($normalizedName, $prelude, $parameters, $returnType, $maxBytes);
@@ -181,22 +194,39 @@ final class CSSFunctionRule extends CSSGroupingRule
 		}
 
 		$parameters = [];
-		foreach (CSSSyntaxScanner::splitTopLevel($source, ',') as $parameter) {
+		foreach (CSSSyntaxScanner::splitTopLevel($source, ',', 0, null, CSSStyleValue::MAX_LIST_ITEMS) as $parameter) {
 			$colon = CSSSyntaxScanner::findTopLevel($parameter, ':');
 			$declaration = $colon === null ? CSSSyntaxScanner::trimCssWhitespace($parameter) : CSSSyntaxScanner::trimCssWhitespace(substr($parameter, 0, $colon));
 			$defaultValue = $colon === null ? null : CSSSyntaxScanner::trimCssWhitespace(substr($parameter, $colon + 1));
-			if (!preg_match('/^(--[a-zA-Z0-9_-]+)(?:\s+(<[^>]+>|\*))?$/D', $declaration, $match)) {
+			$declLen = strlen($declaration);
+			$nameEnd = CSSSyntaxScanner::scanIdentEnd($declaration, 0, $declLen);
+			if ($nameEnd === null) {
 				throw new InvalidArgumentException('Malformed @function parameter: ' . CSSSyntaxScanner::trimCssWhitespace($parameter));
+			}
+			$paramName = CSSStyleDeclaration::normalizePropertyName(substr($declaration, 0, $nameEnd));
+			if (!str_starts_with($paramName, '--')) {
+				throw new InvalidArgumentException('Malformed @function parameter: ' . CSSSyntaxScanner::trimCssWhitespace($parameter));
+			}
+			$paramType = '*';
+			if ($nameEnd < $declLen) {
+				$rest = substr($declaration, $nameEnd);
+				if (!str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $rest[0])) {
+					throw new InvalidArgumentException('Malformed @function parameter: ' . CSSSyntaxScanner::trimCssWhitespace($parameter));
+				}
+				$paramType = CSSSyntaxScanner::trimCssWhitespace($rest);
+				if (preg_match('/^(?:<[^>]+>|\*)$/D', $paramType) !== 1) {
+					throw new InvalidArgumentException('Malformed @function parameter: ' . CSSSyntaxScanner::trimCssWhitespace($parameter));
+				}
 			}
 			if ($defaultValue !== null) {
 				if ($defaultValue === '') {
-					throw new InvalidArgumentException('Empty default value for @function parameter: ' . $match[1]);
+					throw new InvalidArgumentException('Empty default value for @function parameter: ' . $paramName);
 				}
 				CSSSyntaxScanner::assertValidFragment($defaultValue, '@function parameter default value', [';', '{', '}']);
 			}
 			$parameters[] = [
-				'name' => $match[1],
-				'type' => $match[2] ?? '*',
+				'name' => $paramName,
+				'type' => $paramType,
 				'defaultValue' => $defaultValue,
 			];
 		}

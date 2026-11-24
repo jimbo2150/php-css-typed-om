@@ -9,7 +9,7 @@ Scans CSS fragments while recognizing quoted strings, escapes, comments, and nes
 
 ## Methods
 
-### `splitTopLevel(string $source, string $delimiter, int $start = 0, ?int $end = null): array`
+### `splitTopLevel(string $source, string $delimiter, int $start = 0, ?int $end = null, ?int $maxParts = null): array`
 
 Splits a source slice at each single-byte delimiter that occurs outside strings, comments, and nested blocks. Delimiters within those constructs do not split the text.
 
@@ -17,8 +17,9 @@ Splits a source slice at each single-byte delimiter that occurs outside strings,
 - `$delimiter`: exactly one byte to split on.
 - `$start`: inclusive starting byte offset (clamped to zero or greater).
 - `$end`: optional exclusive end offset, clamped to the source length.
+- `$maxParts`: optional maximum number of returned segments (minimum `1`).
 - **Returns:** list of source substrings, retaining whitespace and empty segments.
-- **Throws:** `InvalidArgumentException` when the delimiter is not one byte.
+- **Throws:** `InvalidArgumentException` when the delimiter is not one byte or `$maxParts < 1`, or `CSSParserLimitException` when segments exceed `$maxParts`.
 
 ```php
 $parts = CSSSyntaxScanner::splitTopLevel('a, fn(b, c), "d,e"', ',');
@@ -29,14 +30,16 @@ $parts = CSSSyntaxScanner::splitTopLevel('a, fn(b, c), "d,e"', ',');
 
 Counts occurrences of a single-byte `$delimiter` at top level without allocating intermediate substring segments. Throws `InvalidArgumentException` when `$delimiter` is not one byte.
 
-### `splitTopLevelWhitespace(string $source, int $start = 0, ?int $end = null): array`
+### `splitTopLevelWhitespace(string $source, int $start = 0, ?int $end = null, ?int $maxParts = null): array`
 
 Splits on whitespace outside strings, comments, and nested blocks. Separating whitespace/comments are discarded; each returned token retains its own source spelling.
 
 - `$source`: source string to split.
 - `$start`: inclusive starting byte offset.
 - `$end`: optional exclusive end offset.
+- `$maxParts`: optional maximum number of returned tokens (minimum `1`).
 - **Returns:** list of nonempty top-level whitespace-delimited fragments.
+- **Throws:** `InvalidArgumentException` when `$maxParts < 1`, or `CSSParserLimitException` when tokens exceed `$maxParts`.
 
 ```php
 $tokens = CSSSyntaxScanner::splitTopLevelWhitespace('1px calc(2px + 3px) "a b"');
@@ -196,4 +199,4 @@ Returns `true` if `$token` ends with a 1–6 hex digit escape sequence with no t
 
 ### `trimCssWhitespace(string $value): string`
 
-Trims only CSS Syntax Level 3 whitespace bytes (`" \t\n\r\f"`), preserving `\x0B` (vertical tab) and control characters for structural validation.
+Trims CSS Syntax Level 3 whitespace bytes (`" \t\n\r\f"`) while preserving trailing whitespace consumed as part of a CSS backslash escape (and preserving `\x0B` / control characters for structural validation).

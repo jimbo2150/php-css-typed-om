@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\Parser;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 
 /**
  * Linear-time CSS component-value scanner supporting strings, unquoted `url(...)` tokens,
@@ -42,12 +43,18 @@ final class CSSSyntaxScanner
 	 * Splits a CSS slice at top-level occurrences of a single-byte delimiter.
 	 *
 	 * @return list<string>
-	 * @throws InvalidArgumentException When $delimiter is not a single byte
+	 * @throws InvalidArgumentException When $delimiter is not a single byte or $maxParts is less than 1
+	 * @throws CSSParserLimitException When $maxParts is exceeded
 	 */
-	public static function splitTopLevel(string $source, string $delimiter, int $start = 0, ?int $end = null): array
-	{
+	public static function splitTopLevel(
+		string $source,
+		string $delimiter,
+		int $start = 0,
+		?int $end = null,
+		?int $maxParts = null,
+	): array {
 		$parts = [];
-		self::scanTopLevel($source, $delimiter, $start, $end, $parts);
+		self::scanTopLevel($source, $delimiter, $start, $end, $parts, $maxParts);
 
 		return $parts;
 	}
@@ -67,10 +74,19 @@ final class CSSSyntaxScanner
 	/**
 	 * @param ?list<string> $parts
 	 */
-	private static function scanTopLevel(string $source, string $delimiter, int $start, ?int $end, ?array &$parts): int
-	{
+	private static function scanTopLevel(
+		string $source,
+		string $delimiter,
+		int $start,
+		?int $end,
+		?array &$parts,
+		?int $maxParts = null,
+	): int {
 		if (strlen($delimiter) !== 1) {
 			throw new InvalidArgumentException('The delimiter must be a single byte.');
+		}
+		if ($maxParts !== null && $maxParts < 1) {
+			throw new InvalidArgumentException('Maximum part count must be at least 1.');
 		}
 
 		$count = 0;
@@ -107,6 +123,9 @@ final class CSSSyntaxScanner
 				}
 				if ($character === $delimiter && $stack === []) {
 					$count++;
+					if ($maxParts !== null && $count >= $maxParts) {
+						throw new CSSParserLimitException(sprintf('CSS value list exceeds maximum limit of %d items.', $maxParts));
+					}
 					if ($parts !== null) {
 						$parts[] = substr($source, $segmentStart, $offset - $segmentStart);
 					}
@@ -118,12 +137,15 @@ final class CSSSyntaxScanner
 
 			if ($character === '\\') {
 				$lastEscapeOffset = $offset;
-				$offset += 2;
+				$offset = self::advanceIdentEscapeEnd($source, $offset, $length);
 				continue;
 			}
 
 			if ($character === $delimiter && $stack === []) {
 				$count++;
+				if ($maxParts !== null && $count >= $maxParts) {
+					throw new CSSParserLimitException(sprintf('CSS value list exceeds maximum limit of %d items.', $maxParts));
+				}
 				if ($parts !== null) {
 					$parts[] = substr($source, $segmentStart, $offset - $segmentStart);
 				}
@@ -162,9 +184,19 @@ final class CSSSyntaxScanner
 	 * Splits a CSS slice on top-level whitespace outside strings, comments, unquoted URLs, and blocks.
 	 *
 	 * @return list<string>
+	 * @throws InvalidArgumentException When $maxParts is less than 1
+	 * @throws CSSParserLimitException When $maxParts is exceeded
 	 */
-	public static function splitTopLevelWhitespace(string $source, int $start = 0, ?int $end = null): array
-	{
+	public static function splitTopLevelWhitespace(
+		string $source,
+		int $start = 0,
+		?int $end = null,
+		?int $maxParts = null,
+	): array {
+		if ($maxParts !== null && $maxParts < 1) {
+			throw new InvalidArgumentException('Maximum part count must be at least 1.');
+		}
+
 		$parts = [];
 		$segmentStart = null;
 		$stack = [];
@@ -198,6 +230,9 @@ final class CSSSyntaxScanner
 				if ($offset + 1 < $length && $source[$offset + 1] === '*') {
 					$commentEnd = strpos($source, '*/', $offset + 2);
 					if ($stack === [] && $segmentStart !== null) {
+						if ($maxParts !== null && count($parts) >= $maxParts) {
+							throw new CSSParserLimitException(sprintf('CSS value list exceeds maximum limit of %d items.', $maxParts));
+						}
 						$parts[] = substr($source, $segmentStart, $offset - $segmentStart);
 						$segmentStart = null;
 					}
@@ -215,29 +250,16 @@ final class CSSSyntaxScanner
 			if ($character === '\\') {
 				$segmentStart ??= $offset;
 				$lastEscapeOffset = $offset;
-				$offset++;
-				if ($offset < $length) {
-					$hexLen = strspn($source, self::HEX_DIGITS, $offset, min(6, $length - $offset));
-					if ($hexLen > 0) {
-						$offset += $hexLen;
-						if ($offset < $length) {
-							$ws = $source[$offset];
-							if ($ws === "\r" && $offset + 1 < $length && $source[$offset + 1] === "\n") {
-								$offset += 2;
-							} elseif ($ws === ' ' || $ws === "\t" || $ws === "\n" || $ws === "\r" || $ws === "\f") {
-								$offset++;
-							}
-						}
-					} elseif ($source[$offset] !== "\n" && $source[$offset] !== "\r" && $source[$offset] !== "\f") {
-						$offset++;
-					}
-				}
+				$offset = self::advanceIdentEscapeEnd($source, $offset, $length);
 				continue;
 			}
 
 			if ($character === ' ' || $character === "\t" || $character === "\n" || $character === "\r" || $character === "\f") {
 				if ($stack === []) {
 					if ($segmentStart !== null) {
+						if ($maxParts !== null && count($parts) >= $maxParts) {
+							throw new CSSParserLimitException(sprintf('CSS value list exceeds maximum limit of %d items.', $maxParts));
+						}
 						$parts[] = substr($source, $segmentStart, $offset - $segmentStart);
 						$segmentStart = null;
 					}
@@ -270,6 +292,9 @@ final class CSSSyntaxScanner
 		}
 
 		if ($segmentStart !== null) {
+			if ($maxParts !== null && count($parts) >= $maxParts) {
+				throw new CSSParserLimitException(sprintf('CSS value list exceeds maximum limit of %d items.', $maxParts));
+			}
 			$parts[] = substr($source, $segmentStart, $length - $segmentStart);
 		}
 
@@ -327,7 +352,7 @@ final class CSSSyntaxScanner
 
 			if ($character === '\\') {
 				$lastEscapeOffset = $offset;
-				$offset += 2;
+				$offset = self::advanceIdentEscapeEnd($source, $offset, $length);
 				continue;
 			}
 
@@ -427,7 +452,7 @@ final class CSSSyntaxScanner
 
 			if ($character === '\\') {
 				$lastEscapeOffset = $offset;
-				$offset += 2;
+				$offset = self::advanceIdentEscapeEnd($source, $offset, $length);
 				continue;
 			}
 
@@ -1543,11 +1568,20 @@ final class CSSSyntaxScanner
 
 	private static function advanceIdentEscapeEnd(string $source, int $slashOffset, int $length): int
 	{
-		$hexLen = strspn($source, self::HEX_DIGITS, $slashOffset + 1, min(6, $length - ($slashOffset + 1)));
+		$next = $slashOffset + 1;
+		if ($next >= $length) {
+			return $length;
+		}
+		$hexLen = strspn($source, self::HEX_DIGITS, $next, min(6, $length - $next));
 		if ($hexLen === 0) {
+			$escaped = $source[$next];
+			if ($escaped === "\n" || $escaped === "\r" || $escaped === "\f") {
+				return $next;
+			}
+
 			return $slashOffset + 2;
 		}
-		$end = $slashOffset + 1 + $hexLen;
+		$end = $next + $hexLen;
 		if ($end < $length) {
 			$ws = $source[$end];
 			if ($ws === "\r" && $end + 1 < $length && $source[$end + 1] === "\n") {
@@ -1562,7 +1596,31 @@ final class CSSSyntaxScanner
 
 	public static function trimCssWhitespace(string $value): string
 	{
-		return trim($value, self::CSS_WHITESPACE);
+		$trimmed = trim($value, self::CSS_WHITESPACE);
+		if ($trimmed === '' || $trimmed[-1] !== '\\') {
+			return $trimmed;
+		}
+
+		$rtrimmed = rtrim($value, self::CSS_WHITESPACE);
+		$rtrimmedLen = strlen($rtrimmed);
+		if ($rtrimmedLen === strlen($value)) {
+			return $trimmed;
+		}
+
+		$bs = 0;
+		for ($i = strlen($trimmed) - 1; $i >= 0 && $trimmed[$i] === '\\'; $i--) {
+			$bs++;
+		}
+		if (($bs & 1) === 0) {
+			return $trimmed;
+		}
+
+		$firstStripped = $value[$rtrimmedLen];
+		if ($firstStripped === ' ' || $firstStripped === "\t") {
+			return $trimmed . $firstStripped;
+		}
+
+		return $trimmed;
 	}
 
 	/**

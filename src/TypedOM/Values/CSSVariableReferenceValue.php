@@ -11,6 +11,8 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use ReflectionClass;
+use Throwable;
+use WeakReference;
 
 /**
  * Represents a CSS `var(--name, fallback)` custom property reference.
@@ -22,6 +24,11 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 	private string $variableValue;
 
 	private ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES;
+
+	private int $maxDepth = CSSUnparsedValue::MAX_UNPARSED_DEPTH;
+
+	/** @var ?WeakReference<CSSUnparsedValue> */
+	private ?WeakReference $parentUnparsed = null;
 
 	public string $variable {
 		get => $this->variableValue;
@@ -35,7 +42,7 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 	public ?CSSUnparsedValue $fallback {
 		get => $this->fallbackValue;
 		set (CSSUnparsedValue|string|null $value) {
-			$this->fallbackValue = self::normalizeFallback($value, null, 0, $this->maxBytes);
+			$this->setFallback($value);
 		}
 	}
 
@@ -49,13 +56,19 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 		int $depth = 0,
 	) {
 		$options ??= CSSParserOptions::default();
-		if ($options->maxDepth !== null && $depth > $options->maxDepth) {
-			throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', $options->maxDepth));
+		$effectiveMaxDepth = $options->maxDepth !== null
+			? min(CSSUnparsedValue::MAX_UNPARSED_DEPTH, $options->maxDepth)
+			: CSSUnparsedValue::MAX_UNPARSED_DEPTH;
+		if ($depth > $effectiveMaxDepth) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', $effectiveMaxDepth));
 		}
 
 		$this->maxBytes = $options->maxBytes;
-		$this->assignVariable($variable);
-		$this->fallbackValue = self::normalizeFallback($fallback, $options, $depth, $this->maxBytes);
+		$this->maxDepth = $effectiveMaxDepth;
+		$this->assignVariable($variable, false);
+		$this->fallbackValue = self::normalizeFallback($fallback, $options, $depth, $this->maxBytes, $effectiveMaxDepth);
+		$this->fallbackValue?->setParentRefInternal($this);
+		$this->assertRenderedWithinMaxBytesInternal($this->maxBytes);
 	}
 
 	/** @internal */
@@ -63,6 +76,7 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 		string $normalizedVariable,
 		?CSSUnparsedValue $fallback,
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+		int $maxDepth = CSSUnparsedValue::MAX_UNPARSED_DEPTH,
 	): self {
 		static $ref = null;
 		$ref ??= new ReflectionClass(self::class);
@@ -73,9 +87,17 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 		if ($fbMax !== null && ($effectiveMax === null || $fbMax < $effectiveMax)) {
 			$effectiveMax = $fbMax;
 		}
+		$effectiveDepth = $maxDepth;
+		$fbDepth = $fallback?->getMaxDepthInternal();
+		if ($fbDepth !== null && $fbDepth < $effectiveDepth) {
+			$effectiveDepth = $fbDepth;
+		}
 		$instance->maxBytes = $effectiveMax;
+		$instance->maxDepth = $effectiveDepth;
 		$instance->variableValue = $normalizedVariable;
 		$instance->fallbackValue = $fallback;
+		$instance->parentUnparsed = null;
+		$fallback?->setParentRefInternal($instance);
 		return $instance;
 	}
 
@@ -83,6 +105,87 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 	public function getMaxBytesInternal(): ?int
 	{
 		return $this->maxBytes;
+	}
+
+	/** @internal */
+	public function getMaxDepthInternal(): int
+	{
+		return $this->maxDepth;
+	}
+
+	/** @internal */
+	public function setParentUnparsedInternal(?CSSUnparsedValue $parent): void
+	{
+		$this->parentUnparsed = $parent !== null ? WeakReference::create($parent) : null;
+	}
+
+	/** @internal */
+	public function getParentUnparsedInternal(): ?CSSUnparsedValue
+	{
+		return $this->parentUnparsed?->get();
+	}
+
+	/**
+	 * @internal
+	 * @return array{root: CSSUnparsedValue|CSSVariableReferenceValue, depth: int, maxBytes: ?int, maxDepth: int}
+	 */
+	public function resolveRootBudgetInternal(): array
+	{
+		$current = $this;
+		$varDepth = 0;
+		$maxBytes = $this->maxBytes;
+		$maxDepth = $this->maxDepth;
+		$visited = [spl_object_id($this) => true];
+
+		while (true) {
+			if ($current instanceof CSSUnparsedValue) {
+				$parent = $current->getParentRefInternal();
+				if ($parent === null) {
+					break;
+				}
+				$id = spl_object_id($parent);
+				if (isset($visited[$id])) {
+					break;
+				}
+				$visited[$id] = true;
+				$varDepth++;
+				$pBytes = $parent->getMaxBytesInternal();
+				if ($pBytes !== null && ($maxBytes === null || $pBytes < $maxBytes)) {
+					$maxBytes = $pBytes;
+				}
+				$pDepth = $parent->getMaxDepthInternal();
+				if ($pDepth < $maxDepth) {
+					$maxDepth = $pDepth;
+				}
+				$current = $parent;
+			} else {
+				$parent = $current->getParentUnparsedInternal();
+				if ($parent === null) {
+					break;
+				}
+				$id = spl_object_id($parent);
+				if (isset($visited[$id])) {
+					break;
+				}
+				$visited[$id] = true;
+				$pBytes = $parent->getMaxBytesInternal();
+				if ($pBytes !== null && ($maxBytes === null || $pBytes < $maxBytes)) {
+					$maxBytes = $pBytes;
+				}
+				$pDepth = $parent->getMaxDepthInternal();
+				if ($pDepth < $maxDepth) {
+					$maxDepth = $pDepth;
+				}
+				$current = $parent;
+			}
+		}
+
+		return [
+			'root' => $current,
+			'depth' => $varDepth,
+			'maxBytes' => $maxBytes,
+			'maxDepth' => $maxDepth,
+		];
 	}
 
 	/** @internal Updates only this reference node's own byte limit without traversing fallback trees. */
@@ -106,13 +209,42 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 	/** @internal */
 	public function shallowCloneInternal(): self
 	{
-		return self::createParsed($this->variableValue, $this->fallbackValue, $this->maxBytes);
+		static $ref = null;
+		$ref ??= new ReflectionClass(self::class);
+		/** @var self $instance */
+		$instance = $ref->newInstanceWithoutConstructor();
+		$instance->maxBytes = $this->maxBytes;
+		$instance->maxDepth = $this->maxDepth;
+		$instance->variableValue = $this->variableValue;
+		$instance->fallbackValue = $this->fallbackValue;
+		$instance->parentUnparsed = null;
+
+		return $instance;
 	}
 
 	/** @internal */
 	public function setFallbackInternal(?CSSUnparsedValue $fallback): void
 	{
 		$this->fallbackValue = $fallback;
+	}
+
+	/** @internal */
+	public function assertRenderedWithinMaxBytesInternal(?int $maxBytes): void
+	{
+		if ($this->fallbackValue === null) {
+			if ($maxBytes !== null && (strlen($this->variableValue) + 5) > $maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum size of %d bytes.', $maxBytes));
+			}
+
+			return;
+		}
+
+		CSSUnparsedValue::stringifyIteratively(
+			$this->fallbackValue->getValues(),
+			$maxBytes,
+			'var(' . $this->variableValue . ', ',
+			')',
+		);
 	}
 
 	public function getVariable(): string
@@ -141,13 +273,49 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 		?CSSParserOptions $options = null,
 		int $depth = 0,
 	): void {
-		$this->fallbackValue = self::normalizeFallback($fallback, $options, $depth, $this->maxBytes);
+		$budget = $this->resolveRootBudgetInternal();
+		$strictestMaxBytes = $budget['maxBytes'];
+		$strictestMaxDepth = $budget['maxDepth'];
+		if ($options?->maxDepth !== null && $options->maxDepth < $strictestMaxDepth) {
+			$strictestMaxDepth = $options->maxDepth;
+		}
+		$effectiveDepth = max($depth, $budget['depth']);
+		$effectiveOptions = $options ?? new CSSParserOptions(maxBytes: $strictestMaxBytes, maxDepth: $strictestMaxDepth);
+		$nextFallback = self::normalizeFallback($fallback, $effectiveOptions, $effectiveDepth, $strictestMaxBytes, $strictestMaxDepth);
+
+		$previousFallback = $this->fallbackValue;
+		$this->fallbackValue = $nextFallback;
+		try {
+			$localLimit = $options?->maxBytes !== null && ($strictestMaxBytes === null || $options->maxBytes < $strictestMaxBytes)
+				? $options->maxBytes
+				: $strictestMaxBytes;
+			$this->assertRenderedWithinMaxBytesInternal($localLimit);
+			$root = $budget['root'];
+			if ($root !== $this) {
+				if ($root instanceof CSSUnparsedValue) {
+					CSSUnparsedValue::stringifyIteratively($root->getValues(), $strictestMaxBytes);
+				} else {
+					$root->assertRenderedWithinMaxBytesInternal($strictestMaxBytes);
+				}
+			}
+		} catch (Throwable $e) {
+			$this->fallbackValue = $previousFallback;
+			throw $e;
+		}
+
+		if ($previousFallback !== null && $previousFallback !== $nextFallback) {
+			$previousFallback->setParentRefInternal(null);
+		}
+		$nextFallback?->setParentRefInternal($this);
 	}
 
 	public function __clone(): void
 	{
+		$this->parentUnparsed = null;
 		if ($this->fallbackValue !== null) {
-			$this->fallbackValue = $this->fallbackValue->clone();
+			$clonedFb = $this->fallbackValue->clone();
+			$clonedFb->setParentRefInternal($this);
+			$this->fallbackValue = $clonedFb;
 		}
 	}
 
@@ -159,7 +327,12 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 	public function __toString(): string
 	{
 		if ($this->fallbackValue === null) {
-			return 'var(' . $this->variableValue . ')';
+			$rendered = 'var(' . $this->variableValue . ')';
+			if ($this->maxBytes !== null && strlen($rendered) > $this->maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum size of %d bytes.', $this->maxBytes));
+			}
+
+			return $rendered;
 		}
 
 		$maxBytes = $this->maxBytes;
@@ -191,16 +364,35 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 		throw new Error('Cannot set property ' . static::class . '::$' . $name);
 	}
 
-	private function assignVariable(string $value): void
+	private function assignVariable(string $value, bool $validateRoot = true): void
 	{
-		if ($this->maxBytes !== null && strlen($value) > $this->maxBytes) {
-			throw new CSSParserLimitException(sprintf('CSS custom property name exceeds maximum size of %d bytes.', $this->maxBytes));
+		$budget = $this->resolveRootBudgetInternal();
+		$strictestMaxBytes = $budget['maxBytes'];
+		if ($strictestMaxBytes !== null && strlen($value) > $strictestMaxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS custom property name exceeds maximum size of %d bytes.', $strictestMaxBytes));
 		}
 		$normalized = CSSStyleDeclaration::normalizePropertyName($value);
 		if (!str_starts_with($normalized, '--')) {
 			throw new InvalidArgumentException('A custom property name beginning with "--" is required.');
 		}
+		if (!$validateRoot) {
+			$this->variableValue = $normalized;
+			return;
+		}
+
+		$previous = $this->variableValue;
 		$this->variableValue = $normalized;
+		try {
+			$root = $budget['root'];
+			if ($root instanceof CSSUnparsedValue) {
+				CSSUnparsedValue::stringifyIteratively($root->getValues(), $strictestMaxBytes);
+			} else {
+				$root->assertRenderedWithinMaxBytesInternal($strictestMaxBytes);
+			}
+		} catch (Throwable $e) {
+			$this->variableValue = $previous;
+			throw $e;
+		}
 	}
 
 	private static function normalizeFallback(
@@ -208,13 +400,17 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 		?CSSParserOptions $options = null,
 		int $depth = 0,
 		?int $defaultMaxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+		int $maxAllowedDepth = CSSUnparsedValue::MAX_UNPARSED_DEPTH,
 	): ?CSSUnparsedValue {
 		if ($fallback === null) {
 			return null;
 		}
-		$options ??= new CSSParserOptions(maxBytes: $defaultMaxBytes);
-		if ($options->maxDepth !== null && $depth > $options->maxDepth) {
-			throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', $options->maxDepth));
+		$options ??= new CSSParserOptions(maxBytes: $defaultMaxBytes, maxDepth: $maxAllowedDepth);
+		$effectiveMaxDepth = $options->maxDepth !== null
+			? min($maxAllowedDepth, $options->maxDepth, CSSUnparsedValue::MAX_UNPARSED_DEPTH)
+			: min($maxAllowedDepth, CSSUnparsedValue::MAX_UNPARSED_DEPTH);
+		if ($depth > $effectiveMaxDepth) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', $effectiveMaxDepth));
 		}
 
 		$effectiveMaxBytes = $defaultMaxBytes;
@@ -223,10 +419,7 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 		}
 
 		if ($fallback instanceof CSSUnparsedValue) {
-			$maxAllowedDepth = $options->maxDepth !== null
-				? min($options->maxDepth, CSSUnparsedValue::MAX_UNPARSED_DEPTH)
-				: CSSUnparsedValue::MAX_UNPARSED_DEPTH;
-			CSSUnparsedValue::assertTreeMaxDepthInternal($fallback, $depth + 1, $maxAllowedDepth);
+			CSSUnparsedValue::assertTreeMaxDepthInternal($fallback, $depth + 1, $effectiveMaxDepth);
 
 			$rendered = CSSUnparsedValue::stringifyIteratively($fallback->getValues(), $effectiveMaxBytes);
 			CSSSyntaxScanner::assertValidFragment($rendered, 'CSS variable fallback', [';', '{', '}']);
@@ -238,11 +431,11 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 		if ($effectiveMaxBytes !== null && strlen($fallback) > $effectiveMaxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS variable fallback exceeds maximum size of %d bytes.', $effectiveMaxBytes));
 		}
-		$effectiveOptions = $effectiveMaxBytes === $options->maxBytes
+		$effectiveOptions = $effectiveMaxBytes === $options->maxBytes && $effectiveMaxDepth === $options->maxDepth
 			? $options
 			: new CSSParserOptions(
 				maxBytes: $effectiveMaxBytes,
-				maxDepth: $options->maxDepth,
+				maxDepth: $effectiveMaxDepth,
 				maxMathDepth: $options->maxMathDepth,
 				maxRules: $options->maxRules,
 				maxDeclarations: $options->maxDeclarations,

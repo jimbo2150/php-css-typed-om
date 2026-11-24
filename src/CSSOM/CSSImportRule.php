@@ -34,6 +34,10 @@ final class CSSImportRule extends CSSAtRule
 		if ($trimmed === '') {
 			throw new InvalidArgumentException('@import requires a URL.');
 		}
+		CSSSyntaxScanner::assertValidFragment($trimmed, '@import prelude', [';', '{', '}']);
+		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
+			throw new InvalidArgumentException('@import requires a URL.');
+		}
 		parent::__construct('import', $trimmed);
 
 		$parts = self::parseTailParts($this->prelude);
@@ -46,6 +50,7 @@ final class CSSImportRule extends CSSAtRule
 				$this->rebuildPrelude($mediaText);
 			}
 		});
+		$this->mediaList->setOwnerInternal($this);
 		$this->initializing = false;
 	}
 
@@ -128,6 +133,9 @@ final class CSSImportRule extends CSSAtRule
 	private static function parseTailParts(string $prelude): array
 	{
 		$prelude = CSSSyntaxScanner::trimCssWhitespace($prelude);
+		if ($prelude !== '' && str_contains($prelude, '/*')) {
+			$prelude = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($prelude));
+		}
 		$length = strlen($prelude);
 		if ($length === 0) {
 			return ['urlToken' => '', 'href' => '', 'layerName' => null, 'supportsText' => null, 'media' => ''];
@@ -251,6 +259,9 @@ final class CSSImportRule extends CSSAtRule
 
 	private static function unwrapUrlToken(string $token): string
 	{
+		if (str_contains($token, '/*')) {
+			$token = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($token));
+		}
 		$openParen = strpos($token, '(');
 		if ($openParen !== false
 			&& str_ends_with($token, ')')
@@ -274,5 +285,6 @@ final class CSSImportRule extends CSSAtRule
 				$this->rebuildPrelude($mediaText);
 			}
 		});
+		$this->mediaList->setOwnerInternal($this);
 	}
 }

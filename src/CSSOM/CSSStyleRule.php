@@ -33,14 +33,7 @@ class CSSStyleRule extends CSSGroupingRule
 		?CSSStyleDeclaration $style = null,
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 	) {
-		if ($maxBytes !== null && strlen($selectorText) > $maxBytes) {
-			throw new CSSParserLimitException(sprintf('CSS selector exceeds maximum size of %d bytes.', $maxBytes));
-		}
-		$selectorText = CSSSyntaxScanner::trimCssWhitespace($selectorText);
-		if ($selectorText === '') {
-			throw new InvalidArgumentException('A CSS style rule requires a selector.');
-		}
-		CSSSyntaxScanner::assertValidFragment($selectorText, 'CSS selector', [';', '{', '}']);
+		$selectorText = self::validateSelector($selectorText, $maxBytes, 'A CSS style rule requires a selector.');
 		parent::__construct('style', '', $maxBytes);
 		$this->prelude = $selectorText;
 		$this->selectorTextValue = $selectorText;
@@ -63,17 +56,28 @@ class CSSStyleRule extends CSSGroupingRule
 	 */
 	public function setSelectorText(string $selectorText): void
 	{
-		if (strlen($selectorText) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-			throw new CSSParserLimitException(sprintf('CSS selector exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
-		}
-		$selectorText = CSSSyntaxScanner::trimCssWhitespace($selectorText);
-		if ($selectorText === '') {
-			throw new InvalidArgumentException('Invalid CSS selector text.');
-		}
-		CSSSyntaxScanner::assertValidFragment($selectorText, 'CSS selector', [';', '{', '}']);
+		$selectorText = self::validateSelector($selectorText, $this->resolveMaxBytesInternal(), 'Invalid CSS selector text.');
 
 		$this->selectorTextValue = $selectorText;
 		$this->prelude = $selectorText;
+	}
+
+	private static function validateSelector(string $selectorText, ?int $maxBytes, string $emptyMessage): string
+	{
+		if ($maxBytes !== null && strlen($selectorText) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS selector exceeds maximum size of %d bytes.', $maxBytes));
+		}
+		$selectorText = CSSSyntaxScanner::trimCssWhitespace($selectorText);
+		if ($selectorText === '') {
+			throw new InvalidArgumentException($emptyMessage);
+		}
+		CSSSyntaxScanner::assertValidFragment($selectorText, 'CSS selector', [';', '{', '}']);
+		$withoutComments = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($selectorText));
+		if ($withoutComments === '' || str_starts_with($withoutComments, '@')) {
+			throw new InvalidArgumentException($emptyMessage);
+		}
+
+		return $selectorText;
 	}
 
 	public function getStyle(): CSSStyleProperties

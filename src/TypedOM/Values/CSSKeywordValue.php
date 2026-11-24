@@ -53,7 +53,9 @@ class CSSKeywordValue extends CSSStyleValue
 		if ($value === '' || CSSSyntaxScanner::hasControlCharacters($value)) {
 			throw new InvalidArgumentException('CSS keyword value must be a non-empty identifier.');
 		}
-		if (!preg_match('/^(?:--(?:[-_a-zA-Z0-9]|[^\x00-\x7F]|' . CSSSyntaxScanner::IDENT_ESCAPE_REGEX . ')+|-?(?:[a-zA-Z_]|[^\x00-\x7F]|' . CSSSyntaxScanner::IDENT_ESCAPE_REGEX . ')(?:[-_a-zA-Z0-9]|[^\x00-\x7F]|' . CSSSyntaxScanner::IDENT_ESCAPE_REGEX . ')*)$/uD', $value)) {
+		$length = strlen($value);
+		$decoded = CSSSyntaxScanner::decodeIdentAt($value, 0, $length);
+		if ($decoded === null || $decoded['end'] !== $length || $decoded['ident'] === '--') {
 			throw new InvalidArgumentException('CSS keyword value must be a non-empty identifier.');
 		}
 		$this->keyword = $value;

@@ -37,7 +37,7 @@ Magic `cssText` reads/writes serialized declarations; `length` and `parentRule` 
 | `__toString(): string` | Returns `getCssText()`. | | `(string) $style;` |
 | `__get(string $name): mixed` | Supports `cssText`, `length`, `parentRule`, otherwise reads the property named by the accessor conversion. | Invalid converted property names throw `InvalidArgumentException`. | `$style->backgroundColor;` |
 | `__set(string $name, mixed $value): void` | `cssText` string replaces declarations; `length`/`parentRule` are rejected; scalar values set a converted property. | `Error` for unsupported types/read-only writes; validation errors propagate. | `$style->backgroundColor = 'red';` |
-| `normalizePropertyName(string $property): string` (static) | Trims and validates CSS identifier; lowercases ordinary names but preserves custom-property spelling. | `InvalidArgumentException` for invalid names. | `CSSStyleDeclaration::normalizePropertyName('COLOR');` |
+| `normalizePropertyName(string $property): string` (static) | Trims CSS whitespace and validates CSS identifier (rejecting bare `'--'` and decoded control bytes); preserves escaped/canonical custom-property spelling (`--*`) while lowercasing ordinary names. | `InvalidArgumentException` for invalid names. | `CSSStyleDeclaration::normalizePropertyName('COLOR');` |
 | `validatePropertyValue(string $value): void` (static) | Rejects structural delimiters/unbalanced syntax and top-level `!important` (priority must be passed separately). | `InvalidArgumentException` for invalid values. | `CSSStyleDeclaration::validatePropertyValue('rgb(1 2 3)');` |
 
 No public methods are omitted; parsing internals and accessor conversion helpers are private.

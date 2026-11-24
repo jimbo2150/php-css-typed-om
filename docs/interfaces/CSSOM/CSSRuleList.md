@@ -29,3 +29,5 @@ Magic read-only `length` returns `count()`. Array writes/unsets are rejected; mu
 | `reparent(?CSSStyleSheet $sheet): void` | Iteratively updates sheet association and reattaches nested rule subtrees without recursion. | | `$list->reparent($sheet);` |
 | `__clone(): void` | Iteratively clones list rules as a detached copy (`sheet = null`, `owner = null`). | | `$copy = clone $list;` |
 | `__get(string $name): mixed` | Supports `length`; unknown names throw `Error`. | | `$list->length;` |
+| `__isset(string $name): bool` | Returns `true` only for `length`. | | `isset($list->length);` |
+| `__set(string $name, mixed $value): void` | Always rejects writes (`Error`), preventing dynamic properties. | `Error`. | `$list->length = 0; // throws` |

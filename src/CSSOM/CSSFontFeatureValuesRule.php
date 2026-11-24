@@ -43,6 +43,10 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 		if ($fontFamily === '') {
 			throw new InvalidArgumentException('@font-feature-values requires a font-family list.');
 		}
+		CSSSyntaxScanner::assertValidFragment($fontFamily, 'Font family list', [';', '{', '}']);
+		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($fontFamily)) === '') {
+			throw new InvalidArgumentException('@font-feature-values requires a font-family list.');
+		}
 		parent::__construct('font-feature-values', $fontFamily);
 	}
 
@@ -58,14 +62,18 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 
 	public function setFontFamily(string $fontFamily): void
 	{
-		if (strlen($fontFamily) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-			throw new CSSParserLimitException(sprintf('Font family list exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		$maxBytes = $this->resolveMaxBytesInternal();
+		if ($maxBytes !== null && strlen($fontFamily) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('Font family list exceeds maximum size of %d bytes.', $maxBytes));
 		}
 		$fontFamily = CSSSyntaxScanner::trimCssWhitespace($fontFamily);
 		if ($fontFamily === '') {
 			throw new InvalidArgumentException('@font-feature-values requires a font-family list.');
 		}
 		CSSSyntaxScanner::assertValidFragment($fontFamily, 'Font family list', [';', '{', '}']);
+		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($fontFamily)) === '') {
+			throw new InvalidArgumentException('@font-feature-values requires a font-family list.');
+		}
 		$this->prelude = $fontFamily;
 	}
 

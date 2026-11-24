@@ -93,13 +93,16 @@ final class CSSColor extends CSSColorValue
 	public function setColorSpace(CSSKeywordValue|string $colorSpace): void
 	{
 		$raw = CSSSyntaxScanner::trimCssWhitespace($colorSpace instanceof CSSKeywordValue ? $colorSpace->getValue() : $colorSpace);
-		if (str_starts_with($raw, '--')) {
+		$decoded = CSSSyntaxScanner::decodeIdentAt($raw, 0, strlen($raw));
+		if ($decoded !== null && $decoded['end'] === strlen($raw) && str_starts_with($decoded['ident'], '--')) {
 			$normalized = CSSStyleDeclaration::normalizePropertyName($raw);
 			$this->colorSpaceValue = new CSSKeywordValue($normalized);
 			return;
 		}
 
-		$lower = strtolower($raw);
+		$lower = ($decoded !== null && $decoded['end'] === strlen($raw))
+			? strtolower($decoded['ident'])
+			: strtolower($raw);
 		if (!isset(self::PREDEFINED_SPACES[$lower])) {
 			throw new InvalidArgumentException('Unsupported CSS color space: ' . $raw);
 		}

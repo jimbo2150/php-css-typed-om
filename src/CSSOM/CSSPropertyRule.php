@@ -46,6 +46,12 @@ final class CSSPropertyRule extends CSSAtRule
 		$this->hasEmptyInitialValue = false;
 	}
 
+	/** @internal Sets empty `initial-value: ;` tracking state. */
+	public function setEmptyInitialValueInternal(bool $hasEmpty): void
+	{
+		$this->hasEmptyInitialValue = $hasEmpty;
+	}
+
 	public function getSyntax(): string
 	{
 		return trim($this->styleDeclaration?->getPropertyValue('syntax') ?? '', " \t\n\r\f\"'");

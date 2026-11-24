@@ -330,7 +330,7 @@ class CSSCalcParser
 					&& $sliceLen >= 6
 					&& substr_compare($source, 'calc(', $start, 5, true) === 0
 				) {
-					$mathIndex ??= self::buildMathIndex($source, $rootStart, $rootEnd);
+					$mathIndex ??= self::buildMathIndex($source, $rootStart, $rootEnd, $options, $rootDepth, $rootMode === 0);
 					$close = $mathIndex['matchingParens'][$start + 4] ?? null;
 					if ($close !== $end - 1) {
 						if ($throwOnInvalid) {
@@ -345,7 +345,7 @@ class CSSCalcParser
 				} elseif ($sliceLen >= 6 && ($c0 === '\\' || $c0 === 'c' || $c0 === 'C')) {
 					$ident = CSSSyntaxScanner::decodeIdentAt($source, $start, $end);
 					if ($ident !== null && $ident['end'] < $end && $source[$ident['end']] === '(' && strtolower($ident['ident']) === 'calc') {
-						$mathIndex ??= self::buildMathIndex($source, $rootStart, $rootEnd);
+						$mathIndex ??= self::buildMathIndex($source, $rootStart, $rootEnd, $options, $rootDepth, $rootMode === 0);
 						$close = $mathIndex['matchingParens'][$ident['end']] ?? null;
 						if ($close !== $end - 1) {
 							if ($throwOnInvalid) {
@@ -390,7 +390,7 @@ class CSSCalcParser
 				}
 
 				if ($fnName !== null) {
-					$mathIndex ??= self::buildMathIndex($source, $rootStart, $rootEnd);
+					$mathIndex ??= self::buildMathIndex($source, $rootStart, $rootEnd, $options, $rootDepth, $rootMode === 0);
 					$close = $mathIndex['matchingParens'][$openOffset] ?? null;
 					if ($close !== $end - 1) {
 						if ($throwOnInvalid) {
@@ -458,7 +458,7 @@ class CSSCalcParser
 			}
 
 			// mode === 2: inner <calc-sum> expression
-			$tokens = self::tokenizeSlice($source, $start, $end, $options, $depth, $totalTokens, $mathIndex, $rootStart, $rootEnd);
+			$tokens = self::tokenizeSlice($source, $start, $end, $options, $depth, $totalTokens, $mathIndex, $rootStart, $rootEnd, $rootDepth, $rootMode === 0);
 			$outputQueue = [];
 			$operatorStack = [];
 			$parenDepth = 0;
@@ -602,13 +602,23 @@ class CSSCalcParser
 	 *   commentStartByEnd: array<int, int>
 	 * }
 	 */
-	private static function buildMathIndex(string $source, int $start, int $end): array
-	{
+	private static function buildMathIndex(
+		string $source,
+		int $start,
+		int $end,
+		CSSParserOptions $options,
+		int $rootDepth,
+		bool $hasOuterWrapper,
+	): array {
 		$matchingParens = [];
 		$commasByOpen = [];
 		$argMetaByOpen = [];
 		$commentEndByStart = [];
 		$commentStartByEnd = [];
+		$indexedNodes = 0;
+		$maxParenStack = $options->maxMathDepth !== null
+			? ($options->maxMathDepth + ($hasOuterWrapper ? 1 : 0))
+			: null;
 
 		/** @var list<array{int, list<int>, list<array{opCount: int, hasChildParen: bool}>, int, bool}> $parenStack */
 		$parenStack = [];
@@ -624,6 +634,9 @@ class CSSCalcParser
 				if ($cEnd === false || $cEnd + 1 >= $end) {
 					throw new InvalidArgumentException('Unclosed comment in CSS math expression.');
 				}
+				if (++$indexedNodes > CSSNumericValue::MAX_MATH_NODES) {
+					throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
+				}
 				$afterComment = $cEnd + 2;
 				$commentEndByStart[$scan] = $afterComment;
 				$commentStartByEnd[$afterComment] = $scan;
@@ -631,10 +644,16 @@ class CSSCalcParser
 				continue;
 			}
 			if ($ch === '(') {
+				if (++$indexedNodes > CSSNumericValue::MAX_MATH_NODES) {
+					throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
+				}
 				if ($parenStack !== []) {
 					$parenStack[count($parenStack) - 1][4] = true;
 				}
 				$parenStack[] = [$scan, [], [], 0, false];
+				if ($maxParenStack !== null && ($rootDepth + count($parenStack)) > $maxParenStack) {
+					throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $options->maxMathDepth));
+				}
 			} elseif ($ch === ')') {
 				if ($parenStack !== []) {
 					[$open, $commas, $argMeta, $curOps, $curHasParen] = array_pop($parenStack);
@@ -647,6 +666,9 @@ class CSSCalcParser
 				}
 			} elseif ($ch === ',') {
 				if ($parenStack !== []) {
+					if (++$indexedNodes > CSSNumericValue::MAX_MATH_NODES) {
+						throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
+					}
 					$topIdx = count($parenStack) - 1;
 					$parenStack[$topIdx][1][] = $scan;
 					$parenStack[$topIdx][2][] = [
@@ -685,6 +707,8 @@ class CSSCalcParser
 		?array &$mathIndex,
 		int $rootStart,
 		int $rootEnd,
+		int $rootDepth,
+		bool $hasOuterWrapper,
 	): array {
 		$tokens = [];
 		$offset = $sliceStart;
@@ -707,6 +731,12 @@ class CSSCalcParser
 			$character = $expression[$offset];
 
 			if ($character === '/' && ($offset + 1 < $sliceEnd) && $expression[$offset + 1] === '*') {
+				if (++$totalTokens > CSSNumericValue::MAX_MATH_NODES) {
+					throw new CSSParserLimitException(sprintf(
+						'Maximum CSS math expression node count of %d exceeded.',
+						CSSNumericValue::MAX_MATH_NODES,
+					));
+				}
 				$commentEnd = strpos($expression, '*/', $offset + 2);
 				if ($commentEnd === false || $commentEnd + 1 >= $sliceEnd) {
 					throw new InvalidArgumentException('Unclosed comment in calc() expression.');
@@ -842,7 +872,7 @@ class CSSCalcParser
 				$name = $identifier[0];
 				$afterName = $offset + strlen($name);
 				if ($afterName < $sliceEnd && $expression[$afterName] === '(') {
-					$mathIndex ??= self::buildMathIndex($expression, $rootStart, $rootEnd);
+					$mathIndex ??= self::buildMathIndex($expression, $rootStart, $rootEnd, $options, $rootDepth, $hasOuterWrapper);
 					$close = $mathIndex['matchingParens'][$afterName] ?? null;
 					if ($close === null || $close >= $sliceEnd) {
 						throw new InvalidArgumentException('Mismatched parentheses.');
@@ -868,7 +898,7 @@ class CSSCalcParser
 				if ($ident !== null) {
 					$afterName = $ident['end'];
 					if ($afterName < $sliceEnd && $expression[$afterName] === '(') {
-						$mathIndex ??= self::buildMathIndex($expression, $rootStart, $rootEnd);
+						$mathIndex ??= self::buildMathIndex($expression, $rootStart, $rootEnd, $options, $rootDepth, $hasOuterWrapper);
 						$close = $mathIndex['matchingParens'][$afterName] ?? null;
 						if ($close === null || $close >= $sliceEnd) {
 							throw new InvalidArgumentException('Mismatched parentheses.');

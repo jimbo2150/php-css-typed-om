@@ -61,6 +61,14 @@ abstract class CSSRule
 		return $this->parentRuleRef;
 	}
 
+	/** @internal */
+	protected function resolveMaxBytesInternal(): ?int
+	{
+		$sheet = $this->getParentStyleSheet();
+
+		return $sheet !== null ? $sheet->getMaxBytesInternal() : CSSParserOptions::DEFAULT_MAX_BYTES;
+	}
+
 	/** @internal Updates parent pointers without traversing child subtrees. */
 	public function setParentLinks(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void
 	{

@@ -19,7 +19,12 @@ final class CSSNamespaceRule extends CSSAtRule
 {
 	public function __construct(string $prelude)
 	{
-		if (CSSSyntaxScanner::trimCssWhitespace($prelude) === '') {
+		$trimmed = CSSSyntaxScanner::trimCssWhitespace($prelude);
+		if ($trimmed === '') {
+			throw new InvalidArgumentException('@namespace requires a namespace URI.');
+		}
+		CSSSyntaxScanner::assertValidFragment($trimmed, '@namespace prelude', [';', '{', '}']);
+		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
 			throw new InvalidArgumentException('@namespace requires a namespace URI.');
 		}
 		parent::__construct('namespace', $prelude);
@@ -52,6 +57,9 @@ final class CSSNamespaceRule extends CSSAtRule
 	private static function splitNamespacePrelude(string $prelude): array
 	{
 		$trimmed = CSSSyntaxScanner::trimCssWhitespace($prelude);
+		if ($trimmed !== '' && str_contains($trimmed, '/*')) {
+			$trimmed = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed));
+		}
 		$length = strlen($trimmed);
 		if ($length === 0) {
 			return ['', ''];
@@ -96,7 +104,7 @@ final class CSSNamespaceRule extends CSSAtRule
 			$pos++;
 		}
 
-		$prefix = substr($trimmed, 0, $pos);
+		$prefix = CSSSyntaxScanner::trimCssWhitespace(substr($trimmed, 0, $pos));
 		$rest = CSSSyntaxScanner::trimCssWhitespace(substr($trimmed, $pos));
 		if ($rest === '') {
 			return ['', $prefix];

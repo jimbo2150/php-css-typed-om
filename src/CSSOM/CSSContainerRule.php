@@ -113,14 +113,15 @@ final class CSSContainerRule extends CSSConditionRule
 
 	private static function isValidContainerName(string $token): bool
 	{
-		if ($token === '' || str_contains($token, '(') || str_contains($token, ')')) {
+		$length = strlen($token);
+		if ($length === 0) {
 			return false;
 		}
-		if (preg_match('/^(?:--|-?(?:[_a-zA-Z]|[^\x00-\x7F]|' . CSSSyntaxScanner::IDENT_ESCAPE_REGEX . '))(?:[-_a-zA-Z0-9]|[^\x00-\x7F]|' . CSSSyntaxScanner::IDENT_ESCAPE_REGEX . ')*$/uD', $token) !== 1) {
+		$decoded = CSSSyntaxScanner::decodeIdentAt($token, 0, $length);
+		if ($decoded === null || $decoded['end'] !== $length) {
 			return false;
 		}
-		$decoded = str_contains($token, '\\') ? CSSSyntaxScanner::decodeCssIdentEscapes($token) : $token;
 
-		return !isset(self::RESERVED_KEYWORDS[strtolower($decoded)]);
+		return !isset(self::RESERVED_KEYWORDS[strtolower($decoded['ident'])]);
 	}
 }

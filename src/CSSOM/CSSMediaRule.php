@@ -21,6 +21,7 @@ final class CSSMediaRule extends CSSConditionRule
 		$this->mediaList = new MediaList($conditionText, function (string $text): void {
 			$this->prelude = $text;
 		});
+		$this->mediaList->setOwnerInternal($this);
 		$this->prelude = $this->mediaList->getMediaText();
 	}
 
@@ -60,5 +61,6 @@ final class CSSMediaRule extends CSSConditionRule
 		$this->mediaList = $this->mediaList->cloneWithCallback(function (string $text): void {
 			$this->prelude = $text;
 		});
+		$this->mediaList->setOwnerInternal($this);
 	}
 }

@@ -272,11 +272,6 @@ class CSSGroupingRule extends CSSRule
 		};
 	}
 
-	public function initializeRules(CSSStyleSheet $sheet): void
-	{
-		$this->attach($sheet, $this->getParentRule());
-	}
-
 	public function attach(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void
 	{
 		$this->setParentLinks($sheet, $parentRule);

@@ -42,8 +42,8 @@ final class TypedOMAdvancedTest extends TestCase
 		try {
 			CSSNumericValue::parse('calc(10px+5px)');
 			self::fail('Expected InvalidArgumentException when binary + lacks surrounding whitespace.');
-		} catch (\InvalidArgumentException) {
-			self::addToAssertionCount(1);
+		} catch (\InvalidArgumentException $e) {
+			self::assertStringContainsString('whitespace', strtolower($e->getMessage()));
 		}
 
 		$withComments = CSSNumericValue::parse('calc(/* lead */ 10px + /* mid */ 5px)');

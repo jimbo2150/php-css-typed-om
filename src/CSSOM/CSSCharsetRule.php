@@ -20,6 +20,10 @@ final class CSSCharsetRule extends CSSAtRule
 		if ($trimmed === '') {
 			throw new InvalidArgumentException('@charset requires an encoding string.');
 		}
+		CSSSyntaxScanner::assertValidFragment($trimmed, '@charset prelude', [';', '{', '}']);
+		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
+			throw new InvalidArgumentException('@charset requires an encoding string.');
+		}
 		parent::__construct('charset', $trimmed);
 	}
 

@@ -261,5 +261,30 @@ final class CSSColorValueTest extends TestCase
 		} catch (InvalidArgumentException $e) {
 			self::assertNotSame('', $e->getMessage());
 		}
+
+		// Clone isolation across all 8 CSSColorValue subclasses
+		$cloneCases = [
+			[new CSSRGB(1, 0, 0), static fn (CSSRGB $c) => $c->r = 0.25, static fn (CSSRGB $o) => self::assertEqualsWithDelta(100.0, $o->r->value, 1e-9)],
+			[new CSSHSL(120, 1.0, 0.5), static fn (CSSHSL $c) => $c->h = 240, static fn (CSSHSL $o) => self::assertEqualsWithDelta(120.0, $o->h->value, 1e-9)],
+			[new CSSHWB(60, 0.1, 0.2), static fn (CSSHWB $c) => $c->w = 0.5, static fn (CSSHWB $o) => self::assertEqualsWithDelta(0.1, $o->w->value, 1e-9)],
+			[new CSSLab(50, 10, -10), static fn (CSSLab $c) => $c->a = 40, static fn (CSSLab $o) => self::assertEqualsWithDelta(10.0, $o->a->value, 1e-9)],
+			[new CSSLCH(50, 20, 90), static fn (CSSLCH $c) => $c->c = 80, static fn (CSSLCH $o) => self::assertEqualsWithDelta(20.0, $o->c->value, 1e-9)],
+			[new CSSOKLab(0.5, 0.1, -0.1), static fn (CSSOKLab $c) => $c->b = 0.2, static fn (CSSOKLab $o) => self::assertEqualsWithDelta(-0.1, $o->b->value, 1e-9)],
+			[new CSSOKLCH(0.6, 0.1, 180), static fn (CSSOKLCH $c) => $c->l = 0.9, static fn (CSSOKLCH $o) => self::assertEqualsWithDelta(60.0, $o->l->value, 1e-9)],
+			[new CSSColor('srgb', [0.1, 0.2, 0.3]), static function (CSSColor $c): void {
+				$c->channels = [CSSNumericValue::parse('0.9'), CSSNumericValue::parse('0.8'), CSSNumericValue::parse('0.7')];
+				$c->colorSpace = 'display-p3';
+			}, static function (CSSColor $o): void {
+				self::assertSame('srgb', $o->colorSpace->value);
+				self::assertEqualsWithDelta(0.1, $o->channels[0]->value, 1e-9);
+			}],
+		];
+		foreach ($cloneCases as [$orig, $mutateClone, $assertOriginal]) {
+			$cloned = clone $orig;
+			$cloned->alpha = 0.2;
+			$mutateClone($cloned);
+			self::assertEqualsWithDelta(100.0, $orig->alpha->value, 1e-9);
+			$assertOriginal($orig);
+		}
 	}
 }

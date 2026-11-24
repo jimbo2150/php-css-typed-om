@@ -38,8 +38,9 @@ final class CSSKeyframesRule extends CSSGroupingRule
 	 */
 	public function setNameText(string $name): void
 	{
-		if (strlen($name) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-			throw new CSSParserLimitException(sprintf('CSS @keyframes name exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		$maxBytes = $this->resolveMaxBytesInternal();
+		if ($maxBytes !== null && strlen($name) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS @keyframes name exceeds maximum size of %d bytes.', $maxBytes));
 		}
 		$this->prelude = self::validateName($name);
 	}
@@ -84,6 +85,9 @@ final class CSSKeyframesRule extends CSSGroupingRule
 
 	public function deleteRule(int|string $keyText): void
 	{
+		if ($this->getParentStyleSheet() === null) {
+			throw new LogicException('A detached CSSGroupingRule cannot delete rules.');
+		}
 		if (is_int($keyText)) {
 			parent::deleteRule($keyText);
 			return;
@@ -139,6 +143,9 @@ final class CSSKeyframesRule extends CSSGroupingRule
 			throw new InvalidArgumentException('Keyframes name cannot be empty.');
 		}
 		CSSSyntaxScanner::assertValidFragment($name, 'Keyframes name', [';', '{', '}', ',']);
+		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($name)) === '') {
+			throw new InvalidArgumentException('Keyframes name cannot be empty.');
+		}
 
 		return $name;
 	}

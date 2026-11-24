@@ -161,6 +161,9 @@ final class FontFace
 			throw new InvalidArgumentException('FontFace family cannot be empty.');
 		}
 		CSSStyleDeclaration::validatePropertyValue($trimmed);
+		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
+			throw new InvalidArgumentException('FontFace family cannot be empty.');
+		}
 		$this->familyValue = $trimmed;
 	}
 
@@ -174,6 +177,9 @@ final class FontFace
 			throw new InvalidArgumentException('FontFace source cannot be empty.');
 		}
 		CSSStyleDeclaration::validatePropertyValue($trimmed);
+		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
+			throw new InvalidArgumentException('FontFace source cannot be empty.');
+		}
 		$this->sourceValue = $trimmed;
 	}
 
@@ -259,6 +265,9 @@ final class FontFace
 			throw new InvalidArgumentException(sprintf('FontFace descriptor "%s" cannot be empty.', $key));
 		}
 		CSSStyleDeclaration::validatePropertyValue($trimmed);
+		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
+			throw new InvalidArgumentException(sprintf('FontFace descriptor "%s" cannot be empty.', $key));
+		}
 		$this->descriptors[$key] = $trimmed;
 		$this->explicit[$key] = true;
 	}

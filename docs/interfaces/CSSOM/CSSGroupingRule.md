@@ -21,7 +21,8 @@ Protected `name` and `prelude` hold the validated rule name and prelude; magic r
 | `insertRule(string $ruleText, int $index = 0, ?CSSParserOptions $options = null): int` | Parses exactly one rule (inheriting `@function` descriptor mode when nested inside `CSSFunctionRule`) and inserts it; returns index. Requires attachment to a stylesheet. Throws `LogicException` if detached, `OutOfBoundsException` for invalid index, `InvalidArgumentException`/`CSSParserLimitException` for invalid/over-limit CSS. | `$sheet->insertRule('@media screen {}'); $group = $sheet->getCssRules()[0]; $group->insertRule('a { color: red }');` |
 | `deleteRule(int $index): void` | Removes the rule at index. Requires attachment to a stylesheet (`LogicException` if detached) and valid index (`OutOfBoundsException` if invalid). | `$group->deleteRule(0);` |
 | `getCssText(): string` | Serializes at-rule, prelude, and nested rule text iteratively without recursion; enforces `CSSRenderer::MAX_RENDER_DEPTH` and rejects cyclic/DAG-shared trees (`LogicException`). | `$group->getCssText();` |
-| `initializeRules(CSSStyleSheet $sheet): void` | Associates this grouping rule with a sheet, retaining its current parent rule, and reparents its list iteratively. | `$group->initializeRules($sheet);` |
+| `__clone(): void` | Detaches links and iteratively clones child `CSSRuleList` entries into an isolated copy. | `$copy = clone $group;` |
 | `__get(string $name): mixed` | Exposes `cssRules`; other names delegate to `CSSRule::__get()`. | `$group->cssRules;` |
+| `__isset(string $name): bool` | True for `cssRules`, otherwise delegates to `CSSRule::__isset()`. | `isset($group->cssRules);` |
 
 All additional inherited methods are documented on [`CSSRule`](CSSRule.md).

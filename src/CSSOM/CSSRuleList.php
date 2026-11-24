@@ -410,6 +410,11 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 		return $name === 'length';
 	}
 
+	public function __set(string $name, mixed $value): void
+	{
+		throw new Error('Cannot set property ' . static::class . '::$' . $name);
+	}
+
 	private function assertNoCycle(CSSRule $candidate): void
 	{
 		$ancestor = $this->owner;

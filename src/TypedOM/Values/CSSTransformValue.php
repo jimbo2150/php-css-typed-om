@@ -102,9 +102,9 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 				throw new InvalidArgumentException('Unclosed transform function: ' . $name);
 			}
 
+			$class = self::componentClass($name);
 			$argumentsText = CSSSyntaxScanner::trimCssWhitespace(substr($cssText, $open + 1, $close - $open - 1));
 			$arguments = self::parseArguments($argumentsText, $options);
-			$class = self::componentClass($name);
 			$components[] = new $class($name, $arguments);
 			$offset = $close + 1;
 		}
@@ -287,11 +287,15 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 			return [];
 		}
 
-		$parts = str_contains($arguments, ',')
-			? CSSSyntaxScanner::splitTopLevel($arguments, ',')
-			: [$arguments];
-		if (count($parts) === 1) {
-			$parts = CSSSyntaxScanner::splitTopLevelWhitespace(CSSSyntaxScanner::trimCssWhitespace($arguments));
+		try {
+			$parts = str_contains($arguments, ',')
+				? CSSSyntaxScanner::splitTopLevel($arguments, ',', 0, null, 16)
+				: [$arguments];
+			if (count($parts) === 1) {
+				$parts = CSSSyntaxScanner::splitTopLevelWhitespace(CSSSyntaxScanner::trimCssWhitespace($arguments), 0, null, 16);
+			}
+		} catch (CSSParserLimitException) {
+			throw new InvalidArgumentException('Too many arguments in CSS transform function.');
 		}
 
 		$parsed = [];

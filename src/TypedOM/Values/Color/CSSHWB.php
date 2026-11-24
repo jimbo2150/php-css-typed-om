@@ -131,6 +131,7 @@ final class CSSHWB extends CSSColorValue
 	/** @return array{float, float, float} */
 	private function toSrgbFloats(): array
 	{
+		$h = self::resolveAngleDegrees($this->hValue);
 		$w = self::resolvePercentUnit($this->wValue);
 		$b = self::resolvePercentUnit($this->bValue);
 		if ($w + $b >= 1.0) {
@@ -138,7 +139,7 @@ final class CSSHWB extends CSSColorValue
 			return [$gray, $gray, $gray];
 		}
 
-		[$r, $g, $bl] = self::hslToSrgbFloats(self::resolveAngleDegrees($this->hValue), 1.0, 0.5);
+		[$r, $g, $bl] = self::hslToSrgbFloats($h, 1.0, 0.5);
 		$factor = 1.0 - $w - $b;
 
 		return [

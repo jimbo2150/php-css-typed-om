@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\Tests\Security;
 
+use Error;
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSS;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSCharsetRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSContainerRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSCounterStyleRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFontFeatureValuesMap;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFontFeatureValuesRule;
@@ -24,11 +27,14 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderer;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderMode;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRuleList;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSScopeRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleSheet;
+use Jimbo2150\PhpCssTypedOm\CSSOM\FontFace;
 use Jimbo2150\PhpCssTypedOm\CSSOM\MediaList;
+use Jimbo2150\PhpCssTypedOm\CSSOM\StyleSheetList;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrixReadOnly;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
@@ -37,6 +43,7 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext;
 use Jimbo2150\PhpCssTypedOm\TypedOM\StylePropertyMap;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColor;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSHWB;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSLCH;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSOKLCH;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSRGB;
@@ -1487,11 +1494,11 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		$liveRot->x = 1;
 		self::assertSame('rotate3d', $liveRot->getFunctionName());
 
-		$cappedTransforms = new CSSTransformValue([new CSSTranslate(1, 2)]);
+		$cappedTransforms = new CSSTransformValue(array_fill(0, CSSTransformValue::MAX_COMPONENTS, new CSSTranslate(1, 2)));
 		try {
-			$cappedTransforms->offsetSet(1, new CSSTranslate(str_repeat('1', CSSParserOptions::DEFAULT_MAX_BYTES + 1) . 'px'));
-			self::fail('Expected oversized CSSTransformValue entry to throw.');
-		} catch (CSSParserLimitException|InvalidArgumentException $e) {
+			$cappedTransforms->offsetSet(null, new CSSTranslate(3, 4));
+			self::fail('Expected CSSTransformValue MAX_COMPONENTS overflow to throw CSSParserLimitException.');
+		} catch (CSSParserLimitException $e) {
 			self::assertNotSame('', $e->getMessage());
 		}
 
@@ -1527,16 +1534,325 @@ final class CSSSecurityAndLimitsTest extends TestCase
 
 		$detachedDecl = new CSSStyleDeclaration();
 		try {
-			CSSStyleDeclaration::parse(
+			$detachedDecl->setCssText(
 				implode('; ', array_map(static fn (int $i): string => "--d{$i}: {$i}px", range(1, 5))),
-				true,
-				$dDiags,
 				new CSSParserOptions(maxDeclarations: 3),
 			);
-			self::fail('Expected strict CSSStyleDeclaration::parse() maxDeclarations to throw.');
+			self::fail('Expected strict CSSStyleDeclaration::setCssText() maxDeclarations to throw.');
 		} catch (CSSParserLimitException $e) {
 			self::assertNotSame('', $e->getMessage());
 		}
 		self::assertSame('', $detachedDecl->getCssText());
+
+		$this->assertPlanV10HardeningRegressions();
+	}
+
+	private function assertPlanV10HardeningRegressions(): void
+	{
+		// 1. CSSSyntaxScanner: $maxParts, advanceIdentEscapeEnd EOF/newline, escape-aware trimCssWhitespace
+		self::assertSame(['a', 'b'], CSSSyntaxScanner::splitTopLevel('a,b', ',', 0, null, 2));
+		self::assertSame(['a', 'b'], CSSSyntaxScanner::splitTopLevelWhitespace('a b   ', 0, null, 2));
+		foreach ([
+			static fn () => CSSSyntaxScanner::splitTopLevel('a,b,c', ',', 0, null, 2),
+			static fn () => CSSSyntaxScanner::splitTopLevelWhitespace('a b c', 0, null, 2),
+		] as $limitSplit) {
+			try {
+				$limitSplit();
+				self::fail('Expected CSSParserLimitException on $maxParts overflow.');
+			} catch (CSSParserLimitException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
+		try {
+			CSSSyntaxScanner::splitTopLevel('a', ',', 0, null, 0);
+			self::fail('Expected InvalidArgumentException when $maxParts < 1.');
+		} catch (InvalidArgumentException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		self::assertSame('foo\\ ', CSSSyntaxScanner::trimCssWhitespace('foo\\  '));
+		self::assertSame("foo\\\t", CSSSyntaxScanner::trimCssWhitespace("foo\\\t "));
+		self::assertSame('foo\\', CSSSyntaxScanner::trimCssWhitespace("foo\\\n"));
+		self::assertSame('foo\\', CSSSyntaxScanner::trimCssWhitespace('  foo\\'));
+		self::assertSame('foo\\\\', CSSSyntaxScanner::trimCssWhitespace('foo\\\\ '));
+		self::assertSame(['a\\'], CSSSyntaxScanner::splitTopLevel('a\\', ';'));
+		self::assertSame(["a\\\n", 'b'], CSSSyntaxScanner::splitTopLevel("a\\\n;b", ';'));
+
+		// 2. CSSCalcParser: buildMathIndex depth vs rootMode === 0 + MAX_MATH_NODES on comments
+		self::assertSame('1px', (string) CSSNumericValue::parse('calc((1px))', null, new CSSParserOptions(maxMathDepth: 1)));
+		self::assertSame('calc(1px + 2px)', (string) CSSNumericValue::parse('calc(1px + 2px)', null, new CSSParserOptions(maxMathDepth: 256), 256));
+		try {
+			CSSCalcParser::parse('calc(1px ' . str_repeat('/**/', 100_005) . ')');
+			self::fail('Expected CSSParserLimitException for comment node explosion.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		// 3. CSSUnparsedValue / CSSVariableReferenceValue: pre-pass paren separation, MAX_LIST_ITEMS, Policy A3 parent pointers & rollbacks
+		$smallDepthWithCalc = CSSUnparsedValue::fromCssText('var(--a, calc((1px + (2px))))', new CSSParserOptions(maxDepth: 2));
+		self::assertInstanceOf(CSSVariableReferenceValue::class, $smallDepthWithCalc[0]);
+
+		try {
+			new CSSUnparsedValue(array_fill(0, CSSStyleValue::MAX_LIST_ITEMS + 1, 'a'));
+			self::fail('Expected CSSParserLimitException on CSSUnparsedValue MAX_LIST_ITEMS overflow.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		$rootUnparsed = new CSSUnparsedValue([], new CSSParserOptions(maxBytes: 32, maxDepth: 2));
+		$midRef = new CSSVariableReferenceValue('--mid', '1px', CSSParserOptions::unlimited());
+		$rootUnparsed[] = $midRef;
+		$attachedMid = $rootUnparsed[0];
+		self::assertInstanceOf(CSSVariableReferenceValue::class, $attachedMid);
+		$attachedFb = $attachedMid->fallback;
+		self::assertNotNull($attachedFb);
+
+		try {
+			$attachedMid->setFallback('var(--b, var(--c))');
+			self::fail('Expected A3 root maxDepth enforcement on setFallback().');
+		} catch (CSSParserLimitException) {
+			self::assertSame('1px', (string) $attachedMid->fallback);
+		}
+		$tooDeepVar = new CSSVariableReferenceValue('--d1', new CSSUnparsedValue([new CSSVariableReferenceValue('--d2', '1px')]));
+		try {
+			$attachedFb->offsetSet(0, $tooDeepVar);
+			self::fail('Expected A3 root maxDepth enforcement on child CSSUnparsedValue::offsetSet().');
+		} catch (CSSParserLimitException) {
+			self::assertSame('1px', (string) $attachedFb);
+		}
+		try {
+			$attachedFb->offsetSet(0, str_repeat('x', 40));
+			self::fail('Expected A3 root maxBytes enforcement on child offsetSet().');
+		} catch (CSSParserLimitException) {
+			self::assertSame('var(--mid, 1px)', (string) $rootUnparsed);
+		}
+		try {
+			$attachedMid->fallback = str_repeat('y', 40);
+			self::fail('Expected A3 root maxBytes enforcement via $fallback hook.');
+		} catch (CSSParserLimitException) {
+			self::assertSame('1px', (string) $attachedMid->fallback);
+		}
+		try {
+			$attachedMid->variable = '--' . str_repeat('z', 40);
+			self::fail('Expected A3 root maxBytes enforcement via $variable hook.');
+		} catch (CSSParserLimitException) {
+			self::assertSame('--mid', $attachedMid->variable);
+		}
+
+		$nullFbTight = new CSSVariableReferenceValue('--a', null, new CSSParserOptions(maxBytes: 10));
+		try {
+			$nullFbTight->setVariable('--toolongname');
+			self::fail('Expected combined var(<var>) byte budget enforcement on null fallback.');
+		} catch (CSSParserLimitException) {
+			self::assertSame('var(--a)', (string) $nullFbTight);
+		}
+
+		$clonedRoot = clone $rootUnparsed;
+		$clonedRef = $clonedRoot[0];
+		self::assertInstanceOf(CSSVariableReferenceValue::class, $clonedRef);
+		$clonedRef->setVariable('--ok');
+		self::assertSame('var(--mid, 1px)', (string) $rootUnparsed);
+		self::assertSame('var(--ok, 1px)', (string) $clonedRoot);
+
+		// 4. Bounded arity splits preserve CSSStyleValue::parse() fallback while capping huge floods
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('background-position', 'left top extra third'));
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('transform', 'matrix3d(' . implode(',', array_fill(0, 17, '1')) . ')'));
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('transform', 'translate(' . implode(' ', array_fill(0, 20, '1px')) . ')'));
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('color', 'rgb(1,2,3,4,5)'));
+		try {
+			CSSStyleValue::parse('color', 'color(--x ' . implode(' ', array_fill(0, CSSColor::MAX_CUSTOM_CHANNELS + 10, '1')) . ')');
+			self::fail('Expected CSSParserLimitException for excessive color() arguments.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		// 5. CSSStyleRule @-rule rejection vs escaped \@foo + comment-only rejection across mutators
+		foreach ([
+			static fn () => new CSSStyleRule('@font-face'),
+			static fn () => new CSSStyleRule('/* c */ @media all'),
+			static fn () => (new CSSStyleRule('a'))->setSelectorText('/* comment */'),
+			static fn () => (new CSSStyleDeclaration())->setProperty('color', '/* c */'),
+			static fn () => new FontFace('/* c */', 'url(x.woff2)'),
+			static fn () => new FontFace('Inter', '/* c */'),
+			static fn () => new CSSKeyframesRule('/* c */'),
+			static fn () => new CSSLayerStatementRule('/* c */'),
+			static fn () => new CSSLayerStatementRule('a, /* c */'),
+			static fn () => new CSSFontFeatureValuesRule('/* c */'),
+			static fn () => new CSSCharsetRule('/* c */'),
+			static fn () => new CSSImportRule('/* c */'),
+			static fn () => new CSSNamespaceRule('/* c */'),
+			static fn () => (new MediaList())->appendMedium('/* c */'),
+		] as $badMutator) {
+			try {
+				$badMutator();
+				self::fail('Expected comment-only or @-hijacking input to throw InvalidArgumentException.');
+			} catch (InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
+		self::assertSame('\\@foo { color: red; }', (new CSSStyleRule('\\@foo', CSSStyleDeclaration::parse('color: red;')))->getCssText());
+		$mediaCommentList = new MediaList('screen, /* c */');
+		self::assertSame('screen', $mediaCommentList->getMediaText());
+
+		// 6. Policies A1, A2, A4 & attached sheet tight + unlimited limit inheritance
+		self::assertFalse(method_exists(CSSGroupingRule::class, 'initializeRules'));
+		foreach (['none', 'initial', 'inherit', 'unset', 'revert', 'revert-layer', 'default', 'decimal', 'disc', 'square', 'circle', 'disclosure-open', 'disclosure-closed', 'inside', 'outside', '\\6e one'] as $badCounterName) {
+			try {
+				new CSSCounterStyleRule($badCounterName, new CSSStyleDeclaration());
+				self::fail('Expected disallowed @counter-style name to throw: ' . $badCounterName);
+			} catch (InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
+
+		$defaultSheet = new CSSStyleSheet();
+		self::assertSame(CSSParserOptions::DEFAULT_MAX_ERRORS, $defaultSheet->resolveParserOptionsInternal(null)->maxErrors);
+
+		$inheritedSheet = CSSStyleSheet::parse('a { color: red; }', new CSSParserOptions(maxBytes: 64, maxErrors: 1));
+		$inheritedSheet->replaceSync('{} {}', null);
+		self::assertSame(64, $inheritedSheet->getMaxBytesInternal());
+		self::assertCount(2, $inheritedSheet->getParseErrors()); // 1 error + 1 truncation sentinel
+		$inheritedSheet->replaceSync('a { color: blue; }', null);
+		// Second replaceSync resets errorsTruncated so new errors can be recorded again
+		$inheritedSheet->recordParseError('new err', 0);
+		self::assertCount(1, $inheritedSheet->getParseErrors());
+
+		$ruleOnTightSheet = $inheritedSheet->cssRules[0];
+		self::assertInstanceOf(CSSStyleRule::class, $ruleOnTightSheet);
+		foreach ([
+			static fn () => $ruleOnTightSheet->setSelectorText(str_repeat('a', 70)),
+			static fn () => $ruleOnTightSheet->style->setProperty('color', str_repeat('a', 70)),
+			static fn () => $ruleOnTightSheet->styleMap->set(str_repeat('a', 70), 'red'),
+			static fn () => $ruleOnTightSheet->styleMap->has(str_repeat('a', 70)),
+			static fn () => $ruleOnTightSheet->styleMap->delete(str_repeat('a', 70)),
+			static fn () => $inheritedSheet->media->setMediaText(str_repeat('a', 70)),
+		] as $exceededTight) {
+			try {
+				$exceededTight();
+				self::fail('Expected attached 64-byte sheet limit to throw CSSParserLimitException.');
+			} catch (CSSParserLimitException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
+
+		// Unlimited sheet null maxBytes must NOT collapse back to DEFAULT_MAX_BYTES
+		$unlimSheet = CSSStyleSheet::parse('a { color: red; }', CSSParserOptions::unlimited());
+		self::assertNull($unlimSheet->getMaxBytesInternal());
+
+		// 7. Escaped control-bytes, escaped leading --, CSSContainerRule, Color, FunctionRule, Batch 3 & v8.1 boundaries
+		self::assertSame('--foo\\:bar', CSSStyleDeclaration::normalizePropertyName('\\2d -foo\\:bar'));
+		self::assertSame('--foo', CSSStyleDeclaration::normalizePropertyName('-\\2d foo'));
+		try {
+			CSSStyleDeclaration::normalizePropertyName('--a\\07 g');
+			self::fail('Expected escaped control byte in custom property name to throw.');
+		} catch (InvalidArgumentException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+		try {
+			new CSSKeywordValue('\\2d -');
+			self::fail('Expected decoded bare "--" keyword to throw.');
+		} catch (InvalidArgumentException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		$escapedContainer = new CSSContainerRule('card\\(1 (width > 10px)');
+		self::assertSame('card\\(1', $escapedContainer->containerName);
+
+		self::assertSame('rgb(none 100% 0%)', (string) CSSColorValue::parse('rgb(\\6e one /*c*/ 100% /*c*/ 0%)'));
+		self::assertSame('srgb', (new CSSColor('\\73 rgb', [0.1, 0.2, 0.3]))->colorSpace->value);
+
+		$escFn = CSSFunctionRule::fromPrelude('--f(--a\\:b <length>: 1px) \\72 eturns <length>');
+		self::assertSame('--a\\:b', $escFn->getParameters()[0]['name']);
+		self::assertSame('<length>', $escFn->returnType);
+		foreach (['--f(--a<length>)', '--f() returns<length>'] as $badFn) {
+			try {
+				CSSFunctionRule::fromPrelude($badFn);
+				self::fail('Expected missing whitespace in @function prelude to throw: ' . $badFn);
+			} catch (InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
+
+		$escNsPrefix = new CSSNamespaceRule('\\61  "urn:a"');
+		self::assertSame('\\61', $escNsPrefix->prefix);
+
+		self::assertFalse(CSS::hasVarReference('10var(--x)'));
+		self::assertFalse(CSS::hasVarReference('#var(--x)'));
+		self::assertFalse(CSS::hasVarReference('@var(--x)'));
+
+		foreach ([
+			static fn () => (new CSSRuleList(null))->__set('foo', 'bar'),
+			static fn () => (new CSSFontFeatureValuesMap())->__set('foo', 'bar'),
+			static fn () => (new StyleSheetList())->__set('foo', 'bar'),
+		] as $roSet) {
+			try {
+				$roSet();
+				self::fail('Expected read-only __set() to throw Error.');
+			} catch (Error $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
+
+		$emptyPageStyle = new CSSStyleDeclaration();
+		$emptyPageStyle->setValidatedProperty('--empty', '');
+		$pageRule = new CSSPageRule(':first', $emptyPageStyle);
+		self::assertSame(['value' => '', 'priority' => ''], $pageRule->style->getDeclarationsRaw()['--empty']);
+
+		try {
+			(new CSSKeyframesRule('fade'))->deleteRule('from');
+			self::fail('Expected detached CSSKeyframesRule::deleteRule() to throw LogicException.');
+		} catch (\LogicException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		$propRule = new CSSPropertyRule('--x', new CSSStyleDeclaration('syntax: "*"; inherits: false;'));
+		$propRule->style->setCssText('syntax: "*"; inherits: false; initial-value: ;');
+		self::assertSame('', $propRule->initialValue);
+
+		$symHwb = new CSSHWB(CSSNumericValue::parse('calc(10deg + 20deg)'), 60, 60);
+		try {
+			$symHwb->toRGB();
+			self::fail('Expected symbolic hue in CSSHWB with w+b>=1 to throw.');
+		} catch (InvalidArgumentException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		$zeroRot = new CSSRotate(CSS::deg(45));
+		$zAxis = $zeroRot->z;
+		self::assertInstanceOf(CSSUnitValue::class, $zAxis);
+		$zAxis->value = 0;
+		try {
+			$zeroRot->setIs2D(false);
+			self::fail('Expected setIs2D(false) on zero axis to throw before mutating state.');
+		} catch (InvalidArgumentException) {
+			self::assertTrue($zeroRot->is2D);
+		}
+
+		try {
+			new CSSImageValue('url(a.png)', new CSSParserOptions(maxBytes: 4));
+			self::fail('Expected CSSImageValue to enforce $options->maxBytes.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		$commaDecl = new CSSStyleDeclaration();
+		$commaDecl->setProperty('background-image', ',');
+		$commaMap = new \Jimbo2150\PhpCssTypedOm\TypedOM\StylePropertyMapReadOnly($commaDecl);
+		self::assertSame([], $commaMap->getAll('background-image'));
+		self::assertSame([[]], $commaMap->values());
+		self::assertSame([['background-image', []]], $commaMap->entries());
+
+		// v8.1 uncovered boundaries: CSSRotate [4] = -sin, escapeHtmlStyleTag variants, maxDepth > 512
+		$rot90Mat = (new CSSRotate(CSS::deg(90)))->toMatrix()->toFloat64Array();
+		self::assertEqualsWithDelta(-1.0, $rot90Mat[4], 1e-12);
+		$escapedRender = CSSRenderer::render(
+			CSSStyleSheet::parse('a { content: "</style\t></style\n></style/></style"; }'),
+			new CSSRenderOptions(
+				CSSRenderMode::Minified,
+				ruleCallback: static fn (CSSRule $r, string $s): string => $s . '</style>',
+				escapeHtmlStyleTag: true,
+			),
+		);
+		self::assertDoesNotMatchRegularExpression('/<\/style(?=[\t\n\f\r \/>]|$)/i', $escapedRender);
 	}
 }

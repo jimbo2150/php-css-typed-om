@@ -28,5 +28,7 @@ jobs:
         run: ./vendor/bin/phpstan analyse --memory-limit=512M --no-progress
       - name: Lint benchmarks script
         run: php -l benchmarks/bench.php
+      - name: Run benchmark smoke test
+        run: XDEBUG_MODE=off php benchmarks/bench.php --iterations=1 --warmup=0 --json > /dev/null
       - name: Run tests
         run: ./vendor/bin/phpunit --colors=never

@@ -14,6 +14,7 @@ use IteratorAggregate;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 use Traversable;
+use WeakReference;
 
 /**
  * Transactional, mutable list of CSS media query strings.
@@ -36,6 +37,9 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 
 	private ?Closure $onChange;
 
+	/** @var ?WeakReference<CSSRule|CSSStyleSheet> */
+	private ?WeakReference $owner = null;
+
 	/**
 	 * @throws InvalidArgumentException When $mediaText contains invalid syntax
 	 */
@@ -45,9 +49,16 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 		$this->setMediaText($mediaText);
 	}
 
+	/** @internal */
+	public function setOwnerInternal(CSSRule|CSSStyleSheet|null $owner): void
+	{
+		$this->owner = $owner !== null ? WeakReference::create($owner) : null;
+	}
+
 	public function __clone(): void
 	{
 		$this->onChange = null;
+		$this->owner = null;
 	}
 
 	/**
@@ -59,6 +70,20 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 		$copy->onChange = $onChange;
 
 		return $copy;
+	}
+
+	private function resolveMaxBytes(): ?int
+	{
+		$owner = $this->owner?->get();
+		if ($owner instanceof CSSStyleSheet) {
+			return $owner->getMaxBytesInternal();
+		}
+		if ($owner instanceof CSSRule) {
+			$sheet = $owner->getParentStyleSheet();
+			return $sheet !== null ? $sheet->getMaxBytesInternal() : CSSParserOptions::DEFAULT_MAX_BYTES;
+		}
+
+		return CSSParserOptions::DEFAULT_MAX_BYTES;
 	}
 
 	public function getMediaText(): string
@@ -73,8 +98,9 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 	 */
 	public function setMediaText(string $mediaText): void
 	{
-		if (strlen($mediaText) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-			throw new CSSParserLimitException(sprintf('Media query list exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		$maxBytes = $this->resolveMaxBytes();
+		if ($maxBytes !== null && strlen($mediaText) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('Media query list exceeds maximum size of %d bytes.', $maxBytes));
 		}
 		if ($mediaText !== '') {
 			CSSSyntaxScanner::assertValidFragment($mediaText, 'Media query list', [';', '{', '}'], ['{', '}']);
@@ -82,12 +108,15 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 
 		$media = [];
 		$seen = [];
-		foreach (CSSSyntaxScanner::splitTopLevel($mediaText, ',') as $medium) {
+		foreach (CSSSyntaxScanner::splitTopLevel($mediaText, ',', 0, null, CSSStyleValue::MAX_LIST_ITEMS) as $medium) {
 			$medium = CSSSyntaxScanner::trimCssWhitespace($medium);
 			if ($medium === '') {
 				continue;
 			}
 			CSSSyntaxScanner::assertValidFragment($medium, 'Media query', [';', '{', '}'], ['{', '}']);
+			if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($medium)) === '') {
+				continue;
+			}
 			$lower = strtolower($medium);
 			if (!isset($seen[$lower])) {
 				if (count($media) >= CSSStyleValue::MAX_LIST_ITEMS) {
@@ -100,8 +129,8 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 
 		$nextText = implode(', ', $media);
 		$nextBytes = strlen($nextText);
-		if ($nextBytes > CSSParserOptions::DEFAULT_MAX_BYTES) {
-			throw new CSSParserLimitException(sprintf('Media query list exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		if ($maxBytes !== null && $nextBytes > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('Media query list exceeds maximum size of %d bytes.', $maxBytes));
 		}
 		$this->onChange?->__invoke($nextText);
 		$this->media = $media;
@@ -116,14 +145,18 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 	 */
 	public function appendMedium(string $medium): void
 	{
-		if (strlen($medium) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-			throw new CSSParserLimitException(sprintf('Media query exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		$maxBytes = $this->resolveMaxBytes();
+		if ($maxBytes !== null && strlen($medium) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('Media query exceeds maximum size of %d bytes.', $maxBytes));
 		}
 		$medium = CSSSyntaxScanner::trimCssWhitespace($medium);
 		if ($medium === '') {
 			throw new InvalidArgumentException('A single non-empty media query is required.');
 		}
 		CSSSyntaxScanner::assertValidFragment($medium, 'Media query', [',', ';', '{', '}'], ['{', '}']);
+		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($medium)) === '') {
+			throw new InvalidArgumentException('A single non-empty media query is required.');
+		}
 		$lower = strtolower($medium);
 		if (isset($this->mediaIndex[$lower])) {
 			return;
@@ -133,8 +166,8 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 		}
 
 		$nextBytes = $this->media === [] ? strlen($medium) : ($this->serializedBytes + 2 + strlen($medium));
-		if ($nextBytes > CSSParserOptions::DEFAULT_MAX_BYTES) {
-			throw new CSSParserLimitException(sprintf('Media query list exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		if ($maxBytes !== null && $nextBytes > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('Media query list exceeds maximum size of %d bytes.', $maxBytes));
 		}
 		if ($this->onChange !== null) {
 			$nextMedia = [...$this->media, $medium];
@@ -154,6 +187,10 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 	 */
 	public function deleteMedium(string $medium): void
 	{
+		$maxBytes = $this->resolveMaxBytes();
+		if ($maxBytes !== null && strlen($medium) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('Media query exceeds maximum size of %d bytes.', $maxBytes));
+		}
 		$medium = CSSSyntaxScanner::trimCssWhitespace($medium);
 		$lower = strtolower($medium);
 		if (!isset($this->mediaIndex[$lower])) {

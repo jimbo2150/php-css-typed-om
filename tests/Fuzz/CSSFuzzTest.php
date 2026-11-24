@@ -26,8 +26,9 @@ final class CSSFuzzTest extends TestCase
 {
 	private const array TOKENS = [
 		'a', 'div', '.card', '#id', '@media', '@layer', '@supports', '@import', '@page', '@keyframes', '@font-feature-values',
+		'@scope', '@container', '@starting-style', '@function', '@counter-style',
 		'screen', 'color', 'margin', 'width', 'red', '10px', 'calc(', 'min(', 'max(', 'var(', 'var(/*c*/--a, 1px)',
-		'url(', 'rgb(', ')', '{', '}', ';', ':', ',', '/', ' ', "\t", "\n", "\x0B",
+		'url(', 'rgb(', ')', '{', '}', ';', ':', ',', '/', ' ', "\t", "\n", "\x00", "\x07", "\x0B", "\x7F",
 		'/*', '*/', '/*c*/', '"', "'", '\\', '\\61 ', '!important', '--x', '<style>', '</style>',
 	];
 
@@ -39,14 +40,15 @@ final class CSSFuzzTest extends TestCase
 		for ($i = 0; $i < 150; $i++) {
 			$input = $this->randomCss($rng, $rng->getInt(4, 36));
 
-			// Scanner primitives must always terminate in linear time and respect bounds
+			// Scanner primitives must always terminate in linear time and uphold structural invariants
 			CSSSyntaxScanner::isBalanced($input);
 			self::assertSame(
-				str_contains($input, "\x00") || str_contains($input, "\x0B"),
+				str_contains($input, "\x00") || str_contains($input, "\x07") || str_contains($input, "\x0B") || str_contains($input, "\x7F"),
 				CSSSyntaxScanner::hasControlCharacters($input),
 			);
-			CSSSyntaxScanner::removeComments($input);
-			CSSSyntaxScanner::splitTopLevel($input, ';');
+			$stripped = CSSSyntaxScanner::removeComments($input);
+			self::assertSame($stripped, CSSSyntaxScanner::removeComments($stripped));
+			self::assertSame($input, implode(';', CSSSyntaxScanner::splitTopLevel($input, ';')));
 			CSSSyntaxScanner::findLastTopLevelImportant($input);
 
 			// Stylesheet parsing must never crash and must obey error & rule caps
@@ -64,7 +66,7 @@ final class CSSFuzzTest extends TestCase
 				keepComments: false,
 				ruleCallback: static fn (\Jimbo2150\PhpCssTypedOm\CSSOM\CSSRule $rule, string $text): string => $text,
 			));
-			self::assertNotSame(false, strpos($rendered, '') !== false);
+			self::assertSame($noComments, CSSSyntaxScanner::removeComments($noComments));
 			self::assertStringNotContainsString('/*', $noComments);
 			self::assertDoesNotMatchRegularExpression('/<\/style(?=[\t\n\f\r \/>]|$)/i', $escaped);
 			$reparsed = CSSStyleSheet::parse($rendered, $options);
@@ -72,16 +74,31 @@ final class CSSFuzzTest extends TestCase
 
 			// Standalone declaration parsing also stays bounded and crash-free
 			$fuzzDiags = [];
-			$decl = \Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration::parse(substr($input, 0, 128), false, $fuzzDiags, new CSSParserOptions(maxBytes: 4096, maxDeclarations: 128));
+			$decl = \Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration::parse(
+				substr($input, 0, 128),
+				false,
+				$fuzzDiags,
+				new CSSParserOptions(maxBytes: 4096, maxDeclarations: 128, maxErrors: 32),
+			);
 			self::assertLessThanOrEqual(128, count($decl));
+			self::assertLessThanOrEqual(32, count($fuzzDiags));
 
-			// Typed OM entry points & CSS::supports must only throw InvalidArgumentException (or return bool)
+			// Typed OM entry points & CSS::supports/escape must only throw InvalidArgumentException or succeed
 			$slice = substr($input, 0, 96);
 			CSS::supports($slice, null, $options);
+			CSS::supports('color', $slice, $options);
+			self::assertNotSame('', CSS::escape($slice === '' ? 'a' : $slice));
 			try {
 				self::assertInstanceOf(CSSStyleValue::class, CSSStyleValue::parse('width', $slice, $options));
 			} catch (InvalidArgumentException) {
 				// Expected on malformed random CSS fragments
+			}
+			try {
+				foreach (CSSStyleValue::parseAll('background-image', $slice, $options) as $item) {
+					self::assertInstanceOf(CSSStyleValue::class, $item);
+				}
+			} catch (InvalidArgumentException) {
+				// Expected on empty or malformed random CSS value lists
 			}
 			try {
 				self::assertInstanceOf(
