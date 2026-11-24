@@ -15,7 +15,7 @@ Magic `name` reads/writes the prelude; named descriptor properties are recognize
 |---|---|---|
 | `__construct(string $name, CSSStyleDeclaration $descriptors)` | Requires a non-empty name and associates the descriptor block. Throws `InvalidArgumentException` for an empty name. | `$rule = new CSSCounterStyleRule('custom', new CSSStyleDeclaration('system: cyclic; symbols: "*"'));` |
 | `getNameText(): string` | Returns the current prelude/name. | `$rule->getNameText();` |
-| `setNameText(string $name): void` | Trims, rejects empty values, normalizes using `CSSStyleDeclaration::normalizePropertyName()`, and stores the result. Throws `InvalidArgumentException` for empty/invalid names. | `$rule->setNameText('custom');` |
+| `setNameText(string $name): void` | Trims and validates a case-preserving `<custom-ident>` (rejecting disallowed names like `none`, `inside`, `outside`, `decimal`, or empty/invalid strings) with `InvalidArgumentException`. | `$rule->setNameText('Custom');` |
 | `getDescriptor(string $name): string` | Reads a descriptor value; absent descriptors return `''`. | `$rule->getDescriptor('system');` |
 | `setDescriptor(string $name, string $value): void` | Sets the named declaration through the attached style object. | `$rule->setDescriptor('suffix', ' "."');` |
 | `__get(string $name): mixed` | Reads `name` or a recognized descriptor accessor; other names delegate to `CSSAtRule::__get()`. | `$rule->symbols;` |

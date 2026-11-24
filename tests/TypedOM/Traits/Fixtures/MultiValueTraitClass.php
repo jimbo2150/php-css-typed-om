@@ -8,5 +8,5 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\MultiValueTrait;
 
 class MultiValueTraitClass
 {
-    use MultiValueTrait;
+	use MultiValueTrait;
 }

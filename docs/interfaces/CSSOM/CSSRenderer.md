@@ -3,12 +3,12 @@
 - **PHP name:** `Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderer`
 - **Source:** [`src/CSSOM/CSSRenderer.php`](../../../src/CSSOM/CSSRenderer.php)
 - **Purpose:** Deterministically renders CSS stylesheets and individual rules.
-- **Constants:** `INDENT` is private; no public constants or instance properties.
+- **Constants:** `public const int MAX_RENDER_DEPTH = 512;` (`INDENT` is private).
 
 ## Public Methods
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `render(CSSStyleSheet|CSSRule $source, ?CSSRenderOptions $options = null): string` (static) | Renders a stylesheet's rules or one rule. Defaults to `CSSRenderOptions`; pretty output separates stylesheet rules by newline. Opaque rules retain source unless `keepComments` is false; `escapeHtmlStyleTag` escapes `</style` closing sequences as `<\/style`. Throws `CSSParserLimitException` if rule nesting exceeds the 512-level renderer bound. | `$css = CSSRenderer::render($sheet, new CSSRenderOptions(CSSRenderMode::Minified));` |
+| `render(CSSStyleSheet|CSSRule $source, ?CSSRenderOptions $options = null): string` (static) | Renders a stylesheet's rules or one rule. Defaults to `CSSRenderOptions`; pretty output separates stylesheet rules by newline. Opaque rules retain source unless `keepComments` is false; `escapeHtmlStyleTag` escapes `</style` closing sequences as `<\/style`. Throws `CSSParserLimitException` if nesting exceeds `MAX_RENDER_DEPTH` (`512`) or `LogicException` on cyclic/DAG-shared rule trees. | `$css = CSSRenderer::render($sheet, new CSSRenderOptions(CSSRenderMode::Minified));` |
 
 No public constructor or other public methods are declared.

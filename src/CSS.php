@@ -111,6 +111,8 @@ abstract class CSS
 		'<string>' => true,
 	];
 
+	public const int MAX_REGISTERED_PROPERTIES = 4096;
+
 	/** @var array<string, CSSPropertyRule> Standalone custom property registry */
 	private static array $registeredProperties = [];
 
@@ -181,6 +183,10 @@ abstract class CSS
 	 */
 	public static function registerProperty(array|CSSPropertyRule $definition): CSSPropertyRule
 	{
+		if (count(self::$registeredProperties) >= self::MAX_REGISTERED_PROPERTIES) {
+			throw new CSSParserLimitException(sprintf('Maximum registered custom property limit of %d exceeded.', self::MAX_REGISTERED_PROPERTIES));
+		}
+
 		if ($definition instanceof CSSPropertyRule) {
 			$name = $definition->getNameText();
 			$syntax = $definition->getSyntax();
@@ -194,6 +200,9 @@ abstract class CSS
 			if (!isset($definition['name']) || !is_string($definition['name'])) {
 				throw new InvalidArgumentException('Property registration requires a custom property "name".');
 			}
+			if (strlen($definition['name']) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+				throw new CSSParserLimitException(sprintf('Registered property name exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+			}
 			if (!array_key_exists('inherits', $definition) || !is_bool($definition['inherits'])) {
 				throw new InvalidArgumentException('Property registration requires a boolean "inherits" flag.');
 			}
@@ -205,10 +214,16 @@ abstract class CSS
 			if (!is_string($syntax)) {
 				throw new InvalidArgumentException('Registered property "syntax" must be a string.');
 			}
+			if (strlen($syntax) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+				throw new CSSParserLimitException(sprintf('Registered property syntax exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+			}
 			$inherits = $definition['inherits'];
 			$initialValue = $definition['initialValue'] ?? null;
 			if ($initialValue !== null && !is_string($initialValue)) {
 				throw new InvalidArgumentException('Registered property "initialValue" must be a string or null.');
+			}
+			if ($initialValue !== null && strlen($initialValue) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+				throw new CSSParserLimitException(sprintf('Registered property initialValue exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
 			}
 		}
 
@@ -246,20 +261,26 @@ abstract class CSS
 		}
 
 		$rule = new CSSPropertyRule($name, $descriptors, $hasEmptyInitialValue);
-		self::$registeredProperties[$name] = $rule;
+		self::$registeredProperties[$name] = clone $rule;
 
-		return $rule;
+		return clone $rule;
 	}
 
 	public static function getRegisteredProperty(string $name): ?CSSPropertyRule
 	{
-		return self::$registeredProperties[CSSSyntaxScanner::trimCssWhitespace($name)] ?? null;
+		$rule = self::$registeredProperties[CSSSyntaxScanner::trimCssWhitespace($name)] ?? null;
+		return $rule !== null ? clone $rule : null;
 	}
 
 	/** @return array<string, CSSPropertyRule> */
 	public static function getRegisteredProperties(): array
 	{
-		return self::$registeredProperties;
+		$result = [];
+		foreach (self::$registeredProperties as $name => $rule) {
+			$result[$name] = clone $rule;
+		}
+
+		return $result;
 	}
 
 	public static function unregisterProperty(string $name): bool

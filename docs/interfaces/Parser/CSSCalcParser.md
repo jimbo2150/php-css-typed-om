@@ -4,7 +4,7 @@
 - **Source:** [`src/Parser/CSSCalcParser.php`](../../../src/Parser/CSSCalcParser.php)
 - **Kind:** class with a static CSS `calc()` parser
 
-Parses supported CSS `calc()` arithmetic expressions iteratively into a tree of numeric Typed OM values without recursion across parenthesized groups. It handles parentheses, unary signs, and `+`, `-`, `*`, and `/`, with normal arithmetic precedence. Nested supported math functions are parsed through `CSSNumericValue::parse()`.
+Parses supported CSS `calc()`, nested `min()`/`max()`/`clamp()`, and arithmetic expressions iteratively into a tree of numeric Typed OM values without recursion across parenthesized groups. Uses a single lazy `O(N)` structural pass (`buildMathIndex()`), handles parentheses, unary signs, and `+`, `-`, `*`, and `/` with normal arithmetic precedence, and enforces `CSSParserOptions::$maxMathDepth` and `CSSNumericValue::MAX_MATH_NODES` (`100_000`).
 
 ## Methods
 

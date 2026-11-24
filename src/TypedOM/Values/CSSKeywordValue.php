@@ -6,6 +6,8 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 use Error;
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 
 /**
@@ -44,6 +46,9 @@ class CSSKeywordValue extends CSSStyleValue
 
 	public function setValue(string $value): void
 	{
+		if (strlen($value) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('CSS keyword value exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		}
 		$value = CSSSyntaxScanner::trimCssWhitespace($value);
 		if ($value === '' || CSSSyntaxScanner::hasControlCharacters($value)) {
 			throw new InvalidArgumentException('CSS keyword value must be a non-empty identifier.');

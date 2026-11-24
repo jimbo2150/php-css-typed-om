@@ -201,8 +201,8 @@ final class CSSStyleSheetTest extends TestCase
 
 		try {
 			$sheetB->cssRules->append($ruleA);
-			self::fail('Expected attaching an already-parented rule to throw LogicException.');
-		} catch (\LogicException) {
+			self::fail('Expected attaching an already-parented rule to throw InvalidArgumentException.');
+		} catch (InvalidArgumentException) {
 			self::assertSame($sheetA, $ruleA->parentStyleSheet);
 		}
 
@@ -333,14 +333,31 @@ final class CSSStyleSheetTest extends TestCase
 		}
 
 		// Deep iterative CSSStyleSheet clone independence
-		$orig = CSSStyleSheet::parse('@media screen { @supports (display: grid) { a { color: red; } } } @page :first { margin: 1cm; }');
+		$orig = CSSStyleSheet::parse('@import url("a.css") screen; @media screen { @supports (display: grid) { a { color: red; } } @media print {} } @page :first { margin: 1cm; }');
 		$cloned = clone $orig;
 		self::assertNotSame($orig, $cloned);
 		self::assertNotSame($orig->cssRules[0], $cloned->cssRules[0]);
-		self::assertSame($cloned, $cloned->cssRules[0]->cssRules[0]->cssRules[0]->parentStyleSheet);
+		self::assertNotSame($orig->cssRules[1], $cloned->cssRules[1]);
+		self::assertSame($orig->cssRules[0]->cssText, $cloned->cssRules[0]->cssText);
+		self::assertSame('screen', $cloned->cssRules[1]->conditionText);
+		self::assertSame('screen', $cloned->cssRules[1]->media->mediaText);
+		self::assertSame($cloned, $cloned->cssRules[1]->cssRules[0]->cssRules[0]->parentStyleSheet);
 		self::assertSame($orig->getTotalRuleCount(), $cloned->getTotalRuleCount());
-		$cloned->cssRules[0]->cssRules[0]->cssRules[0]->style->setProperty('color', 'blue');
-		self::assertSame('red', $orig->cssRules[0]->cssRules[0]->cssRules[0]->style->getPropertyValue('color'));
-		self::assertSame('blue', $cloned->cssRules[0]->cssRules[0]->cssRules[0]->style->getPropertyValue('color'));
+		$cloned->cssRules[1]->cssRules[0]->cssRules[0]->style->setProperty('color', 'blue');
+		self::assertSame('red', $orig->cssRules[1]->cssRules[0]->cssRules[0]->style->getPropertyValue('color'));
+		self::assertSame('blue', $cloned->cssRules[1]->cssRules[0]->cssRules[0]->style->getPropertyValue('color'));
+		// Cloned empty media rule & cloned leaf rule retain sheet association for insertRule()
+		$cloned->cssRules[1]->cssRules[1]->insertRule('p { margin: 0; }');
+		$cloned->cssRules[1]->cssRules[0]->cssRules[0]->insertRule('&:hover { color: green; }');
+		self::assertCount(1, $cloned->cssRules[1]->cssRules[1]->cssRules);
+		self::assertCount(1, $cloned->cssRules[1]->cssRules[0]->cssRules[0]->cssRules);
+		self::assertCount(0, $orig->cssRules[1]->cssRules[1]->cssRules);
+		self::assertCount(0, $orig->cssRules[1]->cssRules[0]->cssRules[0]->cssRules);
+
+		// StyleSheet constructed with an existing rule's MediaList clones and detaches callback
+		$sheetFromMedia = new CSSStyleSheet(media: $orig->cssRules[1]->media);
+		$sheetFromMedia->media->appendMedium('handheld');
+		self::assertSame('screen', $orig->cssRules[1]->media->mediaText);
+		self::assertSame('screen, handheld', $sheetFromMedia->media->mediaText);
 	}
 }

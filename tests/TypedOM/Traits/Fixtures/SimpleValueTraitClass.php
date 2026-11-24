@@ -8,10 +8,10 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\SimpleValueTrait;
 
 class SimpleValueTraitClass
 {
-    use SimpleValueTrait;
+	use SimpleValueTrait;
 
-    public function __construct(string|float $value)
-    {
-        $this->setValue($value);
-    }
+	public function __construct(string|float $value)
+	{
+		$this->setValue($value);
+	}
 }

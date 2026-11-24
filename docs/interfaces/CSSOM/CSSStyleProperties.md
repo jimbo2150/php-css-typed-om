@@ -7,6 +7,6 @@
 
 ## Additional Public Methods
 
-- `public static function fromDeclaration(?CSSStyleDeclaration $style): self` — returns `$style` if already a `CSSStyleProperties`, or copies its declarations into a new `CSSStyleProperties`.
+- `public static function fromDeclaration(?CSSStyleDeclaration $style): self` — returns `$style` if it is a detached `CSSStyleProperties` (cloning it if already parented), or copies its declarations into a new `CSSStyleProperties`.
 - `public function getCssFloat(): string` — returns the value of the `float` property.
 - `public function setCssFloat(string $value): void` — sets the `float` property.

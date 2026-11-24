@@ -18,14 +18,13 @@ Magic read-only `cssRules`, `cssText`, `parseErrors`, and `baseURL`; stylesheet 
 | `parse(string $cssText, ?CSSParserOptions $options = null): self` (static) | Parses with recovery and stores diagnostics on returned sheet. | Returns a `CSSStyleSheet`. | `$sheet = CSSStyleSheet::parse('a { color: red }');` |
 | `getCssRules(): CSSRuleList` | Returns the owned mutable list. | | `$sheet->getCssRules();` |
 | `getParseErrors(): array` | Returns ordered `{message, offset}` diagnostics. | | `$sheet->getParseErrors();` |
-| `getTotalRuleCount(): int` | Returns total number of tracked rules across top-level and nested rule trees. | | `$sheet->getTotalRuleCount();` |
-| `getCssText(): string` | Joins each rule's CSS text with newlines. | | `$sheet->getCssText();` |
-| `insertRule(string $ruleText, int $index = 0, ?CSSParserOptions $options = null): int` | Strictly parses exactly one rule, inserts at index, and returns index. Throws `OutOfBoundsException` for invalid index or `InvalidArgumentException` for malformed/over-limit CSS; no mutation occurs before parsing succeeds. | | `$sheet->insertRule('a { color: red }');` |
+| `getCssText(): string` | Joins each rule's CSS text with newlines while rejecting cyclic/DAG-shared rule trees (`LogicException`). | | `$sheet->getCssText();` |
+| `insertRule(string $ruleText, int $index = 0, ?CSSParserOptions $options = null): int` | Strictly parses exactly one rule, inserts at index, and returns index. Throws `OutOfBoundsException` for invalid index or `InvalidArgumentException`/`CSSParserLimitException` for malformed/over-limit CSS; no mutation occurs before parsing succeeds. | | `$sheet->insertRule('a { color: red }');` |
 | `deleteRule(int $index = 0): void` | Removes rule at index. Throws `OutOfBoundsException` when invalid. | | `$sheet->deleteRule(0);` |
-| `replaceSync(string $cssText, ?CSSParserOptions $options = null): void` | Replaces all rules and parse diagnostics from recovered parse; first rejects input exceeding `maxBytes` with `InvalidArgumentException`. | | `$sheet->replaceSync('b { color: blue }');` |
+| `replaceSync(string $cssText, ?CSSParserOptions $options = null): void` | Atomically replaces all rules and parse diagnostics, enforcing `$options` resource limits (`maxBytes`, `maxRules`, `maxDepth`, `maxDeclarations`, `maxErrors`) with `CSSParserLimitException`. | | `$sheet->replaceSync('b { color: blue }');` |
 | `recordParseError(string $message, int $offset): void` | Appends a diagnostic record. | | `$sheet->recordParseError('Unexpected token', 4);` |
-| `__clone(): void` | Deep-clones owned `CSSRuleList` and rule subtrees iteratively (`O(1)` PHP stack) with cloned metadata and reset total rule count. | | `$copy = clone $sheet;` |
+| `__clone(): void` | Deep-clones owned `CSSRuleList` and rule subtrees iteratively (`O(1)` PHP stack) with cloned metadata and recomputed total rule and declaration counts. | | `$copy = clone $sheet;` |
 | `__toString(): string` | Returns `getCssText()`. | | `(string) $sheet;` |
-| `__get(string $name): mixed` | Exposes `cssRules`, `cssText`, and `parseErrors`; other names delegate to `StyleSheet::__get()`. | | `$sheet->cssRules;` |
+| `__get(string $name): mixed` | Exposes `cssRules`, `cssText`, `parseErrors`, and `baseURL`; other names delegate to `StyleSheet::__get()`. | | `$sheet->cssRules;` |
 
 Inherited metadata getters, `setDisabled()`, `__set()`, and remaining `StyleSheet` APIs are documented on [`StyleSheet`](StyleSheet.md).

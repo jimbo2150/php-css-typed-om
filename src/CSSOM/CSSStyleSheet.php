@@ -6,6 +6,7 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use LogicException;
 use OutOfBoundsException;
 
 /**
@@ -27,6 +28,14 @@ final class CSSStyleSheet extends StyleSheet
 	private readonly ?string $baseURL;
 
 	private int $totalRuleCount = 0;
+
+	private int $totalDeclarationCount = 0;
+
+	private ?int $maxRules = CSSParserOptions::DEFAULT_MAX_RULES;
+
+	private ?int $maxDepth = null;
+
+	private ?int $maxDeclarations = CSSParserOptions::DEFAULT_MAX_DECLARATIONS;
 
 	private ?int $maxErrors = null;
 
@@ -85,6 +94,40 @@ final class CSSStyleSheet extends StyleSheet
 	/**
 	 * @internal
 	 */
+	public function configureLimitsInternal(CSSParserOptions $options): void
+	{
+		$this->maxRules = $options->maxRules;
+		$this->maxDepth = $options->maxDepth;
+		$this->maxDeclarations = $options->maxDeclarations;
+	}
+
+	/**
+	 * @internal
+	 */
+	public function getMaxRulesInternal(): ?int
+	{
+		return $this->maxRules;
+	}
+
+	/**
+	 * @internal
+	 */
+	public function getMaxDepthInternal(): ?int
+	{
+		return $this->maxDepth;
+	}
+
+	/**
+	 * @internal
+	 */
+	public function getMaxDeclarationsInternal(): ?int
+	{
+		return $this->maxDeclarations;
+	}
+
+	/**
+	 * @internal
+	 */
 	public function getTotalRuleCount(): int
 	{
 		return $this->totalRuleCount;
@@ -98,6 +141,22 @@ final class CSSStyleSheet extends StyleSheet
 		$this->totalRuleCount = max(0, $this->totalRuleCount + $delta);
 	}
 
+	/**
+	 * @internal
+	 */
+	public function getTotalDeclarationCount(): int
+	{
+		return $this->totalDeclarationCount;
+	}
+
+	/**
+	 * @internal
+	 */
+	public function adjustTotalDeclarationCount(int $delta): void
+	{
+		$this->totalDeclarationCount = max(0, $this->totalDeclarationCount + $delta);
+	}
+
 	public function getCssText(): string
 	{
 		$rules = $this->cssRules->getRulesRaw();
@@ -106,8 +165,18 @@ final class CSSStyleSheet extends StyleSheet
 		}
 
 		$lines = [];
+		$visited = [];
 		foreach ($rules as $rule) {
-			$lines[] = $rule->getCssText();
+			$id = spl_object_id($rule);
+			if (isset($visited[$id])) {
+				throw new LogicException('Cannot serialize a cyclic or DAG-shared CSS rule tree.');
+			}
+			if ($rule instanceof CSSGroupingRule && $rule->getCssRules()->getRulesRaw() !== [] && CSSGroupingRule::usesCoreSerialization($rule)) {
+				$lines[] = CSSGroupingRule::serializeTreeIteratively($rule, $visited);
+			} else {
+				$visited[$id] = true;
+				$lines[] = $rule->getCssText();
+			}
 		}
 
 		return implode("\n", $lines);
@@ -125,8 +194,14 @@ final class CSSStyleSheet extends StyleSheet
 			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
 		}
 
-		$rule = CSSParser::parseSingleRule($ruleText, $options, 0, $this->totalRuleCount);
-		$this->cssRules->insert($index, $rule);
+		$rule = CSSParser::parseSingleRule(
+			$ruleText,
+			$options,
+			0,
+			$this->totalRuleCount,
+			$this->totalDeclarationCount,
+		);
+		$this->cssRules->insertWithOptionsInternal($index, $rule, $options);
 
 		return $index;
 	}
@@ -153,7 +228,9 @@ final class CSSStyleSheet extends StyleSheet
 	{
 		$options ??= CSSParserOptions::default();
 		$replacement = CSSParser::parseStylesheet($cssText, $options, true);
-		$this->cssRules->replaceAll($replacement->getCssRules());
+		$this->cssRules->replaceAllWithOptionsInternal($replacement->getCssRules(), $options);
+		$this->configureLimitsInternal($options);
+		$this->configureErrorLimit($options->maxErrors);
 		$this->parseErrors = $replacement->getParseErrors();
 	}
 
@@ -205,6 +282,7 @@ final class CSSStyleSheet extends StyleSheet
 		$origRules = $this->cssRules->getRulesRaw();
 		$this->cssRules = new CSSRuleList($this);
 		$this->totalRuleCount = 0;
+		$this->totalDeclarationCount = 0;
 		if ($origRules !== []) {
 			CSSGroupingRule::cloneRulesIntoList($origRules, $this->cssRules, $this, null);
 		}

@@ -6,6 +6,8 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 use Error;
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 
 /**
@@ -18,26 +20,27 @@ final class CSSImageValue extends CSSStyleValue
 	public readonly string $image;
 
 	/**
-	 * @throws InvalidArgumentException When $image is not a single balanced CSS image function
+	 * @throws InvalidArgumentException When $image is not a single balanced CSS image function or exceeds size limits
 	 */
 	public function __construct(string $image)
 	{
+		if (strlen($image) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('CSS image value exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		}
 		$image = CSSSyntaxScanner::trimCssWhitespace($image);
 		if ($image === '' || CSSSyntaxScanner::hasControlCharacters($image) || !CSSSyntaxScanner::isBalanced($image)) {
 			throw new InvalidArgumentException('Invalid CSS image value.');
 		}
-		if (!preg_match('/^(?:url|image|image-set|cross-fade|paint|element|(?:repeating-)?(?:linear|radial|conic)-gradient)\(/i', $image)) {
+		$open = strpos($image, '(');
+		$fn = $open !== false ? CSSSyntaxScanner::decodeLeadingFunctionName($image, $open) : null;
+		if ($fn === null || preg_match('/^(?:url|image|image-set|cross-fade|paint|element|(?:repeating-)?(?:linear|radial|conic)-gradient)$/D', $fn) !== 1) {
 			throw new InvalidArgumentException('Invalid CSS image value.');
 		}
-		$open = strpos($image, '(');
-		$close = null;
-		if ($open !== false) {
-			if (strncasecmp($image, 'url(', 4) === 0) {
-				$close = CSSSyntaxScanner::findMatchingUrlEnd($image, $open);
-			} else {
-				CSSSyntaxScanner::assertValidFragment($image, 'CSS image value', [';', '{', '}'], [';', '{', '}']);
-				$close = CSSSyntaxScanner::findMatchingDelimiter($image, $open);
-			}
+		if ($fn === 'url') {
+			$close = CSSSyntaxScanner::findMatchingUrlEnd($image, $open);
+		} else {
+			CSSSyntaxScanner::assertValidFragment($image, 'CSS image value', [';', '{', '}'], [';', '{', '}']);
+			$close = CSSSyntaxScanner::findMatchingDelimiter($image, $open);
 		}
 		if ($close !== strlen($image) - 1) {
 			throw new InvalidArgumentException('CSS image value cannot contain trailing tokens.');

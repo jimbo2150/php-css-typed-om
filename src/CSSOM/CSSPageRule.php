@@ -106,8 +106,9 @@ final class CSSPageRule extends CSSGroupingRule
 			$options,
 			$this->getNestingDepth(),
 			$sheet->getTotalRuleCount(),
+			$sheet->getTotalDeclarationCount(),
 		);
-		$this->getCssRules()->insert($index, $marginRule);
+		$this->getCssRules()->insertWithOptionsInternal($index, $marginRule, $options);
 
 		return $index;
 	}

@@ -60,8 +60,8 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 	public function getFeatureMap(string $featureType): CSSFontFeatureValuesMap
 	{
 		$featureType = strtolower(CSSSyntaxScanner::trimCssWhitespace($featureType));
-		if (!preg_match('/^[a-zA-Z][a-zA-Z0-9-]*$/D', $featureType)) {
-			throw new InvalidArgumentException('Invalid font feature value category.');
+		if (!in_array($featureType, self::FEATURE_ACCESSORS, true)) {
+			throw new InvalidArgumentException('Invalid font feature value category: ' . $featureType);
 		}
 		return $this->featureMaps[$featureType] ??= new CSSFontFeatureValuesMap();
 	}

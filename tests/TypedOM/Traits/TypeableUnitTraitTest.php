@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\Tests\TypedOM\Traits;
 
-use Exception;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\TypeableUnitTrait;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
+use LogicException;
 use PHPUnit\Framework\TestCase;
 
 class TypeableUnitTraitTest extends TestCase
@@ -56,7 +56,7 @@ class TypeableUnitTraitTest extends TestCase
 		$this->assertSame('percent', $this->type());
 
 		$this->unitObj = null;
-		$this->expectException(Exception::class);
+		$this->expectException(LogicException::class);
 		$this->type();
 	}
 
@@ -70,7 +70,7 @@ class TypeableUnitTraitTest extends TestCase
 
 	public function testUnsetType(): void
 	{
-		$this->expectException(Exception::class);
+		$this->expectException(LogicException::class);
 		$this->expectExceptionMessage('No unit set.');
 		$this->type();
 	}

@@ -64,6 +64,7 @@ abstract class CSSRule
 		$this->parentRule = $parentRule;
 	}
 
+	/** @internal Attaches or detaches ownership metadata on this rule node. */
 	public function attach(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void
 	{
 		$this->parentStyleSheet = $sheet;

@@ -45,10 +45,9 @@ final class CSSFontFeatureValuesMap implements Countable, IteratorAggregate
 	public function set(string $name, int|array $values): void
 	{
 		$name = CSSSyntaxScanner::trimCssWhitespace($name);
-		if ($name === '') {
-			throw new InvalidArgumentException('A non-empty font feature name is required.');
+		if ($name === '' || CSSSyntaxScanner::hasControlCharacters($name) || CSSSyntaxScanner::scanIdentEnd($name, 0, strlen($name)) !== strlen($name)) {
+			throw new InvalidArgumentException('A valid non-empty font feature identifier is required.');
 		}
-		CSSSyntaxScanner::assertValidFragment($name, 'Font feature name', [';', '{', '}', ':']);
 		if (is_int($values)) {
 			$values = [$values];
 		}
@@ -56,8 +55,8 @@ final class CSSFontFeatureValuesMap implements Countable, IteratorAggregate
 			throw new InvalidArgumentException('A font feature value list requires at least one integer.');
 		}
 		foreach ($values as $value) {
-			if (!is_int($value)) {
-				throw new InvalidArgumentException('A feature name and integer value list are required.');
+			if (!is_int($value) || $value < 0) {
+				throw new InvalidArgumentException('A feature name and non-negative integer value list are required.');
 			}
 		}
 

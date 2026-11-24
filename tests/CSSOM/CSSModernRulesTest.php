@@ -7,6 +7,7 @@ namespace Jimbo2150\PhpCssTypedOm\Tests\CSSOM;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFontFaceRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFunctionDeclarations;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFunctionRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSImportRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSMarginRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSMediaRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPageRule;
@@ -90,5 +91,52 @@ CSS);
 		self::assertInstanceOf(CSSFontFaceRule::class, $fontRule);
 		self::assertSame('Example', $fontRule->style->getPropertyValue('font-family'));
 		self::assertSame([], $sheet->getParseErrors());
+	}
+
+	public function testFunctionNestedMediaInsertRuleUsesFunctionMode(): void
+	{
+		$sheet = CSSStyleSheet::parse('@function --f() { @media screen { result: 1px; } }');
+		$fnRule = $sheet->getCssRules()[0];
+		self::assertInstanceOf(CSSFunctionRule::class, $fnRule);
+		$mediaRule = $fnRule->cssRules[0];
+		self::assertInstanceOf(CSSMediaRule::class, $mediaRule);
+
+		$mediaRule->insertRule('@media print { --local: 2px; }', 1);
+		$nestedMedia = $mediaRule->cssRules[1];
+		self::assertInstanceOf(CSSMediaRule::class, $nestedMedia);
+		self::assertInstanceOf(CSSFunctionDeclarations::class, $nestedMedia->cssRules[0]);
+		self::assertSame('2px', $nestedMedia->cssRules[0]->style->getPropertyValue('--local'));
+	}
+
+	public function testScopeRuleVariantsAndImportMalformedTails(): void
+	{
+		$sheet = CSSStyleSheet::parse('@scope { a { color: red; } } @scope to (.limit) { a { color: blue; } } @scope (.card) to (.slot) { a { color: green; } }');
+		self::assertCount(3, $sheet->cssRules);
+		self::assertNull($sheet->cssRules[0]->start);
+		self::assertNull($sheet->cssRules[0]->end);
+		self::assertNull($sheet->cssRules[1]->start);
+		self::assertSame('.limit', $sheet->cssRules[1]->end);
+		self::assertSame('.card', $sheet->cssRules[2]->start);
+		self::assertSame('.slot', $sheet->cssRules[2]->end);
+		self::assertSame([], $sheet->getParseErrors());
+
+		foreach ([
+			'@import "a.css" supports(color: red) layer(base);',
+			'@import "a.css" layer();',
+			'@import "a.css" layer(a) layer(b);',
+			'@import "a.css" supports();',
+			'@import "a.css" supports(color: red;',
+		] as $badImport) {
+			$badSheet = CSSStyleSheet::parse($badImport);
+			self::assertNotEmpty($badSheet->getParseErrors(), 'Expected parse error for: ' . $badImport);
+			self::assertCount(0, $badSheet->cssRules);
+
+			try {
+				new CSSImportRule(rtrim(substr($badImport, 8), ';'));
+				self::fail('Expected malformed @import prelude to throw InvalidArgumentException: ' . $badImport);
+			} catch (\InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
 	}
 }

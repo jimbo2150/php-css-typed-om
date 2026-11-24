@@ -11,6 +11,7 @@ return (new PhpCsFixer\Config())->
 	setRules([
 		'array_syntax' => ['syntax' => 'short'],
 		'declare_strict_types' => true,
+		'indentation_type' => true,
 		'no_extra_blank_lines' => ['tokens' => ['extra', 'use']],
 		'no_leading_import_slash' => true,
 		'no_trailing_whitespace' => true,

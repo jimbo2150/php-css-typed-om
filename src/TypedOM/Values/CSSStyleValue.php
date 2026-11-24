@@ -21,6 +21,8 @@ use Stringable;
  */
 abstract class CSSStyleValue implements Stringable
 {
+	public const int MAX_LIST_ITEMS = 4_096;
+
 	/** @var array<string, true> */
 	private const array GLOBAL_KEYWORDS = [
 		'inherit' => true,
@@ -134,6 +136,9 @@ abstract class CSSStyleValue implements Stringable
 		foreach (CSSSyntaxScanner::splitTopLevel($validatedCssText, ',') as $value) {
 			$value = CSSSyntaxScanner::trimCssWhitespace($value);
 			if ($value !== '') {
+				if (count($values) >= self::MAX_LIST_ITEMS) {
+					throw new CSSParserLimitException(sprintf('CSS value list exceeds maximum limit of %d items.', self::MAX_LIST_ITEMS));
+				}
 				$values[] = self::parseValidated($normalizedProperty, $value, $options);
 			}
 		}
@@ -171,9 +176,11 @@ abstract class CSSStyleValue implements Stringable
 			}
 		}
 
-		if (str_contains($trimmedValue, '(')
-			&& preg_match('/^(url|image|image-set|cross-fade|paint|element|(?:repeating-)?(?:linear|radial|conic)-gradient)\(/i', $trimmedValue, $imgMatch)
-			&& (strtolower($imgMatch[1]) === 'url' || !CSS::hasVarReference($trimmedValue))
+		$open = strpos($trimmedValue, '(');
+		$fn = $open !== false ? CSSSyntaxScanner::decodeLeadingFunctionName($trimmedValue, $open) : null;
+		if ($fn !== null
+			&& preg_match('/^(?:url|image|image-set|cross-fade|paint|element|(?:repeating-)?(?:linear|radial|conic)-gradient)$/D', $fn) === 1
+			&& ($fn === 'url' || !CSS::hasVarReference($trimmedValue))
 		) {
 			try {
 				return new CSSImageValue($trimmedValue);
@@ -193,7 +200,7 @@ abstract class CSSStyleValue implements Stringable
 		}
 
 		$c0 = $trimmedValue[0];
-		if ($c0 === '#' || (str_contains($trimmedValue, '(') && preg_match('/^(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/i', $trimmedValue))) {
+		if ($c0 === '#' || ($fn !== null && preg_match('/^(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)$/D', $fn) === 1)) {
 			try {
 				return CSSColorValue::parse($trimmedValue, null, $options);
 			} catch (CSSParserLimitException $e) {

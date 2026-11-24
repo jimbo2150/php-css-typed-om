@@ -20,52 +20,50 @@ use PHPUnit\Framework\TestCase;
 
 class CSSTest extends TestCase
 {
-    public function testValidStaticUnitMethods()
-    {
+	public function testValidStaticUnitMethods()
+	{
 		$px = CSS::px("10");
-        $this->assertInstanceOf(CSSUnitValue::class, $px);
+		$this->assertInstanceOf(CSSUnitValue::class, $px);
 		$this->assertEquals(new CSSUnitValue(10, CSSUnitEnum::LENGTH_px), $px);
 		$this->assertEquals(null, $px->length);
 		$num = CSS::number("35.42");
 		$this->assertEquals(new CSSUnitValue(35.42, CSSUnitEnum::NUMBER), $num);
 		$this->assertEquals(null, $num->length);
-        $this->assertEquals(new CSSUnitValue(10, CSSUnitEnum::LENGTH_px), CSS::px("10"));
-        $this->assertEquals(new CSSUnitValue(1.5, CSSUnitEnum::LENGTH_em), CSS::em("1.5"));
-        $this->assertEquals(new CSSUnitValue(50, CSSUnitEnum::PERCENT), CSS::percent("50"));
-        $this->assertEquals(new CSSUnitValue(10, CSSUnitEnum::LENGTH_px), CSS::px(10));
-        $this->assertEquals(new CSSUnitValue(10.5, CSSUnitEnum::LENGTH_px), CSS::px(10.5));
-    }
+		$this->assertEquals(new CSSUnitValue(10, CSSUnitEnum::LENGTH_px), CSS::px("10"));
+		$this->assertEquals(new CSSUnitValue(1.5, CSSUnitEnum::LENGTH_em), CSS::em("1.5"));
+		$this->assertEquals(new CSSUnitValue(50, CSSUnitEnum::PERCENT), CSS::percent("50"));
+		$this->assertEquals(new CSSUnitValue(10, CSSUnitEnum::LENGTH_px), CSS::px(10));
+		$this->assertEquals(new CSSUnitValue(10.5, CSSUnitEnum::LENGTH_px), CSS::px(10.5));
+	}
 
-    public function testInvalidStaticUnitMethod()
-    {
-        $this->expectException(BadMethodCallException::class);
-        CSS::invalidUnit("10");
-    }
+	public function testInvalidStaticUnitMethod()
+	{
+		$this->expectException(BadMethodCallException::class);
+		CSS::invalidUnit("10");
+	}
 
-    public function testStaticUnitMethodWithNoArgument()
-    {
-        $this->expectException(InvalidArgumentException::class);
-		// @phpstan-ignore-next-line
-		// phpcs:ignore
+	public function testStaticUnitMethodWithNoArgument()
+	{
+		$this->expectException(InvalidArgumentException::class);
 		CSS::px();
-    }
+	}
 
-    public function testStaticUnitMethodWithNonNumericArgument()
-    {
-        $this->expectException(InvalidArgumentException::class);
-        CSS::px('abc');
-    }
+	public function testStaticUnitMethodWithNonNumericArgument()
+	{
+		$this->expectException(InvalidArgumentException::class);
+		CSS::px('abc');
+	}
 
 	public function testAddMethod()
-    {
+	{
 		$sum = CSS::px('10')->add(CSS::em('10'))->add(CSS::vh('23'));
 		$this->assertInstanceOf(CSSMathSum::class, $sum);
 		$this->assertEquals(3, $sum->length);
-    }
+	}
 
 	public function testMinMethod()
 	{
-	    $min = CSS::px('10')->min(new CSSNumericArray([CSS::em('1324'), CSS::vh('2043')]));
+		$min = CSS::px('10')->min(new CSSNumericArray([CSS::em('1324'), CSS::vh('2043')]));
 		$this->assertInstanceOf(CSSMathMin::class, $min);
 		$this->assertEquals(3, $min->length);
 	}
@@ -182,7 +180,8 @@ class CSSTest extends TestCase
 			self::assertSame('<length>', $rule->syntax);
 			self::assertFalse($rule->inherits);
 			self::assertSame('16px', $rule->initialValue);
-			self::assertSame($rule, CSS::getRegisteredProperty('--brand-gap'));
+			self::assertEquals($rule, CSS::getRegisteredProperty('--brand-gap'));
+			self::assertNotSame($rule, CSS::getRegisteredProperty('--brand-gap'));
 			self::assertCount(1, CSS::getRegisteredProperties());
 
 			// Universal syntax allows null initialValue

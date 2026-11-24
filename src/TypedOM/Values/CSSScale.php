@@ -141,6 +141,40 @@ final class CSSScale extends CSSTransformComponent
 		return clone $this;
 	}
 
+	public function getValues(): array
+	{
+		$this->syncLiveState();
+		return parent::getValues();
+	}
+
+	public function __toString(): string
+	{
+		$this->syncLiveState();
+		return parent::__toString();
+	}
+
+	private function syncLiveState(): void
+	{
+		if ($this->functionName === 'scalex' && !self::isOneNumeric($this->yValue)) {
+			$this->functionName = 'scale';
+		} elseif ($this->functionName === 'scaley' && !self::isOneNumeric($this->xValue)) {
+			$this->functionName = 'scale';
+		} elseif (!$this->twoDimensional && $this->functionName === 'scalez' && (!self::isOneNumeric($this->xValue) || !self::isOneNumeric($this->yValue))) {
+			$this->functionName = 'scale3d';
+		} elseif ($this->functionName === 'scale' && count($this->values) === 1) {
+			if (!$this->xValue->equals($this->yValue)) {
+				$this->values = [$this->xValue, $this->yValue];
+			}
+			return;
+		}
+		$this->syncSerializedValues();
+	}
+
+	private static function isOneNumeric(CSSNumericValue $value): bool
+	{
+		return $value instanceof CSSUnitValue && $value->value === 1.0;
+	}
+
 	private function syncSerializedValues(): void
 	{
 		$this->values = match ($this->functionName) {

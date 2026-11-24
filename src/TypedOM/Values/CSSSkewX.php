@@ -27,6 +27,7 @@ final class CSSSkewX extends CSSTransformComponent
 	public function __construct(CSSNumericValue|int|float|string $valueOrFunction, array|CSSNumericValue|int|float|string|null $values = null)
 	{
 		if (is_string($valueOrFunction) && is_array($values)) {
+			$values = array_values($values);
 			if (strtolower($valueOrFunction) !== 'skewx' || count($values) !== 1) {
 				throw new InvalidArgumentException('skewX() requires one angle.');
 			}

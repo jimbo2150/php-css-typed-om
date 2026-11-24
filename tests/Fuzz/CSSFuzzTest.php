@@ -51,10 +51,15 @@ final class CSSFuzzTest extends TestCase
 			self::assertLessThanOrEqual($options->maxErrors + 1, count($sheet->getParseErrors()));
 			self::assertLessThanOrEqual($options->maxRules + 1, $sheet->getTotalRuleCount());
 
+			$clonedSheet = clone $sheet;
+			self::assertSame($sheet->getTotalRuleCount(), $clonedSheet->getTotalRuleCount());
+
 			$rendered = CSSRenderer::render($sheet, new CSSRenderOptions(CSSRenderMode::Minified));
 			$escaped = CSSRenderer::render($sheet, new CSSRenderOptions(CSSRenderMode::Pretty, escapeHtmlStyleTag: true));
 			self::assertIsString($rendered);
 			self::assertDoesNotMatchRegularExpression('/<\/style(?=[\t\n\f\r \/>]|$)/i', $escaped);
+			$reparsed = CSSStyleSheet::parse($rendered, $options);
+			self::assertSame($rendered, CSSRenderer::render($reparsed, new CSSRenderOptions(CSSRenderMode::Minified)));
 
 			// Typed OM entry points & CSS::supports must only throw InvalidArgumentException (or return bool)
 			$slice = substr($input, 0, 96);

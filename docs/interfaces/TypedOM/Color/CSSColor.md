@@ -8,5 +8,6 @@
 ## Properties & Methods
 
 - `PREDEFINED_SPACES`: constant map of supported predefined CSS Color 4 color spaces.
+- `MAX_CUSTOM_CHANNELS`: `64`, maximum channel count allowed for custom `--*` color spaces.
 - Properties: property hooks `$colorSpace` (`CSSKeywordValue` returned as a clone from getter/property), `$channels` (`list<CSSNumericValue|CSSKeywordValue>`, cloning returned `CSSKeywordValue` items), `$alpha` (`CSSNumericValue|CSSKeywordValue`, cloning returned `CSSKeywordValue`).
 - `__construct($colorSpace, array $channels, $alpha = 1.0)`, `getColorSpace()`, `setColorSpace()`, `getChannels()`, `setChannels()`, `__clone(): void`, `clone(): static`, `__toString(): string`.

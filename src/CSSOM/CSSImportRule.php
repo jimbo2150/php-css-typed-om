@@ -133,9 +133,12 @@ final class CSSImportRule extends CSSAtRule
 			$valid = false;
 			$strEnd = CSSSyntaxScanner::scanQuotedStringEnd($prelude, 0, $length, $valid);
 			$pos = $valid ? $strEnd + 1 : $length;
-		} elseif ($length >= 4 && substr_compare($prelude, 'url(', 0, 4, true) === 0) {
-			$urlEnd = CSSSyntaxScanner::findMatchingUrlEnd($prelude, 3, $length);
-			$pos = $urlEnd !== null ? $urlEnd + 1 : $length;
+		} else {
+			$openParen = strpos($prelude, '(');
+			if ($openParen !== false && CSSSyntaxScanner::decodeLeadingFunctionName($prelude, $openParen) === 'url') {
+				$urlEnd = CSSSyntaxScanner::findMatchingUrlEnd($prelude, $openParen, $length);
+				$pos = $urlEnd !== null ? $urlEnd + 1 : $length;
+			}
 		}
 
 		if ($pos > 0) {
@@ -239,8 +242,12 @@ final class CSSImportRule extends CSSAtRule
 
 	private static function unwrapUrlToken(string $token): string
 	{
-		if (strncasecmp($token, 'url(', 4) === 0 && str_ends_with($token, ')')) {
-			$token = CSSSyntaxScanner::trimCssWhitespace(substr($token, 4, -1));
+		$openParen = strpos($token, '(');
+		if ($openParen !== false
+			&& str_ends_with($token, ')')
+			&& CSSSyntaxScanner::decodeLeadingFunctionName($token, $openParen) === 'url'
+		) {
+			$token = CSSSyntaxScanner::trimCssWhitespace(substr($token, $openParen + 1, -1));
 		}
 
 		if (strlen($token) >= 2 && (($token[0] === '"' && $token[-1] === '"') || ($token[0] === "'" && $token[-1] === "'"))) {

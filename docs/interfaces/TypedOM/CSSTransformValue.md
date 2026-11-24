@@ -6,7 +6,7 @@
 
 ## Public API
 
-No public constants or enum cases. Inherits `parse` and `parseAll` from [CSSStyleValue](CSSStyleValue.md#public-api).
+Declares `public const int MAX_COMPONENTS = 1_024;` (enforced on construction, parsing, and appends) and enforces `DEFAULT_MAX_BYTES` on `__toString()`. Inherits `parse` and `parseAll` from [CSSStyleValue](CSSStyleValue.md#public-api).
 
 | Method/property | Signature and behavior |
 |---|---|

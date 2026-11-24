@@ -6,7 +6,7 @@
 
 ## Public properties and constants
 
-`values` is a public `CSSNumericArray` property with protected write access; `inner_values` is a public `array<CSSNumericValue>` view with private write access from `MultiValueTrait`. `value`, `unit`, and `length` are inherited from `CSSNumericValue` and its traits (see [CSSNumericValue properties](CSSNumericValue.md#public-properties-and-constants)). No constants are declared on this abstract class; concrete math subclasses define `operator` and sometimes `sign`.
+`public const ?string operator = null` is declared on `CSSMathValue` (overridden on concrete subclasses alongside `sign`). `values` is a public `CSSNumericArray` property with protected write access; `inner_values` is a read-only virtual `array<CSSNumericValue>` property hook from `MultiValueTrait`. `value`, `unit`, and `length` are inherited from `CSSNumericValue` and its traits (see [CSSNumericValue properties](CSSNumericValue.md#public-properties-and-constants)).
 
 ## Public API
 

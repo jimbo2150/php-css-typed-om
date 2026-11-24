@@ -25,6 +25,8 @@ use Traversable;
  */
 final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Countable, IteratorAggregate
 {
+	public const int MAX_COMPONENTS = 1_024;
+
 	/** @var list<CSSTransformComponent> */
 	private array $components;
 
@@ -44,6 +46,9 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 	{
 		if ($components === []) {
 			throw new InvalidArgumentException('A transform list must contain at least one component.');
+		}
+		if (count($components) > self::MAX_COMPONENTS) {
+			throw new CSSParserLimitException(sprintf('Transform list exceeds maximum limit of %d components.', self::MAX_COMPONENTS));
 		}
 		$normalized = [];
 		foreach ($components as $component) {
@@ -82,6 +87,9 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 				throw new InvalidArgumentException('Invalid transform function at offset ' . $offset . '.');
 			}
 			$name = strtolower($match[1]);
+			if (count($components) >= self::MAX_COMPONENTS) {
+				throw new CSSParserLimitException(sprintf('Transform list exceeds maximum limit of %d components.', self::MAX_COMPONENTS));
+			}
 			$open = $offset + strlen($match[0]) - 1;
 			$close = CSSSyntaxScanner::findMatchingDelimiter($cssText, $open, $length);
 			if ($close === null) {
@@ -128,6 +136,9 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 			throw new InvalidArgumentException('Transform components must be CSSTransformComponent objects.');
 		}
 		if ($offset === null) {
+			if (count($this->components) >= self::MAX_COMPONENTS) {
+				throw new CSSParserLimitException(sprintf('Transform list exceeds maximum limit of %d components.', self::MAX_COMPONENTS));
+			}
 			$this->components[] = $value;
 			return;
 		}
@@ -234,8 +245,15 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 	public function __toString(): string
 	{
 		$parts = [];
-		foreach ($this->components as $component) {
-			$parts[] = (string) $component;
+		$totalBytes = 0;
+		$maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES;
+		foreach ($this->components as $i => $component) {
+			$part = (string) $component;
+			$totalBytes += strlen($part) + ($i > 0 ? 1 : 0);
+			if ($totalBytes > $maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS transform list exceeds maximum size of %d bytes.', $maxBytes));
+			}
+			$parts[] = $part;
 		}
 
 		return implode(' ', $parts);

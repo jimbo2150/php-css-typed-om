@@ -10,7 +10,7 @@
 |---|---|
 | `MAX_MATH_NODES` | Public `int` constant (`100_000`); global node/token/operand ceiling enforced across parsing, serialization, cloning, conversion, `toSum()`, comparison, and variadic/math constructors. |
 | `value` | Inherited `SimpleValueTrait` property; public read, protected write; generic mixed value slot used by numeric math nodes. |
-| `unit` | Inherited `TypeableUnitTrait` property; public read-only `string`, the unit symbol (or empty string for no unit). |
+| `unit` | Inherited `TypeableUnitTrait` property; public read-only `string`, the canonical Typed OM unit name (e.g., `'number'`, `'percent'`, `'px'`), or `''` if unset. |
 | `length` | Inherited `LengthTrait` property; public read-only `?int`, count of a `values` collection when one exists, otherwise `null`. |
 
 The class is abstract and inherits `parseAll`, `__toString`, and `clone` from its parents/traits. It implements the string/clone methods using `SimpleValueTrait`.
@@ -34,7 +34,7 @@ The class is abstract and inherits `parseAll`, `__toString`, and `clone` from it
 | `max` | `public function max(CSSNumericArray|CSSNumericValue|int|float ...$values): CSSMathMax`; returns a maximum expression over this value and flattened supplied operands (capped at `MAX_MATH_NODES`); requires at least one extra operand and compatible additive types. Example: `$maximum = $number->max(10);`. |
 | `equals` | `public function equals(self ...$numericValues): bool`; true when every supplied value equals this value; with no arguments returns true. Identity `$left === $right` short-circuits; unit values compare directly or after compatible conversion; math nodes compare iteratively with `MAX_MATH_NODES`/`MAX_MATH_TREE_DEPTH` guards. Example: `$same = $number->equals($other);`. |
 | `mergeAdditiveTypes` | `public static function mergeAdditiveTypes(array $values): CSSNumericType`; merges numeric types in a `list<CSSNumericValue>` using Typed OM percentage-hint rules; an empty list yields a unitless numeric type and incompatible dimensions throw `InvalidArgumentException`. Example: `$type = CSSNumericValue::mergeAdditiveTypes([$left, $right]);`. |
-| `unitType` | `public function unitType(): ?string`; alias of the unit trait's `type()` and returns the unit's category when a unit is set; the trait throws `Exception` if no unit enum is set, while a unit whose enum has no category can return null. Example: `$dimension = $number->unitType();`. |
+| `unitType` | `public function unitType(): ?string`; alias of the unit trait's `type()` and returns the unit's category when a unit is set; throws `LogicException` if no unit enum is set, while a unit whose enum has no category (such as `'number'`) returns `null`. Example: `$dimension = $number->unitType();`. |
 | `__get` | `public function __get(string $name): mixed`; exposes magic `type` as `CSSNumericType`; other names throw `Error`. Example: `$type = $number->type;`. |
 | `__set` | `public function __set(string $name, mixed $value): void`; rejects all magic writes with `Error`; declared hooked properties remain governed by their own property visibility. Example: `$number->type = $type; // Error`. |
 | `__toString` | `public function __toString(): string`; from `SimpleValueTrait`, returns the string form of the trait's `value` slot; numeric subclasses may override. Example: `$css = (string) $number;`. |

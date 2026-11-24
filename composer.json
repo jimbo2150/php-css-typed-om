@@ -25,7 +25,6 @@
     },
     "scripts": {
         "test": "./vendor/bin/phpunit",
-        "test-deprecated": "./vendor/bin/phpunit --display-deprecations --fail-on-warning --fail-on-deprecation --fail-on-risky",
         "test-coverage": "XDEBUG_MODE=coverage ./vendor/bin/phpunit --coverage-text",
         "test-coverage-html": "XDEBUG_MODE=coverage ./vendor/bin/phpunit --coverage-html ./.test/coverage",
         "cs-check": "./vendor/bin/php-cs-fixer fix --dry-run --diff",

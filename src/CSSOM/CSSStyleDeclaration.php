@@ -148,6 +148,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		return $this->parentRule;
 	}
 
+	/** @internal Links this declaration block to its owning CSSRule. */
 	public function setParentRule(?CSSRule $parentRule): void
 	{
 		$this->parentRule = $parentRule;
@@ -194,10 +195,17 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	/**
 	 * Sets or removes a property declaration atomically.
 	 *
-	 * @throws InvalidArgumentException When the property name, value, or priority is invalid
+	 * @throws InvalidArgumentException When the property name, value, priority, or size limit is invalid
 	 */
 	public function setProperty(string $property, string $value, string $priority = ''): void
 	{
+		if (strlen($property) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('CSS property name exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		}
+		if (strlen($value) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('CSS property value exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		}
+
 		$name = self::normalizePropertyName($property);
 		static::assertAllowedDescriptor($name);
 		$priority = strtolower(trim($priority, self::CSS_WHITESPACE));
@@ -210,14 +218,19 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 
 		$value = trim($value, self::CSS_WHITESPACE);
 		if ($value === '') {
+			$delta = isset($this->declarations[$name]) ? -1 : 0;
 			unset($this->declarations[$name]);
 			$this->cachedKeys = null;
+			$this->notifySheetMutation($delta, $name === 'initial-value');
 			return;
 		}
 
 		self::validatePropertyValue($value);
+		$delta = isset($this->declarations[$name]) ? 0 : 1;
+		$this->assertSheetDeclarationGrowth($delta, null);
 		$this->declarations[$name] = ['value' => $value, 'priority' => $priority];
 		$this->cachedKeys = null;
+		$this->notifySheetMutation($delta, $name === 'initial-value');
 	}
 
 	/**
@@ -234,8 +247,10 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			throw new InvalidArgumentException(sprintf('!important is not allowed in %s.', static::class));
 		}
 		if ($trimmedValue === '' && !str_starts_with($normalizedName, '--')) {
+			$delta = isset($this->declarations[$normalizedName]) ? -1 : 0;
 			unset($this->declarations[$normalizedName]);
 			$this->cachedKeys = null;
+			$this->notifySheetMutation($delta, $normalizedName === 'initial-value');
 			return;
 		}
 		if ($respectExistingImportant) {
@@ -245,24 +260,31 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			}
 		}
 
+		$delta = isset($this->declarations[$normalizedName]) ? 0 : 1;
+		$this->assertSheetDeclarationGrowth($delta, null);
 		$this->declarations[$normalizedName] = ['value' => $trimmedValue, 'priority' => $priority];
 		$this->cachedKeys = null;
+		$this->notifySheetMutation($delta, $normalizedName === 'initial-value');
 	}
 
 	public function removeProperty(string $property): string
 	{
 		$name = self::normalizePropertyName($property);
 		$value = $this->declarations[$name]['value'] ?? '';
+		$delta = isset($this->declarations[$name]) ? -1 : 0;
 		unset($this->declarations[$name]);
 		$this->cachedKeys = null;
+		$this->notifySheetMutation($delta, $name === 'initial-value');
 
 		return $value;
 	}
 
 	public function clear(): void
 	{
+		$delta = -count($this->declarations);
 		$this->declarations = [];
 		$this->cachedKeys = null;
+		$this->notifySheetMutation($delta, true);
 	}
 
 	public function getCssText(): string
@@ -289,8 +311,36 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	public function setCssText(string $cssText, ?CSSParserOptions $options = null): void
 	{
 		$replacement = static::parse($cssText, true, $diagnostics, $options);
+		$delta = count($replacement->declarations) - count($this->declarations);
+		$this->assertSheetDeclarationGrowth($delta, $options);
 		$this->declarations = $replacement->declarations;
 		$this->cachedKeys = null;
+		$this->notifySheetMutation($delta, true);
+	}
+
+	private function assertSheetDeclarationGrowth(int $delta, ?CSSParserOptions $overrideOptions): void
+	{
+		if ($delta <= 0) {
+			return;
+		}
+		$sheet = $this->parentRule?->getParentStyleSheet();
+		if ($sheet === null) {
+			return;
+		}
+		$maxDeclarations = $overrideOptions !== null ? $overrideOptions->maxDeclarations : $sheet->getMaxDeclarationsInternal();
+		if ($maxDeclarations !== null && ($sheet->getTotalDeclarationCount() + $delta) > $maxDeclarations) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS declaration limit of %d exceeded.', $maxDeclarations));
+		}
+	}
+
+	private function notifySheetMutation(int $delta, bool $clearEmptyInitialValue): void
+	{
+		if ($delta !== 0) {
+			$this->parentRule?->getParentStyleSheet()?->adjustTotalDeclarationCount($delta);
+		}
+		if ($clearEmptyInitialValue && $this->parentRule instanceof CSSPropertyRule) {
+			$this->parentRule->clearEmptyInitialValueInternal();
+		}
 	}
 
 	/** @return Traversable<string, array{value: string, priority: string}> */
@@ -489,6 +539,10 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 					}
 					$priority = 'important';
 					$value = rtrim(substr($value, 0, $important), self::CSS_WHITESPACE);
+					if ($value !== '' && str_contains($value, '!') && CSSSyntaxScanner::findLastTopLevelImportant($value) !== null) {
+						self::handleInvalidDeclaration('Duplicate !important in CSS declaration (' . $name . ').', $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
+						return true;
+					}
 				}
 			}
 
@@ -594,6 +648,10 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				}
 				$priority = 'important';
 				$value = rtrim(substr($value, 0, $important), self::CSS_WHITESPACE);
+				if ($value !== '' && str_contains($value, '!') && CSSSyntaxScanner::findLastTopLevelImportant($value) !== null) {
+					self::handleInvalidDeclaration('Duplicate !important in CSS declaration (' . $name . ').', $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
+					return true;
+				}
 			}
 		}
 

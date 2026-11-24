@@ -652,8 +652,20 @@ final class CSSSyntaxScanner
 				return $source;
 			}
 		} else {
-			$firstComment = strpos($source, '/*', $baseStart);
-			if ($firstComment === false || $firstComment + 1 >= $length) {
+			$probe = $baseStart;
+			$hasComment = false;
+			while ($probe + 1 < $length) {
+				$probe += strcspn($source, '/', $probe, $length - $probe);
+				if ($probe + 1 >= $length) {
+					break;
+				}
+				if ($source[$probe + 1] === '*') {
+					$hasComment = true;
+					break;
+				}
+				$probe++;
+			}
+			if (!$hasComment) {
 				return substr($source, $baseStart, $sliceLen);
 			}
 		}
@@ -663,6 +675,7 @@ final class CSSSyntaxScanner
 		$offset = $baseStart;
 		$lastEscapeOffset = -1;
 		$lastEscapeEnd = -1;
+		$lastEscapeWasBareHex = false;
 		$mask = "\\\"'/(";
 
 		while ($offset < $length) {
@@ -684,27 +697,34 @@ final class CSSSyntaxScanner
 				$lastEscapeOffset = $offset;
 				if ($offset + 1 >= $length) {
 					$lastEscapeEnd = $length;
+					$lastEscapeWasBareHex = false;
 					$offset = $length;
 				} else {
 					$hexLen = strspn($source, self::HEX_DIGITS, $offset + 1, min(6, $length - ($offset + 1)));
 					if ($hexLen > 0) {
 						$endEsc = $offset + 1 + $hexLen;
+						$consumedWs = false;
 						if ($endEsc < $length) {
 							$ws = $source[$endEsc];
 							if ($ws === "\r" && $endEsc + 1 < $length && $source[$endEsc + 1] === "\n") {
 								$endEsc += 2;
+								$consumedWs = true;
 							} elseif ($ws === ' ' || $ws === "\t" || $ws === "\n" || $ws === "\r" || $ws === "\f") {
 								$endEsc++;
+								$consumedWs = true;
 							}
 						}
 						$lastEscapeEnd = $endEsc;
+						$lastEscapeWasBareHex = !$consumedWs;
 						$offset = $endEsc;
 					} else {
 						$escapedByte = $source[$offset + 1];
 						if ($escapedByte === "\n" || $escapedByte === "\r" || $escapedByte === "\f") {
+							$lastEscapeWasBareHex = false;
 							$offset++;
 						} else {
 							$lastEscapeEnd = $offset + 2;
+							$lastEscapeWasBareHex = false;
 							$offset = $lastEscapeEnd;
 						}
 					}
@@ -744,7 +764,18 @@ final class CSSSyntaxScanner
 				}
 
 				$nextByte = $runEnd < $length ? $source[$runEnd] : null;
-				if ($prevByte !== null
+				if ($prevWasEscape && $lastEscapeWasBareHex && $nextByte !== null) {
+					// CSS Syntax L3 consumes one trailing whitespace after a bare hex escape, so emit
+					// one space before whitespace (or two spaces before a merging token) to keep tokens separate.
+					if ($nextByte === ' ' || $nextByte === "\t" || $nextByte === "\n" || $nextByte === "\r" || $nextByte === "\f") {
+						$chunks[] = ' ';
+					} else {
+						$nextNextByte = $runEnd + 1 < $length ? $source[$runEnd + 1] : null;
+						if (self::needsCommentSeparatorSpace($prevByte, true, $nextByte, $nextNextByte)) {
+							$chunks[] = '  ';
+						}
+					}
+				} elseif ($prevByte !== null
 					&& $nextByte !== null
 					&& $nextByte !== ' ' && $nextByte !== "\t" && $nextByte !== "\n" && $nextByte !== "\r" && $nextByte !== "\f"
 					&& ($prevWasEscape || ($prevByte !== ' ' && $prevByte !== "\t" && $prevByte !== "\n" && $prevByte !== "\r" && $prevByte !== "\f"))
@@ -1250,6 +1281,130 @@ final class CSSSyntaxScanner
 		return implode('', $chunks);
 	}
 
+	/**
+	 * Scans a CSS identifier per CSS Syntax Level 3 §4.3.9 and returns its end offset, or null if invalid.
+	 */
+	public static function scanIdentEnd(string $source, int $start, ?int $end = null): ?int
+	{
+		$length = $end === null ? strlen($source) : min($end, strlen($source));
+		$pos = $start;
+		if ($pos >= $length) {
+			return null;
+		}
+
+		if ($source[$pos] === '-') {
+			$pos++;
+			if ($pos >= $length) {
+				return null;
+			}
+		}
+
+		$first = $source[$pos];
+		if ($first === '-') {
+			$pos++;
+		} elseif (($first >= 'a' && $first <= 'z') || ($first >= 'A' && $first <= 'Z') || $first === '_' || ord($first) >= 0x80) {
+			$pos++;
+		} elseif ($first === '\\' && $pos + 1 < $length && $source[$pos + 1] !== "\n" && $source[$pos + 1] !== "\r" && $source[$pos + 1] !== "\f") {
+			$pos = self::advanceIdentEscapeEnd($source, $pos, $length);
+		} else {
+			return null;
+		}
+
+		while ($pos < $length) {
+			$asciiLen = strspn($source, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_', $pos, $length - $pos);
+			if ($asciiLen > 0) {
+				$pos += $asciiLen;
+				if ($pos >= $length) {
+					break;
+				}
+			}
+			$ch = $source[$pos];
+			if (ord($ch) >= 0x80) {
+				$pos++;
+				continue;
+			}
+			if ($ch === '\\' && $pos + 1 < $length && $source[$pos + 1] !== "\n" && $source[$pos + 1] !== "\r" && $source[$pos + 1] !== "\f") {
+				$pos = self::advanceIdentEscapeEnd($source, $pos, $length);
+				continue;
+			}
+			break;
+		}
+
+		return $pos;
+	}
+
+	/**
+	 * Decodes and lowercases a single CSS function name immediately preceding `$openParen`, or returns null.
+	 */
+	public static function decodeLeadingFunctionName(string $source, int $openParen): ?string
+	{
+		if ($openParen <= 0 || $openParen >= strlen($source)) {
+			return null;
+		}
+
+		if (!str_contains(substr($source, 0, $openParen), '\\')
+			&& strspn($source, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_', 0, $openParen) === $openParen
+		) {
+			$c0 = $source[0];
+			if ($c0 >= '0' && $c0 <= '9') {
+				return null;
+			}
+			if ($c0 === '-' && ($openParen < 2 || ($source[1] >= '0' && $source[1] <= '9'))) {
+				return null;
+			}
+			return strtolower(substr($source, 0, $openParen));
+		}
+
+		if (self::scanIdentEnd($source, 0, $openParen) !== $openParen) {
+			return null;
+		}
+		$raw = substr($source, 0, $openParen);
+		$decoded = str_contains($raw, '\\') ? self::decodeCssIdentEscapes($raw) : $raw;
+		if (self::hasControlCharacters($decoded)) {
+			return null;
+		}
+
+		return strtolower($decoded);
+	}
+
+	/**
+	 * Returns true if $token ends with a 1–6 hex digit escape sequence with no trailing whitespace.
+	 */
+	public static function endsWithBareHexEscape(string $token): bool
+	{
+		$length = strlen($token);
+		if ($length < 2) {
+			return false;
+		}
+		$pos = $length - 1;
+		$hexCount = 0;
+		while ($pos >= 0 && $hexCount < 6 && str_contains(self::HEX_DIGITS, $token[$pos])) {
+			$pos--;
+			$hexCount++;
+		}
+
+		return $hexCount > 0 && $pos >= 0 && $token[$pos] === '\\' && !self::isEscapedBackslash($token, $pos, 0);
+	}
+
+	private static function advanceIdentEscapeEnd(string $source, int $slashOffset, int $length): int
+	{
+		$hexLen = strspn($source, self::HEX_DIGITS, $slashOffset + 1, min(6, $length - ($slashOffset + 1)));
+		if ($hexLen === 0) {
+			return $slashOffset + 2;
+		}
+		$end = $slashOffset + 1 + $hexLen;
+		if ($end < $length) {
+			$ws = $source[$end];
+			if ($ws === "\r" && $end + 1 < $length && $source[$end + 1] === "\n") {
+				$end += 2;
+			} elseif ($ws === ' ' || $ws === "\t" || $ws === "\n" || $ws === "\r" || $ws === "\f") {
+				$end++;
+			}
+		}
+
+		return $end;
+	}
+
 	public static function trimCssWhitespace(string $value): string
 	{
 		return trim($value, self::CSS_WHITESPACE);
@@ -1362,8 +1517,11 @@ final class CSSSyntaxScanner
 			if (substr_compare($source, 'url', $openParenOffset - 3, 3, true) !== 0) {
 				return false;
 			}
-			if ($openParenOffset - 4 >= $start && self::isIdentByte($source[$openParenOffset - 4])) {
-				return false;
+			if ($openParenOffset - 4 >= $start) {
+				$prev = $source[$openParenOffset - 4];
+				if ($prev === '#' || $prev === '@' || self::isIdentByte($prev)) {
+					return false;
+				}
 			}
 		} else {
 			if (!self::precedingEscapedIdentIsUrl($source, $openParenOffset, $start, $lastEscapeOffset)) {
@@ -1394,7 +1552,11 @@ final class CSSSyntaxScanner
 			if ($openParenOffset < $start + 3 || substr_compare($source, 'url', $openParenOffset - 3, 3, true) !== 0) {
 				return false;
 			}
-			return $openParenOffset - 4 < $start || !self::isIdentByte($source[$openParenOffset - 4]);
+			if ($openParenOffset - 4 < $start) {
+				return true;
+			}
+			$prev = $source[$openParenOffset - 4];
+			return $prev !== '#' && $prev !== '@' && !self::isIdentByte($prev);
 		}
 
 		// Scan backward within a bounded window to find the start of the escaped identifier token.
@@ -1452,6 +1614,9 @@ final class CSSSyntaxScanner
 
 		$identStart = $cursor + 1;
 		if ($identStart >= $openParenOffset) {
+			return false;
+		}
+		if ($identStart > $start && ($source[$identStart - 1] === '#' || $source[$identStart - 1] === '@')) {
 			return false;
 		}
 

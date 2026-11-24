@@ -24,6 +24,9 @@ class CSSConditionRule extends CSSGroupingRule
 	 */
 	public function setConditionText(string $conditionText): void
 	{
+		if (strlen($conditionText) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('CSS condition text exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		}
 		$conditionText = CSSSyntaxScanner::trimCssWhitespace($conditionText);
 		if ($conditionText !== '') {
 			CSSSyntaxScanner::assertValidFragment($conditionText, 'CSS condition text', [';', '{', '}']);

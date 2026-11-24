@@ -73,6 +73,10 @@ final class CSSRotate extends CSSTransformComponent
 			return;
 		}
 
+		if ($valuesOrY !== null || $z !== null) {
+			throw new InvalidArgumentException('CSSRotate requires either 1 angle or 4 axis+angle arguments.');
+		}
+
 		$this->xValue = new CSSUnitValue(0, 'number');
 		$this->yValue = new CSSUnitValue(0, 'number');
 		$this->zValue = new CSSUnitValue(1, 'number');
@@ -172,6 +176,27 @@ final class CSSRotate extends CSSTransformComponent
 	public function clone(): static
 	{
 		return clone $this;
+	}
+
+	public function getValues(): array
+	{
+		$this->syncLiveState();
+		return parent::getValues();
+	}
+
+	public function __toString(): string
+	{
+		$this->syncLiveState();
+		return parent::__toString();
+	}
+
+	private function syncLiveState(): void
+	{
+		if (!$this->twoDimensional) {
+			self::assertNonZeroAxis($this->xValue, $this->yValue, $this->zValue);
+			$this->promoteAxisFunction();
+		}
+		$this->syncSerializedValues();
 	}
 
 	private function syncSerializedValues(): void

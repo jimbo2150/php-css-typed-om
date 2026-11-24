@@ -10,11 +10,14 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSCounterStyleRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFontFeatureValuesMap;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFontFeatureValuesRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFunctionRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSImportRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSKeyframesRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSLayerStatementRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSMediaRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPageRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPropertyRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderer;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderMode;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderOptions;
@@ -22,14 +25,28 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleSheet;
 use Jimbo2150\PhpCssTypedOm\CSSOM\MediaList;
+use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrixReadOnly;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext;
 use Jimbo2150\PhpCssTypedOm\TypedOM\StylePropertyMap;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColor;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSLCH;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSOKLCH;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSRGB;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSImageValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSMatrixComponent;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSPerspective;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSRotate;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSScale;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSSkewX;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSTransformValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSTranslate;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSVariableReferenceValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
@@ -834,5 +851,342 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		self::assertSame([], $deepSheet->getParseErrors());
 		$clonedDeep = clone $deepSheet;
 		self::assertSame(256, $clonedDeep->getTotalRuleCount());
+	}
+
+	public function testEnforcesPlanV7Batch1And2CssomParserHardening(): void
+	{
+		// 1. DAG / cycle rejection on CSSGroupingRule serialization & CSSStyleSheet inspection via reflection
+		$sheet = CSSStyleSheet::parse('@media screen { @supports (display: grid) { a { color: red; } } }');
+		$outer = $sheet->cssRules[0];
+		self::assertInstanceOf(CSSMediaRule::class, $outer);
+		$inner = $outer->cssRules[0];
+		$listProp = new \ReflectionProperty($inner->cssRules, 'rules');
+		$rawRules = $listProp->getValue($inner->cssRules);
+		$rawRules[] = $outer; // Create cycle in underlying tree
+		$listProp->setValue($inner->cssRules, $rawRules);
+		try {
+			CSSRenderer::render($sheet, new CSSRenderOptions(CSSRenderMode::Minified));
+			self::fail('Expected cyclic CSSRule graph to be rejected during rendering.');
+		} catch (\LogicException $e) {
+			self::assertStringContainsString('cyclic', strtolower($e->getMessage()));
+		}
+
+		// Diamond DAG sharing same rule in two sibling branches via reflection fails cleanly
+		$dagSheet = new CSSStyleSheet();
+		$sharedLeaf = new CSSStyleRule('a');
+		$branchA = new CSSMediaRule('screen');
+		$branchB = new CSSMediaRule('print');
+		$dagSheet->cssRules->append($branchA);
+		$branchA->cssRules->append($sharedLeaf);
+		$listPropB = new \ReflectionProperty($branchB->cssRules, 'rules');
+		$listPropB->setValue($branchB->cssRules, [$sharedLeaf, $sharedLeaf]);
+		try {
+			$dagSheet->cssRules->append($branchB);
+			self::fail('Expected diamond DAG rule graph to be rejected.');
+		} catch (\LogicException $e) {
+			self::assertStringContainsString('dag', strtolower($e->getMessage()));
+		}
+
+		// Diamond DAG across distinct branches is also caught by CSSRenderer
+		$listPropB->setValue($branchB->cssRules, [$sharedLeaf]);
+		$sheetListProp = new \ReflectionProperty($dagSheet->cssRules, 'rules');
+		$sheetListProp->setValue($dagSheet->cssRules, [$branchA, $branchB]);
+		try {
+			CSSRenderer::render($dagSheet, new CSSRenderOptions(CSSRenderMode::Minified));
+			self::fail('Expected diamond DAG rule graph to be rejected during rendering.');
+		} catch (\LogicException $e) {
+			self::assertStringContainsString('dag', strtolower($e->getMessage()));
+		}
+
+		// 2. CSSStyleDeclaration DEFAULT_MAX_BYTES & duplicate !important rejection
+		unset($sheet, $dagSheet, $outer, $inner, $branchA, $branchB, $sharedLeaf, $e);
+		$oversized = str_repeat('a', CSSParserOptions::DEFAULT_MAX_BYTES + 1);
+		$decl = new CSSStyleDeclaration();
+		try {
+			$decl->setProperty('color', $oversized);
+			self::fail('Expected oversized property value to throw CSSParserLimitException.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+			unset($e);
+		}
+
+		foreach ([
+			static fn () => (new CSSStyleDeclaration())->setProperty('color', 'red', 'important !important'),
+			static fn () => (new CSSStyleDeclaration())->setProperty('color', 'red !important !important'),
+			static fn () => (new CSSStyleDeclaration())->setCssText('color: red !important !important;'),
+		] as $dupImportant) {
+			try {
+				$dupImportant();
+				self::fail('Expected duplicate !important to be rejected.');
+			} catch (InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
+
+		foreach ([
+			'a { color: red !important !important; }',
+			'a { color: red !important /* c */ !important; }',
+		] as $dupImportCss) {
+			$dupSheet = CSSStyleSheet::parse($dupImportCss);
+			self::assertNotEmpty($dupSheet->getParseErrors());
+			self::assertSame('', $dupSheet->cssRules[0]->style->getPropertyValue('color'));
+		}
+
+		self::assertFalse(CSS::supports('color: red !important !important'));
+		self::assertFalse(CSS::supports('color: red !\\69 mportant !\\69 mportant'));
+
+		// 3. MediaList size bounds and O(1) deduplication
+		$ml = new MediaList();
+		try {
+			$ml->setMediaText($oversized);
+			self::fail('Expected oversized MediaList::setMediaText() to throw CSSParserLimitException.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+			unset($e);
+		}
+		$ml->setMediaText('screen, print, screen');
+		self::assertSame('screen, print', $ml->mediaText);
+		$ml->deleteMedium('print');
+		self::assertSame('screen', $ml->mediaText);
+		try {
+			$ml->appendMedium($oversized);
+			self::fail('Expected oversized MediaList::appendMedium() to throw CSSParserLimitException.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+			unset($e);
+		}
+		unset($oversized);
+
+		// 4. CSS escape smuggling in at-rules & leading function names
+		$smuggledSheet = CSSStyleSheet::parse('@\\69 mport "a.css"; @m\\65 dia screen { a { color: red; } }');
+		self::assertInstanceOf(CSSImportRule::class, $smuggledSheet->cssRules[0]);
+		self::assertSame('a.css', $smuggledSheet->cssRules[0]->href);
+		self::assertInstanceOf(CSSMediaRule::class, $smuggledSheet->cssRules[1]);
+
+		$escapedUrl = new CSSImageValue('u\\72 l(https://example.com/a.png)');
+		self::assertSame('u\\72 l(https://example.com/a.png)', $escapedUrl->getImage());
+		$escapedGrad = new CSSImageValue('l\\69 near-gradient(red, blue)');
+		self::assertSame('l\\69 near-gradient(red, blue)', $escapedGrad->getImage());
+		$escapedColor = CSSColorValue::parse('r\\67 b(10, 20, 30)');
+		self::assertInstanceOf(CSSRGB::class, $escapedColor);
+
+		// CSSImageValue DEFAULT_MAX_BYTES cap
+		$oversizedImage = 'url(' . str_repeat('a', CSSParserOptions::DEFAULT_MAX_BYTES) . ')';
+		try {
+			new CSSImageValue($oversizedImage);
+			self::fail('Expected oversized CSSImageValue to throw CSSParserLimitException.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+			unset($e);
+		}
+		unset($oversizedImage);
+
+		// 5. CSSPropertyRule clears empty initial-value flag on removeProperty() / clear()
+		$propSheet = CSSStyleSheet::parse('@property --p1 { syntax: "*"; inherits: false; initial-value: ; } @property --p2 { syntax: "*"; inherits: false; initial-value: ; }');
+		$p1 = $propSheet->cssRules[0];
+		$p2 = $propSheet->cssRules[1];
+		self::assertInstanceOf(CSSPropertyRule::class, $p1);
+		self::assertInstanceOf(CSSPropertyRule::class, $p2);
+		self::assertSame('', $p1->initialValue);
+		self::assertStringContainsString('initial-value: ;', CSSRenderer::render($propSheet, new CSSRenderOptions(CSSRenderMode::Minified)));
+		$p1->style->removeProperty('initial-value');
+		self::assertNull($p1->initialValue);
+		$p2->style->clear();
+		self::assertNull($p2->initialValue);
+
+		// 6. CSSFontFeatureValuesRule categories, CSSFontFeatureValuesMap validation, & O(N) large block
+		$ffSheet = CSSStyleSheet::parse('@font-feature-values Example { @styleset { a: 1; } }');
+		$ffRule = $ffSheet->cssRules[0];
+		self::assertInstanceOf(CSSFontFeatureValuesRule::class, $ffRule);
+		self::assertSame([1], $ffRule->getFeatureMap('styleset')->get('a'));
+		try {
+			$ffRule->getFeatureMap('invalid-category');
+			self::fail('Expected unknown font-feature category to throw InvalidArgumentException.');
+		} catch (InvalidArgumentException $e) {
+			self::assertStringContainsString('Invalid font feature', $e->getMessage());
+		}
+		foreach ([
+			static fn () => (new CSSFontFeatureValuesMap())->set('multi word', 1),
+			static fn () => (new CSSFontFeatureValuesMap())->set('neg', -1),
+			static fn () => (new CSSFontFeatureValuesMap())->set("bad\x00", 1),
+		] as $badMapCall) {
+			try {
+				$badMapCall();
+				self::fail('Expected invalid font feature map entry to fail.');
+			} catch (InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
+
+		// Control byte inside @font-feature-values body records error cleanly without TypeError
+		$badFfSheet = CSSStyleSheet::parse("@font-feature-values Foo { @styleset { \x00a: 1; } }");
+		self::assertNotEmpty($badFfSheet->getParseErrors());
+
+		// 500 entries parse cleanly in linear time
+		$ffEntries = implode(' ', array_map(static fn (int $i): string => "f{$i}: {$i};", range(1, 500)));
+		$bigFfSheet = CSSStyleSheet::parse("@font-feature-values BigFont { @styleset { {$ffEntries} } }");
+		self::assertSame([], $bigFfSheet->getParseErrors());
+		self::assertSame(500, $bigFfSheet->cssRules[0]->styleset->count());
+
+		// 7. CSSLayerStatementRule rejects empty prelude & empty segments
+		foreach (['@layer ;', '@layer a, , b;'] as $badLayerCss) {
+			$badLayerSheet = CSSStyleSheet::parse($badLayerCss);
+			self::assertNotEmpty($badLayerSheet->getParseErrors(), 'Expected parse error for: ' . $badLayerCss);
+			self::assertCount(0, $badLayerSheet->cssRules);
+		}
+		foreach ([
+			static fn () => new CSSLayerStatementRule(''),
+			static fn () => new CSSLayerStatementRule('a, , b'),
+		] as $badLayer) {
+			try {
+				$badLayer();
+				self::fail('Expected malformed @layer statement to fail.');
+			} catch (InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
+
+		// 8. CSSSyntaxScanner bare hex + comment, CSSUnparsedValue #/@ before var(, CSSCalcParser edges & depth-256 min()
+		self::assertSame('foo\\61  bar', CSSSyntaxScanner::removeComments('foo\\61/*c*/bar'));
+
+		$hashUnparsed = CSSUnparsedValue::fromCssText('#var(--x) @var(--y)');
+		self::assertCount(1, $hashUnparsed);
+		self::assertSame('#var(--x) @var(--y)', $hashUnparsed[0]);
+
+		// Unparsed nested var() respects $options->maxDepth
+		try {
+			CSSUnparsedValue::fromCssText(
+				'var(--a, var(--b, var(--c, var(--d, 1px))))',
+				new CSSParserOptions(maxDepth: 3),
+			);
+			self::fail('Expected nested var() exceeding maxDepth to throw CSSParserLimitException.');
+		} catch (CSSParserLimitException $e) {
+			self::assertStringContainsString('depth', strtolower($e->getMessage()));
+		}
+
+		self::assertSame('calc(10px + 20px)', (string) CSSCalcParser::parse('calc(10px +/*c*/ 20px)'));
+		foreach (['calc(--10px)', 'calc(10px + - 5px)', 'calc(+)'] as $badCalc) {
+			try {
+				CSSCalcParser::parse($badCalc);
+				self::fail('Expected malformed calc() to throw InvalidArgumentException: ' . $badCalc);
+			} catch (InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
+
+		// Depth-256 nested min() with comments parses iteratively within limit
+		$deepMin = str_repeat('min(/*c*/ ', 255) . '1px' . str_repeat(', 2px)', 255);
+		self::assertNotSame('', (string) CSSNumericValue::parse($deepMin));
+	}
+
+	public function testEnforcesPlanV7Batch3TypedOmAndGeometryHardening(): void
+	{
+		// 1. DOMMatrixReadOnly / DOMMatrix control characters across entry points
+		$zeros15 = array_fill(0, 15, 0.0);
+		foreach ([
+			static fn () => (new DOMMatrix())->setMatrixValue("translateX(\x0B1px)"),
+			static fn () => DOMMatrixReadOnly::fromFloat32Array(["1\x00", ...$zeros15]),
+			static fn () => DOMMatrixReadOnly::fromFloat64Array(["1\x00", ...$zeros15]),
+			static fn () => DOMMatrixReadOnly::fromMatrix(['m11' => "1\x00"]),
+			static fn () => (new DOMMatrixReadOnly())->transformPoint(['x' => "1\x00"]),
+		] as $badMatrixCall) {
+			try {
+				$badMatrixCall();
+				self::fail('Expected control character in matrix API to throw InvalidArgumentException.');
+			} catch (InvalidArgumentException $e) {
+				self::assertStringContainsString('control character', strtolower($e->getMessage()));
+			}
+		}
+
+		// 2. Transform live sync, CSSTranslate z vs 2D/3D, CSSRotate 3-arg, CSSMatrixComponent independent is2D
+		$translate3d = new CSSTranslate(CSS::px(1), CSS::px(2), CSS::px(3));
+		self::assertFalse($translate3d->is2D());
+		self::assertSame('translate3d(1px, 2px, 3px)', (string) $translate3d);
+
+		$scale = new CSSScale(2, 3);
+		$scale->z = 4;
+		self::assertFalse($scale->is2D());
+		self::assertSame('scale3d(2, 3, 4)', (string) $scale);
+
+		$matrixComp = new CSSMatrixComponent(new DOMMatrixReadOnly([1, 0, 0, 1, 10, 20]));
+		self::assertTrue($matrixComp->is2D());
+		$matrixComp->is2D = false;
+		self::assertFalse($matrixComp->is2D());
+		self::assertTrue($matrixComp->getMatrix()->is2D());
+		self::assertStringStartsWith('matrix3d(', (string) $matrixComp);
+
+		try {
+			new CSSRotate(1, 2, 3);
+			self::fail('Expected 3-argument CSSRotate to throw InvalidArgumentException.');
+		} catch (InvalidArgumentException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		// 3. CSSTransformValue::MAX_COMPONENTS & CSSStyleValue::MAX_LIST_ITEMS
+		try {
+			new CSSTransformValue(array_fill(0, CSSTransformValue::MAX_COMPONENTS + 1, new CSSSkewX(CSS::deg(5))));
+			self::fail('Expected transform component overflow to throw CSSParserLimitException.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		try {
+			CSSStyleValue::parseAll('animation-name', implode(', ', array_fill(0, CSSStyleValue::MAX_LIST_ITEMS + 1, 'fade')));
+			self::fail('Expected CSSStyleValue list overflow to throw CSSParserLimitException.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		// 4. CSSColor::MAX_CUSTOM_CHANNELS, CSSLCH/CSSOKLCH 'none', and CSSRGB::toHSL() achromatic
+		try {
+			new CSSColor('--custom', array_fill(0, CSSColor::MAX_CUSTOM_CHANNELS + 1, 0.5));
+			self::fail('Expected excessive custom color channels to throw CSSParserLimitException.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		$lchNone = new CSSLCH(new CSSKeywordValue('none'), 50, 120);
+		$labNone = $lchNone->toLab();
+		self::assertInstanceOf(CSSKeywordValue::class, $labNone->getL());
+		self::assertSame('none', $labNone->getL()->getKeyword());
+
+		$oklchNone = new CSSOKLCH(new CSSKeywordValue('none'), 0.2, 120);
+		$oklabNone = $oklchNone->toOKLab();
+		self::assertInstanceOf(CSSKeywordValue::class, $oklabNone->getL());
+		self::assertSame('none', $oklabNone->getL()->getKeyword());
+
+		$hslAchromatic = (new CSSRGB(CSS::number(0.5), CSS::number(0.5), CSS::number(0.5)))->toHSL();
+		self::assertSame(0.0, $hslAchromatic->getS()->value);
+
+		try {
+			(new CSSLCH(CSS::percent(50)->add(CSS::em(1)), 50, 120))->toLab();
+			self::fail('Expected unresolved math lightness in toLab() to throw InvalidArgumentException.');
+		} catch (InvalidArgumentException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		// 5. StylePropertyMap array_values normalization & bare hex escape join spacing
+		$decl = new CSSStyleDeclaration();
+		$map = new StylePropertyMap($decl);
+		$map->set('margin', ['first' => CSS::px(1), 'second' => CSS::px(2)]);
+		self::assertSame('1px 2px', $decl->getPropertyValue('margin'));
+
+		$map->set('animation-name', new CSSKeywordValue('foo\\61'), new CSSKeywordValue('bar'));
+		self::assertSame('foo\\61  bar', $decl->getPropertyValue('animation-name'));
+
+		// 6. CSS::registerProperty() clone isolation
+		CSS::clearRegisteredProperties();
+		try {
+			$inputRule = CSSStyleSheet::parse('@property --isolated-gap { syntax: "<length>"; inherits: false; initial-value: 4px; }')->cssRules[0];
+			self::assertInstanceOf(CSSPropertyRule::class, $inputRule);
+			$stored = CSS::registerProperty($inputRule);
+			$inputRule->style->setProperty('initial-value', '99px');
+			$stored->style->setProperty('initial-value', '88px');
+			$fetched = CSS::getRegisteredProperty('--isolated-gap');
+			self::assertNotNull($fetched);
+			self::assertSame('4px', $fetched->initialValue);
+		} finally {
+			CSS::clearRegisteredProperties();
+		}
 	}
 }

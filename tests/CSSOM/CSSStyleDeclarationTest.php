@@ -127,7 +127,6 @@ final class CSSStyleDeclarationTest extends TestCase
 		self::assertSame('inherit', (string) $map->get('--reset'));
 
 		$this->expectException(\Error::class);
-		/** @phpstan-ignore-next-line */
 		$map->unknownProp;
 	}
 }

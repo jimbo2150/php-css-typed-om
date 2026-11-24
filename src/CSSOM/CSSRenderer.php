@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use LogicException;
 use RuntimeException;
 
 /**
@@ -49,10 +50,16 @@ final class CSSRenderer
 		$chunks = [];
 		$containerEmitted = [false];
 		$topEmittedIdx = 0;
+		$visited = [];
 
 		if ($source instanceof CSSStyleSheet) {
 			foreach ($source->getCssRules()->getRulesRaw() as $topRule) {
 				if (!$topRule instanceof CSSGroupingRule || $topRule->getCssRules()->getRulesRaw() === []) {
+					$id = spl_object_id($topRule);
+					if (isset($visited[$id])) {
+						throw new LogicException('Cannot serialize a cyclic or DAG-shared CSS rule tree.');
+					}
+					$visited[$id] = true;
 					$rendered = self::renderFlatRule($topRule, $options, $pretty, 0);
 					if ($rendered !== '') {
 						if ($pretty && $containerEmitted[0]) {
@@ -63,7 +70,7 @@ final class CSSRenderer
 					}
 					continue;
 				}
-				self::processDirectWorkStack($topRule, $options, $pretty, $chunks, $containerEmitted, $topEmittedIdx);
+				self::processDirectWorkStack($topRule, $options, $pretty, $chunks, $containerEmitted, $topEmittedIdx, $visited);
 			}
 			return count($chunks) === 1 ? $chunks[0] : implode('', $chunks);
 		}
@@ -72,13 +79,14 @@ final class CSSRenderer
 			return self::renderFlatRule($source, $options, $pretty, 0);
 		}
 
-		self::processDirectWorkStack($source, $options, $pretty, $chunks, $containerEmitted, $topEmittedIdx);
+		self::processDirectWorkStack($source, $options, $pretty, $chunks, $containerEmitted, $topEmittedIdx, $visited);
 		return count($chunks) === 1 ? $chunks[0] : implode('', $chunks);
 	}
 
 	/**
 	 * @param list<string> $chunks
 	 * @param list<bool> $containerEmitted
+	 * @param array<int, true> $visited
 	 */
 	private static function processDirectWorkStack(
 		CSSGroupingRule $rootRule,
@@ -87,6 +95,7 @@ final class CSSRenderer
 		array &$chunks,
 		array &$containerEmitted,
 		int &$topEmittedIdx,
+		array &$visited,
 	): void {
 		$workStack = [[self::FRAME_ENTER, $rootRule, 0]];
 
@@ -109,6 +118,11 @@ final class CSSRenderer
 			}
 
 			[, $rule, $depth] = $frame;
+			$id = spl_object_id($rule);
+			if (isset($visited[$id])) {
+				throw new LogicException('Cannot serialize a cyclic or DAG-shared CSS rule tree.');
+			}
+			$visited[$id] = true;
 			if ($depth > self::MAX_RENDER_DEPTH) {
 				throw new CSSParserLimitException(sprintf('Maximum CSS rendering depth of %d exceeded.', self::MAX_RENDER_DEPTH));
 			}
@@ -153,6 +167,7 @@ final class CSSRenderer
 		$bufTopIdx = 0;
 		$containerEmitted = [false];
 		$emTopIdx = 0;
+		$visited = [];
 
 		$workStack = [];
 		if ($source instanceof CSSStyleSheet) {
@@ -194,6 +209,11 @@ final class CSSRenderer
 			}
 
 			[, $rule, $depth] = $frame;
+			$id = spl_object_id($rule);
+			if (isset($visited[$id])) {
+				throw new LogicException('Cannot serialize a cyclic or DAG-shared CSS rule tree.');
+			}
+			$visited[$id] = true;
 			if ($depth > self::MAX_RENDER_DEPTH) {
 				throw new CSSParserLimitException(sprintf('Maximum CSS rendering depth of %d exceeded.', self::MAX_RENDER_DEPTH));
 			}
@@ -369,7 +389,7 @@ final class CSSRenderer
 
 		if (!$pretty) {
 			if ($hasEmptyInitial) {
-				$decls .= 'initial-value:;';
+				$decls .= 'initial-value: ;';
 			}
 			return self::normalizeMinifiedWhitespace($header, false) . '{' . $decls . '}';
 		}
@@ -435,6 +455,12 @@ final class CSSRenderer
 		$out = '';
 		if (!$pretty) {
 			foreach ($declarations as $property => $declaration) {
+				if ($declaration['value'] === '' && str_starts_with($property, '--')) {
+					$out .= $declaration['priority'] === ''
+						? $property . ': ;'
+						: $property . ': !important;';
+					continue;
+				}
 				$out .= $declaration['priority'] === ''
 					? $property . ':' . $declaration['value'] . ';'
 					: $property . ':' . $declaration['value'] . '!important;';

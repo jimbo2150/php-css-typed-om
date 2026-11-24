@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use ReflectionClass;
@@ -15,6 +17,8 @@ use ReflectionClass;
  */
 final class CSSColor extends CSSColorValue
 {
+	public const int MAX_CUSTOM_CHANNELS = 64;
+
 	/** @var array<string, true> */
 	public const array PREDEFINED_SPACES = [
 		'srgb' => true,
@@ -88,7 +92,7 @@ final class CSSColor extends CSSColorValue
 
 	public function setColorSpace(CSSKeywordValue|string $colorSpace): void
 	{
-		$raw = \Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner::trimCssWhitespace($colorSpace instanceof CSSKeywordValue ? $colorSpace->getValue() : $colorSpace);
+		$raw = CSSSyntaxScanner::trimCssWhitespace($colorSpace instanceof CSSKeywordValue ? $colorSpace->getValue() : $colorSpace);
 		if (str_starts_with($raw, '--')) {
 			$normalized = CSSStyleDeclaration::normalizePropertyName($raw);
 			$this->colorSpaceValue = new CSSKeywordValue($normalized);
@@ -131,6 +135,9 @@ final class CSSColor extends CSSColorValue
 		if ($channels === []) {
 			throw new InvalidArgumentException('CSSColor requires at least one channel.');
 		}
+		if (count($channels) > self::MAX_CUSTOM_CHANNELS) {
+			throw new CSSParserLimitException(sprintf('CSS color() channel count exceeds maximum limit of %d.', self::MAX_CUSTOM_CHANNELS));
+		}
 		$space = $this->colorSpaceValue->getValue();
 		if (isset(self::PREDEFINED_SPACES[$space]) && count($channels) !== 3) {
 			throw new InvalidArgumentException(sprintf('Predefined color space "%s" requires exactly 3 channels.', $space));
@@ -161,11 +168,15 @@ final class CSSColor extends CSSColorValue
 
 	public function __toString(): string
 	{
-		$serialized = [];
+		$space = (string) $this->colorSpaceValue;
+		$body = $space;
+		$prev = $space;
 		foreach ($this->channelsValue as $channel) {
-			$serialized[] = (string) $channel;
+			$part = (string) $channel;
+			$body .= (CSSSyntaxScanner::endsWithBareHexEscape($prev) ? '  ' : ' ') . $part;
+			$prev = $part;
 		}
-		return 'color(' . $this->colorSpaceValue . ' ' . implode(' ', $serialized) . $this->formatAlphaSuffix() . ')';
+		return 'color(' . $body . $this->formatAlphaSuffix() . ')';
 	}
 
 	protected function toXyzD65(): array

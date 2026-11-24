@@ -24,14 +24,20 @@ class CSSStyleRule extends CSSGroupingRule
 	/**
 	 * @throws InvalidArgumentException When $selectorText is empty or invalid
 	 */
-	public function __construct(string $selectorText, ?CSSStyleDeclaration $style = null)
-	{
+	public function __construct(
+		string $selectorText,
+		?CSSStyleDeclaration $style = null,
+		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+	) {
+		if ($maxBytes !== null && strlen($selectorText) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS selector exceeds maximum size of %d bytes.', $maxBytes));
+		}
 		$selectorText = CSSSyntaxScanner::trimCssWhitespace($selectorText);
 		if ($selectorText === '') {
 			throw new InvalidArgumentException('A CSS style rule requires a selector.');
 		}
 		CSSSyntaxScanner::assertValidFragment($selectorText, 'CSS selector', [';', '{', '}']);
-		parent::__construct('style');
+		parent::__construct('style', '', $maxBytes);
 		$this->prelude = $selectorText;
 		$this->selectorText = $selectorText;
 		$this->style = CSSStyleProperties::fromDeclaration($style);
@@ -53,6 +59,9 @@ class CSSStyleRule extends CSSGroupingRule
 	 */
 	public function setSelectorText(string $selectorText): void
 	{
+		if (strlen($selectorText) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('CSS selector exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		}
 		$selectorText = CSSSyntaxScanner::trimCssWhitespace($selectorText);
 		if ($selectorText === '') {
 			throw new InvalidArgumentException('Invalid CSS selector text.');
@@ -94,8 +103,9 @@ class CSSStyleRule extends CSSGroupingRule
 			$options,
 			$this->getNestingDepth(),
 			$sheet->getTotalRuleCount(),
+			$sheet->getTotalDeclarationCount(),
 		);
-		$this->getCssRules()->insert($index, $rule);
+		$this->getCssRules()->insertWithOptionsInternal($index, $rule, $options);
 
 		return $index;
 	}

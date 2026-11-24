@@ -6,7 +6,7 @@
 
 ## Public API
 
-There are no public properties, constants, or enum cases. The class is abstract and implements `Stringable`.
+Declares `public const int MAX_LIST_ITEMS = 4_096;` (enforced by `parseAll()`). The class is abstract and implements `Stringable`.
 
 | Method | Signature and behavior |
 |---|---|

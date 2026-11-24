@@ -19,6 +19,27 @@ class CSSKeywordValueTest extends TestCase
 		$instance = new CSSKeywordValue('test');
 		$clone = $instance->clone();
 		$this->assertInstanceOf(CSSKeywordValue::class, $clone);
+		$this->assertNotSame($instance, $clone);
 		$this->assertSame('test', $clone->getKeyword());
+	}
+
+	public function testValidationAndBareHexEscape(): void {
+		$escaped = new CSSKeywordValue('foo\\61');
+		$this->assertSame('foo\\61', (string) $escaped);
+
+		$this->expectException(\InvalidArgumentException::class);
+		new CSSKeywordValue('');
+	}
+
+	public function testRejectsControlCharactersAndOversizedKeyword(): void {
+		try {
+			new CSSKeywordValue("auto\x00");
+			$this->fail('Expected control character in keyword to fail.');
+		} catch (\InvalidArgumentException $e) {
+			$this->assertNotSame('', $e->getMessage());
+		}
+
+		$this->expectException(\Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException::class);
+		new CSSKeywordValue(str_repeat('a', \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions::DEFAULT_MAX_BYTES + 1));
 	}
 }

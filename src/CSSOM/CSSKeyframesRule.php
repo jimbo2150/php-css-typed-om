@@ -68,8 +68,9 @@ final class CSSKeyframesRule extends CSSGroupingRule
 			$options,
 			$this->getNestingDepth(),
 			$sheet->getTotalRuleCount(),
+			$sheet->getTotalDeclarationCount(),
 		);
-		$this->getCssRules()->insert($index, $keyframe);
+		$this->getCssRules()->insertWithOptionsInternal($index, $keyframe, $options);
 
 		return $index;
 	}

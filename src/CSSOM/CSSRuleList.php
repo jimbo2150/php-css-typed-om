@@ -51,33 +51,70 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 	}
 
 	/**
+	 * @internal Inspects a rule subtree in a single iterative pass, counting rules, declarations, and max block depth.
+	 * @return array{rules: int, height: int, declarations: int}
+	 */
+	public static function inspectSubtree(CSSRule $rule): array
+	{
+		$stack = [[$rule, 0]];
+		$visited = [];
+		$rules = 0;
+		$height = 0;
+		$declarations = 0;
+
+		while ($stack !== []) {
+			[$current, $relDepth] = array_pop($stack);
+			$id = spl_object_id($current);
+			if (isset($visited[$id])) {
+				throw new LogicException('Cannot attach or serialize a cyclic or DAG-shared CSS rule tree.');
+			}
+			$visited[$id] = true;
+			$rules++;
+
+			if ($current instanceof CSSGroupingRule) {
+				$blockDepth = $relDepth + 1;
+				if ($blockDepth > $height) {
+					$height = $blockDepth;
+				}
+				if ($current instanceof CSSStyleRule || $current instanceof CSSPageRule) {
+					$declarations += count($current->getStyle()->getDeclarationsRaw());
+				} elseif ($current instanceof CSSFontFeatureValuesRule) {
+					foreach ($current->getFeatureMaps() as $map) {
+						$declarations += count($map);
+					}
+				}
+				foreach ($current->getCssRules()->getRulesRaw() as $child) {
+					$stack[] = [$child, $relDepth + 1];
+				}
+			} elseif ($current instanceof CSSAtRule) {
+				$blockDepth = $current->hasBlock() ? $relDepth + 1 : $relDepth;
+				if ($blockDepth > $height) {
+					$height = $blockDepth;
+				}
+				$style = $current->getStyle();
+				if ($style !== null) {
+					$declarations += count($style->getDeclarationsRaw());
+				}
+			} elseif ($current instanceof CSSKeyframeRule || $current instanceof CSSNestedDeclarations || $current instanceof CSSFunctionDeclarations) {
+				$blockDepth = $current instanceof CSSKeyframeRule ? $relDepth + 1 : $relDepth;
+				if ($blockDepth > $height) {
+					$height = $blockDepth;
+				}
+				$declarations += count($current->getStyle()->getDeclarationsRaw());
+			} elseif ($relDepth > $height) {
+				$height = $relDepth;
+			}
+		}
+
+		return ['rules' => $rules, 'height' => $height, 'declarations' => $declarations];
+	}
+
+	/**
 	 * @internal Counts a rule and all its nested descendant rules.
 	 */
 	public static function countSubtreeRules(CSSRule $rule): int
 	{
-		if (!$rule instanceof CSSGroupingRule) {
-			return 1;
-		}
-
-		$total = 0;
-		$stack = [$rule];
-		$visited = [];
-		while ($stack !== []) {
-			$current = array_pop($stack);
-			$id = spl_object_id($current);
-			if (isset($visited[$id])) {
-				continue;
-			}
-			$visited[$id] = true;
-			$total++;
-			if ($current instanceof CSSGroupingRule) {
-				foreach ($current->getCssRules()->getRulesRaw() as $child) {
-					$stack[] = $child;
-				}
-			}
-		}
-
-		return $total;
+		return self::inspectSubtree($rule)['rules'];
 	}
 
 	/** @return Traversable<int, CSSRule> */
@@ -108,10 +145,18 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 
 	/**
 	 * @throws OutOfBoundsException When $index is outside [0, count]
-	 * @throws LogicException When the list is detached from a stylesheet
-	 * @throws InvalidArgumentException When inserting $rule would create a rule-tree cycle
+	 * @throws LogicException When the list is detached from a stylesheet or $rule is cyclic/DAG-shared
+	 * @throws InvalidArgumentException When inserting $rule would create a rule-tree cycle or exceed limits
 	 */
 	public function insert(int $index, CSSRule $rule): void
+	{
+		$this->insertWithOptionsInternal($index, $rule, null);
+	}
+
+	/**
+	 * @internal Inserts a rule while optionally applying caller-provided limit overrides.
+	 */
+	public function insertWithOptionsInternal(int $index, CSSRule $rule, ?CSSParserOptions $overrideOptions): void
 	{
 		if ($index < 0 || $index > count($this->rules)) {
 			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
@@ -124,19 +169,22 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 		}
 		$this->assertNoCycle($rule);
 
-		$delta = self::countSubtreeRules($rule);
+		$stats = self::inspectSubtree($rule);
+		$this->assertLimitsForAddition($stats['rules'], $stats['height'], $stats['declarations'], $overrideOptions);
+
 		$rule->attach($this->sheet, $this->owner);
 		if ($index === count($this->rules)) {
 			$this->rules[] = $rule;
 		} else {
 			array_splice($this->rules, $index, 0, [$rule]);
 		}
-		$this->sheet->adjustTotalRuleCount($delta);
+		$this->sheet->adjustTotalRuleCount($stats['rules']);
+		$this->sheet->adjustTotalDeclarationCount($stats['declarations']);
 	}
 
 	/**
-	 * @throws LogicException When the list is detached from a stylesheet
-	 * @throws InvalidArgumentException When appending $rule would create a rule-tree cycle or reparent an attached rule
+	 * @throws LogicException When the list is detached from a stylesheet or $rule is cyclic/DAG-shared
+	 * @throws InvalidArgumentException When appending $rule would create a rule-tree cycle, reparent an attached rule, or exceed limits
 	 */
 	public function append(CSSRule $rule): void
 	{
@@ -148,10 +196,33 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 		}
 		$this->assertNoCycle($rule);
 
-		$delta = self::countSubtreeRules($rule);
+		$stats = self::inspectSubtree($rule);
+		$this->assertLimitsForAddition($stats['rules'], $stats['height'], $stats['declarations'], null);
+
 		$rule->attach($this->sheet, $this->owner);
 		$this->rules[] = $rule;
-		$this->sheet->adjustTotalRuleCount($delta);
+		$this->sheet->adjustTotalRuleCount($stats['rules']);
+		$this->sheet->adjustTotalDeclarationCount($stats['declarations']);
+	}
+
+	/**
+	 * @internal Appends a top-level rule whose parser limits were already enforced by CSSParser.
+	 */
+	public function appendParsedInternal(CSSRule $rule): void
+	{
+		if ($this->sheet === null) {
+			throw new LogicException('A detached CSSRuleList cannot be modified.');
+		}
+		if ($rule->getParentStyleSheet() !== null || $rule->getParentRule() !== null) {
+			throw new InvalidArgumentException('Cannot append a CSSRule that already belongs to a parent.');
+		}
+		$this->assertNoCycle($rule);
+
+		$stats = self::inspectSubtree($rule);
+		$rule->attach($this->sheet, $this->owner);
+		$this->rules[] = $rule;
+		$this->sheet->adjustTotalRuleCount($stats['rules']);
+		$this->sheet->adjustTotalDeclarationCount($stats['declarations']);
 	}
 
 	/** @internal */
@@ -213,9 +284,10 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 		} else {
 			[$rule] = array_splice($this->rules, $index, 1);
 		}
-		$delta = self::countSubtreeRules($rule);
+		$stats = self::inspectSubtree($rule);
 		$rule->attach(null, null);
-		$this->sheet->adjustTotalRuleCount(-$delta);
+		$this->sheet->adjustTotalRuleCount(-$stats['rules']);
+		$this->sheet->adjustTotalDeclarationCount(-$stats['declarations']);
 
 		return $rule;
 	}
@@ -223,38 +295,68 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 	/**
 	 * Replaces all rules in O(N) time while updating parent links and sheet rule counts.
 	 *
-	 * @throws InvalidArgumentException When any replacement rule would create a rule-tree cycle or is already attached to this sheet
+	 * @throws InvalidArgumentException When any replacement rule would create a rule-tree cycle, is already attached to this sheet, or exceeds limits
 	 */
 	public function replaceAll(self $replacement): void
+	{
+		$this->replaceAllWithOptionsInternal($replacement, null);
+	}
+
+	/**
+	 * @internal Atomically replaces all rules while optionally enforcing caller-provided limit overrides.
+	 */
+	public function replaceAllWithOptionsInternal(self $replacement, ?CSSParserOptions $overrideOptions): void
 	{
 		if ($this->sheet === null) {
 			throw new LogicException('A detached CSSRuleList cannot be modified.');
 		}
 
+		$addedCount = 0;
+		$addedDecls = 0;
+		$maxAddedHeight = 0;
+		$next = [];
 		foreach ($replacement->rules as $rule) {
 			if ($rule->getParentStyleSheet() === $this->sheet || $rule->getParentRule() !== null) {
 				throw new InvalidArgumentException('Cannot move already-owned CSSRule instances into replaceAll().');
 			}
 			$this->assertNoCycle($rule);
+			$stats = self::inspectSubtree($rule);
+			$addedCount += $stats['rules'];
+			$addedDecls += $stats['declarations'];
+			if ($stats['height'] > $maxAddedHeight) {
+				$maxAddedHeight = $stats['height'];
+			}
+			$next[] = $rule;
 		}
 
 		$removedCount = 0;
+		$removedDecls = 0;
 		foreach ($this->rules as $existing) {
-			$removedCount += self::countSubtreeRules($existing);
-			$existing->attach(null, null);
+			$stats = self::inspectSubtree($existing);
+			$removedCount += $stats['rules'];
+			$removedDecls += $stats['declarations'];
 		}
 
-		$next = [];
-		$addedCount = 0;
-		foreach ($replacement->rules as $rule) {
-			$addedCount += self::countSubtreeRules($rule);
+		$this->assertLimitsForAddition(
+			$addedCount - $removedCount,
+			$maxAddedHeight,
+			$addedDecls - $removedDecls,
+			$overrideOptions,
+			$maxAddedHeight > 0,
+		);
+
+		foreach ($this->rules as $existing) {
+			$existing->attach(null, null);
+		}
+		foreach ($next as $rule) {
 			$rule->attach($this->sheet, $this->owner);
-			$next[] = $rule;
 		}
 		$replacement->rules = [];
 		$replacement->sheet?->adjustTotalRuleCount(-$addedCount);
+		$replacement->sheet?->adjustTotalDeclarationCount(-$addedDecls);
 		$this->rules = $next;
 		$this->sheet->adjustTotalRuleCount($addedCount - $removedCount);
+		$this->sheet->adjustTotalDeclarationCount($addedDecls - $removedDecls);
 	}
 
 	public function reparent(?CSSStyleSheet $sheet): void
@@ -320,6 +422,39 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 			}
 			$visited[$id] = true;
 			$ancestor = $ancestor->getParentRule();
+		}
+	}
+
+	private function assertLimitsForAddition(
+		int $deltaRules,
+		int $subtreeHeight,
+		int $deltaDeclarations,
+		?CSSParserOptions $overrideOptions,
+		bool $checkHeight = true,
+	): void {
+		if ($this->sheet === null) {
+			return;
+		}
+
+		$maxRules = $overrideOptions !== null ? $overrideOptions->maxRules : $this->sheet->getMaxRulesInternal();
+		if ($deltaRules > 0 && $maxRules !== null && ($this->sheet->getTotalRuleCount() + $deltaRules) > $maxRules) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS rule limit of %d exceeded.', $maxRules));
+		}
+
+		$maxDeclarations = $overrideOptions !== null ? $overrideOptions->maxDeclarations : $this->sheet->getMaxDeclarationsInternal();
+		if ($deltaDeclarations > 0 && $maxDeclarations !== null && ($this->sheet->getTotalDeclarationCount() + $deltaDeclarations) > $maxDeclarations) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS declaration limit of %d exceeded.', $maxDeclarations));
+		}
+
+		if ($checkHeight) {
+			$maxDepth = $overrideOptions !== null ? $overrideOptions->maxDepth : $this->sheet->getMaxDepthInternal();
+			$effectiveMaxDepth = $maxDepth !== null ? min($maxDepth, CSSRenderer::MAX_RENDER_DEPTH) : null;
+			if ($effectiveMaxDepth !== null) {
+				$parentDepth = $this->owner !== null ? $this->owner->getNestingDepthInternal() : 0;
+				if (($parentDepth + $subtreeHeight) > $effectiveMaxDepth) {
+					throw new CSSParserLimitException(sprintf('Maximum CSS nesting depth of %d exceeded.', $effectiveMaxDepth));
+				}
+			}
 		}
 	}
 }

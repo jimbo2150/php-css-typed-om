@@ -138,7 +138,7 @@ CSSSyntaxScanner::hasUnclosedCommentOrString('"unfinished'); // true
 
 ### `hasControlCharacters(string $source): bool`
 
-Detects disallowed ASCII control bytes: NUL, bytes `0x01`–`0x08`, `0x0B`–`0x1F`, and `0x7F`. Tab, line feed, and carriage return are not included in this check.
+Detects disallowed ASCII control bytes: NUL, bytes `0x01`–`0x08`, `0x0B`, `0x0E`–`0x1F`, and `0x7F`. CSS whitespace (`\t`, `\n`, `\f` `0x0C`, `\r`) is excluded from this check.
 
 - `$source`: value to check.
 - **Returns:** `true` if one of the disallowed bytes occurs.

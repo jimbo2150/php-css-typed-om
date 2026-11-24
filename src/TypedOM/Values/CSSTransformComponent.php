@@ -9,7 +9,6 @@ use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrixReadOnly;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericType;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 
@@ -141,7 +140,7 @@ abstract class CSSTransformComponent extends CSSStyleValue
 
 		if ($expectedCategories !== []) {
 			$type = $numeric->getNumericTypeInternal();
-			$category = self::categoryForType($type);
+			$category = $numeric->getNumericCategory();
 			$categoryValid = in_array($category, $expectedCategories, true);
 			$hintValid = $type->percentHint === null
 				|| (in_array('percent', $expectedCategories, true) && in_array($type->percentHint, $expectedCategories, true));
@@ -186,31 +185,5 @@ abstract class CSSTransformComponent extends CSSStyleValue
 		}
 
 		return $result;
-	}
-
-	private static function categoryForType(CSSNumericType $type): string
-	{
-		$nonZeroDimension = null;
-		$nonZeroExponent = 0;
-		foreach (['length' => $type->length, 'angle' => $type->angle, 'time' => $type->time, 'frequency' => $type->frequency, 'resolution' => $type->resolution, 'flex' => $type->flex, 'percent' => $type->percent] as $dim => $exp) {
-			if ($exp !== 0) {
-				if ($nonZeroDimension !== null) {
-					return 'derived';
-				}
-				$nonZeroDimension = $dim;
-				$nonZeroExponent = $exp;
-			}
-		}
-		if ($nonZeroDimension === null) {
-			return 'number';
-		}
-		if ($nonZeroExponent === 1) {
-			return $nonZeroDimension;
-		}
-		if ($nonZeroExponent === -1) {
-			return 'inverse-' . $nonZeroDimension;
-		}
-
-		return 'derived';
 	}
 }

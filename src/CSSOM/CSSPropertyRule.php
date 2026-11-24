@@ -20,7 +20,7 @@ final class CSSPropertyRule extends CSSAtRule
 	public function __construct(
 		string $name,
 		CSSStyleDeclaration $descriptors,
-		private readonly bool $hasEmptyInitialValue = false,
+		private bool $hasEmptyInitialValue = false,
 	) {
 		$normalized = CSSStyleDeclaration::normalizePropertyName($name);
 		if (!str_starts_with($normalized, '--')) {
@@ -32,6 +32,12 @@ final class CSSPropertyRule extends CSSAtRule
 	public function getNameText(): string
 	{
 		return $this->prelude;
+	}
+
+	/** @internal Clears empty `initial-value: ;` tracking after explicit style mutations. */
+	public function clearEmptyInitialValueInternal(): void
+	{
+		$this->hasEmptyInitialValue = false;
 	}
 
 	public function getSyntax(): string

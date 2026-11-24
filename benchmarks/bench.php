@@ -120,7 +120,7 @@ function measure(
 	callable $fn,
 	int $warmup,
 	int $iterations,
-	int $bytesProcessed = 0,
+	?int $bytesProcessed = 0,
 	int $opsPerIter = 1,
 	?callable $setup = null,
 	string $opsUnit = 'ops',
@@ -146,9 +146,7 @@ function measure(
 	gc_collect_cycles();
 	$memBaseline = memory_get_usage(false);
 	$memState = $setup !== null ? $setup(0) : null;
-	if (function_exists('memory_reset_peak_usage')) {
-		memory_reset_peak_usage();
-	}
+	trackSuitePeakSlab(true);
 	$memBefore = memory_get_usage(false);
 	$memSample = $setup !== null ? $fn($memState) : $fn();
 	$retainedKb = round((memory_get_usage(false) - $memBefore) / 1024.0, 1);
@@ -166,7 +164,7 @@ function measure(
 	$min = $times[0];
 
 	$medianSec = max($median / 1000.0, 1e-9);
-	$mbPerSec = $bytesProcessed > 0 ? round(($bytesProcessed / (1024 * 1024)) / $medianSec, 2) : null;
+	$mbPerSec = ($bytesProcessed !== null && $bytesProcessed > 0) ? round(($bytesProcessed / (1024 * 1024)) / $medianSec, 2) : null;
 
 	return [
 		'median_ms' => round($median, 3),
@@ -218,9 +216,9 @@ $results['benchmarks']['micro.scanner_split_top_level'] = measure(
 
 $assertValInput = '1px solid rgba(10, 20, 30, 0.5)';
 $results['benchmarks']['micro.scanner_assert_valid'] = measure(
-	static function () {
+	static function () use ($assertValInput) {
 		for ($i = 0; $i < 1000; $i++) {
-			CSSSyntaxScanner::assertValidFragment('1px solid rgba(10, 20, 30, 0.5)', 'val', [';', '{', '}']);
+			CSSSyntaxScanner::assertValidFragment($assertValInput, 'val', [';', '{', '}']);
 		}
 		return true;
 	},
@@ -253,10 +251,10 @@ $results['benchmarks']['micro.decl_parse_and_render'] = measure(
 
 $calcSample = 'calc((100% - 24px) * 2 + 10px / 2)';
 $results['benchmarks']['micro.calc_parse'] = measure(
-	static function () {
+	static function () use ($calcSample) {
 		$last = null;
 		for ($i = 0; $i < 500; $i++) {
-			$last = CSSCalcParser::parse('calc((100% - 24px) * 2 + 10px / 2)');
+			$last = CSSCalcParser::parse($calcSample);
 		}
 		return $last;
 	},
@@ -270,10 +268,10 @@ $results['benchmarks']['micro.calc_parse'] = measure(
 
 $colorSample = 'oklch(62% 0.21 255 / 0.85)';
 $results['benchmarks']['micro.color_parse_and_convert'] = measure(
-	static function () {
+	static function () use ($colorSample) {
 		$last = null;
 		for ($i = 0; $i < 250; $i++) {
-			$c = CSSColorValue::parse('oklch(62% 0.21 255 / 0.85)');
+			$c = CSSColorValue::parse($colorSample);
 			$c->toRGB();
 			$last = $c->toHSL();
 		}
@@ -289,10 +287,10 @@ $results['benchmarks']['micro.color_parse_and_convert'] = measure(
 
 $transformSample = 'translate(10px, 20px) rotate(45deg) scale(1.5, 2)';
 $results['benchmarks']['micro.transform_and_matrix'] = measure(
-	static function () {
+	static function () use ($transformSample) {
 		$last = '';
 		for ($i = 0; $i < 250; $i++) {
-			$t = CSSTransformValue::fromCssText('translate(10px, 20px) rotate(45deg) scale(1.5, 2)');
+			$t = CSSTransformValue::fromCssText($transformSample);
 			$m = $t->toMatrix();
 			$last = (string) $m;
 		}
@@ -388,11 +386,24 @@ $results['benchmarks']['macro.modify_cssom_medium'] = measure(
 	$mutateMediumSheet,
 	$warmup,
 	$iterations,
-	strlen($fixtures['medium-app']),
+	null,
 	1,
 	static fn (): CSSStyleSheet => CSSStyleSheet::parse($fixtures['medium-app']),
 	'sheets',
 );
+
+// Macro Clone (deep iterative clone on medium-app)
+$parsedMediumForClone = CSSStyleSheet::parse($fixtures['medium-app']);
+$results['benchmarks']['macro.clone_medium'] = measure(
+	static fn (): CSSStyleSheet => clone $parsedMediumForClone,
+	$warmup,
+	$iterations,
+	strlen($fixtures['medium-app']),
+	1,
+	null,
+	'clones',
+);
+unset($parsedMediumForClone);
 
 // Combined Parse + Modify CSSOM (on medium-app)
 $results['benchmarks']['macro.parse_and_modify_cssom_medium'] = measure(
@@ -423,17 +434,18 @@ $results['benchmarks']['macro.typed_om_medium'] = measure(
 	},
 	$warmup,
 	$iterations,
-	strlen($fixtures['medium-app']),
+	null,
 	1,
 	static fn (): CSSStyleSheet => CSSStyleSheet::parse($fixtures['medium-app']),
 	'sheets',
 );
 
-// Macro Render benchmarks (on large-pretty & opaque-comments; throughput measures output bytes)
+// Macro Render benchmarks (on large-pretty & opaque-comments)
 $parsedLarge = CSSStyleSheet::parse($fixtures['large-pretty']);
 $parsedOpaque = CSSStyleSheet::parse($fixtures['opaque-comments']);
 $prettyOpts = new CSSRenderOptions(CSSRenderMode::Pretty);
 $miniOpts = new CSSRenderOptions(CSSRenderMode::Minified);
+$escapeMiniOpts = new CSSRenderOptions(CSSRenderMode::Minified, null, true, true);
 $stripCommentsOpts = new CSSRenderOptions(CSSRenderMode::Minified, null, false);
 $callbackOpts = new CSSRenderOptions(
 	CSSRenderMode::Minified,
@@ -443,7 +455,6 @@ $callbackOpts = new CSSRenderOptions(
 $prettyOutBytes = strlen(CSSRenderer::render($parsedLarge, $prettyOpts));
 $miniOutBytes = strlen(CSSRenderer::render($parsedLarge, $miniOpts));
 $cssTextOutBytes = strlen($parsedLarge->getCssText());
-$opaqueStripOutBytes = strlen(CSSRenderer::render($parsedOpaque, $stripCommentsOpts));
 
 $results['benchmarks']['macro.render_pretty_large'] = measure(
 	static fn () => CSSRenderer::render($parsedLarge, $prettyOpts),
@@ -456,6 +467,15 @@ $results['benchmarks']['macro.render_pretty_large'] = measure(
 );
 $results['benchmarks']['macro.render_minified_large'] = measure(
 	static fn () => CSSRenderer::render($parsedLarge, $miniOpts),
+	$warmup,
+	$iterations,
+	$miniOutBytes,
+	1,
+	null,
+	'renders',
+);
+$results['benchmarks']['macro.render_escape_style_large'] = measure(
+	static fn () => CSSRenderer::render($parsedLarge, $escapeMiniOpts),
 	$warmup,
 	$iterations,
 	$miniOutBytes,
@@ -476,7 +496,7 @@ $results['benchmarks']['macro.render_opaque_strip_comments'] = measure(
 	static fn () => CSSRenderer::render($parsedOpaque, $stripCommentsOpts),
 	$warmup,
 	$iterations,
-	$opaqueStripOutBytes,
+	strlen($fixtures['opaque-comments']),
 	1,
 	null,
 	'renders',
@@ -515,7 +535,7 @@ $results['benchmarks']['macro.e2e_parse_mutate_render'] = measure(
 	'runs',
 );
 
-$results['meta']['peak_slab_mb'] = round(memory_get_peak_usage(true) / (1024 * 1024), 2);
+$results['meta']['peak_slab_mb'] = round(trackSuitePeakSlab() / (1024 * 1024), 2);
 
 if ($jsonOutput) {
 	echo json_encode($results, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . "\n";
@@ -523,20 +543,32 @@ if ($jsonOutput) {
 }
 
 echo sprintf("PHP %s | opcache.enable_cli=%s | jit=%s | iters=%d\n", PHP_VERSION, $results['meta']['opcache_cli'], $results['meta']['jit'], $iterations);
-echo str_repeat('-', 104) . "\n";
-echo sprintf("%-42s %9s %9s %10s %10s %10s %9s\n", 'Benchmark', 'Median', 'P95', 'MB/s', 'Ops/s', 'PeakΔ', 'PostGC');
-echo str_repeat('-', 104) . "\n";
+echo str_repeat('-', 118) . "\n";
+echo sprintf("%-42s %9s %9s %10s %10s %-11s %10s %9s\n", 'Benchmark', 'Median', 'P95', 'MB/s', 'Ops/s', 'Unit', 'PeakΔ', 'PostGC');
+echo str_repeat('-', 118) . "\n";
 foreach ($results['benchmarks'] as $label => $m) {
 	echo sprintf(
-		"%-42s %7.3fms %7.3fms %10s %10.1f %7.1fKB %7.1fKB\n",
+		"%-42s %7.3fms %7.3fms %10s %10.1f %-11s %7.1fKB %7.1fKB\n",
 		$label,
 		$m['median_ms'],
 		$m['p95_ms'],
 		$m['mb_per_sec'] !== null ? sprintf('%.2f', $m['mb_per_sec']) : '-',
 		$m['ops_per_sec'],
+		$m['ops_unit'],
 		$m['peak_delta_kb'],
 		$m['post_gc_delta_kb'],
 	);
 }
-echo str_repeat('-', 104) . "\n";
+echo str_repeat('-', 118) . "\n";
 echo sprintf("Peak Slab: %.2fMB\n", $results['meta']['peak_slab_mb']);
+
+function trackSuitePeakSlab(bool $reset = false): int
+{
+	static $maxSlab = 0;
+	$maxSlab = max($maxSlab, memory_get_peak_usage(true));
+	if ($reset && function_exists('memory_reset_peak_usage')) {
+		memory_reset_peak_usage();
+	}
+
+	return $maxSlab;
+}

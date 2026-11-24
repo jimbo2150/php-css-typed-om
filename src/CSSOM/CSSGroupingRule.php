@@ -27,7 +27,11 @@ class CSSGroupingRule extends CSSRule
 	public function __construct(
 		string $name,
 		string $prelude = '',
+		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 	) {
+		if ($maxBytes !== null && (strlen($name) > $maxBytes || strlen($prelude) > $maxBytes)) {
+			throw new CSSParserLimitException(sprintf('CSS grouping rule exceeds maximum size of %d bytes.', $maxBytes));
+		}
 		$trimmedName = CSSSyntaxScanner::trimCssWhitespace($name);
 		if (!preg_match('/^-?[a-zA-Z_][a-zA-Z0-9_-]*$/D', $trimmedName)) {
 			throw new InvalidArgumentException('Invalid CSS grouping rule name: ' . $name);
@@ -79,13 +83,24 @@ class CSSGroupingRule extends CSSRule
 			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
 		}
 
-		$rule = CSSParser::parseSingleRule(
-			$ruleText,
-			$options,
-			$this->getNestingDepth(),
-			$sheet->getTotalRuleCount(),
-		);
-		$this->cssRules->insert($index, $rule);
+		$inFunction = $this instanceof CSSFunctionRule || $this->isInsideFunctionRule();
+		$rule = $inFunction
+			? CSSParser::parseSingleNestedRule(
+				$ruleText,
+				$options,
+				$this->getNestingDepth(),
+				$sheet->getTotalRuleCount(),
+				$sheet->getTotalDeclarationCount(),
+				true,
+			)
+			: CSSParser::parseSingleRule(
+				$ruleText,
+				$options,
+				$this->getNestingDepth(),
+				$sheet->getTotalRuleCount(),
+				$sheet->getTotalDeclarationCount(),
+			);
+		$this->cssRules->insertWithOptionsInternal($index, $rule, $options);
 
 		return $index;
 	}
@@ -115,9 +130,10 @@ class CSSGroupingRule extends CSSRule
 	}
 
 	/**
-	 * @internal Iteratively serializes a rule subtree while enforcing CSSRenderer::MAX_RENDER_DEPTH.
+	 * @internal Iteratively serializes a rule subtree while enforcing CSSRenderer::MAX_RENDER_DEPTH and rejecting DAG/cyclic graphs.
+	 * @param array<int, true> $visited
 	 */
-	public static function serializeTreeIteratively(self $root): string
+	public static function serializeTreeIteratively(self $root, array &$visited = []): string
 	{
 		$resultsStack = [];
 		$workStack = [[0, $root, 0]];
@@ -125,6 +141,11 @@ class CSSGroupingRule extends CSSRule
 		while ($workStack !== []) {
 			[$phase, $node, $depth] = array_pop($workStack);
 			if ($phase === 0) {
+				$nodeId = spl_object_id($node);
+				if (isset($visited[$nodeId])) {
+					throw new LogicException('Cannot serialize a cyclic or DAG-shared CSS rule tree.');
+				}
+				$visited[$nodeId] = true;
 				if ($depth > CSSRenderer::MAX_RENDER_DEPTH) {
 					throw new CSSParserLimitException(sprintf('Maximum CSS serialization depth of %d exceeded.', CSSRenderer::MAX_RENDER_DEPTH));
 				}
@@ -170,6 +191,11 @@ class CSSGroupingRule extends CSSRule
 			}
 
 			if ($phase === 2) {
+				$nodeId = spl_object_id($node);
+				if (isset($visited[$nodeId])) {
+					throw new LogicException('Cannot serialize a cyclic or DAG-shared CSS rule tree.');
+				}
+				$visited[$nodeId] = true;
 				$resultsStack[] = $node->getCssText();
 				continue;
 			}
@@ -222,7 +248,8 @@ class CSSGroupingRule extends CSSRule
 		return $resultsStack[0] ?? '';
 	}
 
-	private static function usesCoreSerialization(self $rule): bool
+	/** @internal */
+	public static function usesCoreSerialization(self $rule): bool
 	{
 		return match ($rule::class) {
 			self::class,
@@ -290,6 +317,7 @@ class CSSGroupingRule extends CSSRule
 		$wasCloning = self::$inIterativeClone;
 		self::$inIterativeClone = true;
 		$totalAdded = 0;
+		$totalDeclsAdded = 0;
 		$visited = [];
 		try {
 			/** @var list<array{CSSRule, CSSRuleList, ?self}> $stack */
@@ -311,12 +339,26 @@ class CSSGroupingRule extends CSSRule
 				$cloned->setParentLinks($targetSheet, $destOwner);
 				$destList->appendClonedInternal($cloned);
 				$totalAdded++;
+				if ($cloned instanceof CSSStyleRule || $cloned instanceof CSSPageRule || $cloned instanceof CSSKeyframeRule || $cloned instanceof CSSNestedDeclarations || $cloned instanceof CSSFunctionDeclarations) {
+					$totalDeclsAdded += count($cloned->getStyle()->getDeclarationsRaw());
+				} elseif ($cloned instanceof CSSFontFeatureValuesRule) {
+					foreach ($cloned->getFeatureMaps() as $map) {
+						$totalDeclsAdded += count($map);
+					}
+				} elseif ($cloned instanceof CSSAtRule) {
+					$style = $cloned->getStyle();
+					if ($style !== null) {
+						$totalDeclsAdded += count($style->getDeclarationsRaw());
+					}
+				}
 
-				if ($cloned instanceof self && $srcChildren !== []) {
+				if ($cloned instanceof self) {
 					$childDestList = $cloned->getCssRules();
 					$childDestList->setSheetInternal($targetSheet);
-					for ($i = count($srcChildren) - 1; $i >= 0; $i--) {
-						$stack[] = [$srcChildren[$i], $childDestList, $cloned];
+					if ($srcChildren !== []) {
+						for ($i = count($srcChildren) - 1; $i >= 0; $i--) {
+							$stack[] = [$srcChildren[$i], $childDestList, $cloned];
+						}
 					}
 				}
 			}
@@ -324,6 +366,13 @@ class CSSGroupingRule extends CSSRule
 			self::$inIterativeClone = $wasCloning;
 		}
 		$targetSheet?->adjustTotalRuleCount($totalAdded);
+		$targetSheet?->adjustTotalDeclarationCount($totalDeclsAdded);
+	}
+
+	/** @internal */
+	public function getNestingDepthInternal(): int
+	{
+		return $this->getNestingDepth();
 	}
 
 	protected function getNestingDepth(): int
@@ -342,5 +391,24 @@ class CSSGroupingRule extends CSSRule
 		}
 
 		return $depth;
+	}
+
+	private function isInsideFunctionRule(): bool
+	{
+		$parent = $this->getParentRule();
+		$visited = [];
+		while ($parent !== null) {
+			if ($parent instanceof CSSFunctionRule) {
+				return true;
+			}
+			$id = spl_object_id($parent);
+			if (isset($visited[$id])) {
+				return false;
+			}
+			$visited[$id] = true;
+			$parent = $parent->getParentRule();
+		}
+
+		return false;
 	}
 }

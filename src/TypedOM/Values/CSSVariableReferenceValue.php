@@ -10,6 +10,7 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use ReflectionClass;
 
 /**
  * Represents a CSS `var(--name, fallback)` custom property reference.
@@ -64,13 +65,32 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 	): self {
 		static $ref = null;
-		$ref ??= new \ReflectionClass(self::class);
+		$ref ??= new ReflectionClass(self::class);
 		/** @var self $instance */
 		$instance = $ref->newInstanceWithoutConstructor();
-		$instance->maxBytes = $fallback !== null ? $fallback->getMaxBytesInternal() : $maxBytes;
+		$effectiveMax = $maxBytes;
+		$fbMax = $fallback?->getMaxBytesInternal();
+		if ($fbMax !== null && ($effectiveMax === null || $fbMax < $effectiveMax)) {
+			$effectiveMax = $fbMax;
+		}
+		$instance->maxBytes = $effectiveMax;
 		$instance->variableValue = $normalizedVariable;
 		$instance->fallbackValue = $fallback;
 		return $instance;
+	}
+
+	/** @internal */
+	public function getMaxBytesInternal(): ?int
+	{
+		return $this->maxBytes;
+	}
+
+	/** @internal */
+	public function clampMaxBytesInternal(?int $limit): void
+	{
+		if ($limit !== null && ($this->maxBytes === null || $limit < $this->maxBytes)) {
+			$this->maxBytes = $limit;
+		}
 	}
 
 	/** @internal */
@@ -170,9 +190,6 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 		if (!str_starts_with($normalized, '--')) {
 			throw new InvalidArgumentException('A custom property name beginning with "--" is required.');
 		}
-		if ($this->maxBytes !== null && strlen($normalized) > $this->maxBytes) {
-			throw new CSSParserLimitException(sprintf('CSS custom property name exceeds maximum size of %d bytes.', $this->maxBytes));
-		}
 		$this->variableValue = $normalized;
 	}
 
@@ -189,7 +206,9 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 		if ($fallback instanceof CSSUnparsedValue) {
 			$rendered = CSSUnparsedValue::stringifyIteratively($fallback->getValues(), $options->maxBytes);
 			CSSSyntaxScanner::assertValidFragment($rendered, 'CSS variable fallback', [';', '{', '}']);
-			return $fallback->clone();
+			$cloned = $fallback->clone();
+			$cloned->clampMaxBytesInternal($options->maxBytes);
+			return $cloned;
 		}
 		if ($options->maxBytes !== null && strlen($fallback) > $options->maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS variable fallback exceeds maximum size of %d bytes.', $options->maxBytes));

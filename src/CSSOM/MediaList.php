@@ -25,12 +25,23 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 	/** @var list<string> */
 	private array $media = [];
 
+	/** @var array<string, true> */
+	private array $mediaIndex = [];
+
+	private ?Closure $onChange;
+
 	/**
 	 * @throws InvalidArgumentException When $mediaText contains invalid syntax
 	 */
-	public function __construct(string $mediaText = '', private readonly ?Closure $onChange = null)
+	public function __construct(string $mediaText = '', ?Closure $onChange = null)
 	{
+		$this->onChange = $onChange;
 		$this->setMediaText($mediaText);
+	}
+
+	public function __clone(): void
+	{
+		$this->onChange = null;
 	}
 
 	/**
@@ -38,8 +49,8 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 	 */
 	public function cloneWithCallback(?Closure $onChange): self
 	{
-		$copy = new self('', $onChange);
-		$copy->media = $this->media;
+		$copy = clone $this;
+		$copy->onChange = $onChange;
 
 		return $copy;
 	}
@@ -52,10 +63,13 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 	/**
 	 * Replaces the media query list atomically.
 	 *
-	 * @throws InvalidArgumentException When any media query contains disallowed structural syntax
+	 * @throws InvalidArgumentException When any media query contains disallowed structural syntax or exceeds size limits
 	 */
 	public function setMediaText(string $mediaText): void
 	{
+		if (strlen($mediaText) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('Media query list exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		}
 		if ($mediaText !== '') {
 			CSSSyntaxScanner::assertValidFragment($mediaText, 'Media query list', [';', '{', '}'], ['{', '}']);
 		}
@@ -76,29 +90,42 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 		}
 
 		$nextText = implode(', ', $media);
+		if (strlen($nextText) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('Media query list exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		}
 		$this->onChange?->__invoke($nextText);
 		$this->media = $media;
+		$this->mediaIndex = $seen;
 	}
 
 	/**
 	 * Appends a single media query atomically if not already present.
 	 *
-	 * @throws InvalidArgumentException When $medium is empty or invalid
+	 * @throws InvalidArgumentException When $medium is empty, invalid, or exceeds size limits
 	 */
 	public function appendMedium(string $medium): void
 	{
+		if (strlen($medium) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('Media query exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		}
 		$medium = CSSSyntaxScanner::trimCssWhitespace($medium);
 		if ($medium === '') {
 			throw new InvalidArgumentException('A single non-empty media query is required.');
 		}
 		CSSSyntaxScanner::assertValidFragment($medium, 'Media query', [',', ';', '{', '}'], ['{', '}']);
-		if ($this->contains($medium)) {
+		$lower = strtolower($medium);
+		if (isset($this->mediaIndex[$lower])) {
 			return;
 		}
 
 		$nextMedia = [...$this->media, $medium];
-		$this->onChange?->__invoke(implode(', ', $nextMedia));
+		$nextText = implode(', ', $nextMedia);
+		if (strlen($nextText) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('Media query list exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		}
+		$this->onChange?->__invoke($nextText);
 		$this->media = $nextMedia;
+		$this->mediaIndex[$lower] = true;
 	}
 
 	/**
@@ -109,12 +136,17 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 	public function deleteMedium(string $medium): void
 	{
 		$medium = CSSSyntaxScanner::trimCssWhitespace($medium);
+		$lower = strtolower($medium);
+		if (!isset($this->mediaIndex[$lower])) {
+			throw new InvalidArgumentException('Media query not found: ' . $medium);
+		}
 		foreach ($this->media as $index => $existing) {
 			if (strcasecmp($existing, $medium) === 0) {
 				$nextMedia = $this->media;
 				array_splice($nextMedia, $index, 1);
 				$this->onChange?->__invoke(implode(', ', $nextMedia));
 				$this->media = $nextMedia;
+				unset($this->mediaIndex[$lower]);
 				return;
 			}
 		}
@@ -123,13 +155,8 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 
 	public function contains(string $medium): bool
 	{
-		$needle = CSSSyntaxScanner::trimCssWhitespace($medium);
-		foreach ($this->media as $existing) {
-			if (strcasecmp($existing, $needle) === 0) {
-				return true;
-			}
-		}
-		return false;
+		$needle = strtolower(CSSSyntaxScanner::trimCssWhitespace($medium));
+		return $needle !== '' && isset($this->mediaIndex[$needle]);
 	}
 
 	public function item(int $index): string

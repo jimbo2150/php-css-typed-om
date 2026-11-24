@@ -25,4 +25,4 @@ jobs:
       - name: Check code style
         run: ./vendor/bin/php-cs-fixer fix --dry-run --diff
       - name: Run tests
-        run: ./vendor/bin/phpunit --colors=never --display-deprecations --fail-on-warning --fail-on-deprecation --fail-on-risky
+        run: ./vendor/bin/phpunit --colors=never

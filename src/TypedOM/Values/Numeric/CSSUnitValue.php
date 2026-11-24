@@ -28,7 +28,7 @@ class CSSUnitValue extends CSSNumericValue implements Stringable
 			if (!is_finite($float)) {
 				throw new InvalidArgumentException('CSSUnitValue::$value must be a finite number.');
 			}
-			$this->value = $float;
+			$this->value = $float === 0.0 ? 0.0 : $float;
 		}
 	}
 

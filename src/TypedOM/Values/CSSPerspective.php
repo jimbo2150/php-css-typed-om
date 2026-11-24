@@ -31,6 +31,7 @@ final class CSSPerspective extends CSSTransformComponent
 		array|CSSNumericValue|CSSKeywordValue|int|float|string|null $values = null,
 	) {
 		if (is_string($lengthOrFunction) && is_array($values)) {
+			$values = array_values($values);
 			if (strtolower($lengthOrFunction) !== 'perspective' || count($values) !== 1) {
 				throw new InvalidArgumentException('perspective() requires one length or "none".');
 			}
@@ -51,7 +52,21 @@ final class CSSPerspective extends CSSTransformComponent
 	/** @return list<CSSNumericValue|CSSKeywordValue> */
 	public function getValues(): array
 	{
+		$this->assertValidCurrentLength();
 		return [$this->getLength()];
+	}
+
+	public function __toString(): string
+	{
+		$this->assertValidCurrentLength();
+		return parent::__toString();
+	}
+
+	private function assertValidCurrentLength(): void
+	{
+		if ($this->lengthValue instanceof CSSUnitValue && (!is_finite($this->lengthValue->value) || $this->lengthValue->value <= 0.0)) {
+			throw new InvalidArgumentException('Perspective length must be a positive finite length.');
+		}
 	}
 
 	public function setLength(CSSNumericValue|CSSKeywordValue|int|float|string $length): void

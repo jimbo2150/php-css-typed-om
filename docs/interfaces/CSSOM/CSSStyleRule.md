@@ -7,18 +7,18 @@
 
 ## Properties
 
-Magic `selectorText` reads/writes the selector; `style` returns `CSSStyleProperties`; `styleMap` returns a new `StylePropertyMap` over the style each time it is read. Grouping and CSSRule virtual properties are inherited.
+Magic `selectorText` reads/writes the selector; `style` returns `CSSStyleProperties`; `styleMap` caches and returns the same `StylePropertyMap` instance per rule. Grouping and CSSRule virtual properties are inherited.
 
 ## Public Methods
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(string $selectorText, ?CSSStyleDeclaration $style = null)` | Requires a non-empty, structurally valid selector. Copies a general declaration into `CSSStyleProperties` unless already that subtype. Throws `InvalidArgumentException` for invalid selector. | `$rule = new CSSStyleRule('.card', new CSSStyleDeclaration('color: red'));` |
+| `__construct(string $selectorText, ?CSSStyleDeclaration $style = null)` | Requires a non-empty, structurally valid selector (capped at `maxBytes`). Copies/clones an owned declaration into `CSSStyleProperties`. Throws `InvalidArgumentException` / `CSSParserLimitException` for invalid/over-limit selector. | `$rule = new CSSStyleRule('.card', new CSSStyleDeclaration('color: red'));` |
 | `getType(): int` | Returns `CSSRule::STYLE_RULE`. | `$rule->getType();` |
 | `getSelectorText(): string` | Returns the selector. | `$rule->getSelectorText();` |
-| `setSelectorText(string $selectorText): void` | Trims and validates non-empty selector text, then updates selector and prelude. Throws `InvalidArgumentException` if invalid. | `$rule->setSelectorText('.panel');` |
+| `setSelectorText(string $selectorText): void` | Trims and validates non-empty selector text (capped at `DEFAULT_MAX_BYTES`), then updates selector and prelude. Throws `InvalidArgumentException` / `CSSParserLimitException` if invalid. | `$rule->setSelectorText('.panel');` |
 | `getStyle(): CSSStyleProperties` | Returns the live typed declaration block. | `$rule->getStyle()->setProperty('color', 'blue');` |
-| `getStyleMap(): StylePropertyMap` | Creates a new `StylePropertyMap` backed by the same style declarations. | `$map = $rule->getStyleMap();` |
+| `getStyleMap(): StylePropertyMap` | Returns the cached `StylePropertyMap` backed by `$rule->getStyle()`. | `$map = $rule->getStyleMap();` |
 | `insertRule(string $ruleText, int $index = 0, ?CSSParserOptions $options = null): int` | Parses and inserts one nested rule; requires attached stylesheet. Returns index. Throws `LogicException` if detached, `OutOfBoundsException` for invalid index, `InvalidArgumentException` for parse/limit failures. | `$rule->insertRule('&:hover { color: blue }');` |
 | `getCssText(): string` | Serializes selector and declaration/nested-rule content iteratively via `CSSGroupingRule`, enforcing `CSSRenderer::MAX_RENDER_DEPTH`. | `$rule->getCssText();` |
 | `__get(string $name): mixed` | Exposes `selectorText`, `style`, and `styleMap`; other names delegate to `CSSGroupingRule::__get()`. | `$rule->styleMap;` |

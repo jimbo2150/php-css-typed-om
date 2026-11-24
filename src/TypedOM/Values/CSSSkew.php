@@ -90,6 +90,25 @@ final class CSSSkew extends CSSTransformComponent
 		);
 	}
 
+	public function getValues(): array
+	{
+		$this->syncLiveState();
+		return parent::getValues();
+	}
+
+	public function __toString(): string
+	{
+		$this->syncLiveState();
+		return parent::__toString();
+	}
+
+	private function syncLiveState(): void
+	{
+		if (count($this->values) === 1 && !($this->ayValue instanceof CSSUnitValue && $this->ayValue->value === 0.0)) {
+			$this->values = [$this->axValue, $this->ayValue];
+		}
+	}
+
 	public function __clone(): void
 	{
 		$this->axValue = $this->axValue->clone();

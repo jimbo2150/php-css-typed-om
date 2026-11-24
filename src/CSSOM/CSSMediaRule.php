@@ -17,7 +17,7 @@ final class CSSMediaRule extends CSSConditionRule
 	{
 		parent::__construct('media', $conditionText);
 		$this->media = new MediaList($conditionText, function (string $text): void {
-			parent::setConditionText($text);
+			$this->prelude = $text;
 		});
 		$this->prelude = $this->media->getMediaText();
 	}
@@ -56,7 +56,7 @@ final class CSSMediaRule extends CSSConditionRule
 	{
 		parent::__clone();
 		$this->media = $this->media->cloneWithCallback(function (string $text): void {
-			parent::setConditionText($text);
+			$this->prelude = $text;
 		});
 	}
 }

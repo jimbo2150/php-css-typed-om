@@ -8,6 +8,8 @@ use ArrayAccess;
 use Countable;
 use Error;
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSTransformValue;
 use Stringable;
@@ -495,9 +497,9 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 	/** @return array{list<float>, bool} */
 	protected static function parseTransformString(string $cssText): array
 	{
-		if (strlen($cssText) > \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions::DEFAULT_MAX_BYTES) {
-			throw new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException(
-				sprintf('Transform list exceeds maximum size of %d bytes.', \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions::DEFAULT_MAX_BYTES),
+		if (strlen($cssText) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(
+				sprintf('Transform list exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES),
 			);
 		}
 		$trimmed = CSSSyntaxScanner::trimCssWhitespace($cssText);

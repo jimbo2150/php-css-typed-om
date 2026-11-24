@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 
 use Error;
+use Exception;
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
@@ -23,6 +24,7 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathNegate;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathValue;
+use ReflectionClass;
 
 /**
  * Base class for CSS Typed OM numeric values (`CSSUnitValue` and `CSSMathValue`).
@@ -359,7 +361,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 	{
 		$operands = self::normalizeVariadicOperands($values);
 		$existing = self::sumOperands($this);
-		if (count($existing) + count($operands) > self::MAX_MATH_NODES) {
+		if (count($existing) + (2 * count($operands)) > self::MAX_MATH_NODES) {
 			throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
 		}
 		$negated = [];
@@ -384,7 +386,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 	public function div(CSSNumericValue|int|float ...$values): CSSMathProduct
 	{
 		$operands = self::normalizeVariadicOperands($values);
-		if (1 + count($operands) > self::MAX_MATH_NODES) {
+		if (1 + (2 * count($operands)) > self::MAX_MATH_NODES) {
 			throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
 		}
 		$inverted = [];
@@ -427,7 +429,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 					unset($slots[$cs]);
 				}
 				$cls = $orig::class;
-				$refl = $reflections[$cls] ??= new \ReflectionClass($cls);
+				$refl = $reflections[$cls] ??= new ReflectionClass($cls);
 				/** @var CSSMathValue $copy */
 				$copy = $refl->newInstanceWithoutConstructor();
 				$copy->values = new CSSNumericArray($newChildren);
@@ -473,11 +475,8 @@ abstract class CSSNumericValue extends CSSStyleValue
 
 	public function min(CSSNumericArray|CSSNumericValue|int|float ...$values): CSSMathMin
 	{
-		$operands = self::flattenNumericArguments($values);
+		$operands = self::flattenNumericArguments($values, self::MAX_MATH_NODES - 1);
 		self::assertHasOperands($operands);
-		if (count($operands) >= CSSParserOptions::DEFAULT_MAX_DECLARATIONS) {
-			throw new CSSParserLimitException('CSS min() argument count exceeds maximum limit.');
-		}
 		$all = [$this, ...$operands];
 		$merged = self::mergeAdditiveTypes($all);
 
@@ -486,11 +485,8 @@ abstract class CSSNumericValue extends CSSStyleValue
 
 	public function max(CSSNumericArray|CSSNumericValue|int|float ...$values): CSSMathMax
 	{
-		$operands = self::flattenNumericArguments($values);
+		$operands = self::flattenNumericArguments($values, self::MAX_MATH_NODES - 1);
 		self::assertHasOperands($operands);
-		if (count($operands) >= CSSParserOptions::DEFAULT_MAX_DECLARATIONS) {
-			throw new CSSParserLimitException('CSS max() argument count exceeds maximum limit.');
-		}
 		$all = [$this, ...$operands];
 		$merged = self::mergeAdditiveTypes($all);
 
@@ -745,7 +741,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 							return false;
 						}
 						continue;
-					} catch (\Exception) {
+					} catch (Exception) {
 						return false;
 					}
 				}
@@ -1090,13 +1086,20 @@ abstract class CSSNumericValue extends CSSStyleValue
 	}
 
 	/** @param list<CSSNumericArray|self|int|float> $values @return list<self> */
-	private static function flattenNumericArguments(array $values): array
+	private static function flattenNumericArguments(array $values, int $maxItems = self::MAX_MATH_NODES): array
 	{
 		$result = [];
 		foreach ($values as $value) {
 			if ($value instanceof CSSNumericArray) {
+				$count = count($value->values);
+				if (count($result) + $count > $maxItems) {
+					throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
+				}
 				array_push($result, ...$value->values);
 			} else {
+				if (count($result) >= $maxItems) {
+					throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
+				}
 				$result[] = self::toNumericValue($value);
 			}
 		}

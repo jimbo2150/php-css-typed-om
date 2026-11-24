@@ -85,7 +85,7 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 		$flat = [];
 		foreach ($values as $value) {
 			if (is_array($value)) {
-				array_push($flat, ...$value);
+				array_push($flat, ...array_values($value));
 			} else {
 				$flat[] = $value;
 			}
@@ -96,13 +96,15 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 		}
 
 		$allowEmpty = str_starts_with($normalizedProperty, '--') && count($flat) === 1;
-		$serialized = [];
+		$joined = '';
 		$runningBytes = 0;
-		foreach ($flat as $item) {
-			$serialized[] = $this->validateSingleValue($normalizedProperty, $item, $options, $runningBytes, $serialized !== [] ? 1 : 0, $allowEmpty);
+		foreach ($flat as $index => $item) {
+			$sep = $index === 0 ? '' : (CSSSyntaxScanner::endsWithBareHexEscape($joined) ? '  ' : ' ');
+			$part = $this->validateSingleValue($normalizedProperty, $item, $options, $runningBytes, strlen($sep), $allowEmpty);
+			$joined .= $sep . $part;
 		}
 
-		return [implode(' ', $serialized), count($flat)];
+		return [$joined, count($flat)];
 	}
 
 	private function validateSingleValue(

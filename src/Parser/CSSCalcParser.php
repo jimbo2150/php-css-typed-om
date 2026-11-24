@@ -135,7 +135,7 @@ class CSSCalcParser
 		int $rootMode,
 		bool $throwOnInvalid,
 	): ?CSSNumericValue {
-		$matchingParens = null;
+		$mathIndex = null;
 		$totalTokens = 0;
 		$totalNodes = 0;
 		$slots = [];
@@ -321,8 +321,8 @@ class CSSCalcParser
 					&& $sliceLen >= 6
 					&& substr_compare($source, 'calc(', $start, 5, true) === 0
 				) {
-					$matchingParens ??= self::buildMatchingParens($source, $rootStart, $rootEnd);
-					$close = $matchingParens[$start + 4] ?? null;
+					$mathIndex ??= self::buildMathIndex($source, $rootStart, $rootEnd);
+					$close = $mathIndex['matchingParens'][$start + 4] ?? null;
 					if ($close !== $end - 1) {
 						if ($throwOnInvalid) {
 							throw new InvalidArgumentException('Invalid CSS calc() expression.');
@@ -355,8 +355,8 @@ class CSSCalcParser
 				}
 
 				if ($fnName !== null) {
-					$matchingParens ??= self::buildMatchingParens($source, $rootStart, $rootEnd);
-					$close = $matchingParens[$openOffset] ?? null;
+					$mathIndex ??= self::buildMathIndex($source, $rootStart, $rootEnd);
+					$close = $mathIndex['matchingParens'][$openOffset] ?? null;
 					if ($close !== $end - 1) {
 						if ($throwOnInvalid) {
 							throw new InvalidArgumentException('Invalid CSS math function.');
@@ -366,17 +366,16 @@ class CSSCalcParser
 
 					$argRanges = [];
 					$argPos = $openOffset + 1;
-					while ($argPos <= $close) {
-						$comma = CSSSyntaxScanner::findTopLevel($source, ',', $argPos, $close);
-						$segEnd = $comma ?? $close;
-						$argRanges[] = [$argPos, $segEnd];
+					foreach ($mathIndex['commasByOpen'][$openOffset] ?? [] as $comma) {
+						$argRanges[] = [$argPos, $comma];
 						if (($totalNodes + count($argRanges)) > CSSNumericValue::MAX_MATH_NODES) {
 							throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
 						}
-						if ($comma === null) {
-							break;
-						}
 						$argPos = $comma + 1;
+					}
+					$argRanges[] = [$argPos, $close];
+					if (($totalNodes + count($argRanges)) > CSSNumericValue::MAX_MATH_NODES) {
+						throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
 					}
 
 					if (($fnName === 'clamp' && count($argRanges) !== 3) || ($fnName !== 'clamp' && $argRanges === [])) {
@@ -392,16 +391,22 @@ class CSSCalcParser
 						}
 					}
 
+					$argMeta = $mathIndex['argMetaByOpen'][$openOffset] ?? [];
 					$argSlots = [];
 					$argJobs = [];
-					foreach ($argRanges as [$as, $ae]) {
-						self::trimSliceWithComments($source, $as, $ae);
+					foreach ($argRanges as $argIdx => [$as, $ae]) {
+						self::trimSliceWithComments($source, $as, $ae, $mathIndex['commentEndByStart'], $mathIndex['commentStartByEnd']);
 						if ($as >= $ae) {
 							throw new InvalidArgumentException('Empty argument in ' . $fnName . '().');
 						}
 						$argSlot = $nextSlot++;
 						$argSlots[] = $argSlot;
-						$isExpr = self::sliceContainsMathExpression($source, $as, $ae);
+						$meta = $argMeta[$argIdx] ?? ['opCount' => 0, 'hasChildParen' => false];
+						$opCount = $meta['opCount'];
+						$firstChar = $source[$as];
+						$isExpr = $firstChar === '('
+							|| $opCount > 1
+							|| ($opCount === 1 && (($firstChar !== '+' && $firstChar !== '-') || $meta['hasChildParen']));
 						$argJobs[] = [0, $as, $ae, $depth + 1, $isExpr ? 2 : 0, $argSlot];
 					}
 					$workStack[] = [2, $fnName, $argSlots, $targetSlot];
@@ -418,7 +423,7 @@ class CSSCalcParser
 			}
 
 			// mode === 2: inner <calc-sum> expression
-			$tokens = self::tokenizeSlice($source, $start, $end, $options, $depth, $totalTokens, $matchingParens, $rootStart, $rootEnd);
+			$tokens = self::tokenizeSlice($source, $start, $end, $options, $depth, $totalTokens, $mathIndex, $rootStart, $rootEnd);
 			$outputQueue = [];
 			$operatorStack = [];
 			$parenDepth = 0;
@@ -499,78 +504,35 @@ class CSSCalcParser
 		}
 	}
 
-	private static function trimSliceWithComments(string $source, int &$start, int &$end): void
-	{
+	/**
+	 * @param array<int, int> $commentEndByStart
+	 * @param array<int, int> $commentStartByEnd
+	 */
+	private static function trimSliceWithComments(
+		string $source,
+		int &$start,
+		int &$end,
+		array $commentEndByStart,
+		array $commentStartByEnd,
+	): void {
 		while ($start < $end) {
 			$start += strspn($source, CSSSyntaxScanner::CSS_WHITESPACE, $start, $end - $start);
-			if ($start + 1 < $end && $source[$start] === '/' && $source[$start + 1] === '*') {
-				$cEnd = strpos($source, '*/', $start + 2);
-				if ($cEnd === false || $cEnd + 1 >= $end) {
-					throw new InvalidArgumentException('Unclosed comment in CSS math expression.');
-				}
-				$start = $cEnd + 2;
+			if (isset($commentEndByStart[$start])) {
+				$start = $commentEndByStart[$start];
 				continue;
 			}
 			break;
 		}
-		if ($start >= $end) {
-			return;
-		}
-
-		$firstComment = strpos($source, '/*', $start);
-		if ($firstComment === false || $firstComment >= $end) {
+		while ($end > $start) {
 			while ($end > $start && str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$end - 1])) {
 				$end--;
 			}
-			return;
-		}
-
-		$lastContentEnd = $start;
-		$pos = $start;
-		while ($pos < $end) {
-			$pos += strspn($source, CSSSyntaxScanner::CSS_WHITESPACE, $pos, $end - $pos);
-			if ($pos >= $end) {
-				break;
-			}
-			if ($pos + 1 < $end && $source[$pos] === '/' && $source[$pos + 1] === '*') {
-				$cEnd = strpos($source, '*/', $pos + 2);
-				if ($cEnd === false || $cEnd + 1 >= $end) {
-					throw new InvalidArgumentException('Unclosed comment in CSS math expression.');
-				}
-				$pos = $cEnd + 2;
+			if (isset($commentStartByEnd[$end]) && $commentStartByEnd[$end] >= $start) {
+				$end = $commentStartByEnd[$end];
 				continue;
 			}
-			$nextComment = strpos($source, '/*', $pos);
-			$chunkEnd = ($nextComment === false || $nextComment >= $end) ? $end : $nextComment;
-			$trimmedEnd = $chunkEnd;
-			while ($trimmedEnd > $pos && str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$trimmedEnd - 1])) {
-				$trimmedEnd--;
-			}
-			if ($trimmedEnd > $pos) {
-				$lastContentEnd = $trimmedEnd;
-			}
-			$pos = $chunkEnd;
+			break;
 		}
-		$end = $lastContentEnd;
-	}
-
-	private static function sliceContainsMathExpression(string $source, int $start, int $end): bool
-	{
-		if ($start >= $end) {
-			return false;
-		}
-		$match = CSSSyntaxScanner::findNextTopLevelDelimiterBytes($source, '+-*/', $start, $end);
-		if ($match !== null) {
-			if (($source[$start] === '+' || $source[$start] === '-')
-				&& CSSSyntaxScanner::findNextTopLevelDelimiterBytes($source, '+-*/', $start + 1, $end) === null
-				&& strcspn($source, '(', $start, $end - $start) === ($end - $start)
-			) {
-				return false;
-			}
-			return true;
-		}
-
-		return $source[$start] === '(';
 	}
 
 	/**
@@ -594,43 +556,88 @@ class CSSCalcParser
 		return CSSMathProduct::fromValidated($entry[1], $entry[2]);
 	}
 
-	/** @return array<int, int> */
-	private static function buildMatchingParens(string $source, int $start, int $end): array
+	/**
+	 * Single O(N) scan indexing parentheses, direct commas, per-argument operator metadata, and comments.
+	 *
+	 * @return array{
+	 *   matchingParens: array<int, int>,
+	 *   commasByOpen: array<int, list<int>>,
+	 *   argMetaByOpen: array<int, list<array{opCount: int, hasChildParen: bool}>>,
+	 *   commentEndByStart: array<int, int>,
+	 *   commentStartByEnd: array<int, int>
+	 * }
+	 */
+	private static function buildMathIndex(string $source, int $start, int $end): array
 	{
 		$matchingParens = [];
+		$commasByOpen = [];
+		$argMetaByOpen = [];
+		$commentEndByStart = [];
+		$commentStartByEnd = [];
+
+		/** @var list<array{int, list<int>, list<array{opCount: int, hasChildParen: bool}>, int, bool}> $parenStack */
 		$parenStack = [];
 		$scan = $start;
 		while ($scan < $end) {
-			$scan += strcspn($source, '()/', $scan, $end - $scan);
+			$scan += strcspn($source, '()/,+-*', $scan, $end - $scan);
 			if ($scan >= $end) {
 				break;
 			}
 			$ch = $source[$scan];
-			if ($ch === '/') {
-				if ($scan + 1 < $end && $source[$scan + 1] === '*') {
-					$cEnd = strpos($source, '*/', $scan + 2);
-					if ($cEnd === false || $cEnd + 1 >= $end) {
-						break;
-					}
-					$scan = $cEnd + 2;
-					continue;
+			if ($ch === '/' && $scan + 1 < $end && $source[$scan + 1] === '*') {
+				$cEnd = strpos($source, '*/', $scan + 2);
+				if ($cEnd === false || $cEnd + 1 >= $end) {
+					throw new InvalidArgumentException('Unclosed comment in CSS math expression.');
 				}
-				$scan++;
+				$afterComment = $cEnd + 2;
+				$commentEndByStart[$scan] = $afterComment;
+				$commentStartByEnd[$afterComment] = $scan;
+				$scan = $afterComment;
 				continue;
 			}
 			if ($ch === '(') {
-				$parenStack[] = $scan;
+				if ($parenStack !== []) {
+					$parenStack[count($parenStack) - 1][4] = true;
+				}
+				$parenStack[] = [$scan, [], [], 0, false];
+			} elseif ($ch === ')') {
+				if ($parenStack !== []) {
+					[$open, $commas, $argMeta, $curOps, $curHasParen] = array_pop($parenStack);
+					$argMeta[] = ['opCount' => $curOps, 'hasChildParen' => $curHasParen];
+					$matchingParens[$open] = $scan;
+					if ($commas !== []) {
+						$commasByOpen[$open] = $commas;
+					}
+					$argMetaByOpen[$open] = $argMeta;
+				}
+			} elseif ($ch === ',') {
+				if ($parenStack !== []) {
+					$topIdx = count($parenStack) - 1;
+					$parenStack[$topIdx][1][] = $scan;
+					$parenStack[$topIdx][2][] = [
+						'opCount' => $parenStack[$topIdx][3],
+						'hasChildParen' => $parenStack[$topIdx][4],
+					];
+					$parenStack[$topIdx][3] = 0;
+					$parenStack[$topIdx][4] = false;
+				}
 			} elseif ($parenStack !== []) {
-				$matchingParens[array_pop($parenStack)] = $scan;
+				$parenStack[count($parenStack) - 1][3]++;
 			}
 			$scan++;
 		}
 
-		return $matchingParens;
+		return [
+			'matchingParens' => $matchingParens,
+			'commasByOpen' => $commasByOpen,
+			'argMetaByOpen' => $argMetaByOpen,
+			'commentEndByStart' => $commentEndByStart,
+			'commentStartByEnd' => $commentStartByEnd,
+		];
 	}
 
 	/**
-	 * @param ?array<int, int> $matchingParens
+	 * @param ?array{matchingParens: array<int, int>, commasByOpen: array<int, list<int>>, argMetaByOpen: array<int, list<array{opCount: int, hasChildParen: bool}>>, commentEndByStart: array<int, int>, commentStartByEnd: array<int, int>} $mathIndex
 	 * @return list<array{0: int, 1: mixed, 2?: mixed, 3?: CSSUnitEnum}>
 	 */
 	private static function tokenizeSlice(
@@ -640,7 +647,7 @@ class CSSCalcParser
 		CSSParserOptions $options,
 		int $depth,
 		int &$totalTokens,
-		?array &$matchingParens,
+		?array &$mathIndex,
 		int $rootStart,
 		int $rootEnd,
 	): array {
@@ -684,7 +691,15 @@ class CSSCalcParser
 			}
 
 			if (!$expectsOperand && ($character === '+' || $character === '-')) {
-				if (!$hadWhitespace || ($offset + 1 < $sliceEnd && !str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $expression[$offset + 1]) && $expression[$offset + 1] !== ')')) {
+				$look = $offset + 1;
+				while ($look + 1 < $sliceEnd && $expression[$look] === '/' && $expression[$look + 1] === '*') {
+					$cEnd = strpos($expression, '*/', $look + 2);
+					if ($cEnd === false || $cEnd + 1 >= $sliceEnd) {
+						throw new InvalidArgumentException('Unclosed comment in calc() expression.');
+					}
+					$look = $cEnd + 2;
+				}
+				if (!$hadWhitespace || ($look < $sliceEnd && !str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $expression[$look]) && $expression[$look] !== ')')) {
 					throw new InvalidArgumentException('Binary + and - operators in calc() require surrounding whitespace.');
 				}
 				$tokens[] = [self::T_OP, $character];
@@ -713,9 +728,15 @@ class CSSCalcParser
 					$unaryRun = 0;
 					continue;
 				}
-				$unaryRun++;
+				$unaryRun += strspn($expression, '+-', $offset, $sliceEnd - $offset);
 				if ($options->maxMathDepth !== null && ($depth + $unaryRun) > $options->maxMathDepth) {
 					throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $options->maxMathDepth));
+				}
+				if ($offset + 1 < $sliceEnd) {
+					$nextChar = $expression[$offset + 1];
+					if ($nextChar === '+' || $nextChar === '-' || str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $nextChar)) {
+						throw new InvalidArgumentException('Invalid unary operator in calc() expression.');
+					}
 				}
 				$tokens[] = [self::T_OP, $character === '-' ? 'u-' : 'u+'];
 				$offset++;
@@ -772,8 +793,8 @@ class CSSCalcParser
 				$name = $identifier[0];
 				$afterName = $offset + strlen($name);
 				if ($afterName < $sliceEnd && $expression[$afterName] === '(') {
-					$matchingParens ??= self::buildMatchingParens($expression, $rootStart, $rootEnd);
-					$close = $matchingParens[$afterName] ?? null;
+					$mathIndex ??= self::buildMathIndex($expression, $rootStart, $rootEnd);
+					$close = $mathIndex['matchingParens'][$afterName] ?? null;
 					if ($close === null || $close >= $sliceEnd) {
 						throw new InvalidArgumentException('Mismatched parentheses.');
 					}

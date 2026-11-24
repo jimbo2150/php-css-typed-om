@@ -9,7 +9,7 @@
 | Member | Signature and behavior |
 |---|---|
 | `values` | `public CSSNumericArray $values` with protected setter; stores or returns the numeric collection. Example: `$operands = $math->values;`. |
-| `inner_values` | `public array $inner_values` (`array<CSSNumericValue>`) with private setter; getter projects `$this->values->values`. Example: `$operands = $math->inner_values;`. |
+| `inner_values` | `public array $inner_values { get; }` (`array<CSSNumericValue>`); read-only virtual property hook projecting `$this->values->values`. Example: `$operands = $math->inner_values;`. |
 | `__construct` | `public function __construct(CSSNumericValue|CSSNumericArray|array $value)`; stores an existing numeric array or wraps a numeric value/list in `CSSNumericArray`; array validation is delegated to that class. Example: `$math = new CSSMathSum([$left, $right]);`. |
 | `__toString` | `public function __toString(): string`; casts the numeric array to its string form. Example: `$text = (string) $math;`. |
 | `clone` | `public function clone(): static`; clones the `CSSNumericArray` and constructs a new instance. Example: `$copy = $math->clone();`. |

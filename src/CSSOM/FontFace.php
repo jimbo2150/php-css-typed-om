@@ -137,6 +137,9 @@ final class FontFace
 
 	public function setFamily(string $family): void
 	{
+		if (strlen($family) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('FontFace family exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		}
 		$trimmed = CSSSyntaxScanner::trimCssWhitespace($family);
 		if ($trimmed === '') {
 			throw new InvalidArgumentException('FontFace family cannot be empty.');
@@ -147,6 +150,9 @@ final class FontFace
 
 	public function setSource(string $source): void
 	{
+		if (strlen($source) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('FontFace source exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		}
 		$trimmed = CSSSyntaxScanner::trimCssWhitespace($source);
 		if ($trimmed === '') {
 			throw new InvalidArgumentException('FontFace source cannot be empty.');
@@ -229,6 +235,9 @@ final class FontFace
 
 	private function setDescriptor(string $key, string $value): void
 	{
+		if (strlen($value) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('FontFace descriptor "%s" exceeds maximum size of %d bytes.', $key, CSSParserOptions::DEFAULT_MAX_BYTES));
+		}
 		$trimmed = CSSSyntaxScanner::trimCssWhitespace($value);
 		if ($trimmed === '') {
 			throw new InvalidArgumentException(sprintf('FontFace descriptor "%s" cannot be empty.', $key));

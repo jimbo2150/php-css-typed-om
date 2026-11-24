@@ -71,12 +71,12 @@ abstract class CSSColorValue extends CSSStyleValue
 			return self::parseHex($source);
 		}
 
-		if (!preg_match('/^([a-zA-Z][a-zA-Z0-9-]*)\(/', $source, $match)) {
+		$open = strpos($source, '(');
+		$function = $open !== false ? CSSSyntaxScanner::decodeLeadingFunctionName($source, $open) : null;
+		if ($function === null) {
 			throw new InvalidArgumentException('Unsupported CSS color value: ' . $source);
 		}
-		$function = strtolower($match[1]);
-		$open = strpos($source, '(');
-		$close = $open === false ? null : CSSSyntaxScanner::findMatchingDelimiter($source, $open);
+		$close = CSSSyntaxScanner::findMatchingDelimiter($source, $open);
 		if ($close !== strlen($source) - 1) {
 			throw new InvalidArgumentException('Invalid CSS color function syntax: ' . $source);
 		}
@@ -120,6 +120,12 @@ abstract class CSSColorValue extends CSSStyleValue
 		);
 	}
 
+	/**
+	 * Converts this color to HSL.
+	 *
+	 * Per CSS Color 4 §7.1, the HSL coordinate system has a singularity at exact lightness `l === 0.0`
+	 * or `l === 1.0` (`min(l, 1 - l) === 0`), so saturation evaluates to `0%` there even for extended sRGB.
+	 */
 	public function toHSL(): CSSHSL
 	{
 		[$r, $g, $b, $alpha] = $this->toSrgbChannels();
@@ -1127,6 +1133,9 @@ abstract class CSSColorValue extends CSSStyleValue
 				throw new InvalidArgumentException(sprintf('Predefined color space "%s" requires exactly 3 channels.', $lower));
 			}
 			$space = new CSSKeywordValue($lower);
+		}
+		if (count($tokens) > CSSColor::MAX_CUSTOM_CHANNELS) {
+			throw new CSSParserLimitException(sprintf('CSS color() channel count exceeds maximum limit of %d.', CSSColor::MAX_CUSTOM_CHANNELS));
 		}
 		$channels = [];
 		foreach ($tokens as $token) {

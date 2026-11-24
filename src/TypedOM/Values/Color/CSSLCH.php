@@ -98,6 +98,9 @@ final class CSSLCH extends CSSColorValue
 
 	public function toLab(): CSSLab
 	{
+		if ($this->lValue instanceof CSSNumericValue && !$this->lValue instanceof CSSUnitValue) {
+			throw new InvalidArgumentException('Color conversion requires concrete numeric values.');
+		}
 		$c = self::resolveLinearChannel($this->cValue, 150.0);
 		$hRad = deg2rad(self::resolveAngleDegrees($this->hValue));
 

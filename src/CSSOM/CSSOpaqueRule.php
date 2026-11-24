@@ -17,8 +17,11 @@ final class CSSOpaqueRule extends CSSRule
 	/**
 	 * @throws InvalidArgumentException When $source contains control characters or unbalanced syntax
 	 */
-	public function __construct(string $source)
+	public function __construct(string $source, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
+		if ($maxBytes !== null && strlen($source) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS opaque rule exceeds maximum size of %d bytes.', $maxBytes));
+		}
 		if (CSSSyntaxScanner::hasControlCharacters($source)) {
 			throw new InvalidArgumentException('CSS opaque rule contains disallowed control characters.');
 		}

@@ -6,24 +6,25 @@
 
 Creates typed CSS numeric values through static magic factories and provides CSSOM identifier escaping. `CSS` is abstract because it is intended as a static utility.
 
-## Public constant
+## Public constants
 
 | Constant | Value | Meaning |
 | --- | --- | --- |
 | `UNIT_MAP` | `['percent' => '%', 'number' => '', 'flex' => 'fr']` | Maps the special factory names to their CSS unit symbols. |
+| `MAX_REGISTERED_PROPERTIES` | `4096` | Maximum custom properties stored in the standalone registry. |
 
 ## Methods
 
-### `__callStatic(string $name, array $arguments): CSSUnitValue`
+### Unit Factories (`__callStatic` & explicit fast paths)
 
-PHP invokes this factory for supported unit calls such as `CSS::px(12)`; those factories are declared in the source PHPDoc. It resolves the unit name or symbol, validates that the first argument is a finite numeric string, integer, or float, and returns a [`CSSUnitValue`](TypedOM/CSSUnitValue.md).
+Provides explicit static fast-path methods (`px`, `em`, `rem`, `percent`, `number`, `deg`, `s`, `ms`, `vh`, `vw`, `fr`) plus `__callStatic(string $name, array $arguments): CSSUnitValue` for all remaining CSS units. It resolves the unit name or symbol, validates that the first argument is finite, numeric, and free of control characters, and returns a [`CSSUnitValue`](TypedOM/CSSUnitValue.md).
 
 **Parameters**
 
 - `$name`: factory name or CSS unit symbol, case-insensitive for alphabetic names (for example `px`, `percent`, `deg`, or `%`).
-- `$arguments`: arguments supplied to the static call. The first entry must be numeric; additional entries are ignored.
+- `$arguments`: arguments supplied to the static call. The first entry must be finite numeric without control bytes; additional entries are ignored.
 
-**Throws:** `BadMethodCallException` for unsupported names; `InvalidArgumentException` if the first argument is missing, nonnumeric, or non-finite.
+**Throws:** `BadMethodCallException` for unsupported names; `InvalidArgumentException` if the first argument is missing, non-numeric, non-finite, or contains control characters.
 
 ```php
 use Jimbo2150\PhpCssTypedOm\CSS;
@@ -37,7 +38,7 @@ Available unit factories (all take one `string|int|float $value` and return `CSS
 
 ### `registerProperty(array|CSSPropertyRule $definition): CSSPropertyRule`
 
-Registers a custom property (`--*`) in the standalone registry, validating `name`, `syntax` (collapsing multi-line CSS whitespace inside `$syntax` to single spaces), `inherits`, and computationally independent `initialValue` (required when `syntax !== '*'`, rejecting `var()`). Companion helpers: `getRegisteredProperty(string $name): ?CSSPropertyRule`, `getRegisteredProperties(): array`, `unregisterProperty(string $name): bool`, and `clearRegisteredProperties(): void`.
+Registers a custom property (`--*`) in the standalone registry (storing and returning cloned `CSSPropertyRule` instances to isolate the registry from external mutations, capped at `MAX_REGISTERED_PROPERTIES` and `DEFAULT_MAX_BYTES`), validating `name`, `syntax` (collapsing multi-line CSS whitespace inside `$syntax` to single spaces), `inherits`, and computationally independent `initialValue` (required when `syntax !== '*'`, rejecting `var()`). Companion helpers: `getRegisteredProperty(string $name): ?CSSPropertyRule`, `getRegisteredProperties(): array`, `unregisterProperty(string $name): bool`, and `clearRegisteredProperties(): void`.
 
 ### `supports(string $propertyOrCondition, ?string $value = null, ?CSSParserOptions $options = null): bool`
 

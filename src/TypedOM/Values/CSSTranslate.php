@@ -47,20 +47,37 @@ final class CSSTranslate extends CSSTransformComponent
 		CSSNumericValue|int|float|string|bool|null $z = null,
 		?bool $is2D = null,
 	) {
-		if (is_string($xOrFunction) && is_array($yOrValues)) {
-			$function = strtolower($xOrFunction);
-			$values = array_values($yOrValues);
-			[$this->xValue, $this->yValue, $this->zValue, $serialized, $normalizedIs2D] = self::fromFunctionArguments($function, $values);
-			parent::__construct($function, $serialized, $is2D ?? $normalizedIs2D);
-			return;
-		}
-
 		if (is_bool($z)) {
 			if ($is2D !== null && $is2D !== $z) {
 				throw new InvalidArgumentException('Conflicting $z boolean and $is2D arguments for CSSTranslate.');
 			}
 			$is2D = $z;
 			$z = null;
+		}
+
+		if (is_string($xOrFunction) && is_array($yOrValues)) {
+			if ($z !== null) {
+				throw new InvalidArgumentException('CSSTranslate function form does not accept a third coordinate argument.');
+			}
+			$function = strtolower($xOrFunction);
+			$values = array_values($yOrValues);
+			[$this->xValue, $this->yValue, $this->zValue, $serialized, $normalizedIs2D] = self::fromFunctionArguments($function, $values);
+			$resolvedIs2D = $is2D ?? $normalizedIs2D;
+			if ($resolvedIs2D !== $normalizedIs2D) {
+				if ($resolvedIs2D) {
+					if ($function === 'translate3d' || $function === 'translatez') {
+						$function = 'translate';
+					}
+					$serialized = [$this->xValue, $this->yValue];
+				} else {
+					if ($function === 'translate') {
+						$function = 'translate3d';
+					}
+					$serialized = $function === 'translatez' ? [$this->zValue] : [$this->xValue, $this->yValue, $this->zValue];
+				}
+			}
+			parent::__construct($function, $serialized, $resolvedIs2D);
+			return;
 		}
 
 		$this->xValue = self::numericValue($xOrFunction, 'px', ['length', 'percent']);
@@ -163,6 +180,40 @@ final class CSSTranslate extends CSSTransformComponent
 	public function clone(): static
 	{
 		return clone $this;
+	}
+
+	public function getValues(): array
+	{
+		$this->syncLiveState();
+		return parent::getValues();
+	}
+
+	public function __toString(): string
+	{
+		$this->syncLiveState();
+		return parent::__toString();
+	}
+
+	private function syncLiveState(): void
+	{
+		if ($this->functionName === 'translatex' && !self::isZeroNumeric($this->yValue)) {
+			$this->functionName = 'translate';
+		} elseif ($this->functionName === 'translatey' && !self::isZeroNumeric($this->xValue)) {
+			$this->functionName = 'translate';
+		} elseif (!$this->twoDimensional && $this->functionName === 'translatez' && (!self::isZeroNumeric($this->xValue) || !self::isZeroNumeric($this->yValue))) {
+			$this->functionName = 'translate3d';
+		} elseif ($this->functionName === 'translate' && count($this->values) === 1) {
+			if (!self::isZeroNumeric($this->yValue)) {
+				$this->values = [$this->xValue, $this->yValue];
+			}
+			return;
+		}
+		$this->syncSerializedValues();
+	}
+
+	private static function isZeroNumeric(CSSNumericValue $value): bool
+	{
+		return $value instanceof CSSUnitValue && $value->value === 0.0;
 	}
 
 	private function syncSerializedValues(): void

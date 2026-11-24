@@ -32,7 +32,7 @@ abstract class StyleSheet
 		if (CSSSyntaxScanner::hasControlCharacters($title)) {
 			throw new InvalidArgumentException('StyleSheet title cannot contain control characters.');
 		}
-		$this->media = $media instanceof MediaList ? $media : new MediaList($media ?? '');
+		$this->media = $media instanceof MediaList ? $media->cloneWithCallback(null) : new MediaList($media ?? '');
 		$this->disabled = $disabled;
 	}
 

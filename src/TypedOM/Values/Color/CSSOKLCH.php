@@ -98,6 +98,9 @@ final class CSSOKLCH extends CSSColorValue
 
 	public function toOKLab(): CSSOKLab
 	{
+		if ($this->lValue instanceof CSSNumericValue && !$this->lValue instanceof CSSUnitValue) {
+			throw new InvalidArgumentException('Color conversion requires concrete numeric values.');
+		}
 		$c = self::resolveLinearChannel($this->cValue, 0.4);
 		$hRad = deg2rad(self::resolveAngleDegrees($this->hValue));
 

@@ -134,7 +134,7 @@ class CSSNumericType
 		$leftHint = $this->dimensions['percentHint'] ?? null;
 		$rightHint = $other->dimensions['percentHint'] ?? null;
 		if ($leftHint !== null && $rightHint !== null && $leftHint !== $rightHint) {
-			throw new \InvalidArgumentException('Cannot multiply numeric types with conflicting percent hints.');
+			throw new InvalidArgumentException('Cannot multiply numeric types with conflicting percent hints.');
 		}
 		$hint = $leftHint ?? $rightHint;
 		$left = ($leftHint === null && $hint !== null) ? $this->applyPercentHint((string) $hint) : $this;
