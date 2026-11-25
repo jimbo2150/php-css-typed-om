@@ -29,6 +29,7 @@ final class CSSPropertyRule extends CSSAtRule
 		private bool $hasEmptyInitialValue = false,
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 	) {
+		self::assertValidMaxBytesInternal($maxBytes);
 		if ($maxBytes !== null && strlen($name) > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS @property name exceeds maximum size of %d bytes.', $maxBytes));
 		}
@@ -63,8 +64,12 @@ final class CSSPropertyRule extends CSSAtRule
 			$raw = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($raw));
 		}
 		$len = strlen($raw);
-		if ($len >= 2 && (($raw[0] === '"' && $raw[$len - 1] === '"') || ($raw[0] === "'" && $raw[$len - 1] === "'"))) {
-			return substr($raw, 1, -1);
+		if ($len >= 2 && ($raw[0] === '"' || $raw[0] === "'")) {
+			$valid = false;
+			$end = CSSSyntaxScanner::scanQuotedStringEnd($raw, 0, $len, $valid);
+			if ($valid && $end === $len - 1) {
+				return substr($raw, 1, -1);
+			}
 		}
 
 		return $raw;
@@ -75,6 +80,13 @@ final class CSSPropertyRule extends CSSAtRule
 		$raw = CSSSyntaxScanner::trimCssWhitespace($this->styleDeclaration?->getPropertyValue('inherits') ?? '');
 		if (str_contains($raw, '/*')) {
 			$raw = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($raw));
+		}
+		if (str_contains($raw, '\\')) {
+			$decoded = CSSSyntaxScanner::decodeIdentAt($raw, 0, strlen($raw));
+			if ($decoded !== null && $decoded['end'] === strlen($raw)) {
+				return strtolower($decoded['ident']) === 'true';
+			}
+			return false;
 		}
 
 		return strtolower($raw) === 'true';

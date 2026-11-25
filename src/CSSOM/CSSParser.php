@@ -140,7 +140,7 @@ final class CSSParser
 		}
 
 		$sheet = new CSSStyleSheet();
-		$sheet->configureErrorLimit($options->maxErrors);
+		$sheet->configureLimitsInternal($options);
 		$length = strlen($cssText);
 		$offset = str_starts_with($cssText, "\xEF\xBB\xBF") ? 3 : 0;
 		$ruleCount = $initialRuleCount;
@@ -191,7 +191,7 @@ final class CSSParser
 		}
 
 		$sheet = new CSSStyleSheet();
-		$sheet->configureErrorLimit($options->maxErrors);
+		$sheet->configureLimitsInternal($options);
 		$ruleCount = $initialRuleCount;
 		$declarationCount = $initialDeclarationCount;
 		$length = strlen($cssText);
@@ -220,6 +220,7 @@ final class CSSParser
 		}
 		self::assertNoSheetParseErrors($sheet);
 
+		$rule->attach($sheet, null);
 		$rule->attach(null, null);
 
 		return $rule;
@@ -244,7 +245,7 @@ final class CSSParser
 		}
 
 		$sheet = new CSSStyleSheet();
-		$sheet->configureErrorLimit($options->maxErrors);
+		$sheet->configureLimitsInternal($options);
 		$ruleCount = $initialRuleCount;
 		$declarationCount = $initialDeclarationCount;
 		$offset = str_starts_with($cssText, "\xEF\xBB\xBF") ? 3 : 0;
@@ -300,7 +301,7 @@ final class CSSParser
 		}
 
 		$sheet = new CSSStyleSheet();
-		$sheet->configureErrorLimit($options->maxErrors);
+		$sheet->configureLimitsInternal($options);
 		$length = strlen($cssText);
 		$offset = self::skipTrivia($cssText, str_starts_with($cssText, "\xEF\xBB\xBF") ? 3 : 0, $length, $sheet, false);
 		if ($sheet->getParseErrors() !== []) {
@@ -324,6 +325,7 @@ final class CSSParser
 		$braceOffset = $delimiter['offset'];
 		$offset = $braceOffset + 1;
 		$style = new CSSStyleDeclaration();
+		$style->setLimitsInternal($options->maxBytes, $options->maxDeclarations);
 		$ruleCount = $initialRuleCount;
 		$declarationCount = $initialDeclarationCount;
 
@@ -1459,7 +1461,13 @@ final class CSSParser
 							$valid = false;
 							break;
 						}
-						$ints[] = (int) $token;
+						$stripped = ltrim($token, '0');
+						$intVal = (int) $token;
+						if ($stripped !== '' && (string) $intVal !== $stripped) {
+							$valid = false;
+							break;
+						}
+						$ints[] = $intVal;
 					}
 					if (!$valid || $ints === []) {
 						$sheet->recordParseError('Font feature values must be non-empty integer lists.', $segStart);
@@ -1752,14 +1760,14 @@ final class CSSParser
 		int $initialRuleCount,
 		int $initialDeclarationCount,
 	): void {
-		if ($initialDepth < 0) {
-			throw new InvalidArgumentException('Nesting depth cannot be negative.');
+		if ($initialDepth < 0 || $initialDepth === PHP_INT_MAX) {
+			throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
 		}
-		if ($initialRuleCount < 0) {
-			throw new InvalidArgumentException('Initial rule count cannot be negative.');
+		if ($initialRuleCount < 0 || $initialRuleCount === PHP_INT_MAX) {
+			throw new InvalidArgumentException('Initial rule count cannot be negative or overflow integer bounds.');
 		}
-		if ($initialDeclarationCount < 0) {
-			throw new InvalidArgumentException('Initial declaration count cannot be negative.');
+		if ($initialDeclarationCount < 0 || $initialDeclarationCount === PHP_INT_MAX) {
+			throw new InvalidArgumentException('Initial declaration count cannot be negative or overflow integer bounds.');
 		}
 	}
 

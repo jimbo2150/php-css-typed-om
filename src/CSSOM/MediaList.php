@@ -50,6 +50,7 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 		?Closure $onChange = null,
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 	) {
+		CSSRule::assertValidMaxBytesInternal($maxBytes);
 		$this->onChange = $onChange;
 		$this->maxBytes = $maxBytes;
 		$this->setMediaText($mediaText);

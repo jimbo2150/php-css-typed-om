@@ -14,7 +14,7 @@ Magic `encoding` reads the result of `getEncoding()`; inherited `name`, `prelude
 | Signature | Parameters / behavior | Example |
 |---|---|---|
 | `__construct(string $prelude, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Checks `$maxBytes` before scanning; requires non-empty, non-comment-only encoding text (`CSSParserLimitException` / `InvalidArgumentException` otherwise). | `$rule = new CSSCharsetRule('"utf-8"');` |
-| `getEncoding(): string` | Strips CSS comments, trims CSS whitespace, and unwraps matching surrounding single/double quotes from the stored prelude. | `$rule->getEncoding();` |
+| `getEncoding(): string` | Strips CSS comments, trims CSS whitespace, and unwraps a single valid outer matching quote pair (`scanQuotedStringEnd()`) from the stored prelude. | `$rule->getEncoding();` |
 | `getType(): int` | Always returns `CSSRule::CHARSET_RULE`. | `$rule->getType();` |
 | `__get(string $name): mixed` | Adds virtual `encoding`, otherwise delegates to `CSSAtRule::__get()`. | `$rule->encoding;` |
 | `__isset(string $name): bool` | True for `encoding`, otherwise delegates to `CSSAtRule::__isset()`. | `isset($rule->encoding);` |

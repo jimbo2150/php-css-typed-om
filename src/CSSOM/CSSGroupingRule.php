@@ -32,6 +32,7 @@ class CSSGroupingRule extends CSSRule
 		string $prelude = '',
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 	) {
+		self::assertValidMaxBytesInternal($maxBytes);
 		if ($maxBytes !== null && (strlen($name) > $maxBytes || strlen($prelude) > $maxBytes)) {
 			throw new CSSParserLimitException(sprintf('CSS grouping rule exceeds maximum size of %d bytes.', $maxBytes));
 		}

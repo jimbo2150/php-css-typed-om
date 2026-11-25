@@ -270,11 +270,7 @@ final class CSSStyleSheet extends StyleSheet
 	{
 		$effectiveOptions = $this->resolveParserOptionsInternal($options);
 		$replacement = CSSParser::parseStylesheet($cssText, $effectiveOptions, true);
-		$this->cssRulesList->replaceAllWithOptionsInternal($replacement->getCssRules(), $effectiveOptions);
-		if ($options !== null) {
-			$this->configureLimitsInternal($options);
-			$this->configureErrorLimit($options->maxErrors);
-		}
+		$this->cssRulesList->replaceAllWithOptionsInternal($replacement->getCssRules(), $effectiveOptions, $options !== null);
 		$this->parseErrorsList = $replacement->getParseErrors();
 		$this->errorsTruncated = $replacement->errorsTruncated;
 	}

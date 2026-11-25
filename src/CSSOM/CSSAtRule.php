@@ -31,8 +31,12 @@ class CSSAtRule extends CSSRule
 		protected readonly bool $hasBlock = false,
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 	) {
+		self::assertValidMaxBytesInternal($maxBytes);
 		if ($maxBytes !== null && (strlen($name) > $maxBytes || strlen($prelude) > $maxBytes)) {
 			throw new CSSParserLimitException(sprintf('CSS at-rule exceeds maximum size of %d bytes.', $maxBytes));
+		}
+		if ($style !== null && $maxBytes !== null) {
+			$style->assertContentBytesWithinInternal($maxBytes);
 		}
 		$this->maxBytes = $maxBytes;
 		$trimmedName = CSSSyntaxScanner::trimCssWhitespace($name);
@@ -45,7 +49,24 @@ class CSSAtRule extends CSSRule
 			CSSSyntaxScanner::assertValidFragment($this->prelude, 'CSS at-rule prelude', [';', '{', '}']);
 		}
 		$this->styleDeclaration = $style !== null && $style->getParentRule() !== null ? clone $style : $style;
-		$this->styleDeclaration?->setParentRule($this);
+		if ($this->styleDeclaration !== null) {
+			if ($maxBytes !== null && ($this->styleDeclaration->resolveMaxBytesInternal() === null || $maxBytes < $this->styleDeclaration->resolveMaxBytesInternal())) {
+				$this->styleDeclaration->setMaxBytesInternal($maxBytes);
+			}
+			$this->styleDeclaration->setParentRule($this);
+		}
+	}
+
+	protected function syncChildLimitsInternal(?int $maxBytes, ?int $maxDeclarations, bool $syncDeclarations = false): void
+	{
+		if ($this->styleDeclaration === null) {
+			return;
+		}
+		if ($syncDeclarations) {
+			$this->styleDeclaration->setLimitsInternal($maxBytes, $maxDeclarations);
+		} else {
+			$this->styleDeclaration->setMaxBytesInternal($maxBytes);
+		}
 	}
 
 	public function getType(): int

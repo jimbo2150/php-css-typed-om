@@ -15,7 +15,7 @@ Magic read-only `prefix` and `namespaceURI` expose parsed prelude components. Ot
 |---|---|---|
 | `__construct(string $prelude, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Checks `$maxBytes` before scanning; requires a non-empty, structurally valid namespace URI prelude (rejecting comment-only preludes); throws `InvalidArgumentException` / `CSSParserLimitException` if empty, invalid, or oversized. | `$rule = new CSSNamespaceRule('svg "http://www.w3.org/2000/svg"');` |
 | `getPrefix(): string` | Returns the optional leading identifier prefix (strip-commented and escape-aware when recognizing unprefixed `url(...)` or quoted URIs); otherwise `''`. | `$rule->getPrefix();` |
-| `getNamespaceURI(): string` | Returns second token for prefixed form or first token for default namespace; unwraps `url(...)` (including escaped `url`) and quotes. | `$rule->getNamespaceURI();` |
+| `getNamespaceURI(): string` | Returns second token for prefixed form or first token for default namespace; strictly unwraps a single valid `url(...)` (`findMatchingUrlEnd()`, including escaped `url`) or outer matching quote pair (`scanQuotedStringEnd()`). | `$rule->getNamespaceURI();` |
 | `getType(): int` | Returns `CSSRule::NAMESPACE_RULE`. | `$rule->getType();` |
 | `__get(string $name): mixed` | Exposes `prefix` and `namespaceURI`, otherwise delegates to `CSSAtRule::__get()`. | `$rule->namespaceURI;` |
 | `__isset(string $name): bool` | True for `prefix` and `namespaceURI`, otherwise delegates to `CSSAtRule::__isset()`. | `isset($rule->namespaceURI);` |

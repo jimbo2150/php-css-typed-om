@@ -35,16 +35,16 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 
 	protected function resolveSheetParserOptions(): CSSParserOptions
 	{
-		$rule = $this->style->getParentRule();
-		$sheet = $rule?->getParentStyleSheet();
+		$sheet = $this->style->getParentRule()?->getParentStyleSheet();
 		if ($sheet !== null) {
 			return $sheet->resolveParserOptionsInternal(null);
 		}
-		if ($rule !== null) {
-			$ruleMaxBytes = $rule->resolveMaxBytesInternal();
-			if ($ruleMaxBytes !== CSSParserOptions::DEFAULT_MAX_BYTES) {
-				return new CSSParserOptions(maxBytes: $ruleMaxBytes);
-			}
+		$maxBytes = $this->style->resolveMaxBytesInternal();
+		$maxDeclarations = $this->style->resolveMaxDeclarationsInternal();
+		if ($maxBytes !== CSSParserOptions::DEFAULT_MAX_BYTES
+			|| $maxDeclarations !== CSSParserOptions::DEFAULT_MAX_DECLARATIONS
+		) {
+			return new CSSParserOptions(maxBytes: $maxBytes, maxDeclarations: $maxDeclarations);
 		}
 
 		return CSSParserOptions::default();
@@ -77,7 +77,11 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 		}
 		$length = strlen($value);
 		$offset = 0;
+		$segmentCount = 0;
 		while ($offset < $length) {
+			if (++$segmentCount > CSSStyleValue::MAX_LIST_ITEMS) {
+				throw new CSSParserLimitException(sprintf('CSS value list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
+			}
 			$comma = CSSSyntaxScanner::findTopLevel($value, ',', $offset, $length);
 			$segmentEnd = $comma ?? $length;
 			$first = CSSSyntaxScanner::trimCssWhitespace(substr($value, $offset, $segmentEnd - $offset));

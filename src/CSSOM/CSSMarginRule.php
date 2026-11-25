@@ -41,6 +41,7 @@ final class CSSMarginRule extends CSSAtRule
 		CSSStyleDeclaration $style,
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 	) {
+		self::assertValidMaxBytesInternal($maxBytes);
 		if ($maxBytes !== null && strlen($name) > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS margin rule exceeds maximum size of %d bytes.', $maxBytes));
 		}

@@ -53,8 +53,8 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 	 */
 	public function __construct(array|string $value, ?CSSParserOptions $options = null, int $depth = 0)
 	{
-		if ($depth < 0) {
-			throw new InvalidArgumentException('Nesting depth cannot be negative.');
+		if ($depth < 0 || $depth === PHP_INT_MAX) {
+			throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
 		}
 		$this->maxBytes = $options !== null ? $options->maxBytes : CSSParserOptions::DEFAULT_MAX_BYTES;
 		$options ??= CSSParserOptions::default();
@@ -1067,15 +1067,21 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 					$close = $matchingParens[$pos];
 					if ($close < $sliceEnd) {
 						$cursor = self::skipCssTrivia($source, $pos + 1, $close);
-						if ($cursor + 1 < $close
-							&& $source[$cursor] === '-'
-							&& $source[$cursor + 1] === '-'
+						if ($cursor < $close
+							&& ($source[$cursor] === '-' || $source[$cursor] === '\\')
 							&& ($identEnd = CSSSyntaxScanner::scanIdentEnd($source, $cursor, $close)) !== null
-							&& $identEnd > $cursor + 2
 						) {
 							$ident = substr($source, $cursor, $identEnd - $cursor);
-							$afterIdent = self::skipCssTrivia($source, $identEnd, $close);
-							if ($afterIdent === $close || ($afterIdent < $close && $source[$afterIdent] === ',')) {
+							$isCustom = $ident[0] === '-' && ($ident[1] ?? '') === '-' && strlen($ident) > 2;
+							if (!$isCustom && str_contains($ident, '\\')) {
+								$decodedVar = CSSSyntaxScanner::decodeIdentAt($source, $cursor, $identEnd);
+								$isCustom = $decodedVar !== null
+									&& $decodedVar['end'] === $identEnd
+									&& str_starts_with($decodedVar['ident'], '--')
+									&& strlen($decodedVar['ident']) > 2;
+							}
+							$afterIdent = $isCustom ? self::skipCssTrivia($source, $identEnd, $close) : -1;
+							if ($isCustom && ($afterIdent === $close || ($afterIdent < $close && $source[$afterIdent] === ','))) {
 								$hasFallback = $afterIdent < $close && $source[$afterIdent] === ',';
 								if ($hasFallback && isset($parenHasForbidden[$pos])) {
 									$pos++;
@@ -1100,6 +1106,15 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 									}
 									while ($fbEnd > $fbStart && str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$fbEnd - 1])) {
 										$fbEnd--;
+									}
+									if ($fbEnd > $fbStart && $fbEnd < $close && $source[$fbEnd - 1] === '\\') {
+										$bs = 0;
+										for ($bi = $fbEnd - 1; $bi >= $fbStart && $source[$bi] === '\\'; $bi--) {
+											$bs++;
+										}
+										if (($bs & 1) === 1 && ($source[$fbEnd] === ' ' || $source[$fbEnd] === "\t")) {
+											$fbEnd++;
+										}
 									}
 									$fbObj = self::createShell($maxBytes, $effectiveMaxDepth);
 									if ($fbStart < $fbEnd) {

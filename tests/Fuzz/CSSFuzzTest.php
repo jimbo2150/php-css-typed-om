@@ -6,11 +6,16 @@ namespace Jimbo2150\PhpCssTypedOm\Tests\Fuzz;
 
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSS;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFunctionRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSImportRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParser;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderer;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderMode;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderOptions;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSScopeRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleSheet;
+use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
@@ -29,7 +34,8 @@ final class CSSFuzzTest extends TestCase
 		'@scope', '@container', '@starting-style', '@function', '@counter-style',
 		'screen', 'color', 'margin', 'width', 'red', '10px', 'calc(', 'min(', 'max(', 'var(', 'var(/*c*/--a, 1px)',
 		'url(', 'rgb(', ')', '{', '}', ';', ':', ',', '/', ' ', "\t", "\n", "\x00", "\x07", "\x0B", "\x7F",
-		'/*', '*/', '/*c*/', '"', "'", '\\', '\\61 ', '!important', '--x', '<style>', '</style>',
+		'/*', '*/', '/*c*/', '"', "'", '\\', '\\61 ', '\\75 ', '\\7 ', '\\2d\\2d ', '!important', '--x', '<style>', '</style>',
+		'url(a[b)', 'layer(', 'supports(', "\xFF",
 	];
 
 	public function testSeededStylesheetScannerAndTypedOmFuzzingIsSafeAndDeterministic(): void
@@ -118,6 +124,20 @@ final class CSSFuzzTest extends TestCase
 					self::assertInstanceOf(CSSStyleValue::class, $call());
 				} catch (InvalidArgumentException) {
 					// Expected on malformed random CSS fragments
+				}
+			}
+
+			foreach ([
+				static fn () => new CSSImportRule($slice, $options->maxBytes),
+				static fn () => CSSFunctionRule::fromPrelude($slice, maxBytes: $options->maxBytes),
+				static fn () => new CSSScopeRule($slice, maxBytes: $options->maxBytes),
+				static fn () => CSSParser::parseSingleRule($slice, $options),
+				static fn () => new DOMMatrix($slice),
+			] as $cssomCall) {
+				try {
+					$cssomCall();
+				} catch (InvalidArgumentException) {
+					// Expected on malformed or over-limit random CSS fragments
 				}
 			}
 		}

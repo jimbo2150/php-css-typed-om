@@ -71,25 +71,37 @@ abstract class CSSMathValue extends CSSNumericValue
 		$this->cachedNumericType = self::mergeAdditiveTypesInternal($this->values->values);
 	}
 
+	/** @internal */
+	public function toBoundedCssTextInternal(?int $maxBytes): string
+	{
+		$limit = $maxBytes !== null
+			? min($maxBytes, CSSParserOptions::DEFAULT_MAX_BYTES)
+			: CSSParserOptions::DEFAULT_MAX_BYTES;
+
+		return self::serializeMath($this, $limit);
+	}
+
 	public function __toString(): string
 	{
 		return self::serializeMath($this);
 	}
 
-	private static function serializeMath(CSSNumericValue $rootValue): string
-	{
+	private static function serializeMath(
+		CSSNumericValue $rootValue,
+		int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+	): string {
 		$parts = [];
 		$totalBytes = 0;
 		$visits = 0;
 		// Frame [0 = EMIT_STR, string] | [1 = EVAL_NODE, CSSNumericValue, parentPrecedence, isRoot, depth]
 		$stack = [[1, $rootValue, 0, true, 0]];
 
-		$emit = static function (string $chunk) use (&$parts, &$totalBytes): void {
+		$emit = static function (string $chunk) use (&$parts, &$totalBytes, $maxBytes): void {
 			$totalBytes += strlen($chunk);
-			if ($totalBytes > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			if ($totalBytes > $maxBytes) {
 				throw new CSSParserLimitException(sprintf(
 					'CSS math expression exceeds maximum serialized size of %d bytes.',
-					CSSParserOptions::DEFAULT_MAX_BYTES,
+					$maxBytes,
 				));
 			}
 			$parts[] = $chunk;

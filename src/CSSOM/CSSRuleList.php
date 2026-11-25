@@ -53,16 +53,17 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 	}
 
 	/**
-	 * @internal Inspects a rule subtree in a single iterative pass, counting rules, declarations, and max block depth.
-	 * @return array{rules: int, height: int, declarations: int}
+	 * @internal Inspects a rule subtree in a single iterative pass, counting rules, declarations, max block depth, and optional content bytes.
+	 * @return array{rules: int, height: int, declarations: int, bytes: int}
 	 */
-	public static function inspectSubtree(CSSRule $rule): array
+	public static function inspectSubtree(CSSRule $rule, ?int $maxBytes = null): array
 	{
 		$stack = [[$rule, 0]];
 		$visited = [];
 		$rules = 0;
 		$height = 0;
 		$declarations = 0;
+		$bytes = 0;
 
 		while ($stack !== []) {
 			[$current, $relDepth] = array_pop($stack);
@@ -73,16 +74,45 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 			$visited[$id] = true;
 			$rules++;
 
+			if ($maxBytes !== null) {
+				if ($current instanceof CSSOpaqueRule) {
+					$bytes += strlen($current->getCssText());
+				} elseif ($current instanceof CSSStyleRule) {
+					$bytes += strlen($current->getSelectorText());
+				} elseif ($current instanceof CSSGroupingRule) {
+					$bytes += strlen($current->getPrelude());
+				} elseif ($current instanceof CSSAtRule) {
+					$bytes += strlen($current->getPrelude());
+				} elseif ($current instanceof CSSKeyframeRule) {
+					$bytes += strlen($current->getKeyText());
+				}
+				if ($bytes > $maxBytes) {
+					throw new CSSParserLimitException(sprintf('CSS rule exceeds maximum size of %d bytes.', $maxBytes));
+				}
+			}
+
 			if ($current instanceof CSSGroupingRule) {
 				$blockDepth = $relDepth + 1;
 				if ($blockDepth > $height) {
 					$height = $blockDepth;
 				}
 				if ($current instanceof CSSStyleRule || $current instanceof CSSPageRule) {
-					$declarations += count($current->getStyle()->getDeclarationsRaw());
+					$raw = $current->getStyle()->getDeclarationsRaw();
+					$declarations += count($raw);
+					if ($maxBytes !== null) {
+						foreach ($raw as $prop => $decl) {
+							$bytes += strlen((string) $prop) + strlen($decl['value']);
+							if ($bytes > $maxBytes) {
+								throw new CSSParserLimitException(sprintf('CSS rule exceeds maximum size of %d bytes.', $maxBytes));
+							}
+						}
+					}
 				} elseif ($current instanceof CSSFontFeatureValuesRule) {
 					foreach ($current->getFeatureMaps() as $map) {
 						$declarations += count($map);
+						if ($maxBytes !== null) {
+							$bytes += $map->contentBytesInternal($maxBytes - $bytes);
+						}
 					}
 				}
 				foreach ($current->getCssRules()->getRulesRaw() as $child) {
@@ -95,20 +125,38 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 				}
 				$style = $current->getStyle();
 				if ($style !== null) {
-					$declarations += count($style->getDeclarationsRaw());
+					$raw = $style->getDeclarationsRaw();
+					$declarations += count($raw);
+					if ($maxBytes !== null) {
+						foreach ($raw as $prop => $decl) {
+							$bytes += strlen((string) $prop) + strlen($decl['value']);
+							if ($bytes > $maxBytes) {
+								throw new CSSParserLimitException(sprintf('CSS rule exceeds maximum size of %d bytes.', $maxBytes));
+							}
+						}
+					}
 				}
 			} elseif ($current instanceof CSSKeyframeRule || $current instanceof CSSNestedDeclarations || $current instanceof CSSFunctionDeclarations) {
 				$blockDepth = $current instanceof CSSKeyframeRule ? $relDepth + 1 : $relDepth;
 				if ($blockDepth > $height) {
 					$height = $blockDepth;
 				}
-				$declarations += count($current->getStyle()->getDeclarationsRaw());
+				$raw = $current->getStyle()->getDeclarationsRaw();
+				$declarations += count($raw);
+				if ($maxBytes !== null) {
+					foreach ($raw as $prop => $decl) {
+						$bytes += strlen((string) $prop) + strlen($decl['value']);
+						if ($bytes > $maxBytes) {
+							throw new CSSParserLimitException(sprintf('CSS rule exceeds maximum size of %d bytes.', $maxBytes));
+						}
+					}
+				}
 			} elseif ($relDepth > $height) {
 				$height = $relDepth;
 			}
 		}
 
-		return ['rules' => $rules, 'height' => $height, 'declarations' => $declarations];
+		return ['rules' => $rules, 'height' => $height, 'declarations' => $declarations, 'bytes' => $bytes];
 	}
 
 	/**
@@ -171,7 +219,8 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 		}
 		$this->assertNoCycle($rule);
 
-		$stats = self::inspectSubtree($rule);
+		$effectiveMaxBytes = $overrideOptions !== null ? $overrideOptions->maxBytes : $this->sheet->getMaxBytesInternal();
+		$stats = self::inspectSubtree($rule, $effectiveMaxBytes);
 		$this->assertLimitsForAddition($stats['rules'], $stats['height'], $stats['declarations'], $overrideOptions);
 
 		$rule->attach($this->sheet, $this->owner);
@@ -198,7 +247,7 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 		}
 		$this->assertNoCycle($rule);
 
-		$stats = self::inspectSubtree($rule);
+		$stats = self::inspectSubtree($rule, $this->sheet->getMaxBytesInternal());
 		$this->assertLimitsForAddition($stats['rules'], $stats['height'], $stats['declarations'], null);
 
 		$rule->attach($this->sheet, $this->owner);
@@ -307,14 +356,19 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 	/**
 	 * @internal Atomically replaces all rules while optionally enforcing caller-provided limit overrides.
 	 */
-	public function replaceAllWithOptionsInternal(self $replacement, ?CSSParserOptions $overrideOptions): void
-	{
+	public function replaceAllWithOptionsInternal(
+		self $replacement,
+		?CSSParserOptions $overrideOptions,
+		bool $adoptOverrideLimits = false,
+	): void {
 		if ($this->sheet === null) {
 			throw new LogicException('A detached CSSRuleList cannot be modified.');
 		}
 
+		$effectiveMaxBytes = $overrideOptions !== null ? $overrideOptions->maxBytes : $this->sheet->getMaxBytesInternal();
 		$addedCount = 0;
 		$addedDecls = 0;
+		$addedBytes = 0;
 		$maxAddedHeight = 0;
 		$next = [];
 		foreach ($replacement->rules as $rule) {
@@ -322,9 +376,11 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 				throw new InvalidArgumentException('Cannot move already-owned CSSRule instances into replaceAll().');
 			}
 			$this->assertNoCycle($rule);
-			$stats = self::inspectSubtree($rule);
+			$remainingBytes = $effectiveMaxBytes !== null ? max(0, $effectiveMaxBytes - $addedBytes) : null;
+			$stats = self::inspectSubtree($rule, $remainingBytes);
 			$addedCount += $stats['rules'];
 			$addedDecls += $stats['declarations'];
+			$addedBytes += $stats['bytes'];
 			if ($stats['height'] > $maxAddedHeight) {
 				$maxAddedHeight = $stats['height'];
 			}
@@ -349,6 +405,9 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 
 		foreach ($this->rules as $existing) {
 			$existing->attach(null, null);
+		}
+		if ($adoptOverrideLimits && $overrideOptions !== null) {
+			$this->sheet->configureLimitsInternal($overrideOptions);
 		}
 		foreach ($next as $rule) {
 			$rule->attach($this->sheet, $this->owner);

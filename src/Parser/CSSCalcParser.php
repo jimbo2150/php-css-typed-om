@@ -51,8 +51,8 @@ class CSSCalcParser
 	 */
 	public static function parse(string $calcString, ?CSSParserOptions $options = null, int $depth = 0): CSSNumericValue
 	{
-		if ($depth < 0) {
-			throw new InvalidArgumentException('Nesting depth cannot be negative.');
+		if ($depth < 0 || $depth === PHP_INT_MAX) {
+			throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
 		}
 		$options ??= CSSParserOptions::default();
 		if ($options->maxBytes !== null && strlen($calcString) > $options->maxBytes) {
@@ -96,8 +96,8 @@ class CSSCalcParser
 	 */
 	public static function parseExpression(string $expression, ?CSSParserOptions $options = null, int $depth = 0): CSSNumericValue
 	{
-		if ($depth < 0) {
-			throw new InvalidArgumentException('Nesting depth cannot be negative.');
+		if ($depth < 0 || $depth === PHP_INT_MAX) {
+			throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
 		}
 		$options ??= CSSParserOptions::default();
 		if ($options->maxBytes !== null && strlen($expression) > $options->maxBytes) {
@@ -125,6 +125,9 @@ class CSSCalcParser
 		int $depth,
 		bool $throwOnInvalid,
 	): ?CSSNumericValue {
+		if ($depth < 0 || $depth === PHP_INT_MAX) {
+			throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
+		}
 		if ($throwOnInvalid) {
 			return self::parseSliceIterative($source, $start, $end, $options, $depth, 0, true);
 		}
@@ -448,6 +451,9 @@ class CSSCalcParser
 						$isExpr = $firstChar === '('
 							|| $opCount > 1
 							|| ($opCount === 1 && (($firstChar !== '+' && $firstChar !== '-') || $meta['hasChildParen']));
+						if ($depth >= PHP_INT_MAX) {
+							throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
+						}
 						$argJobs[] = [0, $as, $ae, $depth + 1, $isExpr ? 2 : 0, $argSlot];
 					}
 					$workStack[] = [2, $fnName, $argSlots, $targetSlot];
@@ -477,6 +483,9 @@ class CSSCalcParser
 				} elseif ($type === self::T_FUNC) {
 					$fnSlot = $nextSlot++;
 					$outputQueue[] = [self::T_FUNC, $fnSlot];
+					if ($parenDepth >= PHP_INT_MAX - $depth) {
+						throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
+					}
 					$childFuncJobs[] = [0, $token[1], $token[2], $depth + $parenDepth + 1, 0, $fnSlot];
 				} elseif ($type === self::T_OP) {
 					$op1 = $token[1];
@@ -499,6 +508,9 @@ class CSSCalcParser
 					}
 					$operatorStack[] = $token;
 				} elseif ($type === self::T_LPAREN) {
+					if ($parenDepth >= PHP_INT_MAX - $depth) {
+						throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
+					}
 					$parenDepth++;
 					if ($options->maxMathDepth !== null && ($depth + $parenDepth) > $options->maxMathDepth) {
 						throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $options->maxMathDepth));

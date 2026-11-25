@@ -28,13 +28,17 @@ final class CSSPageRule extends CSSGroupingRule
 		array $marginRules = [],
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 	) {
+		self::assertValidMaxBytesInternal($maxBytes);
 		if ($maxBytes !== null && strlen($selector) > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS @page selector exceeds maximum size of %d bytes.', $maxBytes));
 		}
+		if ($style !== null && $maxBytes !== null) {
+			$style->assertContentBytesWithinInternal($maxBytes);
+		}
 		$selector = CSSSyntaxScanner::trimCssWhitespace($selector);
-		parent::__construct('page', $selector, $maxBytes);
 
 		$seenMarginRules = [];
+		$marginBytes = 0;
 		foreach ($marginRules as $rule) {
 			if (!$rule instanceof CSSMarginRule) {
 				throw new InvalidArgumentException('@page marginRules must contain only CSSMarginRule instances.');
@@ -47,25 +51,45 @@ final class CSSPageRule extends CSSGroupingRule
 				throw new InvalidArgumentException('Duplicate CSSMarginRule cannot be inserted into @page.');
 			}
 			$seenMarginRules[$id] = true;
+			if ($maxBytes !== null) {
+				$marginStats = CSSRuleList::inspectSubtree($rule, $maxBytes - $marginBytes);
+				$marginBytes += $marginStats['bytes'];
+			}
 		}
+
+		parent::__construct('page', $selector, $maxBytes);
 
 		if ($style instanceof CSSPageDescriptors) {
 			$descriptors = $style->getParentRule() !== null ? clone $style : $style;
 		} else {
 			$descriptors = new CSSPageDescriptors();
 			if ($style !== null) {
+				$descriptors->setLimitsInternal($maxBytes, $style->resolveMaxDeclarationsInternal());
 				foreach ($style->getDeclarationsRaw() as $property => $declaration) {
 					$descriptors->setValidatedProperty($property, $declaration['value'], $declaration['priority']);
 				}
 			}
+		}
+		if ($maxBytes !== null && ($descriptors->resolveMaxBytesInternal() === null || $maxBytes < $descriptors->resolveMaxBytesInternal())) {
+			$descriptors->setMaxBytesInternal($maxBytes);
 		}
 		$descriptors->setParentRule($this);
 		$this->styleDescriptors = $descriptors;
 
 		if ($marginRules !== []) {
 			foreach ($marginRules as $rule) {
+				$rule->clampMaxBytesInternal($maxBytes);
 				$this->getCssRules()->appendDetached($rule);
 			}
+		}
+	}
+
+	protected function syncChildLimitsInternal(?int $maxBytes, ?int $maxDeclarations, bool $syncDeclarations = false): void
+	{
+		if ($syncDeclarations) {
+			$this->styleDescriptors->setLimitsInternal($maxBytes, $maxDeclarations);
+		} else {
+			$this->styleDescriptors->setMaxBytesInternal($maxBytes);
 		}
 	}
 

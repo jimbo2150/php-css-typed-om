@@ -14,9 +14,9 @@ Parses the complete input as one `calc(...)` expression and returns its numeric 
 
 - `$calcString`: complete CSS `calc()` expression; trailing content after the closing parenthesis is rejected.
 - `$options`: optional [`CSSParserOptions`](../CSSOM/CSSParserOptions.md) controlling parser resource limits. A default options object is used when omitted.
-- `$depth`: current math nesting depth, primarily used by recursive parsing; normally omit it.
+- `$depth`: current math nesting depth, primarily used by recursive parsing; normally omit it (negative values or `PHP_INT_MAX` throw `InvalidArgumentException`).
 - **Returns:** a `CSSNumericValue` such as a unit value or a math expression node.
-- **Throws:** `InvalidArgumentException` for malformed syntax, invalid numbers, incompatible dimensions, or exceeded `maxMathDepth`.
+- **Throws:** `InvalidArgumentException` / `CSSParserLimitException` for malformed syntax, invalid numbers, depth integer bounds (`< 0` or `PHP_INT_MAX` or parenthesized/nested overflow), incompatible dimensions, or exceeded `maxMathDepth`.
 
 ```php
 use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;

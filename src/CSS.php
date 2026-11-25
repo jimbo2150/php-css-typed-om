@@ -190,18 +190,41 @@ abstract class CSS
 		}
 
 		if ($definition instanceof CSSPropertyRule) {
-			$name = $definition->getNameText();
+			$style = $definition->getStyle();
+			$rawName = $definition->getNameText();
+			$rawSyntax = $style?->getPropertyValue('syntax') ?? '';
+			$rawInheritsRaw = $style?->getPropertyValue('inherits') ?? '';
+			$initialValue = $definition->getInitialValue();
+			if (strlen($rawName) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+				throw new CSSParserLimitException(sprintf('Registered property name exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+			}
+			if (strlen($rawSyntax) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+				throw new CSSParserLimitException(sprintf('Registered property syntax exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+			}
+			if (strlen($rawInheritsRaw) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+				throw new CSSParserLimitException(sprintf('Registered property inherits exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+			}
+			if ($initialValue !== null && strlen($initialValue) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+				throw new CSSParserLimitException(sprintf('Registered property initialValue exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+			}
+			$name = $rawName;
 			$syntax = $definition->getSyntax();
-			$rawInherits = CSSSyntaxScanner::trimCssWhitespace($definition->getStyle()?->getPropertyValue('inherits') ?? '');
+			$rawInherits = CSSSyntaxScanner::trimCssWhitespace($rawInheritsRaw);
 			if (str_contains($rawInherits, '/*')) {
 				$rawInherits = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($rawInherits));
 			}
-			$rawInherits = strtolower($rawInherits);
+			if (str_contains($rawInherits, '\\')) {
+				$decodedInherits = CSSSyntaxScanner::decodeIdentAt($rawInherits, 0, strlen($rawInherits));
+				$rawInherits = ($decodedInherits !== null && $decodedInherits['end'] === strlen($rawInherits))
+					? strtolower($decodedInherits['ident'])
+					: '';
+			} else {
+				$rawInherits = strtolower($rawInherits);
+			}
 			if ($rawInherits !== 'true' && $rawInherits !== 'false') {
 				throw new InvalidArgumentException('CSSPropertyRule must specify inherits as "true" or "false".');
 			}
 			$inherits = $rawInherits === 'true';
-			$initialValue = $definition->getInitialValue();
 		} else {
 			if (!isset($definition['name']) || !is_string($definition['name'])) {
 				throw new InvalidArgumentException('Property registration requires a custom property "name".');

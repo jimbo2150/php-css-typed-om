@@ -37,8 +37,11 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 	/** @var array<string, CSSFontFeatureValuesMap> */
 	private array $featureMaps = [];
 
+	private ?int $detachedMaxDeclarations = CSSParserOptions::DEFAULT_MAX_DECLARATIONS;
+
 	public function __construct(string $fontFamily, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
+		self::assertValidMaxBytesInternal($maxBytes);
 		if ($maxBytes !== null && strlen($fontFamily) > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS @font-feature-values rule exceeds maximum size of %d bytes.', $maxBytes));
 		}
@@ -88,10 +91,28 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 		}
 		if (!isset($this->featureMaps[$featureType])) {
 			$map = new CSSFontFeatureValuesMap();
+			$map->setLimitsInternal(
+				$this->resolveMaxBytesInternal(),
+				$this->getParentStyleSheet()?->getMaxDeclarationsInternal() ?? $this->detachedMaxDeclarations,
+			);
 			$map->setOwnerRuleInternal($this);
 			$this->featureMaps[$featureType] = $map;
 		}
 		return $this->featureMaps[$featureType];
+	}
+
+	protected function syncChildLimitsInternal(?int $maxBytes, ?int $maxDeclarations, bool $syncDeclarations = false): void
+	{
+		if ($syncDeclarations) {
+			$this->detachedMaxDeclarations = $maxDeclarations;
+		}
+		foreach ($this->featureMaps as $map) {
+			if ($syncDeclarations) {
+				$map->setLimitsInternal($maxBytes, $maxDeclarations);
+			} else {
+				$map->setMaxBytesInternal($maxBytes);
+			}
+		}
 	}
 
 	/** @return array<string, CSSFontFeatureValuesMap> */
@@ -135,6 +156,7 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 
 	public function __clone(): void
 	{
+		$this->detachedMaxDeclarations = $this->getParentStyleSheet()?->getMaxDeclarationsInternal() ?? $this->detachedMaxDeclarations;
 		parent::__clone();
 		$clonedMaps = [];
 		foreach ($this->featureMaps as $category => $map) {

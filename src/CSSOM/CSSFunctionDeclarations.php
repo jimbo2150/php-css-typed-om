@@ -19,9 +19,25 @@ final class CSSFunctionDeclarations extends CSSRule
 		CSSFunctionDescriptors $style,
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 	) {
+		self::assertValidMaxBytesInternal($maxBytes);
+		if ($maxBytes !== null) {
+			$style->assertContentBytesWithinInternal($maxBytes);
+		}
 		$this->maxBytes = $maxBytes;
 		$this->styleDescriptors = $style->getParentRule() !== null ? clone $style : $style;
+		if ($maxBytes !== null && ($this->styleDescriptors->resolveMaxBytesInternal() === null || $maxBytes < $this->styleDescriptors->resolveMaxBytesInternal())) {
+			$this->styleDescriptors->setMaxBytesInternal($maxBytes);
+		}
 		$this->styleDescriptors->setParentRule($this);
+	}
+
+	protected function syncChildLimitsInternal(?int $maxBytes, ?int $maxDeclarations, bool $syncDeclarations = false): void
+	{
+		if ($syncDeclarations) {
+			$this->styleDescriptors->setLimitsInternal($maxBytes, $maxDeclarations);
+		} else {
+			$this->styleDescriptors->setMaxBytesInternal($maxBytes);
+		}
 	}
 
 	public function getType(): int

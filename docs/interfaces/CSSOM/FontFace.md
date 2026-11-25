@@ -11,6 +11,6 @@
 
 ## Public Methods
 
-- `__construct(string $family, string $source, array $descriptors = [])` — validates `$family`, `$source`, descriptor keys, and values (enforcing `DEFAULT_MAX_BYTES`, balanced syntax, and rejecting blank/comment-only values) via `CSSStyleDeclaration::validatePropertyValue()`.
-- `toCSSFontFaceRule(): CSSFontFaceRule` — builds a [`CSSFontFaceRule`](CSSFontFaceRule.md) backed by strict [`CSSFontFaceDescriptors`](CSSFontFaceDescriptors.md) (intentionally omitting `variant`, which is not a CSS Fonts 4 `@font-face` descriptor).
-- `fromCSSFontFaceRule(CSSFontFaceRule $rule): self` — constructs a `FontFace` from a parsed `@font-face` rule; throws `InvalidArgumentException` if `font-family` or `src` is missing.
+- `__construct(string $family, string $source, array $descriptors = [], ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` — validates `$maxBytes` upfront, `$family`, `$source`, descriptor keys, and values (enforcing `$maxBytes`, balanced syntax, and rejecting blank/comment-only values) via `CSSStyleDeclaration::validatePropertyValue()` (mutators `setFamily()`, `setSource()`, and `setDescriptor()` enforce the stored `$maxBytes`).
+- `toCSSFontFaceRule(): CSSFontFaceRule` — builds a [`CSSFontFaceRule`](CSSFontFaceRule.md) backed by strict [`CSSFontFaceDescriptors`](CSSFontFaceDescriptors.md) validated under `$this->maxBytes` (intentionally omitting `variant`, which is not a CSS Fonts 4 `@font-face` descriptor).
+- `fromCSSFontFaceRule(CSSFontFaceRule $rule): self` — constructs a `FontFace` inheriting `$rule`'s resolved `$maxBytes` from a parsed `@font-face` rule; throws `InvalidArgumentException` / `CSSParserLimitException` if `font-family` or `src` is missing or exceeds limits.

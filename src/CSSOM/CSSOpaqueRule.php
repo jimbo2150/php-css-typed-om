@@ -19,6 +19,7 @@ final class CSSOpaqueRule extends CSSRule
 	 */
 	public function __construct(string $source, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
+		self::assertValidMaxBytesInternal($maxBytes);
 		if ($maxBytes !== null && strlen($source) > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS opaque rule exceeds maximum size of %d bytes.', $maxBytes));
 		}

@@ -31,6 +31,7 @@ final class CSSImportRule extends CSSAtRule
 
 	public function __construct(string $prelude, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
+		self::assertValidMaxBytesInternal($maxBytes);
 		if ($maxBytes !== null && strlen($prelude) > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS @import rule exceeds maximum size of %d bytes.', $maxBytes));
 		}
@@ -152,29 +153,33 @@ final class CSSImportRule extends CSSAtRule
 			return ['urlToken' => '', 'href' => '', 'layerName' => null, 'supportsText' => null, 'media' => ''];
 		}
 
-		// Extract leading <string-token> or url(...) without requiring whitespace before subsequent tokens.
-		$pos = 0;
+		// Require leading <string-token> or url(...) token per CSS Cascade L4/L5.
 		$ch = $prelude[0];
 		if ($ch === '"' || $ch === "'") {
 			$valid = false;
 			$strEnd = CSSSyntaxScanner::scanQuotedStringEnd($prelude, 0, $length, $valid);
-			$pos = $valid ? $strEnd + 1 : $length;
-		} else {
-			$openParen = strpos($prelude, '(');
-			if ($openParen !== false && CSSSyntaxScanner::decodeLeadingFunctionName($prelude, $openParen) === 'url') {
-				$urlEnd = CSSSyntaxScanner::findMatchingUrlEnd($prelude, $openParen, $length);
-				$pos = $urlEnd !== null ? $urlEnd + 1 : $length;
+			if (!$valid) {
+				throw new InvalidArgumentException('Malformed CSS @import URL string.');
 			}
+			$pos = $strEnd + 1;
+		} else {
+			$leadingIdent = CSSSyntaxScanner::decodeIdentAt($prelude, 0, $length);
+			if ($leadingIdent === null
+				|| strtolower($leadingIdent['ident']) !== 'url'
+				|| $leadingIdent['end'] >= $length
+				|| $prelude[$leadingIdent['end']] !== '('
+			) {
+				throw new InvalidArgumentException('@import requires a URL string or url(...) token.');
+			}
+			$urlEnd = CSSSyntaxScanner::findMatchingUrlEnd($prelude, $leadingIdent['end'], $length);
+			if ($urlEnd === null) {
+				throw new InvalidArgumentException('Malformed CSS @import url(...) token.');
+			}
+			$pos = $urlEnd + 1;
 		}
 
-		if ($pos > 0) {
-			$urlToken = substr($prelude, 0, $pos);
-			$tail = CSSSyntaxScanner::trimCssWhitespace(substr($prelude, $pos));
-		} else {
-			$tokens = CSSSyntaxScanner::splitTopLevelWhitespace($prelude, 0, null, CSSStyleValue::MAX_LIST_ITEMS);
-			$urlToken = array_shift($tokens) ?? '';
-			$tail = implode(' ', $tokens);
-		}
+		$urlToken = substr($prelude, 0, $pos);
+		$tail = CSSSyntaxScanner::trimCssWhitespace(substr($prelude, $pos));
 
 		$href = self::unwrapUrlToken($urlToken);
 		$layerName = null;
@@ -391,6 +396,11 @@ final class CSSImportRule extends CSSAtRule
 		}
 
 		return $token;
+	}
+
+	protected function syncChildLimitsInternal(?int $maxBytes, ?int $maxDeclarations, bool $syncDeclarations = false): void
+	{
+		$this->mediaList->setMaxBytesInternal($maxBytes);
 	}
 
 	public function __clone(): void

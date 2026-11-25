@@ -55,8 +55,8 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 		?CSSParserOptions $options = null,
 		int $depth = 0,
 	) {
-		if ($depth < 0) {
-			throw new InvalidArgumentException('Nesting depth cannot be negative.');
+		if ($depth < 0 || $depth === PHP_INT_MAX) {
+			throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
 		}
 		$options ??= CSSParserOptions::default();
 		$effectiveMaxDepth = $options->maxDepth !== null
@@ -220,20 +220,10 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 	/** @internal */
 	public function assertRenderedWithinMaxBytesInternal(?int $maxBytes): void
 	{
-		if ($this->fallbackValue === null) {
-			if ($maxBytes !== null && (strlen($this->variableValue) + 5) > $maxBytes) {
-				throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum size of %d bytes.', $maxBytes));
-			}
-
+		if ($maxBytes === null) {
 			return;
 		}
-
-		CSSUnparsedValue::stringifyIteratively(
-			$this->fallbackValue->getValues(),
-			$maxBytes,
-			'var(' . $this->variableValue . ', ',
-			')',
-		);
+		$this->measureRenderedBytesInternal($maxBytes);
 	}
 
 	public function getVariable(): string
@@ -262,8 +252,8 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 		?CSSParserOptions $options = null,
 		int $depth = 0,
 	): void {
-		if ($depth < 0) {
-			throw new InvalidArgumentException('Nesting depth cannot be negative.');
+		if ($depth < 0 || $depth === PHP_INT_MAX) {
+			throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
 		}
 		if ($fallback === null) {
 			$previousFallback = $this->fallbackValue;
@@ -374,7 +364,7 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 				$effectiveFbLimit,
 			);
 		} catch (CSSParserLimitException $e) {
-			if ($outerIsTighter) {
+			if ($outerIsTighter && str_contains($e->getMessage(), 'maximum size')) {
 				throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum size of %d bytes.', $this->maxBytes));
 			}
 			throw $e;

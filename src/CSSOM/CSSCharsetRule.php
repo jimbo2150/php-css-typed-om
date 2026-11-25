@@ -16,6 +16,7 @@ final class CSSCharsetRule extends CSSAtRule
 {
 	public function __construct(string $prelude, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
+		self::assertValidMaxBytesInternal($maxBytes);
 		if ($maxBytes !== null && strlen($prelude) > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS @charset rule exceeds maximum size of %d bytes.', $maxBytes));
 		}
@@ -37,11 +38,16 @@ final class CSSCharsetRule extends CSSAtRule
 			$encoding = CSSSyntaxScanner::removeComments($encoding);
 		}
 		$encoding = CSSSyntaxScanner::trimCssWhitespace($encoding);
-		if (strlen($encoding) >= 2 && (($encoding[0] === '"' && $encoding[-1] === '"') || ($encoding[0] === "'" && $encoding[-1] === "'"))) {
-			return substr($encoding, 1, -1);
+		$len = strlen($encoding);
+		if ($len >= 2 && ($encoding[0] === '"' || $encoding[0] === "'")) {
+			$valid = false;
+			$end = CSSSyntaxScanner::scanQuotedStringEnd($encoding, 0, $len, $valid);
+			if ($valid && $end === $len - 1) {
+				return substr($encoding, 1, -1);
+			}
 		}
 
-		return trim($encoding, CSSSyntaxScanner::CSS_WHITESPACE . "\"'");
+		return $encoding;
 	}
 
 	public function getType(): int

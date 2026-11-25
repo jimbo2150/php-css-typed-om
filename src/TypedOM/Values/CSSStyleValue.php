@@ -154,10 +154,44 @@ abstract class CSSStyleValue implements Stringable
 	}
 
 	/**
+	 * @internal Parses a property/value pair while propagating initial math nesting depth.
+	 */
+	public static function parseWithMathDepthInternal(
+		string $property,
+		string $cssText,
+		?CSSParserOptions $options,
+		int $mathDepth,
+	): self {
+		$options ??= CSSParserOptions::default();
+		if ($options->maxBytes !== null && strlen($property) > $options->maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS property name exceeds maximum size of %d bytes.', $options->maxBytes));
+		}
+		$normalized = CSSStyleDeclaration::normalizePropertyName($property);
+		if ($options->maxBytes !== null && strlen($cssText) > $options->maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS value exceeds maximum size of %d bytes.', $options->maxBytes));
+		}
+
+		$trimmed = CSSSyntaxScanner::trimCssWhitespace($cssText);
+		if ($trimmed === '') {
+			throw new InvalidArgumentException('CSS value cannot be empty.');
+		}
+		CSSSyntaxScanner::assertValidFragment($trimmed, 'CSS value', [';', '{', '}']);
+		if (!str_starts_with($normalized, '--') && str_contains($trimmed, '/*') && CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
+			throw new InvalidArgumentException('CSS value cannot be empty.');
+		}
+
+		return self::parseValidated($normalized, $trimmed, $options, $mathDepth);
+	}
+
+	/**
 	 * @internal Parses a trimmed, already-fragment-validated value into a Typed OM object.
 	 */
-	public static function parseValidated(string $normalizedProperty, string $trimmedValue, CSSParserOptions $options): CSSStyleValue
-	{
+	public static function parseValidated(
+		string $normalizedProperty,
+		string $trimmedValue,
+		CSSParserOptions $options,
+		int $mathDepth = 0,
+	): CSSStyleValue {
 		$lower = strtolower($trimmedValue);
 		if (isset(self::GLOBAL_KEYWORDS[$lower])) {
 			return new CSSKeywordValue($lower);
@@ -215,7 +249,7 @@ abstract class CSSStyleValue implements Stringable
 			}
 		}
 
-		$numeric = CSSNumericValue::tryParseValidated($trimmedValue, $options);
+		$numeric = CSSNumericValue::tryParseValidated($trimmedValue, $options, $mathDepth);
 		if ($numeric !== null) {
 			return $numeric;
 		}

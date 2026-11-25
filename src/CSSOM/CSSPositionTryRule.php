@@ -21,8 +21,12 @@ final class CSSPositionTryRule extends CSSAtRule
 		?CSSStyleDeclaration $style = null,
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 	) {
+		self::assertValidMaxBytesInternal($maxBytes);
 		if ($maxBytes !== null && strlen($name) > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS @position-try name exceeds maximum size of %d bytes.', $maxBytes));
+		}
+		if ($style !== null && $maxBytes !== null) {
+			$style->assertContentBytesWithinInternal($maxBytes);
 		}
 		$normalized = CSSStyleDeclaration::normalizePropertyName($name);
 		if (!str_starts_with($normalized, '--')) {
@@ -32,8 +36,11 @@ final class CSSPositionTryRule extends CSSAtRule
 			$descriptors = $style->getParentRule() !== null ? clone $style : $style;
 		} else {
 			$descriptors = new CSSPositionTryDescriptors();
-			foreach ($style?->getDeclarationsRaw() ?? [] as $property => $declaration) {
-				$descriptors->setValidatedProperty($property, $declaration['value'], $declaration['priority']);
+			if ($style !== null) {
+				$descriptors->setLimitsInternal($maxBytes, $style->resolveMaxDeclarationsInternal());
+				foreach ($style->getDeclarationsRaw() as $property => $declaration) {
+					$descriptors->setValidatedProperty($property, $declaration['value'], $declaration['priority']);
+				}
 			}
 		}
 		parent::__construct('position-try', $normalized, $descriptors, true, $maxBytes);

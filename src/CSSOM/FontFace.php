@@ -74,12 +74,20 @@ final class FontFace
 	/** @var array<string, true> Tracks descriptors explicitly configured by caller/rule */
 	private array $explicit = [];
 
+	private ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES;
+
 	/**
 	 * @param array<string, string> $descriptors
 	 * @throws InvalidArgumentException When $family, $source, or any descriptor is invalid
 	 */
-	public function __construct(string $family, string $source, array $descriptors = [])
-	{
+	public function __construct(
+		string $family,
+		string $source,
+		array $descriptors = [],
+		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+	) {
+		CSSRule::assertValidMaxBytesInternal($maxBytes);
+		$this->maxBytes = $maxBytes;
 		$this->setFamily($family);
 		$this->setSource($source);
 		$this->descriptors = self::DEFAULTS;
@@ -123,7 +131,8 @@ final class FontFace
 			}
 		}
 
-		return new self($family, $source, $descriptors);
+		$maxBytes = $rule->resolveMaxBytesInternal();
+		return new self($family, $source, $descriptors, $maxBytes);
 	}
 
 	/**
@@ -135,16 +144,17 @@ final class FontFace
 	public function toCSSFontFaceRule(): CSSFontFaceRule
 	{
 		$descriptors = new CSSFontFaceDescriptors();
-		$descriptors->setProperty('font-family', $this->familyValue);
-		$descriptors->setProperty('src', $this->sourceValue);
+		$descriptors->setLimitsInternal($this->maxBytes, CSSParserOptions::DEFAULT_MAX_DECLARATIONS);
+		$descriptors->setValidatedProperty('font-family', $this->familyValue);
+		$descriptors->setValidatedProperty('src', $this->sourceValue);
 
 		foreach (self::TO_CSS_DESCRIPTOR as $prop => $cssName) {
 			if (isset($this->explicit[$prop]) || $this->descriptors[$prop] !== self::DEFAULTS[$prop]) {
-				$descriptors->setProperty($cssName, $this->descriptors[$prop]);
+				$descriptors->setValidatedProperty($cssName, $this->descriptors[$prop]);
 			}
 		}
 
-		return new CSSFontFaceRule($descriptors);
+		return new CSSFontFaceRule($descriptors, $this->maxBytes);
 	}
 
 	public function getFamily(): string { return $this->familyValue; }
@@ -153,8 +163,8 @@ final class FontFace
 
 	public function setFamily(string $family): void
 	{
-		if (strlen($family) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-			throw new CSSParserLimitException(sprintf('FontFace family exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		if ($this->maxBytes !== null && strlen($family) > $this->maxBytes) {
+			throw new CSSParserLimitException(sprintf('FontFace family exceeds maximum size of %d bytes.', $this->maxBytes));
 		}
 		$trimmed = CSSSyntaxScanner::trimCssWhitespace($family);
 		if ($trimmed === '') {
@@ -169,8 +179,8 @@ final class FontFace
 
 	public function setSource(string $source): void
 	{
-		if (strlen($source) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-			throw new CSSParserLimitException(sprintf('FontFace source exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		if ($this->maxBytes !== null && strlen($source) > $this->maxBytes) {
+			throw new CSSParserLimitException(sprintf('FontFace source exceeds maximum size of %d bytes.', $this->maxBytes));
 		}
 		$trimmed = CSSSyntaxScanner::trimCssWhitespace($source);
 		if ($trimmed === '') {
@@ -257,8 +267,8 @@ final class FontFace
 
 	private function setDescriptor(string $key, string $value): void
 	{
-		if (strlen($value) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-			throw new CSSParserLimitException(sprintf('FontFace descriptor "%s" exceeds maximum size of %d bytes.', $key, CSSParserOptions::DEFAULT_MAX_BYTES));
+		if ($this->maxBytes !== null && strlen($value) > $this->maxBytes) {
+			throw new CSSParserLimitException(sprintf('FontFace descriptor "%s" exceeds maximum size of %d bytes.', $key, $this->maxBytes));
 		}
 		$trimmed = CSSSyntaxScanner::trimCssWhitespace($value);
 		if ($trimmed === '') {

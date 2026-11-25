@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 use Error;
+use InvalidArgumentException;
 
 /**
  * Base class for all CSSOM rule nodes.
@@ -63,6 +64,14 @@ abstract class CSSRule
 	}
 
 	/** @internal */
+	public static function assertValidMaxBytesInternal(?int $maxBytes): void
+	{
+		if ($maxBytes !== null && $maxBytes < 1) {
+			throw new InvalidArgumentException('maxBytes must be null or at least 1.');
+		}
+	}
+
+	/** @internal */
 	public function resolveMaxBytesInternal(): ?int
 	{
 		$sheet = $this->getParentStyleSheet();
@@ -70,9 +79,34 @@ abstract class CSSRule
 		return $sheet !== null ? $sheet->getMaxBytesInternal() : $this->maxBytes;
 	}
 
+	/** @internal */
+	public function clampMaxBytesInternal(?int $maxBytes): void
+	{
+		if ($maxBytes !== null && ($this->maxBytes === null || $maxBytes < $this->maxBytes)) {
+			$this->maxBytes = $maxBytes;
+			$this->syncChildLimitsInternal($maxBytes, null, false);
+		}
+	}
+
+	protected function syncChildLimitsInternal(?int $maxBytes, ?int $maxDeclarations, bool $syncDeclarations = false): void
+	{
+	}
+
 	/** @internal Updates parent pointers without traversing child subtrees. */
 	public function setParentLinks(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void
 	{
+		if ($sheet === null && $this->parentSheetRef !== null) {
+			$detachedMaxBytes = $this->parentSheetRef->getMaxBytesInternal();
+			$detachedMaxDecls = $this->parentSheetRef->getMaxDeclarationsInternal();
+			$this->maxBytes = $detachedMaxBytes;
+			$this->syncChildLimitsInternal($detachedMaxBytes, $detachedMaxDecls, true);
+		} elseif ($sheet !== null) {
+			$sheetMaxBytes = $sheet->getMaxBytesInternal();
+			if ($sheetMaxBytes !== null && ($this->maxBytes === null || $sheetMaxBytes < $this->maxBytes)) {
+				$this->maxBytes = $sheetMaxBytes;
+				$this->syncChildLimitsInternal($sheetMaxBytes, $sheet->getMaxDeclarationsInternal(), true);
+			}
+		}
 		$this->parentSheetRef = $sheet;
 		$this->parentRuleRef = $parentRule;
 	}
@@ -80,8 +114,7 @@ abstract class CSSRule
 	/** @internal Attaches or detaches ownership metadata on this rule node. */
 	public function attach(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void
 	{
-		$this->parentSheetRef = $sheet;
-		$this->parentRuleRef = $parentRule;
+		$this->setParentLinks($sheet, $parentRule);
 	}
 
 	public function __toString(): string

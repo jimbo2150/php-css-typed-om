@@ -19,6 +19,7 @@ final class CSSNamespaceRule extends CSSAtRule
 {
 	public function __construct(string $prelude, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
+		self::assertValidMaxBytesInternal($maxBytes);
 		if ($maxBytes !== null && strlen($prelude) > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS @namespace rule exceeds maximum size of %d bytes.', $maxBytes));
 		}
@@ -45,12 +46,20 @@ final class CSSNamespaceRule extends CSSAtRule
 		$uriLen = strlen($uri);
 		if ($uriLen > 0) {
 			$ident = CSSSyntaxScanner::decodeIdentAt($uri, 0, $uriLen);
-			if ($ident !== null && strtolower($ident['ident']) === 'url' && $ident['end'] < $uriLen && $uri[$ident['end']] === '(' && str_ends_with($uri, ')')) {
+			if ($ident !== null
+				&& strtolower($ident['ident']) === 'url'
+				&& CSSSyntaxScanner::findMatchingUrlEnd($uri, $ident['end'], $uriLen) === $uriLen - 1
+			) {
 				$uri = CSSSyntaxScanner::trimCssWhitespace(substr($uri, $ident['end'] + 1, -1));
 			}
 		}
-		if (strlen($uri) >= 2 && (($uri[0] === '"' && $uri[-1] === '"') || ($uri[0] === "'" && $uri[-1] === "'"))) {
-			return substr($uri, 1, -1);
+		$len = strlen($uri);
+		if ($len >= 2 && ($uri[0] === '"' || $uri[0] === "'")) {
+			$valid = false;
+			$end = CSSSyntaxScanner::scanQuotedStringEnd($uri, 0, $len, $valid);
+			if ($valid && $end === $len - 1) {
+				return substr($uri, 1, -1);
+			}
 		}
 
 		return $uri;

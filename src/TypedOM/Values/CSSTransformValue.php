@@ -248,21 +248,29 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 		return clone $this;
 	}
 
-	public function __toString(): string
+	/** @internal */
+	public function toBoundedCssTextInternal(?int $maxBytes): string
 	{
+		$limit = $maxBytes !== null
+			? min($maxBytes, CSSParserOptions::DEFAULT_MAX_BYTES)
+			: CSSParserOptions::DEFAULT_MAX_BYTES;
 		$parts = [];
 		$totalBytes = 0;
-		$maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES;
 		foreach ($this->components as $i => $component) {
 			$part = (string) $component;
 			$totalBytes += strlen($part) + ($i > 0 ? 1 : 0);
-			if ($totalBytes > $maxBytes) {
-				throw new CSSParserLimitException(sprintf('CSS transform list exceeds maximum size of %d bytes.', $maxBytes));
+			if ($totalBytes > $limit) {
+				throw new CSSParserLimitException(sprintf('CSS transform list exceeds maximum size of %d bytes.', $limit));
 			}
 			$parts[] = $part;
 		}
 
 		return implode(' ', $parts);
+	}
+
+	public function __toString(): string
+	{
+		return $this->toBoundedCssTextInternal(CSSParserOptions::DEFAULT_MAX_BYTES);
 	}
 
 	public function __get(string $name): mixed

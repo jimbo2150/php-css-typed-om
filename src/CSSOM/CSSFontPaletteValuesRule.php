@@ -23,6 +23,7 @@ final class CSSFontPaletteValuesRule extends CSSAtRule
 		CSSStyleDeclaration $descriptors,
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 	) {
+		self::assertValidMaxBytesInternal($maxBytes);
 		if ($maxBytes !== null && strlen($name) > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS @font-palette-values name exceeds maximum size of %d bytes.', $maxBytes));
 		}

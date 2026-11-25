@@ -15,11 +15,16 @@ final class CSSFontFaceRule extends CSSAtRule
 {
 	public function __construct(?CSSStyleDeclaration $style = null, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
+		self::assertValidMaxBytesInternal($maxBytes);
+		if ($style !== null && $maxBytes !== null) {
+			$style->assertContentBytesWithinInternal($maxBytes);
+		}
 		if ($style instanceof CSSFontFaceDescriptors) {
 			$descriptors = $style->getParentRule() !== null ? clone $style : $style;
 		} else {
 			$descriptors = new CSSFontFaceDescriptors();
 			if ($style !== null) {
+				$descriptors->setLimitsInternal($maxBytes, $style->resolveMaxDeclarationsInternal());
 				foreach ($style->getDeclarationsRaw() as $property => $declaration) {
 					$descriptors->setValidatedProperty($property, $declaration['value'], $declaration['priority']);
 				}

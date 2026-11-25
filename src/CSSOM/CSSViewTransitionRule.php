@@ -24,7 +24,12 @@ final class CSSViewTransitionRule extends CSSAtRule
 
 	public function getNavigation(): string
 	{
-		return $this->styleDeclaration?->getPropertyValue('navigation') ?? '';
+		$raw = CSSSyntaxScanner::trimCssWhitespace($this->styleDeclaration?->getPropertyValue('navigation') ?? '');
+		if (str_contains($raw, '/*')) {
+			$raw = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($raw));
+		}
+
+		return $raw;
 	}
 
 	/** @return list<string> */
@@ -34,7 +39,15 @@ final class CSSViewTransitionRule extends CSSAtRule
 		if (str_contains($raw, '/*')) {
 			$raw = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($raw));
 		}
-		if ($raw === '' || strtolower($raw) === 'none') {
+		if ($raw === '') {
+			return [];
+		}
+		if (str_contains($raw, '\\')) {
+			$decoded = CSSSyntaxScanner::decodeIdentAt($raw, 0, strlen($raw));
+			if ($decoded !== null && $decoded['end'] === strlen($raw) && strtolower($decoded['ident']) === 'none') {
+				return [];
+			}
+		} elseif (strtolower($raw) === 'none') {
 			return [];
 		}
 

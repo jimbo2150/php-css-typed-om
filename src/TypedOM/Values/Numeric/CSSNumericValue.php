@@ -69,18 +69,21 @@ abstract class CSSNumericValue extends CSSStyleValue
 		?CSSParserOptions $options = null,
 		int $depth = 0,
 	): self {
-		if ($depth < 0) {
-			throw new InvalidArgumentException('Nesting depth cannot be negative.');
+		if ($depth < 0 || $depth === PHP_INT_MAX) {
+			throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
 		}
+		$options ??= CSSParserOptions::default();
 		if ($cssText !== null) {
-			$value = CSSStyleValue::parse($propertyOrCssText, $cssText, $options);
+			if ($options->maxMathDepth !== null && $depth > $options->maxMathDepth) {
+				throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $options->maxMathDepth));
+			}
+			$value = CSSStyleValue::parseWithMathDepthInternal($propertyOrCssText, $cssText, $options, $depth);
 			if (!$value instanceof self) {
 				throw new InvalidArgumentException('CSS property value is not numeric.');
 			}
 			return $value;
 		}
 
-		$options ??= CSSParserOptions::default();
 		if ($options->maxBytes !== null && strlen($propertyOrCssText) > $options->maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS numeric value exceeds maximum size of %d bytes.', $options->maxBytes));
 		}
@@ -110,8 +113,8 @@ abstract class CSSNumericValue extends CSSStyleValue
 	 */
 	public static function tryParse(string $cssText, ?CSSParserOptions $options = null, int $depth = 0): ?self
 	{
-		if ($depth < 0) {
-			throw new InvalidArgumentException('Nesting depth cannot be negative.');
+		if ($depth < 0 || $depth === PHP_INT_MAX) {
+			throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
 		}
 		$options ??= CSSParserOptions::default();
 		if ($options->maxBytes !== null && strlen($cssText) > $options->maxBytes) {
@@ -645,8 +648,8 @@ abstract class CSSNumericValue extends CSSStyleValue
 	 */
 	public static function tryParseValidated(string $trimmedCssText, ?CSSParserOptions $options = null, int $depth = 0): ?self
 	{
-		if ($depth < 0) {
-			throw new InvalidArgumentException('Nesting depth cannot be negative.');
+		if ($depth < 0 || $depth === PHP_INT_MAX) {
+			throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
 		}
 		if ($trimmedCssText === '') {
 			return null;

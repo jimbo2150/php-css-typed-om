@@ -124,7 +124,7 @@ class CSSNumericType
 
 		$dimensions = $this->dimensions;
 		if ($hintType !== CSSUnitTypeEnum::PERCENT && isset($dimensions['percent'])) {
-			$newExp = (int) ($dimensions[$hint] ?? 0) + (int) $dimensions['percent'];
+			$newExp = self::safeAddInt((int) ($dimensions[$hint] ?? 0), (int) $dimensions['percent']);
 			unset($dimensions['percent']);
 			if ($newExp === 0) {
 				unset($dimensions[$hint]);
@@ -153,7 +153,7 @@ class CSSNumericType
 			if ($dimension === 'percentHint') {
 				continue;
 			}
-			$sum = (int) ($left->dimensions[$dimension] ?? 0) + (int) ($right->dimensions[$dimension] ?? 0);
+			$sum = self::safeAddInt((int) ($left->dimensions[$dimension] ?? 0), (int) ($right->dimensions[$dimension] ?? 0));
 			if ($sum !== 0) {
 				$dimensions[$dimension] = $sum;
 			}
@@ -174,13 +174,26 @@ class CSSNumericType
 				$dimensions['percentHint'] = $exponent;
 				continue;
 			}
-			$intVal = -(int) $exponent;
+			$exp = (int) $exponent;
+			if ($exp === PHP_INT_MIN) {
+				throw new InvalidArgumentException('CSS numeric type exponent overflow.');
+			}
+			$intVal = -$exp;
 			if ($intVal !== 0) {
 				$dimensions[$dimension] = $intVal;
 			}
 		}
 
 		return self::fromValidatedDimensions($dimensions);
+	}
+
+	private static function safeAddInt(int $a, int $b): int
+	{
+		if (($b > 0 && $a > PHP_INT_MAX - $b) || ($b < 0 && $a < PHP_INT_MIN - $b)) {
+			throw new InvalidArgumentException('CSS numeric type exponent overflow.');
+		}
+
+		return $a + $b;
 	}
 
 	public function equals(self $other): bool

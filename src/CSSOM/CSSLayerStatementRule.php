@@ -18,6 +18,7 @@ final class CSSLayerStatementRule extends CSSAtRule
 	 */
 	public function __construct(string $layerNames, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
+		self::assertValidMaxBytesInternal($maxBytes);
 		if ($maxBytes !== null && strlen($layerNames) > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS @layer statement exceeds maximum size of %d bytes.', $maxBytes));
 		}

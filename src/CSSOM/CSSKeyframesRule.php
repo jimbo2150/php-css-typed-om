@@ -137,6 +137,7 @@ final class CSSKeyframesRule extends CSSGroupingRule
 
 	private static function validateName(string $name, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES): string
 	{
+		self::assertValidMaxBytesInternal($maxBytes);
 		if ($maxBytes !== null && strlen($name) > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('Keyframes name exceeds maximum size of %d bytes.', $maxBytes));
 		}

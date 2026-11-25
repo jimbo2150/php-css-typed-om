@@ -33,12 +33,28 @@ class CSSStyleRule extends CSSGroupingRule
 		?CSSStyleDeclaration $style = null,
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 	) {
+		self::assertValidMaxBytesInternal($maxBytes);
 		$selectorText = self::validateSelector($selectorText, $maxBytes, 'A CSS style rule requires a selector.');
+		if ($style !== null && $maxBytes !== null) {
+			$style->assertContentBytesWithinInternal($maxBytes);
+		}
 		parent::__construct('style', '', $maxBytes);
 		$this->prelude = $selectorText;
 		$this->selectorTextValue = $selectorText;
 		$this->styleDeclaration = CSSStyleProperties::fromDeclaration($style);
+		if ($maxBytes !== null && ($this->styleDeclaration->resolveMaxBytesInternal() === null || $maxBytes < $this->styleDeclaration->resolveMaxBytesInternal())) {
+			$this->styleDeclaration->setMaxBytesInternal($maxBytes);
+		}
 		$this->styleDeclaration->setParentRule($this);
+	}
+
+	protected function syncChildLimitsInternal(?int $maxBytes, ?int $maxDeclarations, bool $syncDeclarations = false): void
+	{
+		if ($syncDeclarations) {
+			$this->styleDeclaration->setLimitsInternal($maxBytes, $maxDeclarations);
+		} else {
+			$this->styleDeclaration->setMaxBytesInternal($maxBytes);
+		}
 	}
 
 	public function getType(): int

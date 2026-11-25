@@ -9,9 +9,13 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSTransformValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSVariableReferenceValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathValue;
 
 /**
  * Mutable Typed OM map backed by a CSSStyleDeclaration.
@@ -148,7 +152,10 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 			}
 		}
 
-		$cssText = CSSSyntaxScanner::trimCssWhitespace((string) $item);
+		$serialized = ($options->maxBytes !== null && ($item instanceof CSSMathValue || $item instanceof CSSTransformValue))
+			? $item->toBoundedCssTextInternal($options->maxBytes)
+			: (string) $item;
+		$cssText = CSSSyntaxScanner::trimCssWhitespace($serialized);
 		if ($cssText === '') {
 			if ($allowEmpty) {
 				return '';
@@ -164,7 +171,11 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 		if (!str_starts_with($normalizedProperty, '--') && str_contains($cssText, '/*') && CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($cssText)) === '') {
 			throw new InvalidArgumentException('StylePropertyMap values cannot be empty.');
 		}
-		if (!$item instanceof CSSStyleValue) {
+		if (!$item instanceof CSSStyleValue
+			|| (($options->maxDepth !== null || $options->maxMathDepth !== null)
+				&& !$item instanceof CSSUnitValue
+				&& !$item instanceof CSSKeywordValue)
+		) {
 			CSSStyleValue::parseValidated($normalizedProperty, $cssText, $options);
 		}
 

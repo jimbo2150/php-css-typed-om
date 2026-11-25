@@ -55,6 +55,11 @@ final class CSSMediaRule extends CSSConditionRule
 		return $name === 'media' || parent::__isset($name);
 	}
 
+	protected function syncChildLimitsInternal(?int $maxBytes, ?int $maxDeclarations, bool $syncDeclarations = false): void
+	{
+		$this->mediaList->setMaxBytesInternal($maxBytes);
+	}
+
 	public function __clone(): void
 	{
 		parent::__clone();
