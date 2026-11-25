@@ -320,15 +320,15 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 	/** @return class-string<CSSTransformComponent> */
 	private static function componentClass(string $name): string
 	{
-		$class = match (true) {
-			str_starts_with($name, 'matrix') => CSSMatrixComponent::class,
-			str_starts_with($name, 'translate') => CSSTranslate::class,
-			str_starts_with($name, 'rotate') => CSSRotate::class,
-			str_starts_with($name, 'scale') => CSSScale::class,
-			$name === 'skew' => CSSSkew::class,
-			$name === 'skewx' => CSSSkewX::class,
-			$name === 'skewy' => CSSSkewY::class,
-			$name === 'perspective' => CSSPerspective::class,
+		$class = match ($name) {
+			'matrix', 'matrix3d' => CSSMatrixComponent::class,
+			'translate', 'translatex', 'translatey', 'translatez', 'translate3d' => CSSTranslate::class,
+			'rotate', 'rotatex', 'rotatey', 'rotatez', 'rotate3d' => CSSRotate::class,
+			'scale', 'scalex', 'scaley', 'scalez', 'scale3d' => CSSScale::class,
+			'skew' => CSSSkew::class,
+			'skewx' => CSSSkewX::class,
+			'skewy' => CSSSkewY::class,
+			'perspective' => CSSPerspective::class,
 			default => null,
 		};
 		if ($class === null) {

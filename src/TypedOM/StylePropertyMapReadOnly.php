@@ -59,7 +59,7 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 		}
 		$value = $declaration['value'];
 		if ($value === '') {
-			return new CSSUnparsedValue([]);
+			return new CSSUnparsedValue([], $options);
 		}
 
 		if (str_starts_with($normalized, '--')) {
@@ -170,7 +170,7 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 	private function parseAllDeclarationValues(string $property, string $value, CSSParserOptions $options): array
 	{
 		if ($value === '') {
-			return [new CSSUnparsedValue([])];
+			return [new CSSUnparsedValue([], $options)];
 		}
 		if (!str_starts_with($property, '--') && preg_match('/^[,\s\t\n\r\f]+$/D', $value) === 1) {
 			return [];

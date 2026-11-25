@@ -17,8 +17,11 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
  */
 final class CSSNamespaceRule extends CSSAtRule
 {
-	public function __construct(string $prelude)
+	public function __construct(string $prelude, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
+		if ($maxBytes !== null && strlen($prelude) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS @namespace rule exceeds maximum size of %d bytes.', $maxBytes));
+		}
 		$trimmed = CSSSyntaxScanner::trimCssWhitespace($prelude);
 		if ($trimmed === '') {
 			throw new InvalidArgumentException('@namespace requires a namespace URI.');
@@ -27,7 +30,7 @@ final class CSSNamespaceRule extends CSSAtRule
 		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
 			throw new InvalidArgumentException('@namespace requires a namespace URI.');
 		}
-		parent::__construct('namespace', $prelude);
+		parent::__construct('namespace', $prelude, null, false, $maxBytes);
 	}
 
 	public function getPrefix(): string

@@ -15,12 +15,12 @@ final class CSSMediaRule extends CSSConditionRule
 {
 	private MediaList $mediaList;
 
-	public function __construct(string $conditionText)
+	public function __construct(string $conditionText, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
-		parent::__construct('media', $conditionText);
+		parent::__construct('media', $conditionText, $maxBytes);
 		$this->mediaList = new MediaList($conditionText, function (string $text): void {
 			$this->prelude = $text;
-		});
+		}, $maxBytes);
 		$this->mediaList->setOwnerInternal($this);
 		$this->prelude = $this->mediaList->getMediaText();
 	}

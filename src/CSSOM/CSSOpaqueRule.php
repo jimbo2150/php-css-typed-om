@@ -22,6 +22,7 @@ final class CSSOpaqueRule extends CSSRule
 		if ($maxBytes !== null && strlen($source) > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS opaque rule exceeds maximum size of %d bytes.', $maxBytes));
 		}
+		$this->maxBytes = $maxBytes;
 		if (CSSSyntaxScanner::hasControlCharacters($source)) {
 			throw new InvalidArgumentException('CSS opaque rule contains disallowed control characters.');
 		}

@@ -11,6 +11,6 @@
 
 ## Public Methods
 
-- `__construct(string $family, string $source, array $descriptors = [])` — validates `$family`, `$source`, descriptor keys, and values via `CSSStyleDeclaration::validatePropertyValue()`.
+- `__construct(string $family, string $source, array $descriptors = [])` — validates `$family`, `$source`, descriptor keys, and values (enforcing `DEFAULT_MAX_BYTES`, balanced syntax, and rejecting blank/comment-only values) via `CSSStyleDeclaration::validatePropertyValue()`.
 - `toCSSFontFaceRule(): CSSFontFaceRule` — builds a [`CSSFontFaceRule`](CSSFontFaceRule.md) backed by strict [`CSSFontFaceDescriptors`](CSSFontFaceDescriptors.md) (intentionally omitting `variant`, which is not a CSS Fonts 4 `@font-face` descriptor).
 - `fromCSSFontFaceRule(CSSFontFaceRule $rule): self` — constructs a `FontFace` from a parsed `@font-face` rule; throws `InvalidArgumentException` if `font-family` or `src` is missing.

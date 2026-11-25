@@ -6,9 +6,9 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 final class CSSSupportsRule extends CSSConditionRule
 {
-	public function __construct(string $conditionText)
+	public function __construct(string $conditionText, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
-		parent::__construct('supports', $conditionText);
+		parent::__construct('supports', $conditionText, $maxBytes);
 	}
 
 	public function getType(): int

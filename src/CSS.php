@@ -12,6 +12,7 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPropertyRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStandardProperties;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 
@@ -269,7 +270,16 @@ abstract class CSS
 
 	public static function getRegisteredProperty(string $name): ?CSSPropertyRule
 	{
-		$rule = self::$registeredProperties[CSSSyntaxScanner::trimCssWhitespace($name)] ?? null;
+		if (self::$registeredProperties === [] || strlen($name) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			return null;
+		}
+		try {
+			$key = CSSStyleDeclaration::normalizePropertyName($name);
+		} catch (InvalidArgumentException) {
+			return null;
+		}
+		$rule = self::$registeredProperties[$key] ?? null;
+
 		return $rule !== null ? clone $rule : null;
 	}
 
@@ -286,7 +296,14 @@ abstract class CSS
 
 	public static function unregisterProperty(string $name): bool
 	{
-		$key = CSSSyntaxScanner::trimCssWhitespace($name);
+		if (self::$registeredProperties === [] || strlen($name) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			return false;
+		}
+		try {
+			$key = CSSStyleDeclaration::normalizePropertyName($name);
+		} catch (InvalidArgumentException) {
+			return false;
+		}
 		if (!isset(self::$registeredProperties[$key])) {
 			return false;
 		}
@@ -424,7 +441,11 @@ abstract class CSS
 			throw new InvalidArgumentException('Invalid custom property syntax definition.');
 		}
 
-		foreach (explode('|', $syntax) as $component) {
+		$components = explode('|', $syntax, CSSStyleValue::MAX_LIST_ITEMS + 1);
+		if (count($components) > CSSStyleValue::MAX_LIST_ITEMS) {
+			throw new CSSParserLimitException(sprintf('CSS property syntax exceeds maximum limit of %d components.', CSSStyleValue::MAX_LIST_ITEMS));
+		}
+		foreach ($components as $component) {
 			$component = CSSSyntaxScanner::trimCssWhitespace($component);
 			if ($component === '') {
 				throw new InvalidArgumentException('Invalid custom property syntax definition: ' . $syntax);
@@ -477,7 +498,10 @@ abstract class CSS
 		if ($allowImportant && str_contains($trimmed, '!')) {
 			$bang = CSSSyntaxScanner::findLastTopLevelImportant($trimmed);
 			if ($bang !== null) {
-				$trimmed = rtrim(substr($trimmed, 0, $bang), CSSSyntaxScanner::CSS_WHITESPACE);
+				$beforeBang = substr($trimmed, 0, $bang);
+				$trimmed = str_contains($beforeBang, '\\')
+					? CSSSyntaxScanner::trimCssWhitespace($beforeBang)
+					: rtrim($beforeBang, CSSSyntaxScanner::CSS_WHITESPACE);
 			}
 		}
 
@@ -599,6 +623,7 @@ abstract class CSS
 		$stack = [];
 		$offset = 0;
 		$lastEscapeOffset = -1;
+		$pairCount = 0;
 		$mask = "\\\"'()";
 
 		while ($offset < $length) {
@@ -645,6 +670,9 @@ abstract class CSS
 				return false;
 			}
 			$matchingParens[array_pop($stack)] = $offset;
+			if (++$pairCount > 65_536) {
+				return false;
+			}
 			$offset++;
 		}
 
@@ -902,8 +930,18 @@ abstract class CSS
 		while ($start < $end && str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$start])) {
 			$start++;
 		}
+		$origEnd = $end;
 		while ($end > $start && str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$end - 1])) {
 			$end--;
+		}
+		if ($end < $origEnd && $end > $start && $source[$end - 1] === '\\') {
+			$bs = 0;
+			for ($i = $end - 1; $i >= $start && $source[$i] === '\\'; $i--) {
+				$bs++;
+			}
+			if (($bs & 1) === 1 && ($source[$end] === ' ' || $source[$end] === "\t")) {
+				$end++;
+			}
 		}
 	}
 
@@ -933,12 +971,16 @@ abstract class CSS
 	private static function splitSupportsClausesSlice(string $source, int $start, int $end, array &$matchingParens): ?array
 	{
 		$tokens = [];
+		$maxTokens = CSSStyleValue::MAX_LIST_ITEMS * 2;
 		$offset = $start;
 
 		while ($offset < $end) {
 			$offset += strspn($source, CSSSyntaxScanner::CSS_WHITESPACE, $offset, $end - $offset);
 			if ($offset >= $end) {
 				break;
+			}
+			if (count($tokens) >= $maxTokens) {
+				return null;
 			}
 
 			if ($source[$offset] === '(') {

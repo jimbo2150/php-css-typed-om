@@ -13,7 +13,7 @@ No additional public properties; `cssRules`, `type`, `cssText`, and parent assoc
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct()` | Creates a grouping rule with name `starting-style` and empty prelude. | `$rule = new CSSStartingStyleRule();` |
+| `__construct(?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Creates a grouping rule with name `starting-style`, empty prelude, and optional `$maxBytes` retention. | `$rule = new CSSStartingStyleRule();` |
 | `getType(): int` | Returns `CSSRule::STARTING_STYLE_RULE`. | `$rule->getType();` |
 
 All inherited public methods are documented on [`CSSGroupingRule`](CSSGroupingRule.md) and [`CSSRule`](CSSRule.md).

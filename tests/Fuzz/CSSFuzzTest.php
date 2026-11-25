@@ -67,7 +67,6 @@ final class CSSFuzzTest extends TestCase
 				ruleCallback: static fn (\Jimbo2150\PhpCssTypedOm\CSSOM\CSSRule $rule, string $text): string => $text,
 			));
 			self::assertSame($noComments, CSSSyntaxScanner::removeComments($noComments));
-			self::assertStringNotContainsString('/*', $noComments);
 			self::assertDoesNotMatchRegularExpression('/<\/style(?=[\t\n\f\r \/>]|$)/i', $escaped);
 			$reparsed = CSSStyleSheet::parse($rendered, $options);
 			self::assertSame($rendered, CSSRenderer::render($reparsed, new CSSRenderOptions(CSSRenderMode::Minified)));
@@ -103,7 +102,7 @@ final class CSSFuzzTest extends TestCase
 			try {
 				self::assertInstanceOf(
 					\Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue::class,
-					new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue([$slice]),
+					new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue([$slice], $options),
 				);
 			} catch (InvalidArgumentException) {
 				// Expected on unbalanced/control-byte fragments

@@ -13,7 +13,7 @@ Magic read-only `name`, `fontFamily`, `basePalette`, and `overrideColors` expose
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(string $name, CSSStyleDeclaration $descriptors)` | Normalizes and requires a name beginning `--`; associates the descriptors as a block. Throws `InvalidArgumentException` if invalid. | `$rule = new CSSFontPaletteValuesRule('--brand', new CSSStyleDeclaration('font-family: Demo'));` |
+| `__construct(string $name, CSSStyleDeclaration $descriptors, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Checks `$maxBytes` before scanning, normalizes and requires a name beginning `--`, and associates the descriptors as a block. Throws `InvalidArgumentException` / `CSSParserLimitException` if invalid or oversized. | `$rule = new CSSFontPaletteValuesRule('--brand', new CSSStyleDeclaration('font-family: Demo'));` |
 | `getNameText(): string` | Returns the custom name from the prelude. | `$rule->getNameText();` |
 | `getFontFamily(): string` | Returns the `font-family` descriptor or `''`. | `$rule->getFontFamily();` |
 | `getBasePalette(): string` | Returns the `base-palette` descriptor or `''`. | `$rule->getBasePalette();` |

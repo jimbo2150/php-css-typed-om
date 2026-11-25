@@ -36,13 +36,19 @@ final class CSSMarginRule extends CSSAtRule
 		'left-top' => true,
 	];
 
-	public function __construct(string $name, CSSStyleDeclaration $style)
-	{
+	public function __construct(
+		string $name,
+		CSSStyleDeclaration $style,
+		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+	) {
+		if ($maxBytes !== null && strlen($name) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS margin rule exceeds maximum size of %d bytes.', $maxBytes));
+		}
 		$normalized = strtolower(CSSSyntaxScanner::trimCssWhitespace($name));
 		if (!isset(self::VALID_MARGIN_BOXES[$normalized])) {
 			throw new InvalidArgumentException('Invalid CSS page margin box name: ' . $name);
 		}
-		parent::__construct($normalized, '', $style, true);
+		parent::__construct($normalized, '', $style, true, $maxBytes);
 	}
 
 	public function getType(): int

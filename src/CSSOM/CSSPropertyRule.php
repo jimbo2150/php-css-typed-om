@@ -27,12 +27,16 @@ final class CSSPropertyRule extends CSSAtRule
 		string $name,
 		CSSStyleDeclaration $descriptors,
 		private bool $hasEmptyInitialValue = false,
+		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 	) {
+		if ($maxBytes !== null && strlen($name) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS @property name exceeds maximum size of %d bytes.', $maxBytes));
+		}
 		$normalized = CSSStyleDeclaration::normalizePropertyName($name);
 		if (!str_starts_with($normalized, '--')) {
 			throw new InvalidArgumentException('@property requires a custom property name starting with "--".');
 		}
-		parent::__construct('property', $normalized, $descriptors, true);
+		parent::__construct('property', $normalized, $descriptors, true, $maxBytes);
 	}
 
 	public function getNameText(): string

@@ -13,7 +13,7 @@ Magic read-only `name` exposes the prelude; `cssRules` and standard CSSRule virt
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(string $layerName = '')` | Creates a block rule with an optional layer-name prelude; validation follows `CSSGroupingRule`. | `$rule = new CSSLayerBlockRule('components');` |
+| `__construct(string $layerName = '', ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Creates a block rule with an optional layer-name prelude under `$maxBytes`; validation follows `CSSGroupingRule`. | `$rule = new CSSLayerBlockRule('components');` |
 | `getType(): int` | Returns `CSSRule::LAYER_BLOCK_RULE`. | `$rule->getType();` |
 | `getNameText(): string` | Returns the layer name/prelude. | `$rule->getNameText();` |
 | `__get(string $name): mixed` | Exposes `name`; all other names delegate to `CSSGroupingRule::__get()`. | `$rule->name;` |

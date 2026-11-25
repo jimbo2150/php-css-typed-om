@@ -1144,7 +1144,7 @@ final class CSSSyntaxScanner
 					throw new InvalidArgumentException($label . ' has unbalanced syntax or unclosed comments/strings.');
 				}
 				$lastEscapeOffset = $offset;
-				$offset += 2;
+				$offset = self::advanceIdentEscapeEnd($source, $offset, $length);
 				continue;
 			}
 
@@ -1566,7 +1566,8 @@ final class CSSSyntaxScanner
 		return $hexCount > 0 && $pos >= 0 && $token[$pos] === '\\' && !self::isEscapedBackslash($token, $pos, 0);
 	}
 
-	private static function advanceIdentEscapeEnd(string $source, int $slashOffset, int $length): int
+	/** @internal */
+	public static function advanceIdentEscapeEnd(string $source, int $slashOffset, int $length): int
 	{
 		$next = $slashOffset + 1;
 		if ($next >= $length) {

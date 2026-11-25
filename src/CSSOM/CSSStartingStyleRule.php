@@ -6,9 +6,9 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 final class CSSStartingStyleRule extends CSSGroupingRule
 {
-	public function __construct()
+	public function __construct(?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
-		parent::__construct('starting-style');
+		parent::__construct('starting-style', '', $maxBytes);
 	}
 
 	public function getType(): int

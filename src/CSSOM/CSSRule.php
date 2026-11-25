@@ -46,6 +46,7 @@ abstract class CSSRule
 
 	private ?CSSStyleSheet $parentSheetRef = null;
 	private ?CSSGroupingRule $parentRuleRef = null;
+	protected ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES;
 
 	abstract public function getType(): int;
 
@@ -62,11 +63,11 @@ abstract class CSSRule
 	}
 
 	/** @internal */
-	protected function resolveMaxBytesInternal(): ?int
+	public function resolveMaxBytesInternal(): ?int
 	{
 		$sheet = $this->getParentStyleSheet();
 
-		return $sheet !== null ? $sheet->getMaxBytesInternal() : CSSParserOptions::DEFAULT_MAX_BYTES;
+		return $sheet !== null ? $sheet->getMaxBytesInternal() : $this->maxBytes;
 	}
 
 	/** @internal Updates parent pointers without traversing child subtrees. */

@@ -13,7 +13,7 @@ Magic read-only `href`, `media`, `mediaText`, `styleSheet`, `layerName`, and `su
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(string $prelude)` | Requires non-empty, non-comment-only text; strictly parses tail clauses (`layer` / `layer(name)` before optional `supports(...)` before media list, stripping comments inside clauses, rejecting duplicate or empty clauses and trailing junk) using O(N) balanced delimiter matching. Owns a `MediaList` whose byte budget follows the owning rule/stylesheet. Throws `InvalidArgumentException` on invalid preludes. | `$rule = new CSSImportRule('url("theme.css") layer(theme) screen');` |
+| `__construct(string $prelude, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Checks `$maxBytes` before scanning; requires non-empty, non-comment-only text; strictly parses tail clauses (`layer` / `layer(name)` before optional `supports(...)` before media list, stripping comments inside clauses, rejecting duplicate or empty clauses, trailing junk, or tokens exceeding `CSSStyleValue::MAX_LIST_ITEMS`) using O(N) balanced delimiter matching. Owns a `MediaList` that inherits owner byte budgets, enforces total combined `@import` prelude length against the owning rule/sheet `maxBytes`, and blocks smuggling `layer`/`layer(...)`/`supports(...)` via `MediaList` mutations. Throws `InvalidArgumentException` / `CSSParserLimitException` on invalid/over-limit preludes. | `$rule = new CSSImportRule('url("theme.css") layer(theme) screen');` |
 | `getHref(): string` | Returns the first prelude token with `url(...)` and surrounding quotes unwrapped. | `$rule->getHref();` |
 | `getMedia(): MediaList` | Returns the parsed mutable media list. | `$rule->getMedia()->appendMedium('print');` |
 | `getMediaText(): string` | Returns normalized media-list text. | `$rule->getMediaText();` |
@@ -22,5 +22,7 @@ Magic read-only `href`, `media`, `mediaText`, `styleSheet`, `layerName`, and `su
 | `getType(): int` | Returns `CSSRule::IMPORT_RULE`. | `$rule->getType();` |
 | `getStyleSheet(): ?CSSStyleSheet` | Always returns `null`; this model records import metadata without loading sheets. | `$rule->getStyleSheet();` |
 | `__get(string $name): mixed` | Exposes the six virtual properties above and delegates other names to `CSSAtRule::__get()`. | `$rule->mediaText;` |
+| `__isset(string $name): bool` | True for `href`, `media`, `mediaText`, and non-null `layerName`/`supportsText` (`false` for `styleSheet`), otherwise delegates to `CSSAtRule::__isset()`. | `isset($rule->href);` |
+| `__clone(): void` | Clones rule state and rebinds a cloned `MediaList` callback + owner reference cleanly. | `$copy = clone $rule;` |
 
 Other inherited methods are documented on [`CSSAtRule`](CSSAtRule.md) and [`CSSRule`](CSSRule.md).

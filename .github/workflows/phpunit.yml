@@ -29,6 +29,8 @@ jobs:
       - name: Lint benchmarks script
         run: php -l benchmarks/bench.php
       - name: Run benchmark smoke test
-        run: XDEBUG_MODE=off php benchmarks/bench.php --iterations=1 --warmup=0 --json > /dev/null
+        run: |
+          XDEBUG_MODE=off php -d opcache.enable_cli=1 benchmarks/bench.php --iterations=1 --warmup=0 --json | php -r '$d = json_decode(stream_get_contents(STDIN), true); if (!is_array($d) || empty($d["meta"]["opcache_cli"]) || empty($d["benchmarks"])) { exit(1); }'
+          XDEBUG_MODE=off php -d opcache.enable_cli=1 benchmarks/bench.php --iterations=1 --warmup=0 > /dev/null
       - name: Run tests
         run: ./vendor/bin/phpunit --colors=never

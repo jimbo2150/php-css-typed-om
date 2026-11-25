@@ -12,6 +12,6 @@
 | `inner_values` | `public array $inner_values { get; }` (`array<CSSNumericValue>`); read-only virtual property hook projecting `$this->values->values`. Example: `$operands = $math->inner_values;`. |
 | `__construct` | `public function __construct(CSSNumericValue|CSSNumericArray|array $value)`; stores an existing numeric array or wraps a numeric value/list in `CSSNumericArray`; array validation is delegated to that class. Example: `$math = new CSSMathSum([$left, $right]);`. |
 | `__toString` | `public function __toString(): string`; casts the numeric array to its string form. Example: `$text = (string) $math;`. |
-| `clone` | `public function clone(): static`; clones the `CSSNumericArray` and constructs a new instance. Example: `$copy = $math->clone();`. |
+| `clone` | `public function clone(): static`; shallow-clones via `clone $this` (with `CSSMathValue::__clone()` providing iterative deep-cloning). Example: `$copy = $math->clone();`. |
 
 No public constants or enum cases. A consuming class may override the supplied methods; `CSSMathValue` does so for serialization and cloning.

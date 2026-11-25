@@ -27,7 +27,7 @@ class CSSStyleValueTest extends TestCase
 				return new static();
 			}
 		};
-		$cloned = clone $value;
+		$cloned = $value->clone();
 		self::assertInstanceOf(CSSStyleValue::class, $cloned);
 		self::assertNotSame($value, $cloned);
 		self::assertSame('test', (string) $cloned);

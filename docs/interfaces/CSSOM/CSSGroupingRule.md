@@ -7,7 +7,7 @@
 
 ## Properties
 
-Protected `name` and `prelude` hold the validated rule name and prelude; magic read-only `cssRules` exposes the nested list; `type`, `cssText`, `parentStyleSheet`, and `parentRule` come from `CSSRule`.
+Protected `$ruleName` and `$prelude` hold the validated rule name and prelude; magic read-only `cssRules` exposes the nested list; `type`, `cssText`, `parentStyleSheet`, and `parentRule` come from `CSSRule`.
 
 ## Public Methods
 

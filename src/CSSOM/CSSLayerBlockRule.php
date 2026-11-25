@@ -9,9 +9,9 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
  */
 final class CSSLayerBlockRule extends CSSGroupingRule
 {
-	public function __construct(string $layerName = '')
+	public function __construct(string $layerName = '', ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
-		parent::__construct('layer', $layerName);
+		parent::__construct('layer', $layerName, $maxBytes);
 	}
 
 	public function getType(): int

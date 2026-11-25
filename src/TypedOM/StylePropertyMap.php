@@ -10,6 +10,8 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSVariableReferenceValue;
 
 /**
  * Mutable Typed OM map backed by a CSSStyleDeclaration.
@@ -94,17 +96,16 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 	private function serializeValues(string $normalizedProperty, array $values, CSSParserOptions $options): array
 	{
 		$flat = [];
-		$isCustom = str_starts_with($normalizedProperty, '--');
 		foreach ($values as $value) {
 			if (is_array($value)) {
-				if (!$isCustom && (count($flat) + count($value)) > CSSStyleValue::MAX_LIST_ITEMS) {
+				if ((count($flat) + count($value)) > CSSStyleValue::MAX_LIST_ITEMS) {
 					throw new CSSParserLimitException(sprintf('CSS property value list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
 				}
 				foreach ($value as $item) {
 					$flat[] = $item;
 				}
 			} else {
-				if (!$isCustom && count($flat) >= CSSStyleValue::MAX_LIST_ITEMS) {
+				if (count($flat) >= CSSStyleValue::MAX_LIST_ITEMS) {
 					throw new CSSParserLimitException(sprintf('CSS property value list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
 				}
 				$flat[] = $value;
@@ -138,12 +139,23 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 		if (!$item instanceof CSSStyleValue && !is_string($item)) {
 			throw new InvalidArgumentException('StylePropertyMap values must be CSSStyleValue objects or strings.');
 		}
+		if ($options->maxBytes !== null) {
+			if (is_string($item) && strlen($item) > $options->maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS property value exceeds maximum size of %d bytes.', $options->maxBytes));
+			}
+			if ($item instanceof CSSUnparsedValue || $item instanceof CSSVariableReferenceValue) {
+				$item->measureRenderedBytesInternal($options->maxBytes);
+			}
+		}
 
 		$cssText = CSSSyntaxScanner::trimCssWhitespace((string) $item);
 		if ($cssText === '') {
 			if ($allowEmpty) {
 				return '';
 			}
+			throw new InvalidArgumentException('StylePropertyMap values cannot be empty.');
+		}
+		if (!str_starts_with($normalizedProperty, '--') && str_contains($cssText, '/*') && CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($cssText)) === '') {
 			throw new InvalidArgumentException('StylePropertyMap values cannot be empty.');
 		}
 		$runningBytes += $separatorBytes + strlen($cssText);

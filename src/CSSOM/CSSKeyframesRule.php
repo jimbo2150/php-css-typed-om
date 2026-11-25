@@ -22,10 +22,13 @@ final class CSSKeyframesRule extends CSSGroupingRule
 	/**
 	 * @throws InvalidArgumentException When the keyframes name is empty or invalid
 	 */
-	public function __construct(string $name, string $atRuleName = 'keyframes')
-	{
-		$validated = self::validateName($name);
-		parent::__construct($atRuleName, $validated);
+	public function __construct(
+		string $name,
+		string $atRuleName = 'keyframes',
+		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+	) {
+		$validated = self::validateName($name, $maxBytes);
+		parent::__construct($atRuleName, $validated, $maxBytes);
 	}
 
 	public function getNameText(): string
@@ -136,8 +139,11 @@ final class CSSKeyframesRule extends CSSGroupingRule
 		parent::__set($name, $value);
 	}
 
-	private static function validateName(string $name): string
+	private static function validateName(string $name, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES): string
 	{
+		if ($maxBytes !== null && strlen($name) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('Keyframes name exceeds maximum size of %d bytes.', $maxBytes));
+		}
 		$name = CSSSyntaxScanner::trimCssWhitespace($name);
 		if ($name === '') {
 			throw new InvalidArgumentException('Keyframes name cannot be empty.');

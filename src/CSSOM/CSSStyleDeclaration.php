@@ -205,8 +205,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	 */
 	public function setProperty(string $property, string $value, string $priority = ''): void
 	{
-		$sheet = $this->ownerRule?->getParentStyleSheet();
-		$maxBytes = $sheet !== null ? $sheet->getMaxBytesInternal() : CSSParserOptions::DEFAULT_MAX_BYTES;
+		$maxBytes = $this->ownerRule !== null ? $this->ownerRule->resolveMaxBytesInternal() : CSSParserOptions::DEFAULT_MAX_BYTES;
 		if ($maxBytes !== null && strlen($property) > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS property name exceeds maximum size of %d bytes.', $maxBytes));
 		}
@@ -324,6 +323,12 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	public function setCssText(string $cssText, ?CSSParserOptions $options = null): void
 	{
 		$effectiveOptions = $this->ownerRule?->getParentStyleSheet()?->resolveParserOptionsInternal($options) ?? $options;
+		if ($effectiveOptions === null && $this->ownerRule !== null) {
+			$ruleMaxBytes = $this->ownerRule->resolveMaxBytesInternal();
+			if ($ruleMaxBytes !== CSSParserOptions::DEFAULT_MAX_BYTES) {
+				$effectiveOptions = new CSSParserOptions(maxBytes: $ruleMaxBytes);
+			}
+		}
 		$allowEmptyInitialValue = $this->ownerRule instanceof CSSPropertyRule;
 		$sawEmptyInitialValue = false;
 		$replacement = new static();
@@ -470,6 +475,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			: trim($property, self::CSS_WHITESPACE);
 		if (CSSSyntaxScanner::hasControlCharacters($property)) {
 			throw new InvalidArgumentException('Invalid CSS property name.');
+		}
+		if ($hasBackslash && preg_match('//u', $property) !== 1) {
+			throw new InvalidArgumentException('Invalid CSS property name: ' . $property);
 		}
 		if (str_starts_with($property, '--')) {
 			if ($hasBackslash) {
@@ -686,7 +694,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		}
 
 		$raw = str_contains($slice, '/*') ? CSSSyntaxScanner::removeComments($slice) : $slice;
-		$declaration = trim($raw, self::CSS_WHITESPACE);
+		$declaration = str_contains($raw, '\\')
+			? CSSSyntaxScanner::trimCssWhitespace($raw)
+			: trim($raw, self::CSS_WHITESPACE);
 		if ($declaration === '') {
 			return true;
 		}

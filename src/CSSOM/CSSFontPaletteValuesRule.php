@@ -18,13 +18,19 @@ use InvalidArgumentException;
  */
 final class CSSFontPaletteValuesRule extends CSSAtRule
 {
-	public function __construct(string $name, CSSStyleDeclaration $descriptors)
-	{
+	public function __construct(
+		string $name,
+		CSSStyleDeclaration $descriptors,
+		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+	) {
+		if ($maxBytes !== null && strlen($name) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS @font-palette-values name exceeds maximum size of %d bytes.', $maxBytes));
+		}
 		$normalized = CSSStyleDeclaration::normalizePropertyName($name);
 		if (!str_starts_with($normalized, '--')) {
 			throw new InvalidArgumentException('@font-palette-values requires a dashed identifier starting with "--".');
 		}
-		parent::__construct('font-palette-values', $normalized, $descriptors, true);
+		parent::__construct('font-palette-values', $normalized, $descriptors, true, $maxBytes);
 	}
 
 	public function getNameText(): string

@@ -13,7 +13,7 @@ Magic read-only `prefix` and `namespaceURI` expose parsed prelude components. Ot
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(string $prelude)` | Requires a non-empty, structurally valid namespace URI prelude (rejecting comment-only preludes); throws `InvalidArgumentException` if empty or invalid. | `$rule = new CSSNamespaceRule('svg "http://www.w3.org/2000/svg"');` |
+| `__construct(string $prelude, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Checks `$maxBytes` before scanning; requires a non-empty, structurally valid namespace URI prelude (rejecting comment-only preludes); throws `InvalidArgumentException` / `CSSParserLimitException` if empty, invalid, or oversized. | `$rule = new CSSNamespaceRule('svg "http://www.w3.org/2000/svg"');` |
 | `getPrefix(): string` | Returns the optional leading identifier prefix (strip-commented and escape-aware when recognizing unprefixed `url(...)` or quoted URIs); otherwise `''`. | `$rule->getPrefix();` |
 | `getNamespaceURI(): string` | Returns second token for prefixed form or first token for default namespace; unwraps `url(...)` (including escaped `url`) and quotes. | `$rule->getNamespaceURI();` |
 | `getType(): int` | Returns `CSSRule::NAMESPACE_RULE`. | `$rule->getType();` |

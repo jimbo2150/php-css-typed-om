@@ -7,7 +7,7 @@
 
 ## Properties
 
-Magic `name` and `returnType` are read-only. Constructor-promoted `functionName`, `parameters`, and `functionReturnType` are private; they are exposed by getters. `cssRules` and CSSRule virtual properties are inherited.
+Magic `name` and `returnType` are read-only. Private `readonly` properties `functionName`, `parameters`, and `functionReturnType` are exposed by getters. `cssRules` and CSSRule virtual properties are inherited.
 
 ## Public Methods
 

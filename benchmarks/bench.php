@@ -221,15 +221,15 @@ foreach ($fixtures as $fixtureName => $fixtureCss) {
 	}
 	unset($checkSheet);
 }
-$opcacheCli = ini_get('opcache.enable_cli');
-$jitConfig = ini_get('opcache.jit');
 $opcacheStatus = function_exists('opcache_get_status') ? opcache_get_status(false) : false;
+$opcacheEnabled = is_array($opcacheStatus) && (($opcacheStatus['opcache_enabled'] ?? false) === true);
+$jitConfig = ini_get('opcache.jit');
 $jitEnabled = is_array($opcacheStatus) && (($opcacheStatus['jit']['enabled'] ?? false) === true);
 $jitStatus = $jitEnabled ? (($jitConfig === false || $jitConfig === '') ? 'on' : $jitConfig) : 'off';
 $results = [
 	'meta' => [
 		'php_version' => PHP_VERSION,
-		'opcache_cli' => ($opcacheCli === false || $opcacheCli === '') ? 'off' : $opcacheCli,
+		'opcache_cli' => $opcacheEnabled ? 'on' : 'off',
 		'jit' => $jitStatus,
 		'iterations' => $iterations,
 		'warmup' => $warmup,
@@ -503,9 +503,9 @@ $callbackOpts = new CSSRenderOptions(
 
 $largeWithStyleClose = str_replace(
 	'padding: 12px 16px;',
-	'padding: 12px 16px; content: "</style>"; /* </style> */',
+	'padding: 12px 16px; content: "</style>";',
 	$fixtures['large-pretty'],
-) . "\n@custom-opaque { content: \"x\"; /* </style> */ }\n";
+) . "\n" . str_repeat("@custom-opaque { content: \"x\"; /* </style> */ }\n", 100);
 $parsedLargeWithStyleClose = CSSStyleSheet::parse($largeWithStyleClose);
 if ($parsedLargeWithStyleClose->getParseErrors() !== []) {
 	fwrite(STDERR, "ERROR: Benchmark fixture 'large-pretty-style-close' produced parse errors.\n");

@@ -13,7 +13,7 @@ Magic `name` reads/writes the prelude; magic read-only `length` returns the numb
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(string $name, string $atRuleName = 'keyframes')` | Validates non-empty name and structural syntax; permits alternate at-rule name such as `-webkit-keyframes`. Throws `InvalidArgumentException` when invalid. | `$rule = new CSSKeyframesRule('pulse');` |
+| `__construct(string $name, string $atRuleName = 'keyframes', ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Checks `$maxBytes` before scanning; validates non-empty name and structural syntax; permits alternate at-rule name such as `-webkit-keyframes`. Throws `InvalidArgumentException` / `CSSParserLimitException` when invalid or oversized. | `$rule = new CSSKeyframesRule('pulse');` |
 | `getNameText(): string` | Returns the animation name. | `$rule->getNameText();` |
 | `setNameText(string $name): void` | Validates and stores a non-empty, structurally valid name. Throws `InvalidArgumentException` otherwise. | `$rule->setNameText('fade');` |
 | `getType(): int` | Returns `CSSRule::KEYFRAMES_RULE`. | `$rule->getType();` |

@@ -51,10 +51,13 @@ final class CSSCounterStyleRule extends CSSAtRule
 		'outside' => true,
 	];
 
-	public function __construct(string $name, CSSStyleDeclaration $descriptors)
-	{
-		$validated = self::validateName($name);
-		parent::__construct('counter-style', $validated, $descriptors, true);
+	public function __construct(
+		string $name,
+		CSSStyleDeclaration $descriptors,
+		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+	) {
+		$validated = self::validateName($name, $maxBytes);
+		parent::__construct('counter-style', $validated, $descriptors, true, $maxBytes);
 	}
 
 	public function getNameText(): string

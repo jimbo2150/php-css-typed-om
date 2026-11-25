@@ -19,4 +19,4 @@ Magic `conditionText` reads the prelude. It is writable through `__set()` only w
 | `__isset(string $name): bool` | Returns `true` for `conditionText` or parent virtual properties. | `isset($condition->conditionText);` |
 | `__set(string $name, mixed $value): void` | A string `conditionText` assignment calls `setConditionText()`; other assignments delegate and fail with `Error` unless supported by a parent. | `$condition->conditionText = '(width > 40rem)';` |
 
-The inherited constructor is `CSSGroupingRule::__construct(string $name, string $prelude = '')`. Other inherited methods are documented in the linked parent pages.
+The inherited constructor is `CSSGroupingRule::__construct(string $name, string $prelude = '', ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)`. Other inherited methods are documented in the linked parent pages.

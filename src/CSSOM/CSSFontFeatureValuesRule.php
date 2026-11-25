@@ -37,8 +37,11 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 	/** @var array<string, CSSFontFeatureValuesMap> */
 	private array $featureMaps = [];
 
-	public function __construct(string $fontFamily)
+	public function __construct(string $fontFamily, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
+		if ($maxBytes !== null && strlen($fontFamily) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS @font-feature-values rule exceeds maximum size of %d bytes.', $maxBytes));
+		}
 		$fontFamily = CSSSyntaxScanner::trimCssWhitespace($fontFamily);
 		if ($fontFamily === '') {
 			throw new InvalidArgumentException('@font-feature-values requires a font-family list.');
@@ -47,7 +50,7 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($fontFamily)) === '') {
 			throw new InvalidArgumentException('@font-feature-values requires a font-family list.');
 		}
-		parent::__construct('font-feature-values', $fontFamily);
+		parent::__construct('font-feature-values', $fontFamily, $maxBytes);
 	}
 
 	public function getType(): int

@@ -40,12 +40,18 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 	/** @var ?WeakReference<CSSRule|CSSStyleSheet> */
 	private ?WeakReference $owner = null;
 
+	private ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES;
+
 	/**
 	 * @throws InvalidArgumentException When $mediaText contains invalid syntax
 	 */
-	public function __construct(string $mediaText = '', ?Closure $onChange = null)
-	{
+	public function __construct(
+		string $mediaText = '',
+		?Closure $onChange = null,
+		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+	) {
 		$this->onChange = $onChange;
+		$this->maxBytes = $maxBytes;
 		$this->setMediaText($mediaText);
 	}
 
@@ -79,11 +85,10 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 			return $owner->getMaxBytesInternal();
 		}
 		if ($owner instanceof CSSRule) {
-			$sheet = $owner->getParentStyleSheet();
-			return $sheet !== null ? $sheet->getMaxBytesInternal() : CSSParserOptions::DEFAULT_MAX_BYTES;
+			return $owner->resolveMaxBytesInternal();
 		}
 
-		return CSSParserOptions::DEFAULT_MAX_BYTES;
+		return $this->maxBytes;
 	}
 
 	public function getMediaText(): string

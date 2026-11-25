@@ -531,12 +531,18 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 			);
 		}
 		$trimmed = CSSSyntaxScanner::trimCssWhitespace($cssText);
-		if ($trimmed === '' || strcasecmp($trimmed, 'none') === 0) {
+		if ($trimmed === '') {
 			return [self::IDENTITY_ELEMENTS, true];
 		}
 
 		CSSSyntaxScanner::assertValidFragment($trimmed, 'CSS transform', [';', '{', '}']);
-		$matrix = CSSTransformValue::fromCssText($trimmed)->toMatrix();
+		$clean = str_contains($trimmed, '/*')
+			? CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed))
+			: $trimmed;
+		if ($clean === '' || strcasecmp($clean, 'none') === 0) {
+			return [self::IDENTITY_ELEMENTS, true];
+		}
+		$matrix = CSSTransformValue::fromCssText($clean)->toMatrix();
 
 		return [$matrix->elements, $matrix->is2D];
 	}

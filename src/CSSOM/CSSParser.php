@@ -6,6 +6,7 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 
 /**
  * Single-pass cursor-driven parser for standalone CSS stylesheets, rules, and declaration blocks.
@@ -347,7 +348,7 @@ final class CSSParser
 		}
 		self::assertNoSheetParseErrors($sheet);
 
-		return new CSSMarginRule($name, $style);
+		return new CSSMarginRule($name, $style, $options->maxBytes);
 	}
 
 	private static function assertNoSheetParseErrors(CSSStyleSheet $sheet): void
@@ -614,7 +615,7 @@ final class CSSParser
 
 			try {
 				$rule = $keyframes
-					? new CSSKeyframeRule($prelude, new CSSStyleProperties())
+					? new CSSKeyframeRule($prelude, new CSSStyleProperties(), $options->maxBytes)
 					: new CSSStyleRule($prelude, new CSSStyleProperties(), $options->maxBytes);
 			} catch (InvalidArgumentException $exception) {
 				$sheet->recordParseError($exception->getMessage(), $ruleStart);
@@ -666,9 +667,9 @@ final class CSSParser
 	{
 		[$name, $condition] = self::splitAtRulePrelude($prelude);
 		return match ($name) {
-			'charset' => new CSSCharsetRule($condition),
-			'import' => new CSSImportRule($condition),
-			'namespace' => new CSSNamespaceRule($condition),
+			'charset' => new CSSCharsetRule($condition, $maxBytes),
+			'import' => new CSSImportRule($condition, $maxBytes),
+			'namespace' => new CSSNamespaceRule($condition, $maxBytes),
 			'layer' => new CSSLayerStatementRule($condition, $maxBytes),
 			default => new CSSAtRule($name, $condition, null, false, $maxBytes),
 		};
@@ -740,7 +741,7 @@ final class CSSParser
 
 		if ($name === 'page') {
 			try {
-				$pageRule = new CSSPageRule($condition, new CSSPageDescriptors());
+				$pageRule = new CSSPageRule($condition, new CSSPageDescriptors(), [], $options->maxBytes);
 			} catch (InvalidArgumentException $exception) {
 				$sheet->recordParseError($exception->getMessage(), $ruleStart);
 				self::skipMalformedBlock($source, $braceOffset, $offset, $end, $sheet);
@@ -761,7 +762,7 @@ final class CSSParser
 
 		if ($name === 'font-feature-values') {
 			try {
-				$ffvRule = new CSSFontFeatureValuesRule($condition);
+				$ffvRule = new CSSFontFeatureValuesRule($condition, $options->maxBytes);
 			} catch (InvalidArgumentException $exception) {
 				$sheet->recordParseError($exception->getMessage(), $ruleStart);
 				self::skipMalformedBlock($source, $braceOffset, $offset, $end, $sheet);
@@ -782,13 +783,13 @@ final class CSSParser
 		if (isset(self::GROUPING_AT_RULES[$name])) {
 			try {
 				$rule = match ($name) {
-					'media' => new CSSMediaRule($condition),
-					'supports' => new CSSSupportsRule($condition),
-					'container' => new CSSContainerRule($condition),
-					'scope' => new CSSScopeRule($condition),
-					'layer' => new CSSLayerBlockRule($condition),
-					'keyframes', '-webkit-keyframes' => new CSSKeyframesRule($condition, $name),
-					'starting-style' => new CSSStartingStyleRule(),
+					'media' => new CSSMediaRule($condition, $options->maxBytes),
+					'supports' => new CSSSupportsRule($condition, $options->maxBytes),
+					'container' => new CSSContainerRule($condition, $options->maxBytes),
+					'scope' => new CSSScopeRule($condition, $options->maxBytes),
+					'layer' => new CSSLayerBlockRule($condition, $options->maxBytes),
+					'keyframes', '-webkit-keyframes' => new CSSKeyframesRule($condition, $name, $options->maxBytes),
+					'starting-style' => new CSSStartingStyleRule($options->maxBytes),
 					'function' => CSSFunctionRule::fromPrelude($condition, $options->maxBytes),
 					default => new CSSGroupingRule($name, $condition, $options->maxBytes),
 				};
@@ -852,10 +853,10 @@ final class CSSParser
 		try {
 			$rule = match ($name) {
 				'font-face' => new CSSFontFaceRule($style),
-				'property' => new CSSPropertyRule($condition, $style, $sawEmptyInitialValue),
-				'counter-style' => new CSSCounterStyleRule($condition, $style),
-				'font-palette-values' => new CSSFontPaletteValuesRule($condition, $style),
-				'position-try' => new CSSPositionTryRule($condition, $style),
+				'property' => new CSSPropertyRule($condition, $style, $sawEmptyInitialValue, $options->maxBytes),
+				'counter-style' => new CSSCounterStyleRule($condition, $style, $options->maxBytes),
+				'font-palette-values' => new CSSFontPaletteValuesRule($condition, $style, $options->maxBytes),
+				'position-try' => new CSSPositionTryRule($condition, $style, $options->maxBytes),
 				'view-transition' => new CSSViewTransitionRule($style),
 				default => new CSSAtRule($name, $condition, $style, true, $options->maxBytes),
 			};
@@ -1132,7 +1133,7 @@ final class CSSParser
 						if ($extra !== '') {
 							throw new InvalidArgumentException('Unexpected prelude in page margin rule.');
 						}
-						$ownerRule->getCssRules()->appendDetached(new CSSMarginRule($marginName, $marginStyle));
+						$ownerRule->getCssRules()->appendDetached(new CSSMarginRule($marginName, $marginStyle, $options->maxBytes));
 						$ruleCount++;
 					} catch (InvalidArgumentException $exception) {
 						$sheet->recordParseError($exception->getMessage(), $ruleStart);
@@ -1436,9 +1437,20 @@ final class CSSParser
 					$declarationCount++;
 
 					$rawVal = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($source, $colon + 1, $segEnd));
+					$tokens = $rawVal === ''
+						? []
+						: (preg_split('/[ \t\n\r\f]+/', $rawVal, CSSStyleValue::MAX_LIST_ITEMS + 2) ?: []);
+					if (count($tokens) > CSSStyleValue::MAX_LIST_ITEMS) {
+						$message = sprintf('CSS font feature value list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS);
+						if ($throwOnLimit) {
+							throw new CSSParserLimitException($message);
+						}
+						$sheet->recordParseError($message, $segStart);
+						continue;
+					}
 					$ints = [];
 					$valid = true;
-					foreach (preg_split('/[ \t\n\r\f]+/', $rawVal) ?: [] as $token) {
+					foreach ($tokens as $token) {
 						if ($token === '' || !preg_match('/^\d+$/D', $token)) {
 							$valid = false;
 							break;

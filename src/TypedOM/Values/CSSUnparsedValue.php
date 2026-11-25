@@ -87,16 +87,34 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 		}
 
 		$normalized = [];
+		$preTotalBytes = 0;
 		foreach ($value as $fragment) {
 			if (is_string($fragment)) {
+				if ($this->maxBytes !== null) {
+					$preTotalBytes += strlen($fragment);
+					if ($preTotalBytes > $this->maxBytes) {
+						throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum size of %d bytes.', $this->maxBytes));
+					}
+				}
 				if (CSSSyntaxScanner::hasControlCharacters($fragment)) {
 					throw new InvalidArgumentException('CSS unparsed fragment contains disallowed control characters.');
 				}
 				$normalized[] = $fragment;
 			} elseif ($fragment instanceof CSSVariableReferenceValue) {
+				if ($this->maxBytes !== null) {
+					$remainingBudget = $this->maxBytes - $preTotalBytes;
+					if ($remainingBudget < 0) {
+						throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum size of %d bytes.', $this->maxBytes));
+					}
+					$fragBytes = $fragment->measureRenderedBytesInternal($remainingBudget);
+					$preTotalBytes += $fragBytes;
+					if ($preTotalBytes > $this->maxBytes) {
+						throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum size of %d bytes.', $this->maxBytes));
+					}
+				}
 				$this->assertNoReferenceCycleAndDepth($fragment, $depth, $effectiveMaxDepth);
 				$clonedRef = $fragment->clone();
-				$clonedRef->clampMaxBytesInternal($this->maxBytes);
+				$clonedRef->clampLimitsInternal($this->maxBytes, $this->maxDepth);
 				$normalized[] = $clonedRef;
 			} else {
 				throw new InvalidArgumentException('Unparsed values contain only strings and variable references.');
@@ -160,65 +178,176 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 
 	/**
 	 * @internal
-	 * @return array{root: CSSUnparsedValue|CSSVariableReferenceValue, depth: int, maxBytes: ?int, maxDepth: int}
+	 * @return array{
+	 *     ancestors: list<array{node: CSSUnparsedValue|CSSVariableReferenceValue, varDepth: int}>,
+	 *     root: CSSUnparsedValue|CSSVariableReferenceValue,
+	 *     ancestorMinMaxBytes: ?int,
+	 *     ancestorMinMaxDepth: int
+	 * }
 	 */
 	public function resolveRootBudgetInternal(): array
 	{
-		$current = $this;
+		return self::buildAncestorBudgetInternal($this);
+	}
+
+	/**
+	 * @internal
+	 * @return array{
+	 *     ancestors: list<array{node: CSSUnparsedValue|CSSVariableReferenceValue, varDepth: int}>,
+	 *     root: CSSUnparsedValue|CSSVariableReferenceValue,
+	 *     ancestorMinMaxBytes: ?int,
+	 *     ancestorMinMaxDepth: int
+	 * }
+	 */
+	public static function buildAncestorBudgetInternal(self|CSSVariableReferenceValue $start): array
+	{
+		$current = $start;
 		$varDepth = 0;
-		$maxBytes = $this->maxBytes;
-		$maxDepth = $this->maxDepth;
-		$visited = [spl_object_id($this) => true];
+		$ancestors = [['node' => $start, 'varDepth' => 0]];
+		$minMaxBytes = $start->getMaxBytesInternal();
+		$minMaxDepth = $start->getMaxDepthInternal();
+		$visited = [spl_object_id($start) => true];
 
 		while (true) {
 			if ($current instanceof self) {
 				$parent = $current->getParentRefInternal();
-				if ($parent === null) {
-					break;
-				}
-				$id = spl_object_id($parent);
-				if (isset($visited[$id])) {
-					break;
-				}
-				$visited[$id] = true;
-				$varDepth++;
-				$pBytes = $parent->getMaxBytesInternal();
-				if ($pBytes !== null && ($maxBytes === null || $pBytes < $maxBytes)) {
-					$maxBytes = $pBytes;
-				}
-				$pDepth = $parent->getMaxDepthInternal();
-				if ($pDepth < $maxDepth) {
-					$maxDepth = $pDepth;
-				}
-				$current = $parent;
+				$stepDepth = 1;
 			} else {
 				$parent = $current->getParentUnparsedInternal();
-				if ($parent === null) {
-					break;
-				}
-				$id = spl_object_id($parent);
-				if (isset($visited[$id])) {
-					break;
-				}
-				$visited[$id] = true;
-				$pBytes = $parent->getMaxBytesInternal();
-				if ($pBytes !== null && ($maxBytes === null || $pBytes < $maxBytes)) {
-					$maxBytes = $pBytes;
-				}
-				$pDepth = $parent->getMaxDepthInternal();
-				if ($pDepth < $maxDepth) {
-					$maxDepth = $pDepth;
-				}
-				$current = $parent;
+				$stepDepth = 0;
 			}
+			if ($parent === null) {
+				break;
+			}
+			$id = spl_object_id($parent);
+			if (isset($visited[$id])) {
+				break;
+			}
+			$visited[$id] = true;
+			$varDepth += $stepDepth;
+			$ancestors[] = ['node' => $parent, 'varDepth' => $varDepth];
+			$pBytes = $parent->getMaxBytesInternal();
+			if ($pBytes !== null && ($minMaxBytes === null || $pBytes < $minMaxBytes)) {
+				$minMaxBytes = $pBytes;
+			}
+			$pDepth = $parent->getMaxDepthInternal();
+			if ($pDepth < $minMaxDepth) {
+				$minMaxDepth = $pDepth;
+			}
+			$current = $parent;
 		}
 
 		return [
+			'ancestors' => $ancestors,
 			'root' => $current,
-			'depth' => $varDepth,
-			'maxBytes' => $maxBytes,
-			'maxDepth' => $maxDepth,
+			'ancestorMinMaxBytes' => $minMaxBytes,
+			'ancestorMinMaxDepth' => $minMaxDepth,
 		];
+	}
+
+	/**
+	 * @internal Validates every bounded ancestor along the upward chain in a single O(N) pass.
+	 * @param list<array{node: CSSUnparsedValue|CSSVariableReferenceValue, varDepth: int}> $ancestors
+	 */
+	public static function assertAncestorsWithinMaxBytesInternal(array $ancestors): void
+	{
+		/** @var list<array{0: CSSUnparsedValue|CSSVariableReferenceValue, 1: int}> $relevant */
+		$relevant = [];
+		$runningMinAbove = null;
+		for ($i = count($ancestors) - 1; $i >= 0; $i--) {
+			$node = $ancestors[$i]['node'];
+			$limit = $node->getMaxBytesInternal();
+			if ($limit !== null && ($runningMinAbove === null || $limit < $runningMinAbove)) {
+				$relevant[] = [$node, $limit];
+				$runningMinAbove = $limit;
+			}
+		}
+
+		if ($relevant === []) {
+			return;
+		}
+		if (count($relevant) === 1) {
+			$relevant[0][0]->measureRenderedBytesInternal($relevant[0][1]);
+			return;
+		}
+
+		/** @var array<int, int> $limitsById */
+		$limitsById = [];
+		foreach ($relevant as [$node, $limit]) {
+			$limitsById[spl_object_id($node)] = $limit;
+		}
+
+		$topNode = $relevant[0][0];
+		$totalBytes = 0;
+		$minEndCap = null;
+		$minLimit = 0;
+		/** @var list<array{0: ?int, 1: int}> $capStack */
+		$capStack = [];
+		// Event tuples: [phase (0=enter node, 1=add bytes, 2=exit node), payload, depth_or_pushed]
+		/** @var list<array{0: int, 1: self|CSSVariableReferenceValue|int, 2: int|bool}> $stack */
+		$stack = [[0, $topNode, 0]];
+
+		while ($stack !== []) {
+			[$phase, $payload, $meta] = array_pop($stack);
+			if ($phase === 2) {
+				if ($meta === true && $capStack !== []) {
+					[$minEndCap, $minLimit] = array_pop($capStack);
+				}
+				continue;
+			}
+			if ($phase === 1) {
+				/** @var int $payload */
+				$totalBytes += $payload;
+				if ($minEndCap !== null && $totalBytes > $minEndCap) {
+					throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum size of %d bytes.', $minLimit));
+				}
+				continue;
+			}
+
+			/** @var self|CSSVariableReferenceValue $payload */
+			/** @var int $meta */
+			if ($meta > self::MAX_UNPARSED_DEPTH) {
+				throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', self::MAX_UNPARSED_DEPTH));
+			}
+
+			$id = spl_object_id($payload);
+			$pushedCap = false;
+			if (isset($limitsById[$id])) {
+				$capStack[] = [$minEndCap, $minLimit];
+				$pushedCap = true;
+				$nodeLimit = $limitsById[$id];
+				$candidateEndCap = $totalBytes + $nodeLimit;
+				if ($minEndCap === null || $candidateEndCap < $minEndCap) {
+					$minEndCap = $candidateEndCap;
+					$minLimit = $nodeLimit;
+				}
+			}
+
+			$stack[] = [2, $payload, $pushedCap];
+			if ($payload instanceof self) {
+				$items = $payload->values;
+				for ($i = count($items) - 1; $i >= 0; $i--) {
+					$child = $items[$i];
+					if (is_string($child)) {
+						$stack[] = [1, strlen($child), 0];
+					} else {
+						$stack[] = [0, $child, $meta];
+					}
+				}
+				continue;
+			}
+
+			$fb = $payload->getFallback();
+			$headBytes = strlen($payload->getVariable()) + ($fb !== null ? 6 : 5);
+			if ($fb !== null) {
+				$stack[] = [1, 1, 0];
+				$stack[] = [0, $fb, $meta + 1];
+			}
+			$totalBytes += $headBytes;
+			if ($minEndCap !== null && $totalBytes > $minEndCap) {
+				throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum size of %d bytes.', $minLimit));
+			}
+		}
 	}
 
 	/** @internal Updates only this CSSUnparsedValue node's scalar byte limit. */
@@ -229,12 +358,17 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 		}
 	}
 
-	/** @internal Propagates a stricter parent maxBytes limit down unparsed trees iteratively. */
-	public function clampMaxBytesInternal(?int $limit): void
+	/** @internal Updates only this CSSUnparsedValue node's scalar depth limit. */
+	public function clampMaxDepthScalarInternal(int $limit): void
 	{
-		if ($limit === null) {
-			return;
+		if ($limit < $this->maxDepth) {
+			$this->maxDepth = $limit;
 		}
+	}
+
+	/** @internal Propagates stricter parent maxBytes and maxDepth limits down unparsed trees iteratively. */
+	public function clampLimitsInternal(?int $maxBytes, int $maxDepth): void
+	{
 		$stack = [$this];
 		$visited = [];
 		while ($stack !== []) {
@@ -244,10 +378,12 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 				continue;
 			}
 			$visited[$id] = true;
-			$node->clampMaxBytesScalarInternal($limit);
+			$node->clampMaxBytesScalarInternal($maxBytes);
+			$node->clampMaxDepthScalarInternal($maxDepth);
 			foreach ($node->values as $item) {
 				if ($item instanceof CSSVariableReferenceValue) {
-					$item->clampMaxBytesScalarInternal($limit);
+					$item->clampMaxBytesScalarInternal($maxBytes);
+					$item->clampMaxDepthScalarInternal($maxDepth);
 					$fb = $item->getFallback();
 					if ($fb !== null) {
 						$stack[] = $fb;
@@ -255,6 +391,21 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 				}
 			}
 		}
+	}
+
+	/** @internal Propagates a stricter parent maxBytes limit down unparsed trees iteratively. */
+	public function clampMaxBytesInternal(?int $limit): void
+	{
+		if ($limit === null) {
+			return;
+		}
+		$this->clampLimitsInternal($limit, self::MAX_UNPARSED_DEPTH);
+	}
+
+	/** @internal Measures rendered byte length iteratively with immediate limit abort and no string allocations. */
+	public function measureRenderedBytesInternal(?int $maxBytes = null): int
+	{
+		return self::measureBytesIteratively($this->values, $maxBytes);
 	}
 
 	public static function fromCssText(string $cssText, ?CSSParserOptions $options = null, int $depth = 0): self
@@ -326,19 +477,35 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 		}
 
 		$budget = $this->resolveRootBudgetInternal();
-		$root = $budget['root'];
-		$ancestorVarDepth = $budget['depth'];
-		$strictestMaxBytes = $budget['maxBytes'];
-		$strictestMaxDepth = $budget['maxDepth'];
+		$ancestors = $budget['ancestors'];
 
 		if (is_string($value)) {
+			if ($this->maxBytes !== null && strlen($value) > $this->maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum size of %d bytes.', $this->maxBytes));
+			}
 			if (CSSSyntaxScanner::hasControlCharacters($value)) {
 				throw new InvalidArgumentException('CSS unparsed fragment contains disallowed control characters.');
 			}
 		} elseif ($value instanceof CSSVariableReferenceValue) {
-			$this->assertNoReferenceCycleAndDepth($value, $ancestorVarDepth, $strictestMaxDepth);
+			if ($this->maxBytes !== null) {
+				$value->measureRenderedBytesInternal($this->maxBytes);
+			}
+			$minRemaining = null;
+			$cap = self::MAX_UNPARSED_DEPTH;
+			foreach ($ancestors as $ancestor) {
+				$aMaxDepth = $ancestor['node']->getMaxDepthInternal();
+				$rem = $aMaxDepth - $ancestor['varDepth'];
+				if ($minRemaining === null || $rem < $minRemaining) {
+					$minRemaining = $rem;
+					$cap = $aMaxDepth;
+				}
+			}
+			if ($minRemaining < 1) {
+				throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', $cap));
+			}
+			$this->assertNoReferenceCycleAndDepth($value, $cap - $minRemaining, $cap);
 			$value = $value->clone();
-			$value->clampMaxBytesInternal($strictestMaxBytes);
+			$value->clampLimitsInternal($budget['ancestorMinMaxBytes'], $budget['ancestorMinMaxDepth']);
 		} else {
 			throw new InvalidArgumentException('Unparsed values contain only strings and variable references.');
 		}
@@ -351,17 +518,13 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 			$next[$offset] = $value;
 		}
 
-		self::validateFragmentArray($next, $strictestMaxBytes);
+		self::validateFragmentArray($next, $this->maxBytes);
 
 		$oldValues = $this->values;
 		$this->values = $next;
-		if ($root !== $this) {
+		if (count($ancestors) > 1) {
 			try {
-				if ($root instanceof self) {
-					self::stringifyIteratively($root->values, $strictestMaxBytes);
-				} else {
-					$root->assertRenderedWithinMaxBytesInternal($strictestMaxBytes);
-				}
+				self::assertAncestorsWithinMaxBytesInternal($ancestors);
 			} catch (Throwable $e) {
 				$this->values = $oldValues;
 				throw $e;
@@ -385,17 +548,13 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 		$removed = $this->values[$offset];
 		$next = $this->values;
 		array_splice($next, $offset, 1);
-		self::validateFragmentArray($next, $budget['maxBytes']);
+		self::validateFragmentArray($next, $this->maxBytes);
 
 		$oldValues = $this->values;
 		$this->values = $next;
-		if ($budget['root'] !== $this) {
+		if (count($budget['ancestors']) > 1) {
 			try {
-				if ($budget['root'] instanceof self) {
-					self::stringifyIteratively($budget['root']->values, $budget['maxBytes']);
-				} else {
-					$budget['root']->assertRenderedWithinMaxBytesInternal($budget['maxBytes']);
-				}
+				self::assertAncestorsWithinMaxBytesInternal($budget['ancestors']);
 			} catch (Throwable $e) {
 				$this->values = $oldValues;
 				throw $e;
@@ -417,31 +576,35 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 	{
 		$this->parentRef = null;
 		// Iteratively clone descendant var() / unparsed trees with scalar limit propagation (O(N), O(1) PHP frames).
-		$stack = [[&$this->values, 0, $this->maxBytes, $this]];
+		$stack = [[&$this->values, 0, $this->maxBytes, $this->maxDepth, $this]];
 		while ($stack !== []) {
 			$entry = array_pop($stack);
 			/** @var list<string|CSSVariableReferenceValue> $list */
 			$list = &$entry[0];
 			$depth = $entry[1];
-			$effectiveLimit = $entry[2];
-			$ownerUnparsed = $entry[3];
+			$effectiveMaxBytes = $entry[2];
+			$effectiveMaxDepth = $entry[3];
+			$ownerUnparsed = $entry[4];
 			if ($depth > self::MAX_UNPARSED_DEPTH) {
 				throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', self::MAX_UNPARSED_DEPTH));
 			}
 			foreach ($list as $i => $item) {
 				if ($item instanceof CSSVariableReferenceValue) {
 					$clonedRef = $item->shallowCloneInternal();
-					$clonedRef->clampMaxBytesScalarInternal($effectiveLimit);
+					$clonedRef->clampMaxBytesScalarInternal($effectiveMaxBytes);
+					$clonedRef->clampMaxDepthScalarInternal($effectiveMaxDepth);
 					$clonedRef->setParentUnparsedInternal($ownerUnparsed);
-					$refLimit = $clonedRef->getMaxBytesInternal();
+					$refMaxBytes = $clonedRef->getMaxBytesInternal();
+					$refMaxDepth = $clonedRef->getMaxDepthInternal();
 					$list[$i] = $clonedRef;
 					$fb = $clonedRef->getFallback();
 					if ($fb !== null) {
 						$clonedFb = $fb->shallowCloneInternal();
-						$clonedFb->clampMaxBytesScalarInternal($refLimit);
+						$clonedFb->clampMaxBytesScalarInternal($refMaxBytes);
+						$clonedFb->clampMaxDepthScalarInternal($refMaxDepth);
 						$clonedFb->setParentRefInternal($clonedRef);
 						$clonedRef->setFallbackInternal($clonedFb);
-						$stack[] = [&$clonedFb->values, $depth + 1, $clonedFb->maxBytes, $clonedFb];
+						$stack[] = [&$clonedFb->values, $depth + 1, $clonedFb->maxBytes, $clonedFb->maxDepth, $clonedFb];
 					}
 				}
 			}
@@ -467,6 +630,56 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 	public function __toString(): string
 	{
 		return self::stringifyIteratively($this->values, $this->maxBytes);
+	}
+
+	/**
+	 * @internal Iteratively measures rendered byte length without allocating output strings.
+	 * @param list<string|CSSVariableReferenceValue> $rootValues
+	 */
+	public static function measureBytesIteratively(array $rootValues, ?int $maxBytes, string $prefix = '', string $suffix = ''): int
+	{
+		$totalBytes = strlen($prefix);
+		if ($maxBytes !== null && $totalBytes > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum size of %d bytes.', $maxBytes));
+		}
+		$stack = [];
+		for ($i = count($rootValues) - 1; $i >= 0; $i--) {
+			$stack[] = [$rootValues[$i], 0];
+		}
+
+		while ($stack !== []) {
+			[$item, $depth] = array_pop($stack);
+			if (is_string($item)) {
+				$totalBytes += strlen($item);
+				if ($maxBytes !== null && $totalBytes > $maxBytes) {
+					throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum size of %d bytes.', $maxBytes));
+				}
+				continue;
+			}
+			if ($depth > self::MAX_UNPARSED_DEPTH) {
+				throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', self::MAX_UNPARSED_DEPTH));
+			}
+
+			/** @var CSSVariableReferenceValue $item */
+			$fb = $item->getFallback();
+			$totalBytes += strlen($item->getVariable()) + ($fb !== null ? 7 : 5);
+			if ($maxBytes !== null && $totalBytes > $maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum size of %d bytes.', $maxBytes));
+			}
+			if ($fb !== null) {
+				$fbValues = $fb->values;
+				for ($i = count($fbValues) - 1; $i >= 0; $i--) {
+					$stack[] = [$fbValues[$i], $depth + 1];
+				}
+			}
+		}
+
+		$totalBytes += strlen($suffix);
+		if ($maxBytes !== null && $totalBytes > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum size of %d bytes.', $maxBytes));
+		}
+
+		return $totalBytes;
 	}
 
 	/**

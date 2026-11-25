@@ -33,9 +33,9 @@ final class CSSContainerRule extends CSSConditionRule
 	/** @var ?array{string, string} */
 	private ?array $parsedPrelude = null;
 
-	public function __construct(string $conditionText)
+	public function __construct(string $conditionText, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
-		parent::__construct('container', $conditionText);
+		parent::__construct('container', $conditionText, $maxBytes);
 	}
 
 	public function getType(): int
@@ -93,35 +93,21 @@ final class CSSContainerRule extends CSSConditionRule
 			return $this->parsedPrelude = ['', ''];
 		}
 
-		$tokens = CSSSyntaxScanner::splitTopLevelWhitespace($prelude);
-		if ($tokens === []) {
-			return $this->parsedPrelude = ['', ''];
-		}
-
-		$first = $tokens[0];
-		if (!self::isValidContainerName($first)) {
+		$length = strlen($prelude);
+		$decoded = CSSSyntaxScanner::decodeIdentAt($prelude, 0, $length);
+		if ($decoded === null
+			|| ($decoded['end'] !== $length && !str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $prelude[$decoded['end']]))
+			|| CSSSyntaxScanner::hasControlCharacters($decoded['ident'])
+			|| isset(self::RESERVED_KEYWORDS[strtolower($decoded['ident'])])
+		) {
 			return $this->parsedPrelude = ['', $prelude];
 		}
 
-		if (count($tokens) === 1) {
-			return $this->parsedPrelude = [$first, ''];
-		}
+		$first = substr($prelude, 0, $decoded['end']);
+		$rest = $decoded['end'] === $length
+			? ''
+			: CSSSyntaxScanner::trimCssWhitespace(substr($prelude, $decoded['end']));
 
-		$rest = ltrim(substr($prelude, strlen($first)), CSSSyntaxScanner::CSS_WHITESPACE);
 		return $this->parsedPrelude = [$first, $rest];
-	}
-
-	private static function isValidContainerName(string $token): bool
-	{
-		$length = strlen($token);
-		if ($length === 0) {
-			return false;
-		}
-		$decoded = CSSSyntaxScanner::decodeIdentAt($token, 0, $length);
-		if ($decoded === null || $decoded['end'] !== $length) {
-			return false;
-		}
-
-		return !isset(self::RESERVED_KEYWORDS[strtolower($decoded['ident'])]);
 	}
 }

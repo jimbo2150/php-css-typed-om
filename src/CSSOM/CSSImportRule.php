@@ -6,6 +6,7 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 
 /**
  * Represents a CSS `@import` rule. Import rules retain URL, layer, supports,
@@ -28,8 +29,11 @@ final class CSSImportRule extends CSSAtRule
 	private ?string $supportsTextValue;
 	private bool $initializing = true;
 
-	public function __construct(string $prelude)
+	public function __construct(string $prelude, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
+		if ($maxBytes !== null && strlen($prelude) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS @import rule exceeds maximum size of %d bytes.', $maxBytes));
+		}
 		$trimmed = CSSSyntaxScanner::trimCssWhitespace($prelude);
 		if ($trimmed === '') {
 			throw new InvalidArgumentException('@import requires a URL.');
@@ -38,7 +42,7 @@ final class CSSImportRule extends CSSAtRule
 		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
 			throw new InvalidArgumentException('@import requires a URL.');
 		}
-		parent::__construct('import', $trimmed);
+		parent::__construct('import', $trimmed, null, false, $maxBytes);
 
 		$parts = self::parseTailParts($this->prelude);
 		$this->urlToken = $parts['urlToken'];
@@ -49,7 +53,7 @@ final class CSSImportRule extends CSSAtRule
 			if (!$this->initializing) {
 				$this->rebuildPrelude($mediaText);
 			}
-		});
+		}, $maxBytes);
 		$this->mediaList->setOwnerInternal($this);
 		$this->initializing = false;
 	}
@@ -116,6 +120,8 @@ final class CSSImportRule extends CSSAtRule
 
 	private function rebuildPrelude(string $mediaText): void
 	{
+		self::assertNoImportClausesInMedia($mediaText);
+
 		$parts = [$this->urlToken];
 		if ($this->layerNameValue !== null) {
 			$parts[] = $this->layerNameValue === '' ? 'layer' : 'layer(' . $this->layerNameValue . ')';
@@ -126,7 +132,12 @@ final class CSSImportRule extends CSSAtRule
 		if ($mediaText !== '') {
 			$parts[] = $mediaText;
 		}
-		$this->prelude = implode(' ', $parts);
+		$nextPrelude = implode(' ', $parts);
+		$maxBytes = $this->resolveMaxBytesInternal();
+		if ($maxBytes !== null && strlen($nextPrelude) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS @import rule exceeds maximum size of %d bytes.', $maxBytes));
+		}
+		$this->prelude = $nextPrelude;
 	}
 
 	/** @return array{urlToken: string, href: string, layerName: ?string, supportsText: ?string, media: string} */
@@ -160,7 +171,7 @@ final class CSSImportRule extends CSSAtRule
 			$urlToken = substr($prelude, 0, $pos);
 			$tail = CSSSyntaxScanner::trimCssWhitespace(substr($prelude, $pos));
 		} else {
-			$tokens = CSSSyntaxScanner::splitTopLevelWhitespace($prelude);
+			$tokens = CSSSyntaxScanner::splitTopLevelWhitespace($prelude, 0, null, CSSStyleValue::MAX_LIST_ITEMS);
 			$urlToken = array_shift($tokens) ?? '';
 			$tail = implode(' ', $tokens);
 		}
@@ -168,7 +179,7 @@ final class CSSImportRule extends CSSAtRule
 		$href = self::unwrapUrlToken($urlToken);
 		$layerName = null;
 		$supportsText = null;
-		$mediaTokens = [];
+		$mediaText = '';
 		$p = 0;
 		$tLen = strlen($tail);
 		while ($p < $tLen) {
@@ -230,21 +241,8 @@ final class CSSImportRule extends CSSAtRule
 				continue;
 			}
 
-			foreach (CSSSyntaxScanner::splitTopLevelWhitespace(substr($tail, $p)) as $token) {
-				$tokLen = strlen($token);
-				$tokIdent = CSSSyntaxScanner::decodeIdentAt($token, 0, $tokLen);
-				$tokLower = $tokIdent !== null ? strtolower($tokIdent['ident']) : null;
-				$tokEnd = $tokIdent !== null ? $tokIdent['end'] : -1;
-				if (($tokLower === 'layer' && $tokEnd === $tokLen)
-					|| ($tokLower === 'layer' && $tokEnd < $tokLen && $token[$tokEnd] === '(' && str_ends_with($token, ')'))
-				) {
-					throw new InvalidArgumentException('CSS @import layer() must precede supports() and media queries.');
-				}
-				if ($tokLower === 'supports' && $tokEnd < $tokLen && $token[$tokEnd] === '(' && str_ends_with($token, ')')) {
-					throw new InvalidArgumentException('CSS @import supports() must precede media queries.');
-				}
-				$mediaTokens[] = $token;
-			}
+			$mediaText = CSSSyntaxScanner::trimCssWhitespace(substr($tail, $p));
+			self::assertNoImportClausesInMedia($mediaText);
 			break;
 		}
 
@@ -253,8 +251,78 @@ final class CSSImportRule extends CSSAtRule
 			'href' => $href,
 			'layerName' => $layerName,
 			'supportsText' => $supportsText,
-			'media' => implode(' ', $mediaTokens),
+			'media' => $mediaText,
 		];
+	}
+
+	private static function assertNoImportClausesInMedia(string $mediaText): void
+	{
+		if ($mediaText === '') {
+			return;
+		}
+		if (str_contains($mediaText, '/*')) {
+			$mediaText = CSSSyntaxScanner::removeComments($mediaText);
+		}
+		$length = strlen($mediaText);
+		$pos = 0;
+		$tokenCount = 0;
+		while ($pos < $length) {
+			$ch = $mediaText[$pos];
+			if ($ch === ',' || str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $ch)) {
+				$pos++;
+				continue;
+			}
+			$tokenStart = $pos;
+			$stack = [];
+			while ($pos < $length) {
+				$c = $mediaText[$pos];
+				if ($stack === [] && ($c === ',' || str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $c))) {
+					break;
+				}
+				if ($c === '"' || $c === "'") {
+					$valid = false;
+					$endStr = CSSSyntaxScanner::scanQuotedStringEnd($mediaText, $pos, $length, $valid);
+					$pos = $valid ? $endStr + 1 : $length;
+					continue;
+				}
+				if ($c === '\\') {
+					$pos = CSSSyntaxScanner::advanceIdentEscapeEnd($mediaText, $pos, $length);
+					continue;
+				}
+				if ($c === '(' || $c === '[' || $c === '{') {
+					$stack[] = $c === '(' ? ')' : ($c === '[' ? ']' : '}');
+					$pos++;
+					continue;
+				}
+				if ($c === ')' || $c === ']' || $c === '}') {
+					if ($stack !== [] && $stack[count($stack) - 1] === $c) {
+						array_pop($stack);
+					}
+					$pos++;
+					continue;
+				}
+				$pos++;
+			}
+
+			$tokenCount++;
+			if ($tokenCount > CSSStyleValue::MAX_LIST_ITEMS) {
+				throw new CSSParserLimitException(sprintf('CSS @import media list exceeds maximum limit of %d tokens.', CSSStyleValue::MAX_LIST_ITEMS));
+			}
+
+			$tokLen = $pos - $tokenStart;
+			$ident = CSSSyntaxScanner::decodeIdentAt($mediaText, $tokenStart, $pos);
+			if ($ident !== null) {
+				$lower = strtolower($ident['ident']);
+				$identEnd = $ident['end'];
+				if ($lower === 'layer' && ($identEnd === $pos || ($identEnd < $pos && $mediaText[$identEnd] === '('))) {
+					throw new InvalidArgumentException('CSS @import layer() must precede supports() and media queries.');
+				}
+				if ($lower === 'supports' && $identEnd < $pos && $mediaText[$identEnd] === '(') {
+					throw new InvalidArgumentException('CSS @import supports() must precede media queries.');
+				}
+			}
+			unset($tokLen);
+		}
 	}
 
 	private static function unwrapUrlToken(string $token): string

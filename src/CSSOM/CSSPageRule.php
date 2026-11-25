@@ -22,10 +22,26 @@ final class CSSPageRule extends CSSGroupingRule
 	private CSSPageDescriptors $styleDescriptors;
 
 	/** @param list<CSSMarginRule> $marginRules */
-	public function __construct(string $selector, ?CSSStyleDeclaration $style = null, array $marginRules = [])
-	{
+	public function __construct(
+		string $selector,
+		?CSSStyleDeclaration $style = null,
+		array $marginRules = [],
+		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+	) {
+		if ($maxBytes !== null && strlen($selector) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS @page selector exceeds maximum size of %d bytes.', $maxBytes));
+		}
 		$selector = CSSSyntaxScanner::trimCssWhitespace($selector);
-		parent::__construct('page', $selector);
+		parent::__construct('page', $selector, $maxBytes);
+
+		foreach ($marginRules as $rule) {
+			if (!$rule instanceof CSSMarginRule) {
+				throw new InvalidArgumentException('@page marginRules must contain only CSSMarginRule instances.');
+			}
+			if ($rule->getParentRule() !== null || $rule->getParentStyleSheet() !== null) {
+				throw new InvalidArgumentException('A CSSRule that already has a parent cannot be inserted.');
+			}
+		}
 
 		if ($style instanceof CSSPageDescriptors) {
 			$descriptors = $style->getParentRule() !== null ? clone $style : $style;

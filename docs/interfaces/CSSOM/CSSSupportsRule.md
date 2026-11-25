@@ -13,7 +13,7 @@ Magic `conditionText` is inherited and writable through its setter; nested `cssR
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(string $conditionText)` | Creates a `supports` grouping rule with supplied condition. | `$rule = new CSSSupportsRule('(display: grid)');` |
+| `__construct(string $conditionText, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Creates a `supports` grouping rule with supplied condition under `$maxBytes`. | `$rule = new CSSSupportsRule('(display: grid)');` |
 | `getType(): int` | Returns `CSSRule::SUPPORTS_RULE`. | `$rule->getType();` |
 
 All inherited public methods are documented on [`CSSConditionRule`](CSSConditionRule.md), [`CSSGroupingRule`](CSSGroupingRule.md), and [`CSSRule`](CSSRule.md).

@@ -6,6 +6,7 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 
 /**
  * Represents a single keyframe rule inside `@keyframes`.
@@ -23,8 +24,12 @@ final class CSSKeyframeRule extends CSSRule
 	/**
 	 * @throws InvalidArgumentException When $keyText is not a valid keyframe selector list
 	 */
-	public function __construct(string $keyText, ?CSSStyleDeclaration $style = null)
-	{
+	public function __construct(
+		string $keyText,
+		?CSSStyleDeclaration $style = null,
+		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+	) {
+		$this->maxBytes = $maxBytes;
 		$this->setKeyText($keyText);
 		$this->styleProperties = CSSStyleProperties::fromDeclaration($style);
 		$this->styleProperties->setParentRule($this);
@@ -49,10 +54,14 @@ final class CSSKeyframeRule extends CSSRule
 			throw new InvalidArgumentException('Invalid keyframe selector text.');
 		}
 		CSSSyntaxScanner::assertValidFragment($keyText, 'Keyframe selector', [';', '{', '}']);
+		$parts = explode(',', $keyText, CSSStyleValue::MAX_LIST_ITEMS + 1);
+		if (count($parts) > CSSStyleValue::MAX_LIST_ITEMS) {
+			throw new CSSParserLimitException(sprintf('Keyframe selector list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
+		}
 		if (!preg_match('/^(?:from|to|(?:\d+(?:\.\d+)?|\.\d+)%)(?:[ \t\n\r\f]*,[ \t\n\r\f]*(?:from|to|(?:\d+(?:\.\d+)?|\.\d+)%))*$/iD', $keyText)) {
 			throw new InvalidArgumentException('Invalid keyframe selector text.');
 		}
-		foreach (explode(',', $keyText) as $part) {
+		foreach ($parts as $part) {
 			$token = CSSSyntaxScanner::trimCssWhitespace($part);
 			if (str_ends_with($token, '%')) {
 				$percentage = (float) substr($token, 0, -1);

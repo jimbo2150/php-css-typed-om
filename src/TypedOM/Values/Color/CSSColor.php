@@ -6,6 +6,7 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color;
 
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
@@ -92,7 +93,11 @@ final class CSSColor extends CSSColorValue
 
 	public function setColorSpace(CSSKeywordValue|string $colorSpace): void
 	{
-		$raw = CSSSyntaxScanner::trimCssWhitespace($colorSpace instanceof CSSKeywordValue ? $colorSpace->getValue() : $colorSpace);
+		$rawInput = $colorSpace instanceof CSSKeywordValue ? $colorSpace->getValue() : $colorSpace;
+		if (strlen($rawInput) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('CSS color space exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+		}
+		$raw = CSSSyntaxScanner::trimCssWhitespace($rawInput);
 		$decoded = CSSSyntaxScanner::decodeIdentAt($raw, 0, strlen($raw));
 		if ($decoded !== null && $decoded['end'] === strlen($raw) && str_starts_with($decoded['ident'], '--')) {
 			$normalized = CSSStyleDeclaration::normalizePropertyName($raw);

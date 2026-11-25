@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 
 /**
  * Represents a CSS `@view-transition` rule.
@@ -34,7 +35,7 @@ final class CSSViewTransitionRule extends CSSAtRule
 			return [];
 		}
 
-		return CSSSyntaxScanner::splitTopLevelWhitespace($raw);
+		return CSSSyntaxScanner::splitTopLevelWhitespace($raw, 0, null, CSSStyleValue::MAX_LIST_ITEMS);
 	}
 
 	public function getType(): int

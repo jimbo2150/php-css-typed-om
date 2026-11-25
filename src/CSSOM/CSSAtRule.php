@@ -34,6 +34,7 @@ class CSSAtRule extends CSSRule
 		if ($maxBytes !== null && (strlen($name) > $maxBytes || strlen($prelude) > $maxBytes)) {
 			throw new CSSParserLimitException(sprintf('CSS at-rule exceeds maximum size of %d bytes.', $maxBytes));
 		}
+		$this->maxBytes = $maxBytes;
 		$trimmedName = CSSSyntaxScanner::trimCssWhitespace($name);
 		if (!preg_match('/^-?[a-zA-Z_][a-zA-Z0-9_-]*$/D', $trimmedName)) {
 			throw new InvalidArgumentException('Invalid CSS at-rule name: ' . $name);

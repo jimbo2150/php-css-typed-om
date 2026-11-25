@@ -16,8 +16,14 @@ use InvalidArgumentException;
  */
 final class CSSPositionTryRule extends CSSAtRule
 {
-	public function __construct(string $name, ?CSSStyleDeclaration $style = null)
-	{
+	public function __construct(
+		string $name,
+		?CSSStyleDeclaration $style = null,
+		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+	) {
+		if ($maxBytes !== null && strlen($name) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS @position-try name exceeds maximum size of %d bytes.', $maxBytes));
+		}
 		$normalized = CSSStyleDeclaration::normalizePropertyName($name);
 		if (!str_starts_with($normalized, '--')) {
 			throw new InvalidArgumentException('@position-try requires a dashed identifier starting with "--".');
@@ -26,11 +32,11 @@ final class CSSPositionTryRule extends CSSAtRule
 			$descriptors = $style->getParentRule() !== null ? clone $style : $style;
 		} else {
 			$descriptors = new CSSPositionTryDescriptors();
-			foreach ($style ?? [] as $property => $declaration) {
-				$descriptors->setProperty($property, $declaration['value'], $declaration['priority']);
+			foreach ($style?->getDeclarationsRaw() ?? [] as $property => $declaration) {
+				$descriptors->setValidatedProperty($property, $declaration['value'], $declaration['priority']);
 			}
 		}
-		parent::__construct('position-try', $normalized, $descriptors, true);
+		parent::__construct('position-try', $normalized, $descriptors, true, $maxBytes);
 	}
 
 	public function getNameText(): string

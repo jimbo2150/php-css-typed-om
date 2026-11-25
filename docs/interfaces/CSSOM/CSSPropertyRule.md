@@ -13,7 +13,7 @@ Magic read-only `name`, `syntax`, `inherits`, and `initialValue` expose the prel
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(string $name, CSSStyleDeclaration $descriptors, bool $hasEmptyInitialValue = false)` | Normalizes the name, requires `--` prefix, then stores it as prelude with block descriptors. Throws `InvalidArgumentException` if not a custom property. `$hasEmptyInitialValue` preserves explicit empty `initial-value: ;` serialization. | `$rule = new CSSPropertyRule('--accent', new CSSStyleDeclaration('syntax: "<color>"; inherits: true'));` |
+| `__construct(string $name, CSSStyleDeclaration $descriptors, bool $hasEmptyInitialValue = false, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Checks `$maxBytes` before scanning, normalizes the name, requires `--` prefix, then stores it as prelude with block descriptors. Throws `InvalidArgumentException` / `CSSParserLimitException` if invalid or oversized. `$hasEmptyInitialValue` preserves explicit empty `initial-value: ;` serialization. | `$rule = new CSSPropertyRule('--accent', new CSSStyleDeclaration('syntax: "<color>"; inherits: true'));` |
 | `getNameText(): string` | Returns the prelude/name. | `$rule->getNameText();` |
 | `getSyntax(): string` | Returns `syntax` with surrounding whitespace/quotes trimmed, or `''`. | `$rule->getSyntax();` |
 | `getInherits(): bool` | Returns true only when the trimmed descriptor value lowercases to `true`. | `$rule->getInherits();` |

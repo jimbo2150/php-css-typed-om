@@ -262,29 +262,98 @@ final class CSSColorValueTest extends TestCase
 			self::assertNotSame('', $e->getMessage());
 		}
 
-		// Clone isolation across all 8 CSSColorValue subclasses
-		$cloneCases = [
-			[new CSSRGB(1, 0, 0), static fn (CSSRGB $c) => $c->r = 0.25, static fn (CSSRGB $o) => self::assertEqualsWithDelta(100.0, $o->r->value, 1e-9)],
-			[new CSSHSL(120, 1.0, 0.5), static fn (CSSHSL $c) => $c->h = 240, static fn (CSSHSL $o) => self::assertEqualsWithDelta(120.0, $o->h->value, 1e-9)],
-			[new CSSHWB(60, 0.1, 0.2), static fn (CSSHWB $c) => $c->w = 0.5, static fn (CSSHWB $o) => self::assertEqualsWithDelta(0.1, $o->w->value, 1e-9)],
-			[new CSSLab(50, 10, -10), static fn (CSSLab $c) => $c->a = 40, static fn (CSSLab $o) => self::assertEqualsWithDelta(10.0, $o->a->value, 1e-9)],
-			[new CSSLCH(50, 20, 90), static fn (CSSLCH $c) => $c->c = 80, static fn (CSSLCH $o) => self::assertEqualsWithDelta(20.0, $o->c->value, 1e-9)],
-			[new CSSOKLab(0.5, 0.1, -0.1), static fn (CSSOKLab $c) => $c->b = 0.2, static fn (CSSOKLab $o) => self::assertEqualsWithDelta(-0.1, $o->b->value, 1e-9)],
-			[new CSSOKLCH(0.6, 0.1, 180), static fn (CSSOKLCH $c) => $c->l = 0.9, static fn (CSSOKLCH $o) => self::assertEqualsWithDelta(60.0, $o->l->value, 1e-9)],
-			[new CSSColor('srgb', [0.1, 0.2, 0.3]), static function (CSSColor $c): void {
-				$c->channels = [CSSNumericValue::parse('0.9'), CSSNumericValue::parse('0.8'), CSSNumericValue::parse('0.7')];
-				$c->colorSpace = 'display-p3';
-			}, static function (CSSColor $o): void {
-				self::assertSame('srgb', $o->colorSpace->value);
-				self::assertEqualsWithDelta(0.1, $o->channels[0]->value, 1e-9);
-			}],
-		];
-		foreach ($cloneCases as [$orig, $mutateClone, $assertOriginal]) {
-			$cloned = clone $orig;
-			$cloned->alpha = 0.2;
-			$mutateClone($cloned);
-			self::assertEqualsWithDelta(100.0, $orig->alpha->value, 1e-9);
-			$assertOriginal($orig);
-		}
+		// Clone isolation across all 8 CSSColorValue subclasses (in-place channel & alpha mutation without setter replacement)
+		$rgb = new CSSRGB(1, 0, 0);
+		$rgbClone = clone $rgb;
+		self::assertNotSame($rgb->r, $rgbClone->r);
+		self::assertNotSame($rgb->alpha, $rgbClone->alpha);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $rgbClone->r);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $rgbClone->alpha);
+		$rgbClone->r->value = 25.0;
+		$rgbClone->alpha->value = 20.0;
+		self::assertEqualsWithDelta(100.0, $rgb->r->value, 1e-9);
+		self::assertEqualsWithDelta(100.0, $rgb->alpha->value, 1e-9);
+
+		$hsl = new CSSHSL(120, 1.0, 0.5);
+		$hslClone = clone $hsl;
+		self::assertNotSame($hsl->h, $hslClone->h);
+		self::assertNotSame($hsl->alpha, $hslClone->alpha);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $hslClone->h);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $hslClone->alpha);
+		$hslClone->h->value = 240.0;
+		$hslClone->alpha->value = 20.0;
+		self::assertEqualsWithDelta(120.0, $hsl->h->value, 1e-9);
+		self::assertEqualsWithDelta(100.0, $hsl->alpha->value, 1e-9);
+
+		$hwb = new CSSHWB(60, 0.1, 0.2);
+		$hwbClone = clone $hwb;
+		self::assertNotSame($hwb->w, $hwbClone->w);
+		self::assertNotSame($hwb->alpha, $hwbClone->alpha);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $hwbClone->w);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $hwbClone->alpha);
+		$hwbClone->w->value = 50.0;
+		$hwbClone->alpha->value = 20.0;
+		self::assertEqualsWithDelta(0.1, $hwb->w->value, 1e-9);
+		self::assertEqualsWithDelta(100.0, $hwb->alpha->value, 1e-9);
+
+		$lab = new CSSLab(50, 10, -10);
+		$labClone = clone $lab;
+		self::assertNotSame($lab->a, $labClone->a);
+		self::assertNotSame($lab->alpha, $labClone->alpha);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $labClone->a);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $labClone->alpha);
+		$labClone->a->value = 40.0;
+		$labClone->alpha->value = 20.0;
+		self::assertEqualsWithDelta(10.0, $lab->a->value, 1e-9);
+		self::assertEqualsWithDelta(100.0, $lab->alpha->value, 1e-9);
+
+		$lch = new CSSLCH(50, 20, 90);
+		$lchClone = clone $lch;
+		self::assertNotSame($lch->c, $lchClone->c);
+		self::assertNotSame($lch->alpha, $lchClone->alpha);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $lchClone->c);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $lchClone->alpha);
+		$lchClone->c->value = 80.0;
+		$lchClone->alpha->value = 20.0;
+		self::assertEqualsWithDelta(20.0, $lch->c->value, 1e-9);
+		self::assertEqualsWithDelta(100.0, $lch->alpha->value, 1e-9);
+
+		$oklab = new CSSOKLab(0.5, 0.1, -0.1);
+		$oklabClone = clone $oklab;
+		self::assertNotSame($oklab->b, $oklabClone->b);
+		self::assertNotSame($oklab->alpha, $oklabClone->alpha);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $oklabClone->b);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $oklabClone->alpha);
+		$oklabClone->b->value = 0.2;
+		$oklabClone->alpha->value = 20.0;
+		self::assertEqualsWithDelta(-0.1, $oklab->b->value, 1e-9);
+		self::assertEqualsWithDelta(100.0, $oklab->alpha->value, 1e-9);
+
+		$oklch = new CSSOKLCH(0.6, 0.1, 180);
+		$oklchClone = clone $oklch;
+		self::assertNotSame($oklch->l, $oklchClone->l);
+		self::assertNotSame($oklch->alpha, $oklchClone->alpha);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $oklchClone->l);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $oklchClone->alpha);
+		$oklchClone->l->value = 90.0;
+		$oklchClone->alpha->value = 20.0;
+		self::assertEqualsWithDelta(60.0, $oklch->l->value, 1e-9);
+		self::assertEqualsWithDelta(100.0, $oklch->alpha->value, 1e-9);
+
+		$color = new CSSColor('srgb', [0.1, 0.2, 0.3]);
+		$colorClone = clone $color;
+		self::assertNotSame($color->colorSpace, $colorClone->colorSpace);
+		self::assertNotSame($color->channels[0], $colorClone->channels[0]);
+		self::assertNotSame($color->alpha, $colorClone->alpha);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $colorClone->channels[0]);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $colorClone->alpha);
+		$colorClone->colorSpace->value = 'display-p3';
+		$ch0 = $colorClone->channels[0];
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue::class, $ch0);
+		$ch0->value = 0.9;
+		$colorClone->alpha->value = 20.0;
+		self::assertSame('srgb', $color->colorSpace->value);
+		self::assertEqualsWithDelta(0.1, $color->channels[0]->value, 1e-9);
+		self::assertEqualsWithDelta(100.0, $color->alpha->value, 1e-9);
 	}
 }

@@ -12,13 +12,13 @@
 
 | Method | Signature and behavior |
 |---|---|
-| `__construct` | `public function __construct(CSSNumericValue|CSSNumericArray|array $value)`; accepts a single numeric value, another array, or a list of `CSSNumericValue` objects. |
+| `__construct` | `public function __construct(CSSNumericValue|CSSNumericArray|array $value)`; accepts a single numeric value, another array, or a list of `CSSNumericValue` objects (enforcing `CSSNumericValue::MAX_MATH_NODES` via `CSSParserLimitException`). |
 | `count` | `public function count(): int`; returns item count. |
 | `item` | `public function item(int $index): ?CSSNumericValue`; returns item at index or null. |
 | `keys` / `values` / `entries` | Return `list<int>`, `list<CSSNumericValue>`, and `list<array{int, CSSNumericValue}>`. |
 | `forEach` | `public function forEach(callable $callback): void`; invokes `$callback($value, $index, $this)`. |
 | `offsetExists` / `offsetGet` | Read-only integer index access; `offsetSet` and `offsetUnset` throw `InvalidArgumentException`. |
 | `getIterator` | Returns an `ArrayIterator` over stored numeric values. |
-| `__get` / `__set` | Throw `Error` on undefined or read-only properties. |
-| `__toString` | Comma-separated string serialization of items. |
+| `__get` / `__isset` / `__set` | `__isset` returns `false`; `__get` and `__set` throw `Error` on undefined or read-only properties. |
+| `__toString` | Comma-separated string serialization of items (enforcing `CSSParserOptions::DEFAULT_MAX_BYTES` via `CSSParserLimitException`). |
 | `clone` | Deep-clones every contained numeric value into a new `CSSNumericArray`. |

@@ -37,7 +37,7 @@
 
 ## Properties
 
-Private `parentStyleSheet` and `parentRule` fields are exposed by getters and magic read-only virtual properties `parentStyleSheet` and `parentRule`. `type` and `cssText` are virtual read-only properties. No public instance fields are declared.
+Private `parentStyleSheet` and `parentRule` fields are exposed by getters and magic read-only virtual properties `parentStyleSheet` and `parentRule` (and detached rule instances retain their configured `$maxBytes` budget across parent-link queries). `type` and `cssText` are virtual read-only properties. No public instance fields are declared.
 
 ## Public Methods
 

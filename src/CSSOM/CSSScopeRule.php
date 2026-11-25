@@ -20,9 +20,9 @@ final class CSSScopeRule extends CSSGroupingRule
 	private ?string $startSelector = null;
 	private ?string $endSelector = null;
 
-	public function __construct(string $prelude = '')
+	public function __construct(string $prelude = '', ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
-		parent::__construct('scope', $prelude);
+		parent::__construct('scope', $prelude, $maxBytes);
 		[$this->startSelector, $this->endSelector] = self::parseBounds($this->prelude);
 	}
 

@@ -13,7 +13,7 @@ Magic read-only properties: `containerName`, `containerQuery`, and inherited `co
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(string $conditionText)` | Uses the condition text as the `@container` prelude; parent validation applies. | `$rule = new CSSContainerRule('sidebar (width > 30rem)');` |
+| `__construct(string $conditionText, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Uses the condition text as the `@container` prelude under `$maxBytes`; parent validation applies. | `$rule = new CSSContainerRule('sidebar (width > 30rem)');` |
 | `getType(): int` | Returns `CSSRule::CONTAINER_RULE`. | `$rule->getType();` |
 | `getContainerName(): string` | Parses leading validated `<container-name>` via `decodeIdentAt()` (supporting CSS escapes such as `card\(1` and rejecting `none`, `and`, `not`, `or`, and CSS-wide keywords), or `''` if the prelude starts directly with a query. | `$rule->getContainerName();` |
 | `getContainerQuery(): string` | Returns the query portion following any valid `<container-name>`, or the entire trimmed prelude when unnamed. | `$rule->getContainerQuery();` |

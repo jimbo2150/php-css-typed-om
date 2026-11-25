@@ -13,7 +13,7 @@ No additional virtual properties are declared; inherited `name`, `prelude`, `sty
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(string $name, CSSStyleDeclaration $style)` | Requires a recognized top/bottom/left/right margin-box name, optionally with `-corner`; throws `InvalidArgumentException` otherwise. | `$rule = new CSSMarginRule('top-left', new CSSStyleDeclaration('content: "Page"'));` |
+| `__construct(string $name, CSSStyleDeclaration $style, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Checks `$maxBytes` before scanning; requires a recognized top/bottom/left/right margin-box name, optionally with `-corner`; throws `InvalidArgumentException` / `CSSParserLimitException` otherwise. | `$rule = new CSSMarginRule('top-left', new CSSStyleDeclaration('content: "Page"'));` |
 | `getType(): int` | Returns `CSSRule::MARGIN_RULE`. | `$rule->getType();` |
 
 All inherited public methods are documented on [`CSSAtRule`](CSSAtRule.md) and [`CSSRule`](CSSRule.md).

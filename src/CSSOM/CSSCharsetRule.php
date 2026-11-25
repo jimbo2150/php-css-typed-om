@@ -14,8 +14,11 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
  */
 final class CSSCharsetRule extends CSSAtRule
 {
-	public function __construct(string $prelude)
+	public function __construct(string $prelude, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
+		if ($maxBytes !== null && strlen($prelude) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS @charset rule exceeds maximum size of %d bytes.', $maxBytes));
+		}
 		$trimmed = CSSSyntaxScanner::trimCssWhitespace($prelude);
 		if ($trimmed === '') {
 			throw new InvalidArgumentException('@charset requires an encoding string.');
@@ -24,12 +27,21 @@ final class CSSCharsetRule extends CSSAtRule
 		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
 			throw new InvalidArgumentException('@charset requires an encoding string.');
 		}
-		parent::__construct('charset', $trimmed);
+		parent::__construct('charset', $trimmed, null, false, $maxBytes);
 	}
 
 	public function getEncoding(): string
 	{
-		return trim($this->prelude, CSSSyntaxScanner::CSS_WHITESPACE . "\"'");
+		$encoding = $this->prelude;
+		if (str_contains($encoding, '/*')) {
+			$encoding = CSSSyntaxScanner::removeComments($encoding);
+		}
+		$encoding = CSSSyntaxScanner::trimCssWhitespace($encoding);
+		if (strlen($encoding) >= 2 && (($encoding[0] === '"' && $encoding[-1] === '"') || ($encoding[0] === "'" && $encoding[-1] === "'"))) {
+			return substr($encoding, 1, -1);
+		}
+
+		return trim($encoding, CSSSyntaxScanner::CSS_WHITESPACE . "\"'");
 	}
 
 	public function getType(): int
