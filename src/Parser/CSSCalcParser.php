@@ -67,14 +67,28 @@ class CSSCalcParser
 
 		$trimmed = CSSSyntaxScanner::trimCssWhitespace($calcString);
 		$len = strlen($trimmed);
-		if ($len < 5) {
+		$pos = 0;
+		while ($pos < $len) {
+			$pos += strspn($trimmed, CSSSyntaxScanner::CSS_WHITESPACE, $pos, $len - $pos);
+			if ($pos + 1 < $len && $trimmed[$pos] === '/' && $trimmed[$pos + 1] === '*') {
+				$cEnd = strpos($trimmed, '*/', $pos + 2);
+				if ($cEnd === false) {
+					throw new InvalidArgumentException('Unclosed comment in CSS math expression.');
+				}
+				$pos = $cEnd + 2;
+				continue;
+			}
+			break;
+		}
+		if (($len - $pos) < 5) {
 			throw new InvalidArgumentException('Expected a calc() expression.');
 		}
-		if (substr_compare($trimmed, 'calc(', 0, 5, true) === 0) {
-			$open = 4;
+		if (substr_compare($trimmed, 'calc(', $pos, 5, true) === 0) {
+			$open = $pos + 4;
 		} else {
-			$open = strpos($trimmed, '(');
-			if ($open === false || CSSSyntaxScanner::decodeLeadingFunctionName($trimmed, $open) !== 'calc') {
+			$open = strpos($trimmed, '(', $pos);
+			$ident = $open !== false ? CSSSyntaxScanner::decodeIdentAt($trimmed, $pos, $len) : null;
+			if ($open === false || $ident === null || $ident['end'] !== $open || strtolower($ident['ident']) !== 'calc') {
 				throw new InvalidArgumentException('Expected a calc() expression.');
 			}
 		}
@@ -82,7 +96,20 @@ class CSSCalcParser
 		if ($close === null || ($close < $len - 1 && $trimmed[$close + 1] === ')')) {
 			throw new InvalidArgumentException('Mismatched parentheses.');
 		}
-		if ($close !== $len - 1) {
+		$tail = $close + 1;
+		while ($tail < $len) {
+			$tail += strspn($trimmed, CSSSyntaxScanner::CSS_WHITESPACE, $tail, $len - $tail);
+			if ($tail + 1 < $len && $trimmed[$tail] === '/' && $trimmed[$tail + 1] === '*') {
+				$cEnd = strpos($trimmed, '*/', $tail + 2);
+				if ($cEnd === false) {
+					throw new InvalidArgumentException('Unclosed comment in CSS math expression.');
+				}
+				$tail = $cEnd + 2;
+				continue;
+			}
+			break;
+		}
+		if ($tail !== $len) {
 			throw new InvalidArgumentException('Invalid expression.');
 		}
 
@@ -429,7 +456,8 @@ class CSSCalcParser
 						return null;
 					}
 					if ($fnName !== 'clamp' && $options->maxMathDepth !== null) {
-						$maxArgs = max(1024, $options->maxMathDepth * 16);
+						$cappedDepth = min($options->maxMathDepth, intdiv(PHP_INT_MAX, 64));
+						$maxArgs = max(1024, $cappedDepth * 16);
 						if (count($argRanges) > $maxArgs) {
 							throw new CSSParserLimitException(sprintf('CSS %s() argument count exceeds maximum limit of %d.', $fnName, $maxArgs));
 						}
@@ -635,7 +663,7 @@ class CSSCalcParser
 		$commentStartByEnd = [];
 		$indexedNodes = 0;
 		$maxParenStack = $options->maxMathDepth !== null
-			? ($options->maxMathDepth + ($hasOuterWrapper ? 1 : 0))
+			? ($hasOuterWrapper && $options->maxMathDepth < PHP_INT_MAX ? $options->maxMathDepth + 1 : $options->maxMathDepth)
 			: null;
 
 		/** @var list<array{int, list<int>, list<array{opCount: int, hasChildParen: bool}>, int, bool}> $parenStack */
@@ -669,7 +697,7 @@ class CSSCalcParser
 					$parenStack[count($parenStack) - 1][4] = true;
 				}
 				$parenStack[] = [$scan, [], [], 0, false];
-				if ($maxParenStack !== null && ($rootDepth + count($parenStack)) > $maxParenStack) {
+				if ($maxParenStack !== null && ($rootDepth > $maxParenStack || count($parenStack) > ($maxParenStack - $rootDepth))) {
 					throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $options->maxMathDepth));
 				}
 			} elseif ($ch === ')') {
@@ -733,7 +761,9 @@ class CSSCalcParser
 		$expectsOperand = true;
 		$hadWhitespace = false;
 		$unaryRun = 0;
-		$maxTokens = $options->maxMathDepth !== null ? max(4096, $options->maxMathDepth * 64) : null;
+		$maxTokens = $options->maxMathDepth !== null
+			? max(4096, min($options->maxMathDepth, intdiv(PHP_INT_MAX, 64)) * 64)
+			: null;
 		$numberPattern = '/\G[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?([a-zA-Z%]*)/';
 
 		while ($offset < $sliceEnd) {

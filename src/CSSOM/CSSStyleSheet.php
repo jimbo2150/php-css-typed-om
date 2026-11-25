@@ -67,7 +67,10 @@ final class CSSStyleSheet extends StyleSheet
 		$this->baseURLValue = $baseURL;
 		$this->cssRulesList = new CSSRuleList($this);
 		$this->getMedia()->setOwnerInternal($this);
-		$this->getMedia()->setMaxBytesInternal($this->maxBytes);
+		$mediaLimit = $media instanceof MediaList
+			? CSSRule::minLimitInternal($this->maxBytes, $media->getMaxBytesInternal())
+			: $this->maxBytes;
+		$this->getMedia()->setMaxBytesInternal($mediaLimit);
 	}
 
 	public function getBaseURL(): ?string
@@ -164,6 +167,22 @@ final class CSSStyleSheet extends StyleSheet
 	public function getMaxDeclarationsInternal(): ?int
 	{
 		return $this->maxDeclarations;
+	}
+
+	/**
+	 * @internal
+	 */
+	public function getMaxMathDepthInternal(): ?int
+	{
+		return $this->maxMathDepth;
+	}
+
+	/**
+	 * @internal
+	 */
+	public function getMaxErrorsInternal(): ?int
+	{
+		return $this->maxErrors;
 	}
 
 	/**

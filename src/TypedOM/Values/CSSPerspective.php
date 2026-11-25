@@ -56,10 +56,9 @@ final class CSSPerspective extends CSSTransformComponent
 		return [$this->getLength()];
 	}
 
-	public function __toString(): string
+	protected function prepareForSerialization(): void
 	{
 		$this->assertValidCurrentLength();
-		return parent::__toString();
 	}
 
 	private function assertValidCurrentLength(): void

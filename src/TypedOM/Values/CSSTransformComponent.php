@@ -6,11 +6,13 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 use Error;
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrixReadOnly;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathValue;
 
 /**
  * Base class for CSS Typed OM transform component functions.
@@ -82,13 +84,54 @@ abstract class CSSTransformComponent extends CSSStyleValue
 		return clone $this;
 	}
 
+	protected function prepareForSerialization(): void
+	{
+	}
+
+	/**
+	 * @internal
+	 * @return list<CSSStyleValue|string>
+	 */
+	public function getComponentValuesInternal(): array
+	{
+		$this->prepareForSerialization();
+		return $this->values;
+	}
+
+	/** @internal */
+	public function toBoundedCssTextInternal(?int $maxBytes): string
+	{
+		$this->prepareForSerialization();
+		$used = strlen($this->functionName) + 2;
+		if ($maxBytes !== null && $used > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS transform component exceeds maximum size of %d bytes.', $maxBytes));
+		}
+		$parts = [];
+		foreach ($this->values as $i => $value) {
+			$sep = $i === 0 ? '' : ', ';
+			$used += strlen($sep);
+			if ($maxBytes !== null && $used > $maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS transform component exceeds maximum size of %d bytes.', $maxBytes));
+			}
+			$remaining = $maxBytes !== null ? $maxBytes - $used : null;
+			if ($value instanceof CSSMathValue || $value instanceof self) {
+				$part = $value->toBoundedCssTextInternal($remaining);
+			} else {
+				$part = (string) $value;
+			}
+			$used += strlen($part);
+			if ($maxBytes !== null && $used > $maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS transform component exceeds maximum size of %d bytes.', $maxBytes));
+			}
+			$parts[] = $sep . $part;
+		}
+
+		return $this->functionName . '(' . implode('', $parts) . ')';
+	}
+
 	public function __toString(): string
 	{
-		$parts = [];
-		foreach ($this->values as $value) {
-			$parts[] = (string) $value;
-		}
-		return $this->functionName . '(' . implode(', ', $parts) . ')';
+		return $this->toBoundedCssTextInternal(CSSParserOptions::DEFAULT_MAX_BYTES);
 	}
 
 	public function __get(string $name): mixed

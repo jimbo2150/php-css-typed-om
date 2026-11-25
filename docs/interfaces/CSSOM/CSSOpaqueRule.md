@@ -13,7 +13,7 @@ The private readonly `source` property has no public accessor. Standard CSSRule 
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(string $source, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Stores the supplied source text verbatim after checking `$maxBytes`, disallowed control characters, and balanced syntax (`CSSSyntaxScanner::isBalanced()`) (`CSSParserLimitException` / `InvalidArgumentException` if violated). | `$rule = new CSSOpaqueRule('@unknown value;');` |
+| `__construct(string $source, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Validates `$maxBytes > 0`, enforces `$maxBytes` and disallowed control characters, validates a single well-formed at-rule (leading `@<ident>`, balanced single top-level `;` or `{...}` block, only trailing whitespace/comments) via `CSSSyntaxScanner`, and stores the source verbatim (`CSSParserLimitException` / `InvalidArgumentException` if violated). | `$rule = new CSSOpaqueRule('@unknown value;');` |
 | `getType(): int` | Always returns `CSSRule::UNKNOWN_RULE`. | `$rule->getType();` |
 | `getCssText(): string` | Returns the stored source verbatim. | `$rule->getCssText();` |
 

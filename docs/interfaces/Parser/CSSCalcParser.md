@@ -12,7 +12,7 @@ Parses supported CSS `calc()`, nested `min()`/`max()`/`clamp()`, and arithmetic 
 
 Parses the complete input as one `calc(...)` expression and returns its numeric expression tree. The expression must have matching parentheses, valid tokens, sufficient operands, and dimensionally compatible operations. The configured math nesting limit is checked before parsing.
 
-- `$calcString`: complete CSS `calc()` expression; trailing content after the closing parenthesis is rejected.
+- `$calcString`: complete CSS `calc()` expression with optional leading/trailing CSS whitespace or comments; trailing tokens after the closing parenthesis are rejected.
 - `$options`: optional [`CSSParserOptions`](../CSSOM/CSSParserOptions.md) controlling parser resource limits. A default options object is used when omitted.
 - `$depth`: current math nesting depth, primarily used by recursive parsing; normally omit it (negative values or `PHP_INT_MAX` throw `InvalidArgumentException`).
 - **Returns:** a `CSSNumericValue` such as a unit value or a math expression node.

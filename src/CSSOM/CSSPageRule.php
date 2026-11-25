@@ -64,15 +64,19 @@ final class CSSPageRule extends CSSGroupingRule
 		} else {
 			$descriptors = new CSSPageDescriptors();
 			if ($style !== null) {
-				$descriptors->setLimitsInternal($maxBytes, $style->resolveMaxDeclarationsInternal());
+				$descriptors->setLimitsInternal(
+					self::minLimitInternal($maxBytes, $style->resolveMaxBytesInternal()),
+					$style->resolveMaxDeclarationsInternal(),
+					$style->resolveMaxDepthInternal(),
+					$style->resolveMaxMathDepthInternal(),
+					true,
+				);
 				foreach ($style->getDeclarationsRaw() as $property => $declaration) {
 					$descriptors->setValidatedProperty($property, $declaration['value'], $declaration['priority']);
 				}
 			}
 		}
-		if ($maxBytes !== null && ($descriptors->resolveMaxBytesInternal() === null || $maxBytes < $descriptors->resolveMaxBytesInternal())) {
-			$descriptors->setMaxBytesInternal($maxBytes);
-		}
+		$descriptors->clampLimitsInternal($maxBytes, null, null, null, false);
 		$descriptors->setParentRule($this);
 		$this->styleDescriptors = $descriptors;
 
@@ -84,13 +88,21 @@ final class CSSPageRule extends CSSGroupingRule
 		}
 	}
 
-	protected function syncChildLimitsInternal(?int $maxBytes, ?int $maxDeclarations, bool $syncDeclarations = false): void
-	{
-		if ($syncDeclarations) {
-			$this->styleDescriptors->setLimitsInternal($maxBytes, $maxDeclarations);
-		} else {
-			$this->styleDescriptors->setMaxBytesInternal($maxBytes);
-		}
+	protected function syncChildLimitsInternal(
+		?int $maxBytes,
+		?int $maxDeclarations,
+		bool $syncDeclarations = false,
+		?int $maxDepth = CSSParserOptions::DEFAULT_MAX_DEPTH,
+		?int $maxMathDepth = CSSParserOptions::DEFAULT_MAX_MATH_DEPTH,
+		bool $syncDepths = false,
+	): void {
+		$this->styleDescriptors->clampLimitsInternal(
+			$maxBytes,
+			$syncDeclarations ? $maxDeclarations : null,
+			$maxDepth,
+			$maxMathDepth,
+			$syncDepths,
+		);
 	}
 
 	public function getType(): int

@@ -198,10 +198,9 @@ final class CSSTranslate extends CSSTransformComponent
 		return parent::getValues();
 	}
 
-	public function __toString(): string
+	protected function prepareForSerialization(): void
 	{
 		$this->syncLiveState();
-		return parent::__toString();
 	}
 
 	private function syncLiveState(): void

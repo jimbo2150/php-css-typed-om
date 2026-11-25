@@ -79,6 +79,8 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 					$bytes += strlen($current->getCssText());
 				} elseif ($current instanceof CSSStyleRule) {
 					$bytes += strlen($current->getSelectorText());
+				} elseif ($current instanceof CSSFunctionRule) {
+					$bytes += max(strlen($current->getPrelude()), $current->getComponentBytesInternal());
 				} elseif ($current instanceof CSSGroupingRule) {
 					$bytes += strlen($current->getPrelude());
 				} elseif ($current instanceof CSSAtRule) {
@@ -97,14 +99,12 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 					$height = $blockDepth;
 				}
 				if ($current instanceof CSSStyleRule || $current instanceof CSSPageRule) {
-					$raw = $current->getStyle()->getDeclarationsRaw();
-					$declarations += count($raw);
+					$style = $current->getStyle();
+					$declarations += count($style->getDeclarationsRaw());
 					if ($maxBytes !== null) {
-						foreach ($raw as $prop => $decl) {
-							$bytes += strlen((string) $prop) + strlen($decl['value']);
-							if ($bytes > $maxBytes) {
-								throw new CSSParserLimitException(sprintf('CSS rule exceeds maximum size of %d bytes.', $maxBytes));
-							}
+						$bytes += $style->getContentBytesInternal();
+						if ($bytes > $maxBytes) {
+							throw new CSSParserLimitException(sprintf('CSS rule exceeds maximum size of %d bytes.', $maxBytes));
 						}
 					}
 				} elseif ($current instanceof CSSFontFeatureValuesRule) {
@@ -125,14 +125,11 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 				}
 				$style = $current->getStyle();
 				if ($style !== null) {
-					$raw = $style->getDeclarationsRaw();
-					$declarations += count($raw);
+					$declarations += count($style->getDeclarationsRaw());
 					if ($maxBytes !== null) {
-						foreach ($raw as $prop => $decl) {
-							$bytes += strlen((string) $prop) + strlen($decl['value']);
-							if ($bytes > $maxBytes) {
-								throw new CSSParserLimitException(sprintf('CSS rule exceeds maximum size of %d bytes.', $maxBytes));
-							}
+						$bytes += $style->getContentBytesInternal();
+						if ($bytes > $maxBytes) {
+							throw new CSSParserLimitException(sprintf('CSS rule exceeds maximum size of %d bytes.', $maxBytes));
 						}
 					}
 				}
@@ -141,14 +138,12 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 				if ($blockDepth > $height) {
 					$height = $blockDepth;
 				}
-				$raw = $current->getStyle()->getDeclarationsRaw();
-				$declarations += count($raw);
+				$style = $current->getStyle();
+				$declarations += count($style->getDeclarationsRaw());
 				if ($maxBytes !== null) {
-					foreach ($raw as $prop => $decl) {
-						$bytes += strlen((string) $prop) + strlen($decl['value']);
-						if ($bytes > $maxBytes) {
-							throw new CSSParserLimitException(sprintf('CSS rule exceeds maximum size of %d bytes.', $maxBytes));
-						}
+					$bytes += $style->getContentBytesInternal();
+					if ($bytes > $maxBytes) {
+						throw new CSSParserLimitException(sprintf('CSS rule exceeds maximum size of %d bytes.', $maxBytes));
 					}
 				}
 			} elseif ($relDepth > $height) {

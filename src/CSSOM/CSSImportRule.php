@@ -217,7 +217,7 @@ final class CSSImportRule extends CSSAtRule
 				continue;
 			}
 			if ($identLower === 'layer'
-				&& ($identEnd === $tLen || $tail[$identEnd] !== '(')
+				&& ($identEnd === $tLen || str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $tail[$identEnd]))
 			) {
 				if ($supportsText !== null) {
 					throw new InvalidArgumentException('CSS @import layer() must precede supports().');
@@ -398,9 +398,15 @@ final class CSSImportRule extends CSSAtRule
 		return $token;
 	}
 
-	protected function syncChildLimitsInternal(?int $maxBytes, ?int $maxDeclarations, bool $syncDeclarations = false): void
-	{
-		$this->mediaList->setMaxBytesInternal($maxBytes);
+	protected function syncChildLimitsInternal(
+		?int $maxBytes,
+		?int $maxDeclarations,
+		bool $syncDeclarations = false,
+		?int $maxDepth = CSSParserOptions::DEFAULT_MAX_DEPTH,
+		?int $maxMathDepth = CSSParserOptions::DEFAULT_MAX_MATH_DEPTH,
+		bool $syncDepths = false,
+	): void {
+		$this->mediaList->setMaxBytesInternal(CSSRule::minLimitInternal($this->mediaList->getMaxBytesInternal(), $maxBytes));
 	}
 
 	public function __clone(): void

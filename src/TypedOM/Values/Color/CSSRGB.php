@@ -110,9 +110,16 @@ final class CSSRGB extends CSSColorValue
 		return clone $this;
 	}
 
-	public function __toString(): string
+	/** @internal */
+	public function getComponentValuesInternal(): array
 	{
-		return 'rgb(' . $this->rValue . ' ' . $this->gValue . ' ' . $this->bValue . $this->formatAlphaSuffix() . ')';
+		return [$this->rValue, $this->gValue, $this->bValue, $this->alphaValue];
+	}
+
+	/** @internal */
+	public function toBoundedCssTextInternal(?int $maxBytes): string
+	{
+		return $this->serializeFunctionChannelsBounded('rgb', [$this->rValue, $this->gValue, $this->bValue], $maxBytes);
 	}
 
 	protected function toSrgbChannels(): array

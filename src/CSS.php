@@ -207,7 +207,10 @@ abstract class CSS
 			if ($initialValue !== null && strlen($initialValue) > CSSParserOptions::DEFAULT_MAX_BYTES) {
 				throw new CSSParserLimitException(sprintf('Registered property initialValue exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
 			}
-			$name = $rawName;
+			$name = CSSStyleDeclaration::normalizePropertyName($rawName);
+			if (!str_starts_with($name, '--')) {
+				throw new InvalidArgumentException('Registered property name must begin with "--".');
+			}
 			$syntax = $definition->getSyntax();
 			$rawInherits = CSSSyntaxScanner::trimCssWhitespace($rawInheritsRaw);
 			if (str_contains($rawInherits, '/*')) {

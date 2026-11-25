@@ -126,9 +126,16 @@ final class CSSOKLCH extends CSSColorValue
 		return clone $this;
 	}
 
-	public function __toString(): string
+	/** @internal */
+	public function getComponentValuesInternal(): array
 	{
-		return 'oklch(' . $this->lValue . ' ' . $this->cValue . ' ' . $this->hValue . $this->formatAlphaSuffix() . ')';
+		return [$this->lValue, $this->cValue, $this->hValue, $this->alphaValue];
+	}
+
+	/** @internal */
+	public function toBoundedCssTextInternal(?int $maxBytes): string
+	{
+		return $this->serializeFunctionChannelsBounded('oklch', [$this->lValue, $this->cValue, $this->hValue], $maxBytes);
 	}
 
 	protected function toXyzD65(): array

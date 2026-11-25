@@ -25,19 +25,25 @@ final class CSSNestedDeclarations extends CSSRule
 		}
 		$this->maxBytes = $maxBytes;
 		$this->styleProperties = CSSStyleProperties::fromDeclaration($style);
-		if ($maxBytes !== null && ($this->styleProperties->resolveMaxBytesInternal() === null || $maxBytes < $this->styleProperties->resolveMaxBytesInternal())) {
-			$this->styleProperties->setMaxBytesInternal($maxBytes);
-		}
+		$this->styleProperties->clampLimitsInternal($maxBytes, null, null, null, false);
 		$this->styleProperties->setParentRule($this);
 	}
 
-	protected function syncChildLimitsInternal(?int $maxBytes, ?int $maxDeclarations, bool $syncDeclarations = false): void
-	{
-		if ($syncDeclarations) {
-			$this->styleProperties->setLimitsInternal($maxBytes, $maxDeclarations);
-		} else {
-			$this->styleProperties->setMaxBytesInternal($maxBytes);
-		}
+	protected function syncChildLimitsInternal(
+		?int $maxBytes,
+		?int $maxDeclarations,
+		bool $syncDeclarations = false,
+		?int $maxDepth = CSSParserOptions::DEFAULT_MAX_DEPTH,
+		?int $maxMathDepth = CSSParserOptions::DEFAULT_MAX_MATH_DEPTH,
+		bool $syncDepths = false,
+	): void {
+		$this->styleProperties->clampLimitsInternal(
+			$maxBytes,
+			$syncDeclarations ? $maxDeclarations : null,
+			$maxDepth,
+			$maxMathDepth,
+			$syncDepths,
+		);
 	}
 
 	public function getType(): int

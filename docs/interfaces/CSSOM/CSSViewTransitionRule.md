@@ -13,7 +13,7 @@ Magic read-only `navigation` and `types` access descriptors. `types` is an array
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(CSSStyleDeclaration $descriptors, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Uses the supplied declarations as a block-form `@view-transition` rule and retains `$maxBytes` when detached. | `$rule = new CSSViewTransitionRule(new CSSStyleDeclaration('navigation: auto; types: slide, fade'));` |
+| `__construct(CSSStyleDeclaration $descriptors, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Rejects non-positive `$maxBytes` (`InvalidArgumentException`), adopts the supplied declarations monotonically (never widening stricter limits on `$descriptors`), and builds a block-form `@view-transition` rule retaining resolved limits when detached. | `$rule = new CSSViewTransitionRule(new CSSStyleDeclaration('navigation: auto; types: slide, fade'));` |
 | `getNavigation(): string` | Strips CSS comments, trims CSS whitespace, and returns the `navigation` descriptor or `''`. | `$rule->getNavigation();` |
 | `getTypes(): array` | Strips CSS comments, trims `types`, and decodes CSS escapes for `none`, returns `[]` for empty or `none`, otherwise splits top-level whitespace into a list (capped at `CSSStyleValue::MAX_LIST_ITEMS`). | `$rule->getTypes();` |
 | `getType(): int` | Returns `CSSRule::VIEW_TRANSITION_RULE`. | `$rule->getType();` |

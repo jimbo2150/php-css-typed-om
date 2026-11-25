@@ -13,7 +13,7 @@ Magic `mediaText` reads/writes normalized list text; `length` is read-only. No p
 
 | Signature | Parameters / behavior | Throws / result | Example |
 |---|---|---|---|
-| `__construct(string $mediaText = '', ?Closure $onChange = null, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Parses initial text under `$maxBytes` (retaining `$maxBytes` when detached/ownerless); optional callback receives normalized replacement text before internal state is committed. | `InvalidArgumentException` / `CSSParserLimitException` for invalid syntax or exceeded caps. | `$media = new MediaList('screen, print');` |
+| `__construct(string $mediaText = '', ?Closure $onChange = null, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Parses initial text under `$maxBytes` (retaining `$maxBytes` when detached/ownerless and clamping monotonically under Policy C2 when bound to an owner); optional callback receives normalized replacement text before internal state is committed. | `InvalidArgumentException` / `CSSParserLimitException` for invalid syntax or exceeded caps. | `$media = new MediaList('screen, print');` |
 | `cloneWithCallback(?Closure $onChange): self` | `@internal` helper that returns an independent copy wired to a new `$onChange` callback (used when cloning owning rules). | Returns cloned `MediaList`. | `$copy = $media->cloneWithCallback(null);` |
 | `__clone(): void` | Clears `$onChange` and owner reference while preserving cloned queries and `$maxBytes`. | | `$copy = clone $media;` |
 | `getMediaText(): string` | Joins stored media queries using `, `. | | `$media->getMediaText();` |

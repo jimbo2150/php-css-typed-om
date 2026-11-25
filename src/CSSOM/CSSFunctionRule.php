@@ -25,6 +25,8 @@ final class CSSFunctionRule extends CSSGroupingRule
 
 	private readonly string $functionReturnType;
 
+	private readonly int $componentBytes;
+
 	/** @param list<array{name: string, type: string, defaultValue: ?string}> $parameters */
 	public function __construct(
 		string $functionName,
@@ -67,6 +69,10 @@ final class CSSFunctionRule extends CSSGroupingRule
 		if (count($parameters) > CSSStyleValue::MAX_LIST_ITEMS) {
 			throw new CSSParserLimitException(sprintf('CSS @function parameter list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
 		}
+		$componentBytes = strlen($validatedName) + strlen($normalizedReturnType);
+		if ($maxBytes !== null && $componentBytes > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS @function rule exceeds maximum size of %d bytes.', $maxBytes));
+		}
 		foreach ($parameters as $parameter) {
 			if (!is_array($parameter)
 				|| !isset($parameter['name'], $parameter['type'])
@@ -106,6 +112,11 @@ final class CSSFunctionRule extends CSSGroupingRule
 				}
 			}
 
+			$componentBytes += strlen($paramName) + strlen($paramType) + ($defaultValue !== null ? strlen($defaultValue) : 0);
+			if ($maxBytes !== null && $componentBytes > $maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS @function rule exceeds maximum size of %d bytes.', $maxBytes));
+			}
+
 			$normalizedParameters[] = [
 				'name' => $paramName,
 				'type' => $paramType,
@@ -116,6 +127,7 @@ final class CSSFunctionRule extends CSSGroupingRule
 		$this->functionName = $validatedName;
 		$this->parameters = $normalizedParameters;
 		$this->functionReturnType = $normalizedReturnType;
+		$this->componentBytes = $componentBytes;
 		parent::__construct('function', $trimmedPrelude === '' ? $validatedName : $trimmedPrelude, $maxBytes);
 	}
 
@@ -135,26 +147,39 @@ final class CSSFunctionRule extends CSSGroupingRule
 			throw new InvalidArgumentException('Malformed @function name or parameter list.');
 		}
 		CSSSyntaxScanner::assertValidFragment($prelude, '@function prelude', [';', '{', '}']);
-		$cleanPrelude = str_contains($prelude, '/*')
-			? CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($prelude))
-			: $prelude;
-		$open = CSSSyntaxScanner::findTopLevel($cleanPrelude, '(');
-		if ($open === null) {
+		$length = strlen($prelude);
+		$pos = 0;
+		while ($pos < $length) {
+			$pos += strspn($prelude, CSSSyntaxScanner::CSS_WHITESPACE, $pos, $length - $pos);
+			if ($pos + 1 < $length && $prelude[$pos] === '/' && $prelude[$pos + 1] === '*') {
+				$commentEnd = strpos($prelude, '*/', $pos + 2);
+				if ($commentEnd === false) {
+					throw new InvalidArgumentException('Malformed @function name or parameter list.');
+				}
+				$pos = $commentEnd + 2;
+				continue;
+			}
+			break;
+		}
+		$nameEnd = CSSSyntaxScanner::scanIdentEnd($prelude, $pos, $length);
+		if ($nameEnd === null || $nameEnd >= $length || $prelude[$nameEnd] !== '(') {
 			throw new InvalidArgumentException('Malformed @function name or parameter list.');
 		}
-		$name = CSSSyntaxScanner::trimCssWhitespace(substr($cleanPrelude, 0, $open));
-		$normalizedName = CSSStyleDeclaration::normalizePropertyName($name);
+		$normalizedName = CSSStyleDeclaration::normalizePropertyName(substr($prelude, $pos, $nameEnd - $pos));
 		if (!str_starts_with($normalizedName, '--')) {
 			throw new InvalidArgumentException('Malformed @function name or parameter list.');
 		}
 
-		$close = CSSSyntaxScanner::findMatchingDelimiter($cleanPrelude, $open);
+		$close = CSSSyntaxScanner::findMatchingDelimiter($prelude, $nameEnd, $length);
 		if ($close === null) {
 			throw new InvalidArgumentException('Unclosed @function parameter list.');
 		}
 
-		$parameters = self::parseParameters(substr($cleanPrelude, $open + 1, $close - $open - 1));
-		$returnTail = CSSSyntaxScanner::trimCssWhitespace(substr($cleanPrelude, $close + 1));
+		$rawParams = substr($prelude, $nameEnd + 1, $close - $nameEnd - 1);
+		$cleanParams = str_contains($rawParams, '/*') ? CSSSyntaxScanner::removeComments($rawParams) : $rawParams;
+		$parameters = self::parseParameters($cleanParams);
+		$rawTail = substr($prelude, $close + 1);
+		$returnTail = CSSSyntaxScanner::trimCssWhitespace(str_contains($rawTail, '/*') ? CSSSyntaxScanner::removeComments($rawTail) : $rawTail);
 		$returnType = '*';
 		if ($returnTail !== '') {
 			$tailLength = strlen($returnTail);
@@ -179,6 +204,12 @@ final class CSSFunctionRule extends CSSGroupingRule
 	public function getType(): int
 	{
 		return self::FUNCTION_RULE;
+	}
+
+	/** @internal */
+	public function getComponentBytesInternal(): int
+	{
+		return $this->componentBytes;
 	}
 
 	public function getNameText(): string

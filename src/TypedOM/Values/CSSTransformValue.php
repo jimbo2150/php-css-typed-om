@@ -251,16 +251,19 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 	/** @internal */
 	public function toBoundedCssTextInternal(?int $maxBytes): string
 	{
-		$limit = $maxBytes !== null
-			? min($maxBytes, CSSParserOptions::DEFAULT_MAX_BYTES)
-			: CSSParserOptions::DEFAULT_MAX_BYTES;
 		$parts = [];
 		$totalBytes = 0;
 		foreach ($this->components as $i => $component) {
-			$part = (string) $component;
-			$totalBytes += strlen($part) + ($i > 0 ? 1 : 0);
-			if ($totalBytes > $limit) {
-				throw new CSSParserLimitException(sprintf('CSS transform list exceeds maximum size of %d bytes.', $limit));
+			$sepBytes = $i > 0 ? 1 : 0;
+			$totalBytes += $sepBytes;
+			if ($maxBytes !== null && $totalBytes > $maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS transform list exceeds maximum size of %d bytes.', $maxBytes));
+			}
+			$remaining = $maxBytes !== null ? $maxBytes - $totalBytes : null;
+			$part = $component->toBoundedCssTextInternal($remaining);
+			$totalBytes += strlen($part);
+			if ($maxBytes !== null && $totalBytes > $maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS transform list exceeds maximum size of %d bytes.', $maxBytes));
 			}
 			$parts[] = $part;
 		}

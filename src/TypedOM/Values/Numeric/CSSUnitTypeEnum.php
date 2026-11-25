@@ -37,8 +37,17 @@ enum CSSUnitTypeEnum: string
 			return new InvalidArgumentException('Invalid percentHint value: ' . $value);
 		}
 
-		if (is_int($value) || preg_match('/^-?\d+$/D', $value)) {
+		if (is_int($value)) {
 			return 'int';
+		}
+
+		if (preg_match('/^-?\d+$/D', $value) === 1) {
+			$negative = $value[0] === '-';
+			$digits = ltrim($negative ? substr($value, 1) : $value, '0');
+			$canonical = $digits === '' ? '0' : ($negative ? '-' . $digits : $digits);
+			if ((string) ((int) $canonical) === $canonical) {
+				return 'int';
+			}
 		}
 
 		return new InvalidArgumentException('Numeric type dimension exponent must be an integer.');

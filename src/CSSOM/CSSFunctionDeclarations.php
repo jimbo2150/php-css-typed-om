@@ -25,19 +25,25 @@ final class CSSFunctionDeclarations extends CSSRule
 		}
 		$this->maxBytes = $maxBytes;
 		$this->styleDescriptors = $style->getParentRule() !== null ? clone $style : $style;
-		if ($maxBytes !== null && ($this->styleDescriptors->resolveMaxBytesInternal() === null || $maxBytes < $this->styleDescriptors->resolveMaxBytesInternal())) {
-			$this->styleDescriptors->setMaxBytesInternal($maxBytes);
-		}
+		$this->styleDescriptors->clampLimitsInternal($maxBytes, null, null, null, false);
 		$this->styleDescriptors->setParentRule($this);
 	}
 
-	protected function syncChildLimitsInternal(?int $maxBytes, ?int $maxDeclarations, bool $syncDeclarations = false): void
-	{
-		if ($syncDeclarations) {
-			$this->styleDescriptors->setLimitsInternal($maxBytes, $maxDeclarations);
-		} else {
-			$this->styleDescriptors->setMaxBytesInternal($maxBytes);
-		}
+	protected function syncChildLimitsInternal(
+		?int $maxBytes,
+		?int $maxDeclarations,
+		bool $syncDeclarations = false,
+		?int $maxDepth = CSSParserOptions::DEFAULT_MAX_DEPTH,
+		?int $maxMathDepth = CSSParserOptions::DEFAULT_MAX_MATH_DEPTH,
+		bool $syncDepths = false,
+	): void {
+		$this->styleDescriptors->clampLimitsInternal(
+			$maxBytes,
+			$syncDeclarations ? $maxDeclarations : null,
+			$maxDepth,
+			$maxMathDepth,
+			$syncDepths,
+		);
 	}
 
 	public function getType(): int

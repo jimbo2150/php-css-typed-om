@@ -56,6 +56,12 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 		parent::__construct('font-feature-values', $fontFamily, $maxBytes);
 	}
 
+	/** @internal */
+	public function setDetachedMaxDeclarationsInternal(?int $maxDeclarations): void
+	{
+		$this->detachedMaxDeclarations = $maxDeclarations;
+	}
+
 	public function getType(): int
 	{
 		return self::FONT_FEATURE_VALUES_RULE;
@@ -83,6 +89,15 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 		$this->prelude = $fontFamily;
 	}
 
+	/** @internal */
+	public function resolveMaxDeclarationsInternal(): ?int
+	{
+		return self::minLimitInternal(
+			$this->detachedMaxDeclarations,
+			$this->getParentStyleSheet()?->getMaxDeclarationsInternal(),
+		);
+	}
+
 	public function getFeatureMap(string $featureType): CSSFontFeatureValuesMap
 	{
 		$featureType = strtolower(CSSSyntaxScanner::trimCssWhitespace($featureType));
@@ -93,7 +108,7 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 			$map = new CSSFontFeatureValuesMap();
 			$map->setLimitsInternal(
 				$this->resolveMaxBytesInternal(),
-				$this->getParentStyleSheet()?->getMaxDeclarationsInternal() ?? $this->detachedMaxDeclarations,
+				$this->resolveMaxDeclarationsInternal(),
 			);
 			$map->setOwnerRuleInternal($this);
 			$this->featureMaps[$featureType] = $map;
@@ -101,16 +116,22 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 		return $this->featureMaps[$featureType];
 	}
 
-	protected function syncChildLimitsInternal(?int $maxBytes, ?int $maxDeclarations, bool $syncDeclarations = false): void
-	{
+	protected function syncChildLimitsInternal(
+		?int $maxBytes,
+		?int $maxDeclarations,
+		bool $syncDeclarations = false,
+		?int $maxDepth = CSSParserOptions::DEFAULT_MAX_DEPTH,
+		?int $maxMathDepth = CSSParserOptions::DEFAULT_MAX_MATH_DEPTH,
+		bool $syncDepths = false,
+	): void {
 		if ($syncDeclarations) {
-			$this->detachedMaxDeclarations = $maxDeclarations;
+			$this->detachedMaxDeclarations = self::minLimitInternal($this->detachedMaxDeclarations, $maxDeclarations);
 		}
 		foreach ($this->featureMaps as $map) {
 			if ($syncDeclarations) {
-				$map->setLimitsInternal($maxBytes, $maxDeclarations);
+				$map->clampLimitsInternal($maxBytes, $this->detachedMaxDeclarations);
 			} else {
-				$map->setMaxBytesInternal($maxBytes);
+				$map->clampLimitsInternal($maxBytes, null);
 			}
 		}
 	}

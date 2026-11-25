@@ -47,7 +47,7 @@ Private `parentStyleSheet` and `parentRule` fields are exposed by getters and ma
 | `getCssText(): string` (abstract) | Returns CSS serialization for the node. | `$rule->getCssText();` |
 | `getParentStyleSheet(): ?CSSStyleSheet` | Returns attached stylesheet, or `null` when detached. | `$rule->getParentStyleSheet();` |
 | `getParentRule(): ?CSSGroupingRule` | Returns owning grouping rule, or `null` when not nested/attached. | `$rule->getParentRule();` |
-| `setParentLinks(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void` | Updates direct parent stylesheet and rule references without reparenting child lists, snapshotting owner `maxBytes`/`maxDeclarations` when detaching and clamping child limits downward when attaching. | `$rule->setParentLinks($sheet, $parent);` |
+| `setParentLinks(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void` | Updates direct parent stylesheet and rule references without reparenting child lists, applying monotonic Policy C2 limit synchronization (tighter limits are never widened across attach or detach). | `$rule->setParentLinks($sheet, $parent);` |
 | `attach(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void` | Updates both parent references and syncs/clamps child limits; grouping subclasses also reparent child lists. | `$rule->attach($sheet, null);` |
 | `__clone(): void` | Deeply detaches/clones rule state iteratively (including owned style declarations and grouping child lists without recursion). | `$copy = clone $rule;` |
 | `__toString(): string` | Returns `getCssText()`. | `$css = (string) $rule;` |

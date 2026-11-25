@@ -22,6 +22,7 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSPositionValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSTransformValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use PHPUnit\Framework\TestCase;
 use Random\Engine\Xoshiro256StarStar;
@@ -31,17 +32,19 @@ final class CSSFuzzTest extends TestCase
 {
 	private const array TOKENS = [
 		'a', 'div', '.card', '#id', '@media', '@layer', '@supports', '@import', '@page', '@keyframes', '@font-feature-values',
-		'@scope', '@container', '@starting-style', '@function', '@counter-style',
+		'@scope', '@container', '@starting-style', '@function', '@counter-style', '@function --f(--a <number>: 1) returns <number> { result: var(--a); }',
+		'@font-feature-values Demo { @styleset { alt: 1 2; } }',
 		'screen', 'color', 'margin', 'width', 'red', '10px', 'calc(', 'min(', 'max(', 'var(', 'var(/*c*/--a, 1px)',
+		'var(--b, var(--c, 1px))', 'layer', 'layer(x)', 'supports(display: grid)',
 		'url(', 'rgb(', ')', '{', '}', ';', ':', ',', '/', ' ', "\t", "\n", "\x00", "\x07", "\x0B", "\x7F",
-		'/*', '*/', '/*c*/', '"', "'", '\\', '\\61 ', '\\75 ', '\\7 ', '\\2d\\2d ', '!important', '--x', '<style>', '</style>',
+		'/*', '*/', '/*c*/', '/* comment */', '"', "'", '\\', '\\61 ', '\\75 ', '\\7 ', '\\2d\\2d ', '\\000031 ', '!important', '--x', '<style>', '</style>',
 		'url(a[b)', 'layer(', 'supports(', "\xFF",
 	];
 
 	public function testSeededStylesheetScannerAndTypedOmFuzzingIsSafeAndDeterministic(): void
 	{
 		$rng = new Randomizer(new Xoshiro256StarStar(0x5EED_C550));
-		$options = new CSSParserOptions(maxBytes: 4096, maxDepth: 16, maxRules: 64, maxMathDepth: 12, maxErrors: 32);
+		$options = new CSSParserOptions(maxBytes: 4096, maxDepth: 16, maxRules: 64, maxDeclarations: 256, maxMathDepth: 12, maxErrors: 32);
 
 		for ($i = 0; $i < 150; $i++) {
 			$input = $this->randomCss($rng, $rng->getInt(4, 36));
@@ -57,10 +60,16 @@ final class CSSFuzzTest extends TestCase
 			self::assertSame($input, implode(';', CSSSyntaxScanner::splitTopLevel($input, ';')));
 			CSSSyntaxScanner::findLastTopLevelImportant($input);
 
-			// Stylesheet parsing must never crash and must obey error & rule caps
+			// Stylesheet parsing must never crash and must obey error, rule, and declaration caps
 			$sheet = CSSStyleSheet::parse($input, $options);
 			self::assertLessThanOrEqual($options->maxErrors + 1, count($sheet->getParseErrors()));
 			self::assertLessThanOrEqual($options->maxRules, $sheet->getTotalRuleCount());
+			self::assertLessThanOrEqual($options->maxDeclarations, $sheet->getTotalDeclarationCount());
+			foreach ($sheet->cssRules as $topRule) {
+				if ($topRule instanceof CSSFunctionRule) {
+					self::assertLessThanOrEqual(CSSStyleValue::MAX_LIST_ITEMS, count($topRule->getParameters()));
+				}
+			}
 
 			$clonedSheet = clone $sheet;
 			self::assertSame($sheet->getTotalRuleCount(), $clonedSheet->getTotalRuleCount());
@@ -107,11 +116,18 @@ final class CSSFuzzTest extends TestCase
 			}
 			try {
 				self::assertInstanceOf(
-					\Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue::class,
-					new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue([$slice], $options),
+					CSSUnparsedValue::class,
+					new CSSUnparsedValue([$slice], $options),
 				);
 			} catch (InvalidArgumentException) {
 				// Expected on unbalanced/control-byte fragments
+			}
+			try {
+				$parsedUnparsed = CSSUnparsedValue::fromCssText($slice, $options);
+				self::assertInstanceOf(CSSUnparsedValue::class, $parsedUnparsed);
+				self::assertLessThanOrEqual($options->maxBytes, strlen((string) $parsedUnparsed));
+			} catch (InvalidArgumentException) {
+				// Expected on unbalanced/over-limit/control-byte fragments
 			}
 			foreach ([
 				static fn () => CSSNumericValue::parse($slice, null, $options),
@@ -121,7 +137,9 @@ final class CSSFuzzTest extends TestCase
 				static fn () => CSSPositionValue::fromCssText($slice, $options),
 			] as $call) {
 				try {
-					self::assertInstanceOf(CSSStyleValue::class, $call());
+					$val = $call();
+					self::assertInstanceOf(CSSStyleValue::class, $val);
+					self::assertLessThanOrEqual(CSSParserOptions::DEFAULT_MAX_BYTES, strlen((string) $val));
 				} catch (InvalidArgumentException) {
 					// Expected on malformed random CSS fragments
 				}

@@ -72,40 +72,80 @@ abstract class CSSRule
 	}
 
 	/** @internal */
+	public static function minLimitInternal(?int $a, ?int $b): ?int
+	{
+		if ($a === null) {
+			return $b;
+		}
+		if ($b === null) {
+			return $a;
+		}
+
+		return $a < $b ? $a : $b;
+	}
+
+	/** @internal */
 	public function resolveMaxBytesInternal(): ?int
 	{
-		$sheet = $this->getParentStyleSheet();
+		$sheetBytes = $this->parentSheetRef?->getMaxBytesInternal();
+		if ($sheetBytes === null) {
+			return $this->maxBytes;
+		}
+		if ($this->maxBytes === null) {
+			return $sheetBytes;
+		}
 
-		return $sheet !== null ? $sheet->getMaxBytesInternal() : $this->maxBytes;
+		return $this->maxBytes < $sheetBytes ? $this->maxBytes : $sheetBytes;
 	}
 
 	/** @internal */
 	public function clampMaxBytesInternal(?int $maxBytes): void
 	{
-		if ($maxBytes !== null && ($this->maxBytes === null || $maxBytes < $this->maxBytes)) {
-			$this->maxBytes = $maxBytes;
-			$this->syncChildLimitsInternal($maxBytes, null, false);
+		$clamped = self::minLimitInternal($this->maxBytes, $maxBytes);
+		if ($clamped !== $this->maxBytes || $maxBytes !== null) {
+			$this->maxBytes = $clamped;
+			$this->syncChildLimitsInternal($clamped, null, false);
 		}
 	}
 
-	protected function syncChildLimitsInternal(?int $maxBytes, ?int $maxDeclarations, bool $syncDeclarations = false): void
-	{
+	protected function syncChildLimitsInternal(
+		?int $maxBytes,
+		?int $maxDeclarations,
+		bool $syncDeclarations = false,
+		?int $maxDepth = CSSParserOptions::DEFAULT_MAX_DEPTH,
+		?int $maxMathDepth = CSSParserOptions::DEFAULT_MAX_MATH_DEPTH,
+		bool $syncDepths = false,
+	): void {
 	}
 
 	/** @internal Updates parent pointers without traversing child subtrees. */
 	public function setParentLinks(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void
 	{
 		if ($sheet === null && $this->parentSheetRef !== null) {
-			$detachedMaxBytes = $this->parentSheetRef->getMaxBytesInternal();
+			$detachedMaxBytes = self::minLimitInternal($this->maxBytes, $this->parentSheetRef->getMaxBytesInternal());
 			$detachedMaxDecls = $this->parentSheetRef->getMaxDeclarationsInternal();
+			$detachedMaxDepth = $this->parentSheetRef->getMaxDepthInternal();
+			$detachedMaxMathDepth = $this->parentSheetRef->getMaxMathDepthInternal();
 			$this->maxBytes = $detachedMaxBytes;
-			$this->syncChildLimitsInternal($detachedMaxBytes, $detachedMaxDecls, true);
+			$this->syncChildLimitsInternal(
+				$detachedMaxBytes,
+				$detachedMaxDecls,
+				true,
+				$detachedMaxDepth,
+				$detachedMaxMathDepth,
+				true,
+			);
 		} elseif ($sheet !== null) {
-			$sheetMaxBytes = $sheet->getMaxBytesInternal();
-			if ($sheetMaxBytes !== null && ($this->maxBytes === null || $sheetMaxBytes < $this->maxBytes)) {
-				$this->maxBytes = $sheetMaxBytes;
-				$this->syncChildLimitsInternal($sheetMaxBytes, $sheet->getMaxDeclarationsInternal(), true);
-			}
+			$clampedMaxBytes = self::minLimitInternal($this->maxBytes, $sheet->getMaxBytesInternal());
+			$this->maxBytes = $clampedMaxBytes;
+			$this->syncChildLimitsInternal(
+				$clampedMaxBytes,
+				$sheet->getMaxDeclarationsInternal(),
+				true,
+				$sheet->getMaxDepthInternal(),
+				$sheet->getMaxMathDepthInternal(),
+				true,
+			);
 		}
 		$this->parentSheetRef = $sheet;
 		$this->parentRuleRef = $parentRule;

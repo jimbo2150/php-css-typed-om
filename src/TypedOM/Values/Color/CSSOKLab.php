@@ -108,9 +108,16 @@ final class CSSOKLab extends CSSColorValue
 		return clone $this;
 	}
 
-	public function __toString(): string
+	/** @internal */
+	public function getComponentValuesInternal(): array
 	{
-		return 'oklab(' . $this->lValue . ' ' . $this->aValue . ' ' . $this->bValue . $this->formatAlphaSuffix() . ')';
+		return [$this->lValue, $this->aValue, $this->bValue, $this->alphaValue];
+	}
+
+	/** @internal */
+	public function toBoundedCssTextInternal(?int $maxBytes): string
+	{
+		return $this->serializeFunctionChannelsBounded('oklab', [$this->lValue, $this->aValue, $this->bValue], $maxBytes);
 	}
 
 	protected function toXyzD65(): array

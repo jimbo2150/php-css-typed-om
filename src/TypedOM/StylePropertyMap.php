@@ -9,12 +9,14 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSImageValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSPositionValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSTransformComponent;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSTransformValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSVariableReferenceValue;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathValue;
 
 /**
@@ -35,8 +37,8 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 		$options = $this->resolveSheetParserOptions();
 		$normalized = $this->normalizeBoundedPropertyName($property, $options);
 		[$serialized, $partCount] = $this->serializeValues($normalized, $values, $options);
-		if ($options->maxBytes !== null && strlen($serialized) > $options->maxBytes) {
-			throw new CSSParserLimitException(sprintf('CSS property value exceeds maximum size of %d bytes.', $options->maxBytes));
+		if ($options->maxBytes !== null && (strlen($normalized) + strlen($serialized)) > $options->maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS property declaration exceeds maximum size of %d bytes.', $options->maxBytes));
 		}
 		if (!str_starts_with($normalized, '--')
 			&& str_contains($serialized, ',')
@@ -78,6 +80,9 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 		}
 		$serialized = implode(', ', $parts);
 		$next = $current === '' ? $serialized : $current . ', ' . $serialized;
+		if ($options->maxBytes !== null && (strlen($normalized) + strlen($next)) > $options->maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS property declaration exceeds maximum size of %d bytes.', $options->maxBytes));
+		}
 		$this->style->setValidatedProperty($normalized, $next, $priority);
 	}
 
@@ -143,18 +148,27 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 		if (!$item instanceof CSSStyleValue && !is_string($item)) {
 			throw new InvalidArgumentException('StylePropertyMap values must be CSSStyleValue objects or strings.');
 		}
-		if ($options->maxBytes !== null) {
-			if (is_string($item) && strlen($item) > $options->maxBytes) {
+		if ($options->maxBytes !== null && ($runningBytes + $separatorBytes) > $options->maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS property value exceeds maximum size of %d bytes.', $options->maxBytes));
+		}
+		$remaining = $options->maxBytes !== null ? $options->maxBytes - $runningBytes - $separatorBytes : null;
+		if ($remaining !== null) {
+			if (is_string($item) && strlen($item) > $remaining) {
 				throw new CSSParserLimitException(sprintf('CSS property value exceeds maximum size of %d bytes.', $options->maxBytes));
 			}
 			if ($item instanceof CSSUnparsedValue || $item instanceof CSSVariableReferenceValue) {
-				$item->measureRenderedBytesInternal($options->maxBytes);
+				$item->measureRenderedBytesInternal($remaining);
 			}
 		}
 
-		$serialized = ($options->maxBytes !== null && ($item instanceof CSSMathValue || $item instanceof CSSTransformValue))
-			? $item->toBoundedCssTextInternal($options->maxBytes)
-			: (string) $item;
+		$serialized = match (true) {
+			$item instanceof CSSMathValue,
+			$item instanceof CSSTransformValue,
+			$item instanceof CSSTransformComponent,
+			$item instanceof CSSPositionValue,
+			$item instanceof CSSColorValue => $item->toBoundedCssTextInternal($remaining),
+			default => (string) $item,
+		};
 		$cssText = CSSSyntaxScanner::trimCssWhitespace($serialized);
 		if ($cssText === '') {
 			if ($allowEmpty) {
@@ -172,13 +186,44 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 			throw new InvalidArgumentException('StylePropertyMap values cannot be empty.');
 		}
 		if (!$item instanceof CSSStyleValue
-			|| (($options->maxDepth !== null || $options->maxMathDepth !== null)
-				&& !$item instanceof CSSUnitValue
-				&& !$item instanceof CSSKeywordValue)
+			|| (($item instanceof CSSUnparsedValue || $item instanceof CSSVariableReferenceValue)
+				&& ($options->maxDepth !== null || $options->maxMathDepth !== null))
 		) {
 			CSSStyleValue::parseValidated($normalizedProperty, $cssText, $options);
+		} elseif ($options->maxMathDepth !== null) {
+			self::assertValueMathDepthWithin($item, $options->maxMathDepth);
 		}
 
 		return $cssText;
+	}
+
+	private static function assertValueMathDepthWithin(CSSStyleValue $item, int $maxMathDepth): void
+	{
+		$stack = [$item];
+		while ($stack !== []) {
+			$current = array_pop($stack);
+			if ($current instanceof CSSMathValue) {
+				$current->assertMathDepthWithinInternal($maxMathDepth);
+			} elseif ($current instanceof CSSImageValue) {
+				CSSImageValue::assertEmbeddedMathDepthWithinInternal($current->getImage(), $maxMathDepth);
+			} elseif ($current instanceof CSSTransformValue) {
+				foreach ($current as $component) {
+					$stack[] = $component;
+				}
+			} elseif ($current instanceof CSSTransformComponent) {
+				foreach ($current->getComponentValuesInternal() as $part) {
+					if ($part instanceof CSSStyleValue) {
+						$stack[] = $part;
+					}
+				}
+			} elseif ($current instanceof CSSPositionValue) {
+				$stack[] = $current->getX();
+				$stack[] = $current->getY();
+			} elseif ($current instanceof CSSColorValue) {
+				foreach ($current->getComponentValuesInternal() as $channel) {
+					$stack[] = $channel;
+				}
+			}
+		}
 	}
 }

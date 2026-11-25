@@ -65,16 +65,19 @@ final class FontFace
 		'sizeAdjust' => 'size-adjust',
 	];
 
-	private string $familyValue;
-	private string $sourceValue;
+	private string $familyValue = '';
+	private string $sourceValue = '';
 
 	/** @var array<string, string> */
-	private array $descriptors;
+	private array $descriptors = self::DEFAULTS;
 
 	/** @var array<string, true> Tracks descriptors explicitly configured by caller/rule */
 	private array $explicit = [];
 
 	private ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES;
+	private ?int $maxDeclarations = CSSParserOptions::DEFAULT_MAX_DECLARATIONS;
+	private ?int $maxDepth = CSSParserOptions::DEFAULT_MAX_DEPTH;
+	private ?int $maxMathDepth = CSSParserOptions::DEFAULT_MAX_MATH_DEPTH;
 
 	/**
 	 * @param array<string, string> $descriptors
@@ -88,9 +91,9 @@ final class FontFace
 	) {
 		CSSRule::assertValidMaxBytesInternal($maxBytes);
 		$this->maxBytes = $maxBytes;
+		$this->descriptors = self::DEFAULTS;
 		$this->setFamily($family);
 		$this->setSource($source);
-		$this->descriptors = self::DEFAULTS;
 
 		foreach ($descriptors as $key => $value) {
 			if (!array_key_exists($key, self::DEFAULTS)) {
@@ -131,8 +134,13 @@ final class FontFace
 			}
 		}
 
-		$maxBytes = $rule->resolveMaxBytesInternal();
-		return new self($family, $source, $descriptors, $maxBytes);
+		$face = new self($family, $source, $descriptors, $rule->resolveMaxBytesInternal());
+		$face->maxDeclarations = $style->resolveMaxDeclarationsInternal();
+		$face->maxDepth = $style->resolveMaxDepthInternal();
+		$face->maxMathDepth = $style->resolveMaxMathDepthInternal();
+		$face->assertWithinLimits($face->familyValue, $face->sourceValue, $face->descriptors, $face->explicit);
+
+		return $face;
 	}
 
 	/**
@@ -144,7 +152,13 @@ final class FontFace
 	public function toCSSFontFaceRule(): CSSFontFaceRule
 	{
 		$descriptors = new CSSFontFaceDescriptors();
-		$descriptors->setLimitsInternal($this->maxBytes, CSSParserOptions::DEFAULT_MAX_DECLARATIONS);
+		$descriptors->setLimitsInternal(
+			$this->maxBytes,
+			$this->maxDeclarations,
+			$this->maxDepth,
+			$this->maxMathDepth,
+			true,
+		);
 		$descriptors->setValidatedProperty('font-family', $this->familyValue);
 		$descriptors->setValidatedProperty('src', $this->sourceValue);
 
@@ -174,6 +188,7 @@ final class FontFace
 		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
 			throw new InvalidArgumentException('FontFace family cannot be empty.');
 		}
+		$this->assertWithinLimits($trimmed, $this->sourceValue, $this->descriptors, $this->explicit);
 		$this->familyValue = $trimmed;
 	}
 
@@ -190,6 +205,7 @@ final class FontFace
 		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
 			throw new InvalidArgumentException('FontFace source cannot be empty.');
 		}
+		$this->assertWithinLimits($this->familyValue, $trimmed, $this->descriptors, $this->explicit);
 		$this->sourceValue = $trimmed;
 	}
 
@@ -278,7 +294,34 @@ final class FontFace
 		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
 			throw new InvalidArgumentException(sprintf('FontFace descriptor "%s" cannot be empty.', $key));
 		}
+		$nextDescriptors = $this->descriptors;
+		$nextDescriptors[$key] = $trimmed;
+		$nextExplicit = $this->explicit;
+		$nextExplicit[$key] = true;
+		$this->assertWithinLimits($this->familyValue, $this->sourceValue, $nextDescriptors, $nextExplicit);
 		$this->descriptors[$key] = $trimmed;
 		$this->explicit[$key] = true;
+	}
+
+	/**
+	 * @param array<string, string> $descriptors
+	 * @param array<string, true>   $explicit
+	 */
+	private function assertWithinLimits(string $family, string $source, array $descriptors, array $explicit): void
+	{
+		$declCount = 2;
+		$bytes = strlen('font-family') + strlen($family) + strlen('src') + strlen($source);
+		foreach (self::TO_CSS_DESCRIPTOR as $prop => $cssName) {
+			if (isset($explicit[$prop]) || $descriptors[$prop] !== self::DEFAULTS[$prop]) {
+				$declCount++;
+				$bytes += strlen($cssName) + strlen($descriptors[$prop]);
+			}
+		}
+		if ($this->maxDeclarations !== null && $declCount > $this->maxDeclarations) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS declaration limit of %d exceeded.', $this->maxDeclarations));
+		}
+		if ($this->maxBytes !== null && $bytes > $this->maxBytes) {
+			throw new CSSParserLimitException(sprintf('FontFace descriptors exceed maximum size of %d bytes.', $this->maxBytes));
+		}
 	}
 }

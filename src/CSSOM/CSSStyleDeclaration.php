@@ -44,6 +44,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	private ?CSSRule $ownerRule = null;
 	private ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES;
 	private ?int $maxDeclarations = CSSParserOptions::DEFAULT_MAX_DECLARATIONS;
+	private ?int $maxDepth = CSSParserOptions::DEFAULT_MAX_DEPTH;
+	private ?int $maxMathDepth = CSSParserOptions::DEFAULT_MAX_MATH_DEPTH;
+	private int $contentBytes = 0;
 
 	/**
 	 * @throws InvalidArgumentException When $cssText contains invalid declarations or exceeds options limits
@@ -53,6 +56,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		if ($options !== null) {
 			$this->maxBytes = $options->maxBytes;
 			$this->maxDeclarations = $options->maxDeclarations;
+			$this->maxDepth = $options->maxDepth;
+			$this->maxMathDepth = $options->maxMathDepth;
 		}
 		if ($cssText !== '') {
 			$this->setCssText($cssText, $options);
@@ -61,8 +66,28 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 
 	public function __clone(): void
 	{
-		$this->maxBytes = $this->resolveMaxBytesInternal();
-		$this->maxDeclarations = $this->resolveMaxDeclarationsInternal();
+		$owner = $this->ownerRule;
+		if ($owner !== null) {
+			$ownerMaxBytes = $owner->resolveMaxBytesInternal();
+			if ($ownerMaxBytes !== null && ($this->maxBytes === null || $ownerMaxBytes < $this->maxBytes)) {
+				$this->maxBytes = $ownerMaxBytes;
+			}
+			$sheet = $owner->getParentStyleSheet();
+			if ($sheet !== null) {
+				$sheetMaxDecl = $sheet->getMaxDeclarationsInternal();
+				if ($sheetMaxDecl !== null && ($this->maxDeclarations === null || $sheetMaxDecl < $this->maxDeclarations)) {
+					$this->maxDeclarations = $sheetMaxDecl;
+				}
+				$sheetMaxDepth = $sheet->getMaxDepthInternal();
+				if ($sheetMaxDepth !== null && ($this->maxDepth === null || $sheetMaxDepth < $this->maxDepth)) {
+					$this->maxDepth = $sheetMaxDepth;
+				}
+				$sheetMaxMathDepth = $sheet->getMaxMathDepthInternal();
+				if ($sheetMaxMathDepth !== null && ($this->maxMathDepth === null || $sheetMaxMathDepth < $this->maxMathDepth)) {
+					$this->maxMathDepth = $sheetMaxMathDepth;
+				}
+			}
+		}
 		$this->ownerRule = null;
 		$this->cachedKeys = null;
 	}
@@ -70,7 +95,15 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	/** @internal */
 	public function resolveMaxBytesInternal(): ?int
 	{
-		return $this->ownerRule !== null ? $this->ownerRule->resolveMaxBytesInternal() : $this->maxBytes;
+		$ownerBytes = $this->ownerRule !== null ? $this->ownerRule->resolveMaxBytesInternal() : null;
+		if ($ownerBytes === null) {
+			return $this->maxBytes;
+		}
+		if ($this->maxBytes === null) {
+			return $ownerBytes;
+		}
+
+		return $this->maxBytes < $ownerBytes ? $this->maxBytes : $ownerBytes;
 	}
 
 	/** @internal */
@@ -78,14 +111,63 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	{
 		$sheet = $this->ownerRule?->getParentStyleSheet();
 
-		return $sheet !== null ? $sheet->getMaxDeclarationsInternal() : $this->maxDeclarations;
+		return CSSRule::minLimitInternal($this->maxDeclarations, $sheet?->getMaxDeclarationsInternal());
 	}
 
 	/** @internal */
-	public function setLimitsInternal(?int $maxBytes, ?int $maxDeclarations): void
+	public function resolveMaxDepthInternal(): ?int
 	{
+		$sheet = $this->ownerRule?->getParentStyleSheet();
+
+		return CSSRule::minLimitInternal($this->maxDepth, $sheet?->getMaxDepthInternal());
+	}
+
+	/** @internal */
+	public function resolveMaxMathDepthInternal(): ?int
+	{
+		$sheet = $this->ownerRule?->getParentStyleSheet();
+
+		return CSSRule::minLimitInternal($this->maxMathDepth, $sheet?->getMaxMathDepthInternal());
+	}
+
+	/** @internal */
+	public function setLimitsInternal(
+		?int $maxBytes,
+		?int $maxDeclarations,
+		?int $maxDepth = null,
+		?int $maxMathDepth = null,
+		bool $updateDepths = false,
+	): void {
 		$this->maxBytes = $maxBytes;
 		$this->maxDeclarations = $maxDeclarations;
+		if ($updateDepths) {
+			$this->maxDepth = $maxDepth;
+			$this->maxMathDepth = $maxMathDepth;
+		}
+	}
+
+	/** @internal */
+	public function clampLimitsInternal(
+		?int $maxBytes,
+		?int $maxDeclarations,
+		?int $maxDepth = null,
+		?int $maxMathDepth = null,
+		bool $syncDepths = false,
+	): void {
+		if ($maxBytes !== null && ($this->maxBytes === null || $maxBytes < $this->maxBytes)) {
+			$this->maxBytes = $maxBytes;
+		}
+		if ($maxDeclarations !== null && ($this->maxDeclarations === null || $maxDeclarations < $this->maxDeclarations)) {
+			$this->maxDeclarations = $maxDeclarations;
+		}
+		if ($syncDepths) {
+			if ($maxDepth !== null && ($this->maxDepth === null || $maxDepth < $this->maxDepth)) {
+				$this->maxDepth = $maxDepth;
+			}
+			if ($maxMathDepth !== null && ($this->maxMathDepth === null || $maxMathDepth < $this->maxMathDepth)) {
+				$this->maxMathDepth = $maxMathDepth;
+			}
+		}
 	}
 
 	/** @internal */
@@ -95,17 +177,16 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	}
 
 	/** @internal */
+	public function getContentBytesInternal(): int
+	{
+		return $this->contentBytes;
+	}
+
+	/** @internal */
 	public function assertContentBytesWithinInternal(?int $maxBytes): void
 	{
-		if ($maxBytes === null) {
-			return;
-		}
-		$bytes = 0;
-		foreach ($this->declarations as $property => $declaration) {
-			$bytes += strlen((string) $property) + strlen($declaration['value']);
-			if ($bytes > $maxBytes) {
-				throw new CSSParserLimitException(sprintf('CSS declaration block exceeds maximum size of %d bytes.', $maxBytes));
-			}
+		if ($maxBytes !== null && $this->contentBytes > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS declaration block exceeds maximum size of %d bytes.', $maxBytes));
 		}
 	}
 
@@ -123,7 +204,13 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	): static {
 		$style = new static();
 		if ($options !== null) {
-			$style->setLimitsInternal($options->maxBytes, $options->maxDeclarations);
+			$style->setLimitsInternal(
+				$options->maxBytes,
+				$options->maxDeclarations,
+				$options->maxDepth,
+				$options->maxMathDepth,
+				true,
+			);
 		}
 		$detailed = [];
 		$style->parseInto($cssText, $strict, $detailed, 0, $options);
@@ -149,7 +236,13 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	): static {
 		$style = new static();
 		if ($options !== null) {
-			$style->setLimitsInternal($options->maxBytes, $options->maxDeclarations);
+			$style->setLimitsInternal(
+				$options->maxBytes,
+				$options->maxDeclarations,
+				$options->maxDepth,
+				$options->maxMathDepth,
+				true,
+			);
 		}
 		$diagnostics ??= [];
 		$style->parseInto($cssText, $strict, $diagnostics, $baseOffset, $options);
@@ -284,13 +377,21 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			? CSSSyntaxScanner::trimCssWhitespace($value)
 			: trim($value, self::CSS_WHITESPACE);
 		if ($value === '') {
-			$delta = isset($this->declarations[$name]) ? -1 : 0;
-			unset($this->declarations[$name]);
+			$oldEntry = $this->declarations[$name] ?? null;
+			$delta = $oldEntry !== null ? -1 : 0;
+			if ($oldEntry !== null) {
+				$this->contentBytes -= strlen($name) + strlen($oldEntry['value']);
+				unset($this->declarations[$name]);
+			}
 			$this->cachedKeys = null;
 			$this->notifySheetMutation($delta, $name === 'initial-value');
 			return;
 		}
-		if ($maxBytes !== null && (strlen($name) + strlen($value)) > $maxBytes) {
+		$oldEntry = $this->declarations[$name] ?? null;
+		$oldBytes = $oldEntry !== null ? strlen($name) + strlen($oldEntry['value']) : 0;
+		$newBytes = strlen($name) + strlen($value);
+		$nextContentBytes = $this->contentBytes - $oldBytes + $newBytes;
+		if ($maxBytes !== null && ($newBytes > $maxBytes || $nextContentBytes > $maxBytes)) {
 			throw new CSSParserLimitException(sprintf('CSS property declaration exceeds maximum size of %d bytes.', $maxBytes));
 		}
 
@@ -298,9 +399,10 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		if (!str_starts_with($name, '--') && str_contains($value, '/*') && CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($value)) === '') {
 			throw new InvalidArgumentException('CSS property value cannot be empty.');
 		}
-		$delta = isset($this->declarations[$name]) ? 0 : 1;
+		$delta = $oldEntry !== null ? 0 : 1;
 		$this->assertSheetDeclarationGrowth($delta, null);
 		$this->declarations[$name] = ['value' => $value, 'priority' => $priority];
+		$this->contentBytes = $nextContentBytes;
 		$this->cachedKeys = null;
 		$this->notifySheetMutation($delta, $name === 'initial-value');
 	}
@@ -313,28 +415,42 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		string $trimmedValue,
 		string $priority = '',
 		bool $respectExistingImportant = false,
+		bool $enforceMaxBytes = true,
 	): void {
 		static::assertAllowedDescriptor($normalizedName);
 		if ($priority === 'important' && !static::allowsImportant()) {
 			throw new InvalidArgumentException(sprintf('!important is not allowed in %s.', static::class));
 		}
 		if ($trimmedValue === '' && !str_starts_with($normalizedName, '--')) {
-			$delta = isset($this->declarations[$normalizedName]) ? -1 : 0;
-			unset($this->declarations[$normalizedName]);
+			$oldEntry = $this->declarations[$normalizedName] ?? null;
+			$delta = $oldEntry !== null ? -1 : 0;
+			if ($oldEntry !== null) {
+				$this->contentBytes -= strlen($normalizedName) + strlen($oldEntry['value']);
+				unset($this->declarations[$normalizedName]);
+			}
 			$this->cachedKeys = null;
 			$this->notifySheetMutation($delta, $normalizedName === 'initial-value');
 			return;
 		}
-		if ($respectExistingImportant) {
-			$current = $this->declarations[$normalizedName] ?? null;
-			if ($current !== null && $current['priority'] === 'important' && $priority !== 'important') {
-				return;
+		$current = $this->declarations[$normalizedName] ?? null;
+		if ($respectExistingImportant && $current !== null && $current['priority'] === 'important' && $priority !== 'important') {
+			return;
+		}
+
+		$oldBytes = $current !== null ? strlen($normalizedName) + strlen($current['value']) : 0;
+		$newBytes = strlen($normalizedName) + strlen($trimmedValue);
+		$nextContentBytes = $this->contentBytes - $oldBytes + $newBytes;
+		if ($enforceMaxBytes) {
+			$maxBytes = $this->resolveMaxBytesInternal();
+			if ($maxBytes !== null && $nextContentBytes > $maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS declaration block exceeds maximum size of %d bytes.', $maxBytes));
 			}
 		}
 
-		$delta = isset($this->declarations[$normalizedName]) ? 0 : 1;
+		$delta = $current !== null ? 0 : 1;
 		$this->assertSheetDeclarationGrowth($delta, null);
 		$this->declarations[$normalizedName] = ['value' => $trimmedValue, 'priority' => $priority];
+		$this->contentBytes = $nextContentBytes;
 		$this->cachedKeys = null;
 		$this->notifySheetMutation($delta, $normalizedName === 'initial-value');
 	}
@@ -342,9 +458,13 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	public function removeProperty(string $property): string
 	{
 		$name = self::normalizePropertyName($property);
-		$value = $this->declarations[$name]['value'] ?? '';
-		$delta = isset($this->declarations[$name]) ? -1 : 0;
-		unset($this->declarations[$name]);
+		$oldEntry = $this->declarations[$name] ?? null;
+		$value = $oldEntry['value'] ?? '';
+		$delta = $oldEntry !== null ? -1 : 0;
+		if ($oldEntry !== null) {
+			$this->contentBytes -= strlen($name) + strlen($oldEntry['value']);
+			unset($this->declarations[$name]);
+		}
 		$this->cachedKeys = null;
 		$this->notifySheetMutation($delta, $name === 'initial-value');
 
@@ -355,6 +475,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	{
 		$delta = -count($this->declarations);
 		$this->declarations = [];
+		$this->contentBytes = 0;
 		$this->cachedKeys = null;
 		$this->notifySheetMutation($delta, true);
 	}
@@ -382,17 +503,37 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	 */
 	public function setCssText(string $cssText, ?CSSParserOptions $options = null): void
 	{
-		$effectiveOptions = $this->ownerRule?->getParentStyleSheet()?->resolveParserOptionsInternal($options) ?? $options;
-		if ($effectiveOptions === null) {
+		$sheet = $this->ownerRule?->getParentStyleSheet();
+		if ($options !== null) {
+			$effectiveOptions = $options;
+		} else {
 			$resolvedMaxBytes = $this->resolveMaxBytesInternal();
 			$resolvedMaxDecls = $this->resolveMaxDeclarationsInternal();
-			if ($resolvedMaxBytes !== CSSParserOptions::DEFAULT_MAX_BYTES
+			$resolvedMaxDepth = $this->resolveMaxDepthInternal();
+			$resolvedMaxMathDepth = $this->resolveMaxMathDepthInternal();
+			if ($sheet !== null
+				&& $resolvedMaxBytes === $sheet->getMaxBytesInternal()
+				&& $resolvedMaxDecls === $sheet->getMaxDeclarationsInternal()
+				&& $resolvedMaxDepth === $sheet->getMaxDepthInternal()
+				&& $resolvedMaxMathDepth === $sheet->getMaxMathDepthInternal()
+			) {
+				$effectiveOptions = $sheet->resolveParserOptionsInternal(null);
+			} elseif ($sheet !== null
+				|| $resolvedMaxBytes !== CSSParserOptions::DEFAULT_MAX_BYTES
 				|| $resolvedMaxDecls !== CSSParserOptions::DEFAULT_MAX_DECLARATIONS
+				|| $resolvedMaxDepth !== CSSParserOptions::DEFAULT_MAX_DEPTH
+				|| $resolvedMaxMathDepth !== CSSParserOptions::DEFAULT_MAX_MATH_DEPTH
 			) {
 				$effectiveOptions = new CSSParserOptions(
 					maxBytes: $resolvedMaxBytes,
+					maxDepth: $resolvedMaxDepth,
+					maxMathDepth: $resolvedMaxMathDepth,
+					maxRules: $sheet?->getMaxRulesInternal() ?? CSSParserOptions::DEFAULT_MAX_RULES,
 					maxDeclarations: $resolvedMaxDecls,
+					maxErrors: $sheet?->getMaxErrorsInternal() ?? CSSParserOptions::DEFAULT_MAX_ERRORS,
 				);
+			} else {
+				$effectiveOptions = null;
 			}
 		}
 		$allowEmptyInitialValue = $this->ownerRule instanceof CSSPropertyRule;
@@ -403,6 +544,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		$delta = count($replacement->declarations) - count($this->declarations);
 		$this->assertSheetDeclarationGrowth($delta, $effectiveOptions);
 		$this->declarations = $replacement->declarations;
+		$this->contentBytes = $replacement->contentBytes;
 		$this->cachedKeys = null;
 		$this->notifySheetMutation($delta, true);
 		if ($this->ownerRule instanceof CSSPropertyRule) {
@@ -416,16 +558,25 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			return;
 		}
 		$sheet = $this->ownerRule?->getParentStyleSheet();
-		if ($sheet === null) {
-			$maxDetached = $overrideOptions !== null ? $overrideOptions->maxDeclarations : $this->resolveMaxDeclarationsInternal();
-			if ($maxDetached !== null && (count($this->declarations) + $delta) > $maxDetached) {
-				throw new CSSParserLimitException(sprintf('Maximum CSS declaration limit of %d exceeded.', $maxDetached));
+		if ($overrideOptions !== null) {
+			if ($overrideOptions->maxDeclarations !== null && (count($this->declarations) + $delta) > $overrideOptions->maxDeclarations) {
+				throw new CSSParserLimitException(sprintf('Maximum CSS declaration limit of %d exceeded.', $overrideOptions->maxDeclarations));
 			}
+			if ($sheet !== null && $overrideOptions->maxDeclarations !== null && ($sheet->getTotalDeclarationCount() + $delta) > $overrideOptions->maxDeclarations) {
+				throw new CSSParserLimitException(sprintf('Maximum CSS declaration limit of %d exceeded.', $overrideOptions->maxDeclarations));
+			}
+
 			return;
 		}
-		$maxDeclarations = $overrideOptions !== null ? $overrideOptions->maxDeclarations : $sheet->getMaxDeclarationsInternal();
-		if ($maxDeclarations !== null && ($sheet->getTotalDeclarationCount() + $delta) > $maxDeclarations) {
+		$maxDeclarations = $this->resolveMaxDeclarationsInternal();
+		if ($maxDeclarations !== null && (count($this->declarations) + $delta) > $maxDeclarations) {
 			throw new CSSParserLimitException(sprintf('Maximum CSS declaration limit of %d exceeded.', $maxDeclarations));
+		}
+		if ($sheet !== null) {
+			$sheetMaxDecls = $sheet->getMaxDeclarationsInternal();
+			if ($sheetMaxDecls !== null && ($sheet->getTotalDeclarationCount() + $delta) > $sheetMaxDecls) {
+				throw new CSSParserLimitException(sprintf('Maximum CSS declaration limit of %d exceeded.', $sheetMaxDecls));
+			}
 		}
 	}
 
@@ -548,7 +699,11 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		if (str_starts_with($property, '--')) {
 			if ($hasBackslash) {
 				$decoded = CSSSyntaxScanner::decodeIdentAt($property, 0, strlen($property));
-				if ($decoded === null || $decoded['end'] !== strlen($property) || strlen($decoded['ident']) <= 2) {
+				if ($decoded === null
+					|| $decoded['end'] !== strlen($property)
+					|| strlen($decoded['ident']) <= 2
+					|| preg_match('/[\x00-\x1F\x7F]/', $decoded['ident']) === 1
+				) {
 					throw new InvalidArgumentException('Invalid CSS custom property name: ' . $property);
 				}
 
@@ -566,7 +721,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				throw new InvalidArgumentException('Invalid CSS property name: ' . $property);
 			}
 			if (str_starts_with($decoded['ident'], '--')) {
-				if (strlen($decoded['ident']) <= 2) {
+				if (strlen($decoded['ident']) <= 2
+					|| preg_match('/[\x00-\x1F\x7F]/', $decoded['ident']) === 1
+				) {
 					throw new InvalidArgumentException('Invalid CSS custom property name: ' . $property);
 				}
 
@@ -689,7 +846,13 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 					if ($current !== null && $current['priority'] === 'important') {
 						return true;
 					}
+					if ($declarationCount >= PHP_INT_MAX) {
+						throw new InvalidArgumentException('CSS declaration count overflows integer bounds.');
+					}
 					$declarationCount++;
+					if ($current !== null) {
+						$this->contentBytes -= strlen('initial-value') + strlen($current['value']);
+					}
 					unset($this->declarations['initial-value']);
 					$this->cachedKeys = null;
 					$sawEmptyInitialValue = true;
@@ -708,6 +871,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				return false;
 			}
 
+			if ($declarationCount >= PHP_INT_MAX) {
+				throw new InvalidArgumentException('CSS declaration count overflows integer bounds.');
+			}
 			$declarationCount++;
 			$current = $this->declarations[$name] ?? null;
 			if ($current !== null && $current['priority'] === 'important' && $priority !== 'important') {
@@ -716,6 +882,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			if ($name === 'initial-value') {
 				$sawEmptyInitialValue = false;
 			}
+			$oldBytes = $current !== null ? strlen($name) + strlen($current['value']) : 0;
+			$this->contentBytes += strlen($name) + strlen($value) - $oldBytes;
 			$this->declarations[$name] = ['value' => $value, 'priority' => $priority];
 			$this->cachedKeys = null;
 
@@ -809,7 +977,13 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				if ($current !== null && $current['priority'] === 'important') {
 					return true;
 				}
+				if ($declarationCount >= PHP_INT_MAX) {
+					throw new InvalidArgumentException('CSS declaration count overflows integer bounds.');
+				}
 				$declarationCount++;
+				if ($current !== null) {
+					$this->contentBytes -= strlen('initial-value') + strlen($current['value']);
+				}
 				unset($this->declarations['initial-value']);
 				$this->cachedKeys = null;
 				$sawEmptyInitialValue = true;
@@ -828,6 +1002,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			return false;
 		}
 
+		if ($declarationCount >= PHP_INT_MAX) {
+			throw new InvalidArgumentException('CSS declaration count overflows integer bounds.');
+		}
 		$declarationCount++;
 
 		$current = $this->declarations[$name] ?? null;
@@ -837,6 +1014,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		if ($name === 'initial-value') {
 			$sawEmptyInitialValue = false;
 		}
+		$oldBytes = $current !== null ? strlen($name) + strlen($current['value']) : 0;
+		$this->contentBytes += strlen($name) + strlen($value) - $oldBytes;
 		$this->declarations[$name] = ['value' => $value, 'priority' => $priority];
 		$this->cachedKeys = null;
 
@@ -865,6 +1044,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		bool $allowEmptyInitialValue = false,
 		bool &$sawEmptyInitialValue = false,
 	): void {
+		if ($baseOffset < 0) {
+			throw new InvalidArgumentException('Base offset cannot be negative.');
+		}
 		$options ??= CSSParserOptions::default();
 		if ($options->maxBytes !== null && strlen($cssText) > $options->maxBytes) {
 			$message = sprintf('CSS declaration block exceeds maximum size of %d bytes.', $options->maxBytes);
@@ -876,6 +1058,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		}
 
 		$this->declarations = [];
+		$this->contentBytes = 0;
 		$this->cachedKeys = null;
 		$length = strlen($cssText);
 		$offset = 0;
@@ -908,6 +1091,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		if ($baseOffset !== 0) {
 			$totalDiag = count($diagnostics);
 			for ($i = $initialDiagCount; $i < $totalDiag; $i++) {
+				if ($diagnostics[$i]['offset'] > PHP_INT_MAX - $baseOffset) {
+					throw new InvalidArgumentException('Diagnostic offset overflows integer bounds.');
+				}
 				$diagnostics[$i] = [
 					'message' => $diagnostics[$i]['message'],
 					'offset' => $baseOffset + $diagnostics[$i]['offset'],

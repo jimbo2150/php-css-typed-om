@@ -23,5 +23,5 @@ Declares `public const int MAX_COMPONENTS = 1_024;` (enforced on construction, p
 | `is2D` | `public function is2D(): bool`; true only if every component reports 2D. Example: `$twoDimensional = $transforms->is2D();`. |
 | `toMatrix` | `public function toMatrix(): DOMMatrix`; starts with identity and multiplies each component `DOMMatrix` in list order, preserving `is2D = false` if any component is 3D. Example: `$matrix = $transforms->toMatrix();`. |
 | `clone` | `public function clone(): static`; deep-clones each component. Example: `$copy = $transforms->clone();`. |
-| `__toString` | `public function __toString(): string`; joins component serialization with spaces. Example: `$css = (string) $transforms;`. |
+| `__toString` | `public function __toString(): string`; joins component serialization with spaces within `DEFAULT_MAX_BYTES` (while internal `StylePropertyMap` calls thread exact remaining byte budgets or `null` for `CSSParserOptions::unlimited()` via `toBoundedCssTextInternal()`). Example: `$css = (string) $transforms;`. |
 | `$length` / `$is2D` (property hooks) | Read-only hooked properties `public int $length { get; }` and `public bool $is2D { get; }`. Undeclared property accesses via `__get`/`__set` throw `Error`. Example: `$length = $transforms->length;`. |

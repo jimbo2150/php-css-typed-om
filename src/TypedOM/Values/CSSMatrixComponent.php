@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrixReadOnly;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
@@ -124,9 +126,20 @@ final class CSSMatrixComponent extends CSSTransformComponent
 		return clone $this;
 	}
 
+	/** @internal */
+	public function toBoundedCssTextInternal(?int $maxBytes): string
+	{
+		$serialized = $this->getFunctionName() . '(' . implode(', ', $this->serializedComponents($this->twoDimensional)) . ')';
+		if ($maxBytes !== null && strlen($serialized) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS transform component exceeds maximum size of %d bytes.', $maxBytes));
+		}
+
+		return $serialized;
+	}
+
 	public function __toString(): string
 	{
-		return $this->getFunctionName() . '(' . implode(', ', $this->serializedComponents($this->twoDimensional)) . ')';
+		return $this->toBoundedCssTextInternal(CSSParserOptions::DEFAULT_MAX_BYTES);
 	}
 
 	/** @param DOMMatrixReadOnly|list<mixed> $matrix */

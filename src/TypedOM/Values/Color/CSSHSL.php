@@ -108,9 +108,16 @@ final class CSSHSL extends CSSColorValue
 		return clone $this;
 	}
 
-	public function __toString(): string
+	/** @internal */
+	public function getComponentValuesInternal(): array
 	{
-		return 'hsl(' . $this->hValue . ' ' . $this->sValue . ' ' . $this->lValue . $this->formatAlphaSuffix() . ')';
+		return [$this->hValue, $this->sValue, $this->lValue, $this->alphaValue];
+	}
+
+	/** @internal */
+	public function toBoundedCssTextInternal(?int $maxBytes): string
+	{
+		return $this->serializeFunctionChannelsBounded('hsl', [$this->hValue, $this->sValue, $this->lValue], $maxBytes);
 	}
 
 	protected function toSrgbChannels(): array

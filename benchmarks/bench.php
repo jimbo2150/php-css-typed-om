@@ -13,6 +13,7 @@ if ($xdebugModes !== [] || extension_loaded('pcov')) {
 require __DIR__ . '/../vendor/autoload.php';
 
 use Jimbo2150\PhpCssTypedOm\CSS;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSImportRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSMediaRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderer;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSRenderMode;
@@ -24,8 +25,13 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleSheet;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSRotate;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSTransformValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSTranslate;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathNegate;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
 
 $cliArgv = is_array($GLOBALS['argv'] ?? null) ? $GLOBALS['argv'] : [];
 $jsonOutput = false;
@@ -393,6 +399,44 @@ $results['benchmarks']['micro.style_value_parse_mixed'] = measure(
 	'input',
 );
 
+$unparsedVarSample = 'var(--a, var(--b, calc(10px + 20px)))';
+$results['benchmarks']['micro.unparsed_var_parse'] = measure(
+	static function () use ($unparsedVarSample): int {
+		$sink = 0;
+		for ($i = 0; $i < 250; $i++) {
+			$u = CSSUnparsedValue::fromCssText($unparsedVarSample);
+			$sink ^= $u->length;
+		}
+		return $sink;
+	},
+	$warmup,
+	$iterations,
+	250 * strlen($unparsedVarSample),
+	250,
+	null,
+	'unparsed',
+	'input',
+);
+
+$results['benchmarks']['micro.import_rule_media_mutate'] = measure(
+	static function (): int {
+		$sink = 0;
+		for ($i = 0; $i < 250; $i++) {
+			$rule = new CSSImportRule('"theme.css" layer(base) supports(display: grid) screen');
+			$rule->media->appendMedium('print');
+			$sink ^= strlen($rule->getCssText());
+		}
+		return $sink;
+	},
+	$warmup,
+	$iterations,
+	250 * strlen('"theme.css" layer(base) supports(display: grid) screen'),
+	250,
+	null,
+	'imports',
+	'input',
+);
+
 // Macro Parse benchmarks
 foreach ($fixtures as $name => $css) {
 	$results['benchmarks']["macro.parse.$name"] = measure(
@@ -465,8 +509,10 @@ $results['benchmarks']['macro.parse_and_modify_cssom_medium'] = measure(
 );
 
 // Macro Modify TypedOM (fresh sheet parsed per iteration in setup)
+$widthExprForBench = new CSSMathSum([CSS::percent(100), new CSSMathNegate(CSS::px(16))]);
+$transformForBench = new CSSTransformValue([new CSSTranslate(CSS::px(10)), new CSSRotate(CSS::deg(15))]);
 $results['benchmarks']['macro.typed_om_medium'] = measure(
-	static function (CSSStyleSheet $sheet): int {
+	static function (CSSStyleSheet $sheet) use ($widthExprForBench, $transformForBench): int {
 		$ops = 0;
 		$sink = 0;
 		foreach ($sheet->cssRules as $rule) {
@@ -476,6 +522,8 @@ $results['benchmarks']['macro.typed_om_medium'] = measure(
 				$sink ^= ($map->get('display') !== null ? 2 : 0);
 				$sink ^= ($map->get('color') !== null ? 4 : 0);
 				$map->set('padding', '16px');
+				$map->set('width', $widthExprForBench);
+				$map->set('transform', $transformForBench);
 				$ops++;
 			}
 		}
@@ -488,10 +536,9 @@ $results['benchmarks']['macro.typed_om_medium'] = measure(
 	static fn (): CSSStyleSheet => CSSStyleSheet::parse($fixtures['medium-app']),
 	'sheets',
 );
+unset($widthExprForBench, $transformForBench);
 
-// Macro Render benchmarks (on large-pretty & opaque-comments)
-$parsedLarge = CSSStyleSheet::parse($fixtures['large-pretty']);
-$parsedOpaque = CSSStyleSheet::parse($fixtures['opaque-comments']);
+// Macro Render benchmarks (on large-pretty & opaque-comments, freeing large trees between suites)
 $prettyOpts = new CSSRenderOptions(CSSRenderMode::Pretty);
 $miniOpts = new CSSRenderOptions(CSSRenderMode::Minified);
 $escapeMiniOpts = new CSSRenderOptions(CSSRenderMode::Minified, null, true, true);
@@ -501,19 +548,7 @@ $callbackOpts = new CSSRenderOptions(
 	static fn (CSSRule $r, string $s): string => $r instanceof CSSStyleRule ? '/* r */' . $s : $s,
 );
 
-$largeWithStyleClose = str_replace(
-	'padding: 12px 16px;',
-	'padding: 12px 16px; content: "</style>";',
-	$fixtures['large-pretty'],
-) . "\n" . str_repeat("@custom-opaque { content: \"x\"; /* </style> */ }\n", 100);
-$parsedLargeWithStyleClose = CSSStyleSheet::parse($largeWithStyleClose);
-if ($parsedLargeWithStyleClose->getParseErrors() !== []) {
-	fwrite(STDERR, "ERROR: Benchmark fixture 'large-pretty-style-close' produced parse errors.\n");
-	exit(1);
-}
-$results['meta']['fixture_bytes']['large-pretty-style-close'] = strlen($largeWithStyleClose);
-$escapeStyleOutBytes = strlen(CSSRenderer::render($parsedLargeWithStyleClose, $escapeMiniOpts));
-$opaqueStripOutBytes = strlen(CSSRenderer::render($parsedOpaque, $stripCommentsOpts));
+$parsedLarge = CSSStyleSheet::parse($fixtures['large-pretty']);
 $prettyOutBytes = strlen(CSSRenderer::render($parsedLarge, $prettyOpts));
 $miniOutBytes = strlen(CSSRenderer::render($parsedLarge, $miniOpts));
 $cssTextOutBytes = strlen($parsedLarge->getCssText());
@@ -538,16 +573,6 @@ $results['benchmarks']['macro.render_minified_large'] = measure(
 	'renders',
 	'output',
 );
-$results['benchmarks']['macro.render_escape_style_large'] = measure(
-	static fn () => CSSRenderer::render($parsedLargeWithStyleClose, $escapeMiniOpts),
-	$warmup,
-	$iterations,
-	$escapeStyleOutBytes,
-	1,
-	null,
-	'renders',
-	'output',
-);
 $results['benchmarks']['macro.get_css_text_large'] = measure(
 	static fn () => $parsedLarge->getCssText(),
 	$warmup,
@@ -558,6 +583,36 @@ $results['benchmarks']['macro.get_css_text_large'] = measure(
 	'renders',
 	'output',
 );
+unset($parsedLarge);
+
+$largeWithStyleClose = str_replace(
+	'padding: 12px 16px;',
+	'padding: 12px 16px; content: "</style>";',
+	$fixtures['large-pretty'],
+) . "\n" . str_repeat("@custom-opaque { content: \"x\"; /* </style> */ }\n", 100);
+$parsedLargeWithStyleClose = CSSStyleSheet::parse($largeWithStyleClose);
+if ($parsedLargeWithStyleClose->getParseErrors() !== []) {
+	fwrite(STDERR, "ERROR: Benchmark fixture 'large-pretty-style-close' produced parse errors.\n");
+	exit(1);
+}
+$results['meta']['fixture_bytes']['large-pretty-style-close'] = strlen($largeWithStyleClose);
+$escapeStyleOutBytes = strlen(CSSRenderer::render($parsedLargeWithStyleClose, $escapeMiniOpts));
+unset($largeWithStyleClose);
+
+$results['benchmarks']['macro.render_escape_style_large'] = measure(
+	static fn () => CSSRenderer::render($parsedLargeWithStyleClose, $escapeMiniOpts),
+	$warmup,
+	$iterations,
+	$escapeStyleOutBytes,
+	1,
+	null,
+	'renders',
+	'output',
+);
+unset($parsedLargeWithStyleClose);
+
+$parsedOpaque = CSSStyleSheet::parse($fixtures['opaque-comments']);
+$opaqueStripOutBytes = strlen(CSSRenderer::render($parsedOpaque, $stripCommentsOpts));
 $results['benchmarks']['macro.render_opaque_strip_comments'] = measure(
 	static fn () => CSSRenderer::render($parsedOpaque, $stripCommentsOpts),
 	$warmup,
@@ -568,7 +623,7 @@ $results['benchmarks']['macro.render_opaque_strip_comments'] = measure(
 	'renders',
 	'output',
 );
-unset($parsedLarge, $parsedLargeWithStyleClose, $largeWithStyleClose, $parsedOpaque);
+unset($parsedOpaque);
 $parsedMediumForRender = CSSStyleSheet::parse($fixtures['medium-app']);
 $callbackOutBytes = strlen(CSSRenderer::render($parsedMediumForRender, $callbackOpts));
 $results['benchmarks']['macro.render_callback_medium'] = measure(

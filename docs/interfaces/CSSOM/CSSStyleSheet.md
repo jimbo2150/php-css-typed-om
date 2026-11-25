@@ -13,7 +13,7 @@ Magic read-only `cssRules`, `cssText`, `parseErrors`, and `baseURL`; stylesheet 
 
 | Signature | Parameters / behavior | Throws / result | Example |
 |---|---|---|---|
-| `__construct(?string $href = null, string $title = '', MediaList|string|null $media = null, ?CSSRule $ownerRule = null, ?StyleSheet $parentStyleSheet = null, bool $disabled = false, ?string $baseURL = null)` | Initializes inherited metadata (`media` accepts a `MediaList` or media-query string, `disabled`, and optional `baseURL`) and an empty `CSSRuleList`. Rejects control characters in `$baseURL`. | | `$sheet = new CSSStyleSheet(media: 'screen', disabled: false, baseURL: 'https://example.test/');` |
+| `__construct(?string $href = null, string $title = '', MediaList|string|null $media = null, ?CSSRule $ownerRule = null, ?StyleSheet $parentStyleSheet = null, bool $disabled = false, ?string $baseURL = null)` | Initializes inherited metadata (`media` accepts a `MediaList`, clamping its `maxBytes` monotonically to stylesheet limits rather than widening stricter pre-built limits, or a media-query string, `disabled`, and optional `baseURL`) and an empty `CSSRuleList`. Rejects control characters in `$baseURL`. | | `$sheet = new CSSStyleSheet(media: 'screen', disabled: false, baseURL: 'https://example.test/');` |
 | `getBaseURL(): ?string` | Returns the configured base URL or `null`. | | `$sheet->getBaseURL();` |
 | `parse(string $cssText, ?CSSParserOptions $options = null): self` (static) | Parses with recovery and stores diagnostics on returned sheet. | Returns a `CSSStyleSheet`. | `$sheet = CSSStyleSheet::parse('a { color: red }');` |
 | `getCssRules(): CSSRuleList` | Returns the owned mutable list. | | `$sheet->getCssRules();` |

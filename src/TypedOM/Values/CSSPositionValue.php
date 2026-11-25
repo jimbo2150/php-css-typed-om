@@ -11,6 +11,7 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathValue;
 
 /**
  * Represents a 2D CSS position coordinate pair `(x, y)`.
@@ -127,9 +128,30 @@ final class CSSPositionValue extends CSSStyleValue
 		return clone $this;
 	}
 
+	/** @internal */
+	public function toBoundedCssTextInternal(?int $maxBytes): string
+	{
+		$xText = $this->xValue instanceof CSSMathValue
+			? $this->xValue->toBoundedCssTextInternal($maxBytes)
+			: (string) $this->xValue;
+		$used = strlen($xText) + 1;
+		if ($maxBytes !== null && $used > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS position value exceeds maximum size of %d bytes.', $maxBytes));
+		}
+		$remaining = $maxBytes !== null ? $maxBytes - $used : null;
+		$yText = $this->yValue instanceof CSSMathValue
+			? $this->yValue->toBoundedCssTextInternal($remaining)
+			: (string) $this->yValue;
+		if ($maxBytes !== null && ($used + strlen($yText)) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS position value exceeds maximum size of %d bytes.', $maxBytes));
+		}
+
+		return $xText . ' ' . $yText;
+	}
+
 	public function __toString(): string
 	{
-		return (string) $this->xValue . ' ' . (string) $this->yValue;
+		return $this->toBoundedCssTextInternal(CSSParserOptions::DEFAULT_MAX_BYTES);
 	}
 
 	public function __get(string $name): mixed

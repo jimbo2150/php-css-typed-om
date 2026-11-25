@@ -108,9 +108,16 @@ final class CSSHWB extends CSSColorValue
 		return clone $this;
 	}
 
-	public function __toString(): string
+	/** @internal */
+	public function getComponentValuesInternal(): array
 	{
-		return 'hwb(' . $this->hValue . ' ' . $this->wValue . ' ' . $this->bValue . $this->formatAlphaSuffix() . ')';
+		return [$this->hValue, $this->wValue, $this->bValue, $this->alphaValue];
+	}
+
+	/** @internal */
+	public function toBoundedCssTextInternal(?int $maxBytes): string
+	{
+		return $this->serializeFunctionChannelsBounded('hwb', [$this->hValue, $this->wValue, $this->bValue], $maxBytes);
 	}
 
 	protected function toSrgbChannels(): array

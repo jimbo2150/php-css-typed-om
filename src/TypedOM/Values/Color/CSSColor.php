@@ -11,6 +11,7 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathValue;
 use ReflectionClass;
 
 /**
@@ -174,17 +175,45 @@ final class CSSColor extends CSSColorValue
 		return clone $this;
 	}
 
-	public function __toString(): string
+	/** @internal */
+	public function getComponentValuesInternal(): array
+	{
+		$components = $this->channelsValue ?? [];
+		$components[] = $this->alphaValue;
+
+		return $components;
+	}
+
+	/** @internal */
+	public function toBoundedCssTextInternal(?int $maxBytes): string
 	{
 		$space = (string) $this->colorSpaceValue;
+		$used = 7 + strlen($space);
+		if ($maxBytes !== null && $used > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS color value exceeds maximum size of %d bytes.', $maxBytes));
+		}
 		$body = $space;
 		$prev = $space;
 		foreach ($this->channelsValue ?? [] as $channel) {
-			$part = (string) $channel;
-			$body .= (CSSSyntaxScanner::endsWithBareHexEscape($prev) ? '  ' : ' ') . $part;
+			$sep = CSSSyntaxScanner::endsWithBareHexEscape($prev) ? '  ' : ' ';
+			$used += strlen($sep);
+			if ($maxBytes !== null && $used > $maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS color value exceeds maximum size of %d bytes.', $maxBytes));
+			}
+			$remaining = $maxBytes !== null ? $maxBytes - $used : null;
+			$part = $channel instanceof CSSMathValue
+				? $channel->toBoundedCssTextInternal($remaining)
+				: (string) $channel;
+			$used += strlen($part);
+			if ($maxBytes !== null && $used > $maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS color value exceeds maximum size of %d bytes.', $maxBytes));
+			}
+			$body .= $sep . $part;
 			$prev = $part;
 		}
-		return 'color(' . $body . $this->formatAlphaSuffix() . ')';
+		$remainingForAlpha = $maxBytes !== null ? $maxBytes - $used : null;
+
+		return 'color(' . $body . $this->formatAlphaSuffixBounded($remainingForAlpha, $maxBytes) . ')';
 	}
 
 	protected function toXyzD65(): array

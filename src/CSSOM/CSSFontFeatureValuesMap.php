@@ -26,6 +26,11 @@ final class CSSFontFeatureValuesMap implements Countable, IteratorAggregate
 	/** @var array<string, list<int>> */
 	private array $values = [];
 
+	/** @var array<string, int> */
+	private array $entryBytes = [];
+
+	private int $contentBytes = 0;
+
 	private ?CSSFontFeatureValuesRule $ownerRule = null;
 	private ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES;
 	private ?int $maxDeclarations = CSSParserOptions::DEFAULT_MAX_DECLARATIONS;
@@ -39,15 +44,19 @@ final class CSSFontFeatureValuesMap implements Countable, IteratorAggregate
 	/** @internal */
 	public function resolveMaxBytesInternal(): ?int
 	{
-		return $this->ownerRule !== null ? $this->ownerRule->resolveMaxBytesInternal() : $this->maxBytes;
+		return CSSRule::minLimitInternal(
+			$this->maxBytes,
+			$this->ownerRule !== null ? $this->ownerRule->resolveMaxBytesInternal() : null,
+		);
 	}
 
 	/** @internal */
 	public function resolveMaxDeclarationsInternal(): ?int
 	{
-		$sheet = $this->ownerRule?->getParentStyleSheet();
-
-		return $sheet !== null ? $sheet->getMaxDeclarationsInternal() : $this->maxDeclarations;
+		return CSSRule::minLimitInternal(
+			$this->maxDeclarations,
+			$this->ownerRule !== null ? $this->ownerRule->resolveMaxDeclarationsInternal() : null,
+		);
 	}
 
 	/** @internal */
@@ -58,29 +67,32 @@ final class CSSFontFeatureValuesMap implements Countable, IteratorAggregate
 	}
 
 	/** @internal */
+	public function clampLimitsInternal(?int $maxBytes, ?int $maxDeclarations): void
+	{
+		$this->maxBytes = CSSRule::minLimitInternal($this->maxBytes, $maxBytes);
+		$this->maxDeclarations = CSSRule::minLimitInternal($this->maxDeclarations, $maxDeclarations);
+	}
+
+	/** @internal */
 	public function setMaxBytesInternal(?int $maxBytes): void
 	{
 		$this->maxBytes = $maxBytes;
 	}
 
 	/** @internal */
+	public function getContentBytesInternal(): int
+	{
+		return $this->contentBytes;
+	}
+
+	/** @internal */
 	public function contentBytesInternal(?int $maxBytes = null): int
 	{
-		$bytes = 0;
-		foreach ($this->values as $name => $list) {
-			$entryBytes = strlen((string) $name) + 3;
-			$first = true;
-			foreach ($list as $v) {
-				$entryBytes += ($first ? 0 : 1) + strlen((string) $v);
-				$first = false;
-			}
-			$bytes += $entryBytes;
-			if ($maxBytes !== null && $bytes > $maxBytes) {
-				throw new CSSParserLimitException(sprintf('CSS font feature map exceeds maximum size of %d bytes.', $maxBytes));
-			}
+		if ($maxBytes !== null && $this->contentBytes > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS font feature map exceeds maximum size of %d bytes.', $maxBytes));
 		}
 
-		return $bytes;
+		return $this->contentBytes;
 	}
 
 	public function __clone(): void
@@ -113,24 +125,41 @@ final class CSSFontFeatureValuesMap implements Countable, IteratorAggregate
 	{
 		$sheet = $this->ownerRule?->getParentStyleSheet();
 		$maxBytes = $this->resolveMaxBytesInternal();
-		[$name, $normalizedValues] = self::validateFeatureEntry($name, $values, $maxBytes);
+		[$name, $normalizedValues, $newBytes] = self::validateFeatureEntry($name, $values, $maxBytes);
 		$isNewKey = !array_key_exists($name, $this->values);
+		$oldBytes = $this->entryBytes[$name] ?? 0;
+
+		$ruleBytes = $this->contentBytes;
+		$ruleDecls = count($this->values);
+		if ($this->ownerRule !== null) {
+			$ruleBytes = 0;
+			$ruleDecls = 0;
+			foreach ($this->ownerRule->getFeatureMaps() as $map) {
+				$ruleBytes += $map->contentBytes;
+				$ruleDecls += count($map->values);
+			}
+		}
+
+		if ($maxBytes !== null && ($ruleBytes - $oldBytes + $newBytes) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS font feature map exceeds maximum size of %d bytes.', $maxBytes));
+		}
 
 		if ($isNewKey) {
+			$maxDecls = $this->resolveMaxDeclarationsInternal();
+			if ($maxDecls !== null && ($ruleDecls + 1) > $maxDecls) {
+				throw new CSSParserLimitException(sprintf('Maximum CSS declaration limit of %d exceeded.', $maxDecls));
+			}
 			if ($sheet !== null) {
-				$maxDeclarations = $sheet->getMaxDeclarationsInternal();
-				if ($maxDeclarations !== null && ($sheet->getTotalDeclarationCount() + 1) > $maxDeclarations) {
-					throw new CSSParserLimitException(sprintf('Maximum CSS declaration limit of %d exceeded.', $maxDeclarations));
-				}
-			} else {
-				$maxDetached = $this->resolveMaxDeclarationsInternal();
-				if ($maxDetached !== null && (count($this->values) + 1) > $maxDetached) {
-					throw new CSSParserLimitException(sprintf('Maximum CSS declaration limit of %d exceeded.', $maxDetached));
+				$sheetMaxDecls = $sheet->getMaxDeclarationsInternal();
+				if ($sheetMaxDecls !== null && ($sheet->getTotalDeclarationCount() + 1) > $sheetMaxDecls) {
+					throw new CSSParserLimitException(sprintf('Maximum CSS declaration limit of %d exceeded.', $sheetMaxDecls));
 				}
 			}
 		}
 
 		$this->values[$name] = $normalizedValues;
+		$this->entryBytes[$name] = $newBytes;
+		$this->contentBytes += $newBytes - $oldBytes;
 		if ($isNewKey && $sheet !== null) {
 			$sheet->adjustTotalDeclarationCount(1);
 		}
@@ -142,8 +171,11 @@ final class CSSFontFeatureValuesMap implements Countable, IteratorAggregate
 	 */
 	public function setParsedInternal(string $name, int|array $values, ?int $maxBytes = null): void
 	{
-		[$name, $normalizedValues] = self::validateFeatureEntry($name, $values, $maxBytes);
+		[$name, $normalizedValues, $newBytes] = self::validateFeatureEntry($name, $values, $maxBytes);
+		$oldBytes = $this->entryBytes[$name] ?? 0;
 		$this->values[$name] = $normalizedValues;
+		$this->entryBytes[$name] = $newBytes;
+		$this->contentBytes += $newBytes - $oldBytes;
 	}
 
 	public function has(string $name): bool
@@ -156,7 +188,8 @@ final class CSSFontFeatureValuesMap implements Countable, IteratorAggregate
 		if (!array_key_exists($name, $this->values)) {
 			return;
 		}
-		unset($this->values[$name]);
+		$this->contentBytes -= $this->entryBytes[$name] ?? 0;
+		unset($this->values[$name], $this->entryBytes[$name]);
 		$this->ownerRule?->getParentStyleSheet()?->adjustTotalDeclarationCount(-1);
 	}
 
@@ -167,12 +200,14 @@ final class CSSFontFeatureValuesMap implements Countable, IteratorAggregate
 			return;
 		}
 		$this->values = [];
+		$this->entryBytes = [];
+		$this->contentBytes = 0;
 		$this->ownerRule?->getParentStyleSheet()?->adjustTotalDeclarationCount(-$removed);
 	}
 
 	/**
 	 * @param int|list<int> $values
-	 * @return array{0: string, 1: list<int>}
+	 * @return array{0: string, 1: list<int>, 2: int}
 	 */
 	private static function validateFeatureEntry(string $name, int|array $values, ?int $maxBytes): array
 	{
@@ -202,19 +237,17 @@ final class CSSFontFeatureValuesMap implements Countable, IteratorAggregate
 				throw new InvalidArgumentException('A feature name and non-negative integer value list are required.');
 			}
 		}
-		if ($maxBytes !== null) {
-			$entryBytes = strlen($name) + 3;
-			$first = true;
-			foreach ($normalized as $value) {
-				$entryBytes += ($first ? 0 : 1) + strlen((string) $value);
-				$first = false;
-				if ($entryBytes > $maxBytes) {
-					throw new CSSParserLimitException(sprintf('CSS font feature entry exceeds maximum size of %d bytes.', $maxBytes));
-				}
+		$entryBytes = strlen($name) + 3;
+		$first = true;
+		foreach ($normalized as $value) {
+			$entryBytes += ($first ? 0 : 1) + strlen((string) $value);
+			$first = false;
+			if ($maxBytes !== null && $entryBytes > $maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS font feature entry exceeds maximum size of %d bytes.', $maxBytes));
 			}
 		}
 
-		return [$name, $normalized];
+		return [$name, $normalized, $entryBytes];
 	}
 
 	public function count(): int

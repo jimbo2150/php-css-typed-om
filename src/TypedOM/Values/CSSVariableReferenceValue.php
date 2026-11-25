@@ -62,7 +62,7 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 		$effectiveMaxDepth = $options->maxDepth !== null
 			? min(CSSUnparsedValue::MAX_UNPARSED_DEPTH, $options->maxDepth)
 			: CSSUnparsedValue::MAX_UNPARSED_DEPTH;
-		if ($depth > $effectiveMaxDepth) {
+		if (($depth + 1) > $effectiveMaxDepth) {
 			throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', $effectiveMaxDepth));
 		}
 
@@ -427,7 +427,7 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 		$effectiveMaxDepth = $options->maxDepth !== null
 			? min($maxAllowedDepth, $options->maxDepth, CSSUnparsedValue::MAX_UNPARSED_DEPTH)
 			: min($maxAllowedDepth, CSSUnparsedValue::MAX_UNPARSED_DEPTH);
-		if ($depth > $effectiveMaxDepth) {
+		if (($depth + 1) > $effectiveMaxDepth) {
 			throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', $effectiveMaxDepth));
 		}
 

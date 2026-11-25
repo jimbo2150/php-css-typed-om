@@ -46,8 +46,135 @@ final class CSSImageValue extends CSSStyleValue
 		if ($close !== strlen($image) - 1) {
 			throw new InvalidArgumentException('CSS image value cannot contain trailing tokens.');
 		}
+		$maxMathDepth = $options !== null ? $options->maxMathDepth : CSSParserOptions::DEFAULT_MAX_MATH_DEPTH;
+		if ($fn !== 'url' && $maxMathDepth !== null) {
+			self::assertEmbeddedMathDepthWithinInternal($image, $maxMathDepth, $open + 1, $close);
+		}
 
 		$this->image = $image;
+	}
+
+	/**
+	 * @internal Verifies embedded CSS math functions inside image expressions respect maxMathDepth.
+	 */
+	public static function assertEmbeddedMathDepthWithinInternal(
+		string $image,
+		int $maxMathDepth,
+		?int $scanStart = null,
+		?int $scanEnd = null,
+	): void {
+		$len = strlen($image);
+		if ($scanStart === null || $scanEnd === null) {
+			$open = strpos($image, '(');
+			if ($open === false) {
+				return;
+			}
+			$fn = CSSSyntaxScanner::decodeLeadingFunctionName($image, $open);
+			if ($fn === 'url') {
+				return;
+			}
+			$close = CSSSyntaxScanner::findMatchingDelimiter($image, $open, $len);
+			if ($close === null) {
+				return;
+			}
+			$start = $open + 1;
+			$end = $close;
+		} else {
+			$start = $scanStart;
+			$end = $scanEnd;
+		}
+
+		/** @var list<array{isMath: bool, depth: int}> $parenStack */
+		$parenStack = [];
+		$quote = '';
+
+		for ($i = $start; $i < $end; $i++) {
+			$ch = $image[$i];
+			if ($quote !== '') {
+				if ($ch === '\\') {
+					$i++;
+				} elseif ($ch === $quote) {
+					$quote = '';
+				}
+				continue;
+			}
+			if ($ch === '"' || $ch === '\'') {
+				$quote = $ch;
+				continue;
+			}
+			if ($ch === '/' && ($i + 1) < $end && $image[$i + 1] === '*') {
+				$cEnd = strpos($image, '*/', $i + 2);
+				if ($cEnd === false || $cEnd >= $end) {
+					break;
+				}
+				$i = $cEnd + 1;
+				continue;
+			}
+			if ($ch === '(') {
+				$top = $parenStack !== [] ? $parenStack[count($parenStack) - 1] : null;
+				if ($top !== null && $top['isMath']) {
+					$nextDepth = $top['depth'] + 1;
+					if ($nextDepth > $maxMathDepth) {
+						throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
+					}
+					$parenStack[] = ['isMath' => true, 'depth' => $nextDepth];
+				} else {
+					$parenStack[] = ['isMath' => false, 'depth' => 0];
+				}
+				continue;
+			}
+			if ($ch === ')') {
+				if ($parenStack !== []) {
+					array_pop($parenStack);
+				}
+				continue;
+			}
+
+			// Identifier start: ASCII letter, '_', '\\', '-', or non-ASCII
+			if (($ch >= 'a' && $ch <= 'z')
+				|| ($ch >= 'A' && $ch <= 'Z')
+				|| $ch === '_'
+				|| $ch === '\\'
+				|| $ch === '-'
+				|| ord($ch) >= 0x80
+			) {
+				$ident = CSSSyntaxScanner::decodeIdentAt($image, $i, $end);
+				if ($ident === null) {
+					continue;
+				}
+				$identEnd = $ident['end'];
+				if ($identEnd < $end && $image[$identEnd] === '(') {
+					$lower = strtolower($ident['ident']);
+					if ($lower === 'url') {
+						$urlClose = CSSSyntaxScanner::findMatchingUrlEnd($image, $identEnd, $end);
+						if ($urlClose !== null) {
+							$i = $urlClose;
+							continue;
+						}
+					}
+					$isMathFn = $lower === 'calc' || $lower === 'min' || $lower === 'max' || $lower === 'clamp';
+					$top = $parenStack !== [] ? $parenStack[count($parenStack) - 1] : null;
+					if ($top !== null && $top['isMath']) {
+						$nextDepth = $top['depth'] + 1;
+						if ($nextDepth > $maxMathDepth) {
+							throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
+						}
+						$parenStack[] = ['isMath' => true, 'depth' => $nextDepth];
+					} elseif ($isMathFn) {
+						$fnDepth = $lower === 'calc' ? 0 : 1;
+						if ($fnDepth > $maxMathDepth) {
+							throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
+						}
+						$parenStack[] = ['isMath' => true, 'depth' => $fnDepth];
+					} else {
+						$parenStack[] = ['isMath' => false, 'depth' => 0];
+					}
+					$i = $identEnd;
+					continue;
+				}
+				$i = $identEnd - 1;
+			}
+		}
 	}
 
 	public function getImage(): string

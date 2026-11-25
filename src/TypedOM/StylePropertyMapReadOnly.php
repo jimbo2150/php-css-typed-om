@@ -35,16 +35,40 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 
 	protected function resolveSheetParserOptions(): CSSParserOptions
 	{
+		$resolvedMaxBytes = $this->style->resolveMaxBytesInternal();
+		$resolvedMaxDecls = $this->style->resolveMaxDeclarationsInternal();
+		$resolvedMaxDepth = $this->style->resolveMaxDepthInternal();
+		$resolvedMaxMathDepth = $this->style->resolveMaxMathDepthInternal();
 		$sheet = $this->style->getParentRule()?->getParentStyleSheet();
 		if ($sheet !== null) {
-			return $sheet->resolveParserOptionsInternal(null);
+			if ($resolvedMaxBytes === $sheet->getMaxBytesInternal()
+				&& $resolvedMaxDecls === $sheet->getMaxDeclarationsInternal()
+				&& $resolvedMaxDepth === $sheet->getMaxDepthInternal()
+				&& $resolvedMaxMathDepth === $sheet->getMaxMathDepthInternal()
+			) {
+				return $sheet->resolveParserOptionsInternal(null);
+			}
+
+			return new CSSParserOptions(
+				maxBytes: $resolvedMaxBytes,
+				maxDepth: $resolvedMaxDepth,
+				maxMathDepth: $resolvedMaxMathDepth,
+				maxRules: $sheet->getMaxRulesInternal(),
+				maxDeclarations: $resolvedMaxDecls,
+				maxErrors: $sheet->getMaxErrorsInternal(),
+			);
 		}
-		$maxBytes = $this->style->resolveMaxBytesInternal();
-		$maxDeclarations = $this->style->resolveMaxDeclarationsInternal();
-		if ($maxBytes !== CSSParserOptions::DEFAULT_MAX_BYTES
-			|| $maxDeclarations !== CSSParserOptions::DEFAULT_MAX_DECLARATIONS
+		if ($resolvedMaxBytes !== CSSParserOptions::DEFAULT_MAX_BYTES
+			|| $resolvedMaxDecls !== CSSParserOptions::DEFAULT_MAX_DECLARATIONS
+			|| $resolvedMaxDepth !== CSSParserOptions::DEFAULT_MAX_DEPTH
+			|| $resolvedMaxMathDepth !== CSSParserOptions::DEFAULT_MAX_MATH_DEPTH
 		) {
-			return new CSSParserOptions(maxBytes: $maxBytes, maxDeclarations: $maxDeclarations);
+			return new CSSParserOptions(
+				maxBytes: $resolvedMaxBytes,
+				maxDepth: $resolvedMaxDepth,
+				maxMathDepth: $resolvedMaxMathDepth,
+				maxDeclarations: $resolvedMaxDecls,
+			);
 		}
 
 		return CSSParserOptions::default();

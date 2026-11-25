@@ -17,5 +17,5 @@ No public constants or enum cases. Declares PHP 8.4 property-hooked `public CSSS
 | `getY` | `public function getY(): CSSStyleValue`; returns the y coordinate (cloning `CSSKeywordValue`). Example: `$y = $position->getY();`. |
 | `setY` | `public function setY(CSSStyleValue $y): void`; validates, normalizes/clones keywords, and replaces y; throws `InvalidArgumentException` if not a compatible length/percentage or y keyword. Example: `$position->setY(CSSNumericValue::parse('12px'));`. |
 | `clone` | `public function clone(): static`; deep-clones both coordinates. Example: `$copy = $position->clone();`. |
-| `__toString` | `public function __toString(): string`; serializes coordinates separated by one space. Example: `$css = (string) $position;`. |
+| `__toString` | `public function __toString(): string`; serializes coordinates separated by one space within `CSSParserOptions::DEFAULT_MAX_BYTES` (while internal `StylePropertyMap` calls thread remaining byte budgets or `null` via `toBoundedCssTextInternal()`). Example: `$css = (string) $position;`. |
 | `$x` / `$y` (property hooks) | `public CSSStyleValue $x { get; set; }` and `public CSSStyleValue $y { get; set; }`; backed by validated setters and keyword-cloning getters. Undeclared property access via `__get`/`__set` throws `Error`. Example: `$position->y = new CSSKeywordValue('bottom');`. |

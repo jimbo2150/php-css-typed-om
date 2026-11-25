@@ -63,6 +63,12 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 	}
 
 	/** @internal */
+	public function getMaxBytesInternal(): ?int
+	{
+		return $this->maxBytes;
+	}
+
+	/** @internal */
 	public function setMaxBytesInternal(?int $maxBytes): void
 	{
 		$this->maxBytes = $maxBytes;
@@ -90,10 +96,10 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 	{
 		$owner = $this->owner?->get();
 		if ($owner instanceof CSSStyleSheet) {
-			return $owner->getMaxBytesInternal();
+			return CSSRule::minLimitInternal($this->maxBytes, $owner->getMaxBytesInternal());
 		}
 		if ($owner instanceof CSSRule) {
-			return $owner->resolveMaxBytesInternal();
+			return CSSRule::minLimitInternal($this->maxBytes, $owner->resolveMaxBytesInternal());
 		}
 
 		return $this->maxBytes;

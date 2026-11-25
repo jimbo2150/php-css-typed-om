@@ -50,23 +50,29 @@ class CSSAtRule extends CSSRule
 		}
 		$this->styleDeclaration = $style !== null && $style->getParentRule() !== null ? clone $style : $style;
 		if ($this->styleDeclaration !== null) {
-			if ($maxBytes !== null && ($this->styleDeclaration->resolveMaxBytesInternal() === null || $maxBytes < $this->styleDeclaration->resolveMaxBytesInternal())) {
-				$this->styleDeclaration->setMaxBytesInternal($maxBytes);
-			}
+			$this->styleDeclaration->clampLimitsInternal($maxBytes, null, null, null, false);
 			$this->styleDeclaration->setParentRule($this);
 		}
 	}
 
-	protected function syncChildLimitsInternal(?int $maxBytes, ?int $maxDeclarations, bool $syncDeclarations = false): void
-	{
+	protected function syncChildLimitsInternal(
+		?int $maxBytes,
+		?int $maxDeclarations,
+		bool $syncDeclarations = false,
+		?int $maxDepth = CSSParserOptions::DEFAULT_MAX_DEPTH,
+		?int $maxMathDepth = CSSParserOptions::DEFAULT_MAX_MATH_DEPTH,
+		bool $syncDepths = false,
+	): void {
 		if ($this->styleDeclaration === null) {
 			return;
 		}
-		if ($syncDeclarations) {
-			$this->styleDeclaration->setLimitsInternal($maxBytes, $maxDeclarations);
-		} else {
-			$this->styleDeclaration->setMaxBytesInternal($maxBytes);
-		}
+		$this->styleDeclaration->clampLimitsInternal(
+			$maxBytes,
+			$syncDeclarations ? $maxDeclarations : null,
+			$maxDepth,
+			$maxMathDepth,
+			$syncDepths,
+		);
 	}
 
 	public function getType(): int

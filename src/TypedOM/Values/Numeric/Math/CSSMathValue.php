@@ -74,11 +74,141 @@ abstract class CSSMathValue extends CSSNumericValue
 	/** @internal */
 	public function toBoundedCssTextInternal(?int $maxBytes): string
 	{
-		$limit = $maxBytes !== null
-			? min($maxBytes, CSSParserOptions::DEFAULT_MAX_BYTES)
-			: CSSParserOptions::DEFAULT_MAX_BYTES;
+		return self::serializeMath($this, $maxBytes);
+	}
 
-		return self::serializeMath($this, $limit);
+	/**
+	 * @internal Verifies that serialized paren/function nesting stays within $maxMathDepth
+	 * without failing on implicit AST wrappers (`CSSMathNegate` inside sum subtraction,
+	 * `CSSMathInvert` inside product division, or `CSSMathProduct` inside `CSSMathSum`).
+	 */
+	public function assertMathDepthWithinInternal(int $maxMathDepth): void
+	{
+		$visits = 0;
+		// Frame: [CSSNumericValue $value, int $mathDepth, int $treeDepth, bool $isRoot, int $parentPrecedence]
+		$stack = [[$this, 0, 0, true, 0]];
+
+		while ($stack !== []) {
+			[$value, $mathDepth, $treeDepth, $root, $parentPrecedence] = array_pop($stack);
+			if ($treeDepth > self::MAX_MATH_TREE_DEPTH) {
+				throw new CSSParserLimitException(sprintf('Maximum CSS math expression tree depth of %d exceeded.', self::MAX_MATH_TREE_DEPTH));
+			}
+			if (++$visits > self::MAX_MATH_NODES) {
+				throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
+			}
+
+			if (!$value instanceof self) {
+				if ($mathDepth > $maxMathDepth) {
+					throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
+				}
+				continue;
+			}
+
+			if ($value instanceof CSSMathMin || $value instanceof CSSMathMax || $value instanceof CSSMathClamp) {
+				$childDepth = $mathDepth + 1;
+				if ($childDepth > $maxMathDepth) {
+					throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
+				}
+				$args = $value->values->values;
+				for ($i = count($args) - 1; $i >= 0; $i--) {
+					$stack[] = [$args[$i], $childDepth, $treeDepth + 1, false, 0];
+				}
+				continue;
+			}
+
+			if ($value instanceof CSSMathNegate) {
+				$inner = $value->values->values[0] ?? null;
+				if ($inner === null) {
+					if ($mathDepth > $maxMathDepth) {
+						throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
+					}
+					continue;
+				}
+				$needsParens = $inner instanceof CSSMathNegate || ($inner instanceof CSSUnitValue && $inner->value < 0.0);
+				$childDepth = $needsParens ? $mathDepth + 1 : $mathDepth;
+				$stack[] = [$inner, $childDepth, $treeDepth + 1, false, 3];
+				continue;
+			}
+
+			if ($value instanceof CSSMathInvert) {
+				$inner = $value->values->values[0] ?? null;
+				if ($inner === null) {
+					if ($mathDepth > $maxMathDepth) {
+						throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
+					}
+					continue;
+				}
+				$childDepth = (!$root && $parentPrecedence >= 3) ? $mathDepth + 1 : $mathDepth;
+				$stack[] = [$inner, $childDepth, $treeDepth + 1, false, 3];
+				continue;
+			}
+
+			if ($value instanceof CSSMathProduct) {
+				$values = $value->values->values;
+				$count = count($values);
+				$innerDepth = (!$root && $parentPrecedence > 2) ? $mathDepth + 1 : $mathDepth;
+				if ($count === 0) {
+					if ($innerDepth > $maxMathDepth) {
+						throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
+					}
+					continue;
+				}
+				for ($i = $count - 1; $i >= 0; $i--) {
+					$child = $values[$i];
+					if ($child instanceof CSSMathInvert) {
+						$operand = $child->values->values[0] ?? null;
+						if ($operand === null) {
+							if ($innerDepth > $maxMathDepth) {
+								throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
+							}
+						} else {
+							$stack[] = [$operand, $innerDepth, $treeDepth + 2, false, 3];
+						}
+					} else {
+						$stack[] = [$child, $innerDepth, $treeDepth + 1, false, 2];
+					}
+				}
+				continue;
+			}
+
+			if ($value instanceof CSSMathSum) {
+				$values = $value->values->values;
+				$count = count($values);
+				$innerDepth = (!$root && $parentPrecedence >= 1) ? $mathDepth + 1 : $mathDepth;
+				if ($count === 0) {
+					if ($innerDepth > $maxMathDepth) {
+						throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
+					}
+					continue;
+				}
+				for ($i = $count - 1; $i >= 0; $i--) {
+					$child = $values[$i];
+					if ($i === 0) {
+						$stack[] = [$child, $innerDepth, $treeDepth + 1, false, 1];
+						continue;
+					}
+					if ($child instanceof CSSMathNegate) {
+						$operand = $child->values->values[0] ?? null;
+						if ($operand === null) {
+							if ($innerDepth > $maxMathDepth) {
+								throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
+							}
+						} elseif ($operand instanceof CSSMathNegate || ($operand instanceof CSSUnitValue && $operand->value < 0.0)) {
+							$stack[] = [$operand, $innerDepth + 1, $treeDepth + 2, false, 1];
+						} else {
+							$stack[] = [$operand, $innerDepth, $treeDepth + 2, false, 1];
+						}
+					} else {
+						$stack[] = [$child, $innerDepth, $treeDepth + 1, false, 1];
+					}
+				}
+				continue;
+			}
+
+			if ($mathDepth > $maxMathDepth) {
+				throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
+			}
+		}
 	}
 
 	public function __toString(): string
@@ -88,7 +218,7 @@ abstract class CSSMathValue extends CSSNumericValue
 
 	private static function serializeMath(
 		CSSNumericValue $rootValue,
-		int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 	): string {
 		$parts = [];
 		$totalBytes = 0;
@@ -98,7 +228,7 @@ abstract class CSSMathValue extends CSSNumericValue
 
 		$emit = static function (string $chunk) use (&$parts, &$totalBytes, $maxBytes): void {
 			$totalBytes += strlen($chunk);
-			if ($totalBytes > $maxBytes) {
+			if ($maxBytes !== null && $totalBytes > $maxBytes) {
 				throw new CSSParserLimitException(sprintf(
 					'CSS math expression exceeds maximum serialized size of %d bytes.',
 					$maxBytes,

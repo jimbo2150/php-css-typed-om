@@ -37,7 +37,13 @@ final class CSSPositionTryRule extends CSSAtRule
 		} else {
 			$descriptors = new CSSPositionTryDescriptors();
 			if ($style !== null) {
-				$descriptors->setLimitsInternal($maxBytes, $style->resolveMaxDeclarationsInternal());
+				$descriptors->setLimitsInternal(
+					self::minLimitInternal($maxBytes, $style->resolveMaxBytesInternal()),
+					$style->resolveMaxDeclarationsInternal(),
+					$style->resolveMaxDepthInternal(),
+					$style->resolveMaxMathDepthInternal(),
+					true,
+				);
 				foreach ($style->getDeclarationsRaw() as $property => $declaration) {
 					$descriptors->setValidatedProperty($property, $declaration['value'], $declaration['priority']);
 				}

@@ -21,7 +21,13 @@ final class CSSStyleProperties extends CSSStyleDeclaration
 
 		$properties = new self();
 		if ($style !== null) {
-			$properties->setLimitsInternal($style->resolveMaxBytesInternal(), $style->resolveMaxDeclarationsInternal());
+			$properties->setLimitsInternal(
+				$style->resolveMaxBytesInternal(),
+				$style->resolveMaxDeclarationsInternal(),
+				$style->resolveMaxDepthInternal(),
+				$style->resolveMaxMathDepthInternal(),
+				true,
+			);
 			foreach ($style->getDeclarationsRaw() as $property => $declaration) {
 				$properties->setValidatedProperty($property, $declaration['value'], $declaration['priority']);
 			}

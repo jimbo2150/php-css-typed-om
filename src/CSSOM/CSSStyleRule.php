@@ -41,20 +41,31 @@ class CSSStyleRule extends CSSGroupingRule
 		parent::__construct('style', '', $maxBytes);
 		$this->prelude = $selectorText;
 		$this->selectorTextValue = $selectorText;
-		$this->styleDeclaration = CSSStyleProperties::fromDeclaration($style);
-		if ($maxBytes !== null && ($this->styleDeclaration->resolveMaxBytesInternal() === null || $maxBytes < $this->styleDeclaration->resolveMaxBytesInternal())) {
+		if ($style === null) {
+			$this->styleDeclaration = new CSSStyleProperties();
 			$this->styleDeclaration->setMaxBytesInternal($maxBytes);
+		} else {
+			$this->styleDeclaration = CSSStyleProperties::fromDeclaration($style);
+			$this->styleDeclaration->clampLimitsInternal($maxBytes, null, null, null, false);
 		}
 		$this->styleDeclaration->setParentRule($this);
 	}
 
-	protected function syncChildLimitsInternal(?int $maxBytes, ?int $maxDeclarations, bool $syncDeclarations = false): void
-	{
-		if ($syncDeclarations) {
-			$this->styleDeclaration->setLimitsInternal($maxBytes, $maxDeclarations);
-		} else {
-			$this->styleDeclaration->setMaxBytesInternal($maxBytes);
-		}
+	protected function syncChildLimitsInternal(
+		?int $maxBytes,
+		?int $maxDeclarations,
+		bool $syncDeclarations = false,
+		?int $maxDepth = CSSParserOptions::DEFAULT_MAX_DEPTH,
+		?int $maxMathDepth = CSSParserOptions::DEFAULT_MAX_MATH_DEPTH,
+		bool $syncDepths = false,
+	): void {
+		$this->styleDeclaration->clampLimitsInternal(
+			$maxBytes,
+			$syncDeclarations ? $maxDeclarations : null,
+			$maxDepth,
+			$maxMathDepth,
+			$syncDepths,
+		);
 	}
 
 	public function getType(): int

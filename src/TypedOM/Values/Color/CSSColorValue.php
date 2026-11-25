@@ -14,6 +14,7 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathValue;
 
 /**
  * Abstract base class for CSS Typed OM color values (CSS Color 4 / Color 5 Typed OM).
@@ -332,13 +333,73 @@ abstract class CSSColorValue extends CSSStyleValue
 		);
 	}
 
-	protected function formatAlphaSuffix(): string
+	/** @internal */
+	abstract public function toBoundedCssTextInternal(?int $maxBytes): string;
+
+	/**
+	 * @internal
+	 * @return list<CSSNumericValue|CSSKeywordValue>
+	 */
+	abstract public function getComponentValuesInternal(): array;
+
+	public function __toString(): string
+	{
+		return $this->toBoundedCssTextInternal(CSSParserOptions::DEFAULT_MAX_BYTES);
+	}
+
+	/** @param list<CSSNumericValue|CSSKeywordValue> $channels */
+	protected function serializeFunctionChannelsBounded(string $function, array $channels, ?int $maxBytes): string
+	{
+		$prefix = $function . '(';
+		$used = strlen($prefix) + 1;
+		if ($maxBytes !== null && $used > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS color value exceeds maximum size of %d bytes.', $maxBytes));
+		}
+		$parts = [];
+		foreach ($channels as $i => $channel) {
+			$sep = $i === 0 ? '' : ' ';
+			$used += strlen($sep);
+			if ($maxBytes !== null && $used > $maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS color value exceeds maximum size of %d bytes.', $maxBytes));
+			}
+			$remaining = $maxBytes !== null ? $maxBytes - $used : null;
+			$part = $channel instanceof CSSMathValue
+				? $channel->toBoundedCssTextInternal($remaining)
+				: (string) $channel;
+			$used += strlen($part);
+			if ($maxBytes !== null && $used > $maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS color value exceeds maximum size of %d bytes.', $maxBytes));
+			}
+			$parts[] = $sep . $part;
+		}
+		$remainingForAlpha = $maxBytes !== null ? $maxBytes - $used : null;
+
+		return $prefix . implode('', $parts) . $this->formatAlphaSuffixBounded($remainingForAlpha, $maxBytes) . ')';
+	}
+
+	protected function formatAlphaSuffixBounded(?int $remainingBytes, ?int $maxBytes = null): string
 	{
 		if ($this->alphaValue instanceof CSSUnitValue && $this->alphaValue->unit === 'percent' && abs($this->alphaValue->value - 100.0) < 1e-9) {
 			return '';
 		}
+		$limitForMessage = $maxBytes ?? $remainingBytes ?? 0;
+		if ($remainingBytes !== null && $remainingBytes < 3) {
+			throw new CSSParserLimitException(sprintf('CSS color value exceeds maximum size of %d bytes.', $limitForMessage));
+		}
+		$alphaBudget = $remainingBytes !== null ? $remainingBytes - 3 : null;
+		$alphaText = $this->alphaValue instanceof CSSMathValue
+			? $this->alphaValue->toBoundedCssTextInternal($alphaBudget)
+			: (string) $this->alphaValue;
+		if ($alphaBudget !== null && strlen($alphaText) > $alphaBudget) {
+			throw new CSSParserLimitException(sprintf('CSS color value exceeds maximum size of %d bytes.', $limitForMessage));
+		}
 
-		return ' / ' . (string) $this->alphaValue;
+		return ' / ' . $alphaText;
+	}
+
+	protected function formatAlphaSuffix(): string
+	{
+		return $this->formatAlphaSuffixBounded(null);
 	}
 
 	protected static function exposeComponent(CSSNumericValue|CSSKeywordValue $component): CSSNumericValue|CSSKeywordValue
