@@ -21,6 +21,18 @@ class CSSConditionRule extends CSSGroupingRule
 		return $this->prelude;
 	}
 
+	protected function requiresNonEmptyCondition(): bool
+	{
+		return false;
+	}
+
+	protected function assertConditionNotEmpty(string $trimmedCondition): void
+	{
+		if ($trimmedCondition === '' || (str_contains($trimmedCondition, '/*') && CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmedCondition)) === '')) {
+			throw new InvalidArgumentException(sprintf('CSS @%s condition cannot be empty.', $this->ruleName));
+		}
+	}
+
 	/**
 	 * @throws InvalidArgumentException When $conditionText contains invalid structural syntax
 	 */
@@ -33,6 +45,9 @@ class CSSConditionRule extends CSSGroupingRule
 		$conditionText = CSSSyntaxScanner::trimCssWhitespace($conditionText);
 		if ($conditionText !== '') {
 			CSSSyntaxScanner::assertValidFragment($conditionText, 'CSS condition text', [';', '{', '}']);
+		}
+		if ($this->requiresNonEmptyCondition()) {
+			$this->assertConditionNotEmpty($conditionText);
 		}
 		$this->prelude = $conditionText;
 	}

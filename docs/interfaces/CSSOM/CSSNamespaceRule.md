@@ -18,5 +18,6 @@ Magic read-only `prefix` and `namespaceURI` expose parsed prelude components. Ot
 | `getNamespaceURI(): string` | Returns second token for prefixed form or first token for default namespace; unwraps `url(...)` (including escaped `url`) and quotes. | `$rule->getNamespaceURI();` |
 | `getType(): int` | Returns `CSSRule::NAMESPACE_RULE`. | `$rule->getType();` |
 | `__get(string $name): mixed` | Exposes `prefix` and `namespaceURI`, otherwise delegates to `CSSAtRule::__get()`. | `$rule->namespaceURI;` |
+| `__isset(string $name): bool` | True for `prefix` and `namespaceURI`, otherwise delegates to `CSSAtRule::__isset()`. | `isset($rule->namespaceURI);` |
 
 Other inherited public methods are documented on [`CSSAtRule`](CSSAtRule.md) and [`CSSRule`](CSSRule.md).

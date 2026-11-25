@@ -13,10 +13,11 @@ Magic read-only `start` and `end` return parsed bounds (each nullable). Inherite
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(string $prelude = '', ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Creates `@scope` under `$maxBytes`, parses optional bounds; malformed, over-limit, or unclosed bounds throw `InvalidArgumentException` / `CSSParserLimitException`. | `$rule = new CSSScopeRule('(.article) to (.footer)');` |
+| `__construct(string $prelude = '', ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Creates `@scope` under `$maxBytes`, parses optional bounds (rejecting empty or comment-only `(...)` start/end selectors, while allowing bare `@scope {}`); malformed, over-limit, or unclosed bounds throw `InvalidArgumentException` / `CSSParserLimitException`. | `$rule = new CSSScopeRule('(.article) to (.footer)');` |
 | `getType(): int` | Returns `CSSRule::SCOPE_RULE`. | `$rule->getType();` |
 | `getStart(): ?string` | Returns the selector in the initial parenthesized bound, or `null` when absent. | `$rule->getStart();` |
 | `getEnd(): ?string` | Returns selector following `to (...)`, or `null` when absent. | `$rule->getEnd();` |
 | `__get(string $name): mixed` | Exposes `start` and `end`; other names delegate to `CSSGroupingRule::__get()`. | `$rule->start;` |
+| `__isset(string $name): bool` | True when `start` or `end` is non-null, otherwise delegates to `CSSGroupingRule::__isset()`. | `isset($rule->start);` |
 
 Inherited grouping and CSSRule methods are documented in the linked parent pages.

@@ -7,14 +7,15 @@
 
 ## Properties
 
-Magic read-only properties: `containerName`, `containerQuery`, and inherited `conditionText`, `cssRules`, `type`, `cssText`, `parentStyleSheet`, and `parentRule`.
+Magic read-only properties: `containerName` and `containerQuery`; inherited `conditionText` is read/write (non-empty and non-comment-only), and `cssRules`, `type`, `cssText`, `parentStyleSheet`, and `parentRule` are inherited.
 
 ## Public Methods
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(string $conditionText, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Uses the condition text as the `@container` prelude under `$maxBytes`; parent validation applies. | `$rule = new CSSContainerRule('sidebar (width > 30rem)');` |
+| `__construct(string $conditionText, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)` | Uses the non-empty, non-comment-only condition text as the `@container` prelude under `$maxBytes`; parent validation applies. | `$rule = new CSSContainerRule('sidebar (width > 30rem)');` |
 | `getType(): int` | Returns `CSSRule::CONTAINER_RULE`. | `$rule->getType();` |
+| `setConditionText(string $conditionText): void` | Validates non-empty, non-comment-only condition text via `CSSConditionRule::setConditionText()` and clears the cached prelude split. | `$rule->setConditionText('(width > 40rem)');` |
 | `getContainerName(): string` | Parses leading validated `<container-name>` via `decodeIdentAt()` (supporting CSS escapes such as `card\(1` and rejecting `none`, `and`, `not`, `or`, and CSS-wide keywords), or `''` if the prelude starts directly with a query. | `$rule->getContainerName();` |
 | `getContainerQuery(): string` | Returns the query portion following any valid `<container-name>`, or the entire trimmed prelude when unnamed. | `$rule->getContainerQuery();` |
 | `__get(string $name): mixed` | Adds `containerName` and `containerQuery`, then delegates to inherited magic access. | `$rule->containerQuery;` |

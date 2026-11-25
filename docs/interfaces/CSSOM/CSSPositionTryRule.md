@@ -18,5 +18,6 @@ Magic read-only `name` returns the custom dashed rule name and `style` returns `
 | `getStyle(): CSSPositionTryDescriptors` | Returns the typed descriptor block. | `$rule->getStyle();` |
 | `getType(): int` | Returns `CSSRule::POSITION_TRY_RULE`. | `$rule->getType();` |
 | `__get(string $name): mixed` | Exposes `name`; `style` and inherited virtual properties are handled by `CSSAtRule::__get()`. | `$rule->name;` |
+| `__isset(string $name): bool` | True for `name`; other names delegate to `CSSAtRule::__isset()`. | `isset($rule->name);` |
 
 Other inherited public methods are documented on [`CSSAtRule`](CSSAtRule.md) and [`CSSRule`](CSSRule.md).

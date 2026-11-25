@@ -34,6 +34,7 @@ final class CSSPageRule extends CSSGroupingRule
 		$selector = CSSSyntaxScanner::trimCssWhitespace($selector);
 		parent::__construct('page', $selector, $maxBytes);
 
+		$seenMarginRules = [];
 		foreach ($marginRules as $rule) {
 			if (!$rule instanceof CSSMarginRule) {
 				throw new InvalidArgumentException('@page marginRules must contain only CSSMarginRule instances.');
@@ -41,6 +42,11 @@ final class CSSPageRule extends CSSGroupingRule
 			if ($rule->getParentRule() !== null || $rule->getParentStyleSheet() !== null) {
 				throw new InvalidArgumentException('A CSSRule that already has a parent cannot be inserted.');
 			}
+			$id = spl_object_id($rule);
+			if (isset($seenMarginRules[$id])) {
+				throw new InvalidArgumentException('Duplicate CSSMarginRule cannot be inserted into @page.');
+			}
+			$seenMarginRules[$id] = true;
 		}
 
 		if ($style instanceof CSSPageDescriptors) {

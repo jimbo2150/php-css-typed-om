@@ -10,8 +10,10 @@ use Jimbo2150\PhpCssTypedOm\CSS;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSCharsetRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSContainerRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSCounterStyleRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFontFaceRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFontFeatureValuesMap;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFontFeatureValuesRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFunctionDeclarations;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFunctionRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSGroupingRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSImportRule;
@@ -21,8 +23,11 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSLayerStatementRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSMarginRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSMediaRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSNamespaceRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSNestedDeclarations;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSOpaqueRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPageDescriptors;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPageRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParser;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPropertyRule;
@@ -35,6 +40,8 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSScopeRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleSheet;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSSupportsRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSViewTransitionRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\FontFace;
 use Jimbo2150\PhpCssTypedOm\CSSOM\MediaList;
 use Jimbo2150\PhpCssTypedOm\CSSOM\StyleSheetList;
@@ -44,6 +51,7 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext;
 use Jimbo2150\PhpCssTypedOm\TypedOM\StylePropertyMap;
+use Jimbo2150\PhpCssTypedOm\TypedOM\StylePropertyMapReadOnly;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColor;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSHWB;
@@ -1871,12 +1879,14 @@ final class CSSSecurityAndLimitsTest extends TestCase
 			["@bad \x07;", InvalidArgumentException::class],
 			['@too-long { a: 1; }', CSSParserLimitException::class, 8],
 		] as $case) {
+			$threw = false;
 			try {
 				new CSSOpaqueRule($case[0], $case[2] ?? CSSParserOptions::DEFAULT_MAX_BYTES);
-				self::fail('Expected CSSOpaqueRule to reject: ' . $case[0]);
-			} catch (\Throwable $e) {
+			} catch (InvalidArgumentException $e) {
+				$threw = true;
 				self::assertInstanceOf($case[1], $e);
 			}
+			self::assertTrue($threw, 'Expected CSSOpaqueRule to reject: ' . $case[0]);
 		}
 
 		// 2. Policy A3 / B1: per-ancestor byte & depth budgets, __toString() outer vs inner, GC & clone clamping
@@ -2008,13 +2018,19 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		$importSheet = CSSStyleSheet::parse('@import "https://example.com/a.css" screen;', new CSSParserOptions(maxBytes: 64));
 		$importRule = $importSheet->cssRules[0];
 		self::assertInstanceOf(CSSImportRule::class, $importRule);
-		foreach (['layer(evil)', 'supports(display: grid)', 'layer, screen', 'layer(foo), screen', 'layer(foo)screen', 'supports(display:grid)screen', '\\6c ayer(x)', str_repeat('b', 40)] as $badMedia) {
+		foreach (['layer(evil)', 'supports(display: grid)', 'layer, screen', 'layer(foo), screen', 'layer(foo)screen', 'supports(display:grid)screen', '\\6c ayer(x)'] as $badMedia) {
 			try {
 				$importRule->media->setMediaText($badMedia);
 				self::fail('Expected CSSImportRule::media mutation to reject: ' . $badMedia);
 			} catch (InvalidArgumentException $e) {
 				self::assertSame('screen', $importRule->mediaText);
 			}
+		}
+		try {
+			$importRule->media->setMediaText(str_repeat('b', 40));
+			self::fail('Expected CSSImportRule prelude maxBytes overrun to throw CSSParserLimitException.');
+		} catch (CSSParserLimitException) {
+			self::assertSame('screen', $importRule->getMediaText());
 		}
 
 		// 4. Policy B3: Detached CSSRule & MediaList $maxBytes persistence + unlimited propagation + clone GC
@@ -2128,6 +2144,409 @@ final class CSSSecurityAndLimitsTest extends TestCase
 			self::fail('Expected symbolic hue in CSSHWB::toOKLCH() with w+b>=1 to throw.');
 		} catch (InvalidArgumentException $e) {
 			self::assertNotSame('', $e->getMessage());
+		}
+
+		$this->assertPlanV12RegressionHardening();
+	}
+
+	private function assertPlanV12RegressionHardening(): void
+	{
+		// 1. WS1: CSSImportRule unquoted url(), adjacent tokens, anonymous layer, control-escape linear scan & token cap
+		foreach ([
+			'"a.css" url(a[b), layer(evil), supports(display: grid)',
+			'"a.css" url(a[b) layer(evil)',
+			'"a.css" (min-width: 600px)layer(foo)',
+			'"a.css" (min-width: 600px)supports(display: grid)',
+			'"a.css" (min-width: 600px)layer',
+			'"a.css" screen/layer(foo)',
+			'"a.css" ""layer(evil)',
+			'"a.css" [a]supports(display: grid)',
+			'"a.css" 1e+layer(foo)',
+		] as $badImportPrelude) {
+			try {
+				new CSSImportRule($badImportPrelude);
+				self::fail('Expected CSSImportRule constructor to reject: ' . $badImportPrelude);
+			} catch (InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
+
+		foreach ([
+			'url(a[b), layer(evil)',
+			'url(a[b) layer(evil)',
+			'(min-width: 600px)layer(foo)',
+			'(color)supports(display: grid)',
+			'screen/layer(foo)',
+			'""layer(evil)',
+			'1e+layer(foo)',
+			'layer"x", screen',
+			'layer[a], screen',
+		] as $badMediaText) {
+			$importBase = new CSSImportRule('"a.css" screen');
+			try {
+				$importBase->media->setMediaText($badMediaText);
+				self::fail('Expected MediaList::setMediaText() to reject: ' . $badMediaText);
+			} catch (InvalidArgumentException) {
+				self::assertSame('screen', $importBase->getMediaText());
+			}
+			try {
+				$importBase->media->appendMedium($badMediaText);
+				self::fail('Expected MediaList::appendMedium() to reject: ' . $badMediaText);
+			} catch (InvalidArgumentException) {
+				self::assertSame('@import "a.css" screen;', $importBase->getCssText());
+			}
+		}
+
+		$anonLayerQuote = new CSSImportRule('"a.css" layer"x", screen');
+		self::assertSame('', $anonLayerQuote->layerName);
+		self::assertSame('"x", screen', $anonLayerQuote->mediaText);
+		$anonLayerBracket = new CSSImportRule('"a.css" layer[a], screen');
+		self::assertSame('', $anonLayerBracket->layerName);
+		self::assertSame('[a], screen', $anonLayerBracket->mediaText);
+
+		// Valid escaped control-byte function & long ident remain linear-time (no O(N^2) rescan)
+		$escCtlMedia = new CSSImportRule('"a.css" a\\7 layer(ok)');
+		self::assertSame('a\\7 layer(ok)', $escCtlMedia->mediaText);
+		$longCtlIdent = new CSSImportRule('"a.css" ' . str_repeat('a', 10_000) . '\\7 ');
+		self::assertGreaterThan(10_000, strlen($longCtlIdent->mediaText));
+
+		// Token caps via url(a[b) bypass attempt and direct constructor
+		try {
+			$importBase->media->setMediaText('url(a[b) ' . str_repeat('x ', CSSStyleValue::MAX_LIST_ITEMS + 5));
+			self::fail('Expected CSSImportRule token cap to reject flood after unquoted url().');
+		} catch (CSSParserLimitException) {
+			self::assertSame('screen', $importBase->mediaText);
+		}
+		try {
+			new CSSImportRule('"a.css" ' . str_repeat('screen ', CSSStyleValue::MAX_LIST_ITEMS + 5));
+			self::fail('Expected CSSImportRule constructor token cap to throw.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		// 2. WS2: Policy B3 detached/cloned/GC $maxBytes completeness
+		$detachedStyleRule = new CSSStyleRule('a', null, 32);
+		$detachedStyleRule->style->setProperty('color', 'red');
+		$detachedStyleRule->styleMap->set('margin', '10px');
+		foreach ([
+			static fn () => $detachedStyleRule->style->setProperty('color', str_repeat('a', 40)),
+			static fn () => $detachedStyleRule->style->setCssText('color: ' . str_repeat('b', 40) . ';'),
+			static fn () => $detachedStyleRule->setSelectorText(str_repeat('a', 40)),
+			static fn () => $detachedStyleRule->styleMap->set('color', str_repeat('c', 40)),
+			static fn () => $detachedStyleRule->styleMap->append('color', str_repeat('d', 40)),
+		] as $op) {
+			try {
+				$op();
+				self::fail('Expected detached CSSStyleRule 32-byte cap to enforce CSSParserLimitException.');
+			} catch (CSSParserLimitException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
+
+		$tightSheetForMedia = CSSStyleSheet::parse('a {}', new CSSParserOptions(maxBytes: 12));
+		$survivingMedia = $tightSheetForMedia->media;
+		$clonedMedia = clone $tightSheetForMedia->media;
+		unset($tightSheetForMedia);
+		gc_collect_cycles();
+		foreach ([$survivingMedia, $clonedMedia] as $ml) {
+			try {
+				$ml->appendMedium('very-long-medium');
+				self::fail('Expected MediaList limit (12B) to survive sheet GC and clone.');
+			} catch (CSSParserLimitException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
+
+		$preBuiltMediaSheet = new CSSStyleSheet(media: new MediaList('screen', null, 12));
+		$alignedMedia = $preBuiltMediaSheet->media;
+		unset($preBuiltMediaSheet);
+		gc_collect_cycles();
+		$alignedMedia->appendMedium('projection-wide-name');
+		self::assertSame('screen, projection-wide-name', $alignedMedia->mediaText);
+
+		$tightSheetForClone = CSSStyleSheet::parse('a { color: red; } @media screen {}', new CSSParserOptions(maxBytes: 40));
+		$clonedRuleFromTight = clone $tightSheetForClone->cssRules[0];
+		self::assertInstanceOf(CSSStyleRule::class, $clonedRuleFromTight);
+		$tightMediaRuleForClone = $tightSheetForClone->cssRules[1];
+		self::assertInstanceOf(CSSMediaRule::class, $tightMediaRuleForClone);
+		$clonedMediaFromTight = clone $tightMediaRuleForClone->media;
+		try {
+			$clonedRuleFromTight->setSelectorText(str_repeat('x', 50));
+			self::fail('Expected CSSRule::__clone() to snapshot 40-byte limit.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+		try {
+			$clonedMediaFromTight->appendMedium(str_repeat('m', 50));
+			self::fail('Expected MediaList clone from tight rule to snapshot 40-byte limit.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		$unlimSheetForClone = CSSStyleSheet::parse('@media screen {}', CSSParserOptions::unlimited());
+		$unlimMediaRuleForClone = $unlimSheetForClone->cssRules[0];
+		self::assertInstanceOf(CSSMediaRule::class, $unlimMediaRuleForClone);
+		$clonedUnlimMedia = clone $unlimMediaRuleForClone->media;
+		$clonedUnlimMedia->appendMedium(str_repeat('m', 256));
+		self::assertStringContainsString(str_repeat('m', 256), $clonedUnlimMedia->mediaText);
+
+		$detachedFfv = new CSSFontFeatureValuesRule('MyFont', 20);
+		try {
+			$detachedFfv->stylistic->set(str_repeat('a', 30), 1);
+			self::fail('Expected detached CSSFontFeatureValuesRule 20-byte cap via map::set().');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		$tightFontFace = CSSParser::parseSingleRule('@font-face { font-family: A; }', new CSSParserOptions(maxBytes: 40));
+		self::assertInstanceOf(CSSFontFaceRule::class, $tightFontFace);
+		try {
+			$tightFontFace->style->setProperty('font-family', str_repeat('a', 60));
+			self::fail('Expected parsed CSSFontFaceRule to retain 40-byte cap.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		$tightVt = CSSParser::parseSingleRule('@view-transition { navigation: auto; }', new CSSParserOptions(maxBytes: 50));
+		self::assertInstanceOf(CSSViewTransitionRule::class, $tightVt);
+		try {
+			$tightVt->style->setProperty('types', str_repeat('a', 60));
+			self::fail('Expected parsed CSSViewTransitionRule to retain 50-byte cap.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		$nestedSr = CSSParser::parseSingleRule('a { & b {} color: red; }', new CSSParserOptions(maxBytes: 40));
+		self::assertInstanceOf(CSSStyleRule::class, $nestedSr);
+		$nestedDecls = $nestedSr->cssRules[1];
+		self::assertInstanceOf(CSSNestedDeclarations::class, $nestedDecls);
+		try {
+			$nestedDecls->style->setProperty('color', str_repeat('a', 60));
+			self::fail('Expected CSSNestedDeclarations to retain 40-byte cap.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		$fnRuleParsed = CSSParser::parseSingleRule('@function --f() { result: 1px; }', new CSSParserOptions(maxBytes: 40));
+		self::assertInstanceOf(CSSFunctionRule::class, $fnRuleParsed);
+		$fnDecls = $fnRuleParsed->cssRules[0];
+		self::assertInstanceOf(CSSFunctionDeclarations::class, $fnDecls);
+		try {
+			$fnDecls->style->setProperty('result', str_repeat('a', 60));
+			self::fail('Expected CSSFunctionDeclarations to retain 40-byte cap.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		$unlimFontDecl = new CSSStyleDeclaration();
+		$unlimFontDecl->setValidatedProperty('font-family', str_repeat('a', CSSParserOptions::DEFAULT_MAX_BYTES + 1), '');
+		$unlimFontFace = new CSSFontFaceRule($unlimFontDecl, null);
+		self::assertNull($unlimFontFace->resolveMaxBytesInternal());
+		self::assertSame(CSSParserOptions::DEFAULT_MAX_BYTES + 1, strlen($unlimFontFace->style->getPropertyValue('font-family')));
+		unset($unlimFontDecl, $unlimFontFace);
+
+		$unlimKf = new CSSKeyframesRule('spin', 'keyframes', null);
+		$unlimKf->setNameText(str_repeat('a', CSSParserOptions::DEFAULT_MAX_BYTES + 1));
+		self::assertSame(CSSParserOptions::DEFAULT_MAX_BYTES + 1, strlen($unlimKf->name));
+		unset($unlimKf);
+
+		// 3. WS3: Invalid UTF-8 var(), post-parse expansion, setFallback maxDepth clamp, offsetUnset, array error msg, stringify prefix, negative counters, StylePropertyMap precedence
+		try {
+			new CSSUnparsedValue(str_repeat('var(--a, ', 10) . '1' . str_repeat(')', 10) . " \xFF", new CSSParserOptions(maxDepth: 2));
+			self::fail('Expected invalid UTF-8 not to blind var() maxDepth check.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+		$utf8VarParsed = CSSStyleValue::parse('--x', "var(--secret) \xFF");
+		self::assertInstanceOf(CSSUnparsedValue::class, $utf8VarParsed);
+		self::assertInstanceOf(CSSVariableReferenceValue::class, $utf8VarParsed[0]);
+
+		try {
+			new CSSUnparsedValue('var(--a,x)', new CSSParserOptions(maxBytes: 10));
+			self::fail('Expected post-parse var(--a, x) 11-byte expansion to exceed 10-byte cap.');
+		} catch (CSSParserLimitException $e) {
+			self::assertStringContainsString('10 bytes', $e->getMessage());
+		}
+
+		$depthChainRoot = new CSSUnparsedValue('var(--a, var(--b, var(--c, var(--d))))', new CSSParserOptions(maxDepth: 4));
+		$refD = $depthChainRoot[0]->fallback[0]->fallback[0]->fallback[0];
+		self::assertInstanceOf(CSSVariableReferenceValue::class, $refD);
+		$refD->setFallback('x', new CSSParserOptions(maxDepth: 2));
+		$clonedRefDFb = $refD->fallback?->clone();
+		self::assertNotNull($clonedRefDFb);
+		self::assertSame(2, $clonedRefDFb->getMaxDepthInternal());
+		try {
+			$clonedRefDFb[] = new CSSVariableReferenceValue('--e', 'var(--f, var(--g, var(--h)))');
+			self::fail('Expected cloned fallback to keep stricter caller maxDepth=2.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		$unsetRoot = new CSSVariableReferenceValue('--r', new CSSUnparsedValue(['/*', 'x', '*/']));
+		try {
+			$unsetRoot->getFallback()?->offsetUnset(2);
+			self::fail('Expected invalid fragment rollback on offsetUnset() with CSSVariableReferenceValue root.');
+		} catch (InvalidArgumentException) {
+			self::assertSame('var(--r, /*x*/)', (string) $unsetRoot);
+		}
+
+		try {
+			new CSSUnparsedValue(['1234567890', new CSSVariableReferenceValue('--abcdefghij')], new CSSParserOptions(maxBytes: 20));
+			self::fail('Expected array constructor byte cap error to report configured maxBytes=20.');
+		} catch (CSSParserLimitException $e) {
+			self::assertStringContainsString('20 bytes', $e->getMessage());
+		}
+
+		try {
+			CSSUnparsedValue::stringifyIteratively([], 5, '1234567890', '');
+			self::fail('Expected stringifyIteratively() to enforce maxBytes on prefix.');
+		} catch (CSSParserLimitException $e) {
+			self::assertStringContainsString('5 bytes', $e->getMessage());
+		}
+
+		foreach ([
+			static fn () => CSSParser::parseSingleRule('a {}', null, -1),
+			static fn () => CSSParser::parseSingleRule('a {}', null, 0, -1),
+			static fn () => CSSParser::parseSingleRule('a {}', null, 0, 0, -1),
+			static fn () => CSSParser::parseSingleNestedRule('color: red;', null, -1),
+			static fn () => CSSParser::parseSingleKeyframeRule('from {}', null, 0, -1),
+			static fn () => CSSParser::parseSingleMarginRule('@top-left {}', null, 0, 0, -1),
+			static fn () => new CSSUnparsedValue('1px', null, -1),
+			static fn () => CSSUnparsedValue::fromCssText('1px', null, -1),
+			static fn () => new CSSVariableReferenceValue('--a', null, null, -1),
+			static fn () => (new CSSVariableReferenceValue('--a'))->setFallback(null, null, -1),
+			static fn () => CSSCalcParser::parse('calc(1px)', null, -1),
+			static fn () => CSSCalcParser::parseExpression('1px', null, -1),
+			static fn () => CSSNumericValue::parse('1px', null, null, -1),
+			static fn () => CSSNumericValue::parse('width', '1px', null, -1),
+			static fn () => CSSNumericValue::tryParse('1px', null, -1),
+			static fn () => CSSNumericValue::tryParseValidated('1px', null, -1),
+		] as $negCall) {
+			try {
+				$negCall();
+				self::fail('Expected negative depth/counter argument to throw InvalidArgumentException.');
+			} catch (InvalidArgumentException $e) {
+				self::assertStringContainsString('negative', strtolower($e->getMessage()));
+			}
+		}
+
+		$mapSheet = CSSStyleSheet::parse('a {}', new CSSParserOptions(maxBytes: 20));
+		$mapStyleRule = $mapSheet->cssRules[0];
+		self::assertInstanceOf(CSSStyleRule::class, $mapStyleRule);
+		$map = $mapStyleRule->styleMap;
+		try {
+			$map->set('color', '/* unclosed');
+			self::fail('Expected unclosed comment to trigger validatePropertyValue error first.');
+		} catch (InvalidArgumentException $e) {
+			self::assertStringContainsString('comment', strtolower($e->getMessage()));
+		}
+		try {
+			$map->set('margin', '10px', '/* 1234567890123 */');
+			self::fail('Expected oversized comment-only trailing argument to throw CSSParserLimitException.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		// 4. WS4: StylePropertyMapReadOnly get vs getAll, CSSPageRule duplicate atomicity, ViewTransition/PropertyRule comments, 65536 parens, Color pre-scan, comment-only rejections
+		$roDecl = new CSSStyleDeclaration();
+		$roDecl->setProperty('background-image', '/* c */, url(a.png)');
+		$roMap = new StylePropertyMapReadOnly($roDecl);
+		$roFirst = $roMap->get('background-image');
+		$roAll = $roMap->getAll('background-image');
+		self::assertInstanceOf(CSSImageValue::class, $roFirst);
+		self::assertCount(1, $roAll);
+		self::assertEquals($roFirst, $roAll[0]);
+		$roDecl->setProperty('background-image', '/* a */, /* b */');
+		self::assertNull($roMap->get('background-image'));
+		self::assertSame([], $roMap->getAll('background-image'));
+
+		$dupMargin = new CSSMarginRule('top-left', new CSSStyleDeclaration('content: "hi";'));
+		$pageStyle = new CSSPageDescriptors('margin: 1in;');
+		try {
+			new CSSPageRule('', $pageStyle, [$dupMargin, $dupMargin]);
+			self::fail('Expected duplicate CSSMarginRule in CSSPageRule constructor to throw.');
+		} catch (InvalidArgumentException) {
+			self::assertNull($dupMargin->getParentRule());
+			self::assertNull($pageStyle->getParentRule());
+		}
+
+		$vtDecl = new CSSStyleDeclaration();
+		$vtDecl->setProperty('types', '/* comment */ none');
+		self::assertSame([], (new CSSViewTransitionRule($vtDecl))->getTypes());
+		$vtDecl->setProperty('types', str_repeat('a ', CSSStyleValue::MAX_LIST_ITEMS + 2) . 'b');
+		try {
+			(new CSSViewTransitionRule($vtDecl))->getTypes();
+			self::fail('Expected CSSViewTransitionRule::getTypes() token cap to throw.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		$propDecl = new CSSStyleDeclaration();
+		$propDecl->setProperty('syntax', '/* c */ "\'<length>\'"');
+		$propDecl->setProperty('inherits', '/* c */ true');
+		$propRule = new CSSPropertyRule('--x-commented', $propDecl);
+		self::assertSame('\'<length>\'', $propRule->getSyntax());
+		self::assertTrue($propRule->getInherits());
+		$propRule->style->setProperty('syntax', '/* c */ "<length> | auto"');
+		$propRule->style->setProperty('initial-value', '0px');
+		self::assertSame('<length> | auto', $propRule->getSyntax());
+		CSS::clearRegisteredProperties();
+		CSS::registerProperty($propRule);
+		self::assertTrue(CSS::getRegisteredProperty('--x-commented')?->getInherits());
+		CSS::clearRegisteredProperties();
+
+		self::assertTrue(CSS::supports('(--a: ' . str_repeat('()', 65_535) . ')'));
+		self::assertFalse(CSS::supports('(--a: ' . str_repeat('()', 65_536) . ')'));
+
+		$colorVal = new CSSColor('srgb', [0.5, 0.5, 0.5]);
+		try {
+			$colorVal->setColorSpace(str_repeat('a', CSSParserOptions::DEFAULT_MAX_BYTES + 1));
+			self::fail('Expected CSSColor::setColorSpace() byte limit to throw.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('--custom', '/* ok */'));
+		foreach ([
+			static fn () => CSSStyleValue::parse('color', '/* c */'),
+			static fn () => CSSStyleValue::parse('/* c */'),
+			static fn () => CSSStyleValue::parseAll('color', '/* a */, /* b */'),
+			static fn () => new CSSSupportsRule(''),
+			static fn () => new CSSSupportsRule('/* c */'),
+			static fn () => new CSSContainerRule(''),
+			static fn () => new CSSContainerRule('/* c */'),
+			static fn () => new CSSScopeRule('()'),
+			static fn () => new CSSScopeRule('(/* a */) to (/* b */)'),
+			static fn () => new CSSScopeRule('(.a) to (/* b */)'),
+			static fn () => CSSFunctionRule::fromPrelude('--f(--x: /* c */)'),
+			static fn () => new CSSFunctionRule('--f', '', [], '/* c */'),
+			static fn () => new CSSFunctionRule('--f', '', [['name' => '--x', 'type' => '/* c */', 'defaultValue' => null]], '*'),
+			static fn () => new CSSFunctionRule('--f', '', [['name' => '--x', 'type' => '*', 'defaultValue' => '']], '*'),
+			static fn () => new CSSFunctionRule('--f', '', [['name' => '--x', 'type' => '*', 'defaultValue' => '   ']], '*'),
+			static fn () => new CSSFunctionRule('--f', '', [['name' => '--x', 'type' => '*', 'defaultValue' => '/* c */']], '*'),
+		] as $badEmptyCall) {
+			try {
+				$badEmptyCall();
+				self::fail('Expected empty/comment-only call to throw InvalidArgumentException.');
+			} catch (InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
+
+		$bareCommentScope = new CSSScopeRule('/* c */');
+		self::assertNull($bareCommentScope->start);
+		self::assertNull($bareCommentScope->end);
+
+		$condSup = new CSSSupportsRule('(color: red)');
+		$condCon = new CSSContainerRule('(width > 1px)');
+		foreach ([$condSup, $condCon] as $condRule) {
+			$prev = $condRule->conditionText;
+			try {
+				$condRule->setConditionText('/* c */');
+				self::fail('Expected transactional setConditionText() to reject comment-only input.');
+			} catch (InvalidArgumentException) {
+				self::assertSame($prev, $condRule->conditionText);
+			}
 		}
 	}
 }

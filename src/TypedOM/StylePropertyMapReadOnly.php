@@ -35,9 +35,19 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 
 	protected function resolveSheetParserOptions(): CSSParserOptions
 	{
-		$sheet = $this->style->getParentRule()?->getParentStyleSheet();
+		$rule = $this->style->getParentRule();
+		$sheet = $rule?->getParentStyleSheet();
+		if ($sheet !== null) {
+			return $sheet->resolveParserOptionsInternal(null);
+		}
+		if ($rule !== null) {
+			$ruleMaxBytes = $rule->resolveMaxBytesInternal();
+			if ($ruleMaxBytes !== CSSParserOptions::DEFAULT_MAX_BYTES) {
+				return new CSSParserOptions(maxBytes: $ruleMaxBytes);
+			}
+		}
 
-		return $sheet !== null ? $sheet->resolveParserOptionsInternal(null) : CSSParserOptions::default();
+		return CSSParserOptions::default();
 	}
 
 	protected function normalizeBoundedPropertyName(string $property, CSSParserOptions $options): string
@@ -71,7 +81,7 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 			$comma = CSSSyntaxScanner::findTopLevel($value, ',', $offset, $length);
 			$segmentEnd = $comma ?? $length;
 			$first = CSSSyntaxScanner::trimCssWhitespace(substr($value, $offset, $segmentEnd - $offset));
-			if ($first !== '') {
+			if ($first !== '' && (!str_contains($first, '/*') || CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($first)) !== '')) {
 				return CSSStyleValue::parseValidated($normalized, $first, $options);
 			}
 			$offset = $segmentEnd + 1;

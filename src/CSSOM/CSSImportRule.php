@@ -212,7 +212,7 @@ final class CSSImportRule extends CSSAtRule
 				continue;
 			}
 			if ($identLower === 'layer'
-				&& ($identEnd === $tLen || str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $tail[$identEnd]))
+				&& ($identEnd === $tLen || $tail[$identEnd] !== '(')
 			) {
 				if ($supportsText !== null) {
 					throw new InvalidArgumentException('CSS @import layer() must precede supports().');
@@ -272,56 +272,104 @@ final class CSSImportRule extends CSSAtRule
 				$pos++;
 				continue;
 			}
-			$tokenStart = $pos;
-			$stack = [];
-			while ($pos < $length) {
-				$c = $mediaText[$pos];
-				if ($stack === [] && ($c === ',' || str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $c))) {
-					break;
-				}
-				if ($c === '"' || $c === "'") {
-					$valid = false;
-					$endStr = CSSSyntaxScanner::scanQuotedStringEnd($mediaText, $pos, $length, $valid);
-					$pos = $valid ? $endStr + 1 : $length;
-					continue;
-				}
-				if ($c === '\\') {
-					$pos = CSSSyntaxScanner::advanceIdentEscapeEnd($mediaText, $pos, $length);
-					continue;
-				}
-				if ($c === '(' || $c === '[' || $c === '{') {
-					$stack[] = $c === '(' ? ')' : ($c === '[' ? ']' : '}');
-					$pos++;
-					continue;
-				}
-				if ($c === ')' || $c === ']' || $c === '}') {
-					if ($stack !== [] && $stack[count($stack) - 1] === $c) {
-						array_pop($stack);
-					}
-					$pos++;
-					continue;
-				}
-				$pos++;
-			}
 
 			$tokenCount++;
 			if ($tokenCount > CSSStyleValue::MAX_LIST_ITEMS) {
 				throw new CSSParserLimitException(sprintf('CSS @import media list exceeds maximum limit of %d tokens.', CSSStyleValue::MAX_LIST_ITEMS));
 			}
 
-			$tokLen = $pos - $tokenStart;
-			$ident = CSSSyntaxScanner::decodeIdentAt($mediaText, $tokenStart, $pos);
-			if ($ident !== null) {
-				$lower = strtolower($ident['ident']);
-				$identEnd = $ident['end'];
-				if ($lower === 'layer' && ($identEnd === $pos || ($identEnd < $pos && $mediaText[$identEnd] === '('))) {
+			if ($ch === '"' || $ch === "'") {
+				$valid = false;
+				$endStr = CSSSyntaxScanner::scanQuotedStringEnd($mediaText, $pos, $length, $valid);
+				$pos = $valid ? $endStr + 1 : $length;
+				continue;
+			}
+
+			if ($ch === '(' || $ch === '[' || $ch === '{') {
+				$close = CSSSyntaxScanner::findMatchingDelimiter($mediaText, $pos, $length);
+				$pos = $close !== null ? $close + 1 : $length;
+				continue;
+			}
+
+			if ($ch === '#' || $ch === '@') {
+				$idEnd = $pos + 1 < $length ? CSSSyntaxScanner::scanIdentEnd($mediaText, $pos + 1, $length) : null;
+				$pos = $idEnd ?? ($pos + 1);
+				continue;
+			}
+
+			if (($ch >= '0' && $ch <= '9')
+				|| ($ch === '.' && $pos + 1 < $length && $mediaText[$pos + 1] >= '0' && $mediaText[$pos + 1] <= '9')
+				|| (($ch === '+' || $ch === '-') && (
+					($pos + 1 < $length && $mediaText[$pos + 1] >= '0' && $mediaText[$pos + 1] <= '9')
+					|| ($pos + 2 < $length && $mediaText[$pos + 1] === '.' && $mediaText[$pos + 2] >= '0' && $mediaText[$pos + 2] <= '9')
+				))
+			) {
+				if ($ch === '+' || $ch === '-') {
+					$pos++;
+				}
+				$pos += strspn($mediaText, '0123456789', $pos, $length - $pos);
+				if ($pos + 1 < $length && $mediaText[$pos] === '.' && $mediaText[$pos + 1] >= '0' && $mediaText[$pos + 1] <= '9') {
+					$pos++;
+					$pos += strspn($mediaText, '0123456789', $pos, $length - $pos);
+				}
+				if ($pos < $length && ($mediaText[$pos] === 'e' || $mediaText[$pos] === 'E')) {
+					$expPos = $pos + 1;
+					if ($expPos < $length && ($mediaText[$expPos] === '+' || $mediaText[$expPos] === '-')) {
+						$expPos++;
+					}
+					if ($expPos < $length && $mediaText[$expPos] >= '0' && $mediaText[$expPos] <= '9') {
+						$pos = $expPos + strspn($mediaText, '0123456789', $expPos, $length - $expPos);
+					}
+				}
+				if ($pos < $length) {
+					if ($mediaText[$pos] === '%') {
+						$pos++;
+					} else {
+						$unitEnd = CSSSyntaxScanner::scanIdentEnd($mediaText, $pos, $length);
+						if ($unitEnd !== null) {
+							$pos = $unitEnd;
+						}
+					}
+				}
+				continue;
+			}
+
+			$identEnd = CSSSyntaxScanner::scanIdentEnd($mediaText, $pos, $length);
+			if ($identEnd !== null) {
+				$raw = substr($mediaText, $pos, $identEnd - $pos);
+				$decoded = str_contains($raw, '\\') ? CSSSyntaxScanner::decodeCssIdentEscapes($raw) : $raw;
+				$lower = strtolower($decoded);
+				if ($lower === 'layer') {
 					throw new InvalidArgumentException('CSS @import layer() must precede supports() and media queries.');
 				}
-				if ($lower === 'supports' && $identEnd < $pos && $mediaText[$identEnd] === '(') {
+				if ($lower === 'supports' && $identEnd < $length && $mediaText[$identEnd] === '(') {
 					throw new InvalidArgumentException('CSS @import supports() must precede media queries.');
 				}
+				if ($identEnd < $length && $mediaText[$identEnd] === '(') {
+					if ($lower === 'url') {
+						$afterParen = $identEnd + 1;
+						$afterParen += strspn($mediaText, CSSSyntaxScanner::CSS_WHITESPACE, $afterParen, $length - $afterParen);
+						if ($afterParen >= $length || ($mediaText[$afterParen] !== '"' && $mediaText[$afterParen] !== "'")) {
+							$valid = false;
+							$urlEnd = CSSSyntaxScanner::scanUnquotedUrlEnd($mediaText, $identEnd, $length, $valid);
+							$pos = $urlEnd < $length ? $urlEnd + 1 : $length;
+							continue;
+						}
+					}
+					$close = CSSSyntaxScanner::findMatchingDelimiter($mediaText, $identEnd, $length);
+					$pos = $close !== null ? $close + 1 : $length;
+					continue;
+				}
+				$pos = $identEnd;
+				continue;
 			}
-			unset($tokLen);
+
+			if ($ch === '\\') {
+				$pos = CSSSyntaxScanner::advanceIdentEscapeEnd($mediaText, $pos, $length);
+				continue;
+			}
+
+			$pos++;
 		}
 	}
 

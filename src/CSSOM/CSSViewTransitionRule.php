@@ -17,9 +17,9 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
  */
 final class CSSViewTransitionRule extends CSSAtRule
 {
-	public function __construct(CSSStyleDeclaration $descriptors)
+	public function __construct(CSSStyleDeclaration $descriptors, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
-		parent::__construct('view-transition', '', $descriptors, true);
+		parent::__construct('view-transition', '', $descriptors, true, $maxBytes);
 	}
 
 	public function getNavigation(): string
@@ -31,6 +31,9 @@ final class CSSViewTransitionRule extends CSSAtRule
 	public function getTypes(): array
 	{
 		$raw = CSSSyntaxScanner::trimCssWhitespace($this->styleDeclaration?->getPropertyValue('types') ?? '');
+		if (str_contains($raw, '/*')) {
+			$raw = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($raw));
+		}
 		if ($raw === '' || strtolower($raw) === 'none') {
 			return [];
 		}

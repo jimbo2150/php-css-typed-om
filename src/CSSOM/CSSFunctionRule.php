@@ -48,6 +48,9 @@ final class CSSFunctionRule extends CSSGroupingRule
 			throw new InvalidArgumentException('@function return type cannot be empty.');
 		}
 		CSSSyntaxScanner::assertValidFragment($normalizedReturnType, '@function return type', [';', '{', '}']);
+		if (str_contains($normalizedReturnType, '/*') && CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($normalizedReturnType)) === '') {
+			throw new InvalidArgumentException('@function return type cannot be empty.');
+		}
 
 		$normalizedParameters = [];
 		if (count($parameters) > CSSStyleValue::MAX_LIST_ITEMS) {
@@ -77,6 +80,9 @@ final class CSSFunctionRule extends CSSGroupingRule
 				throw new InvalidArgumentException('@function parameter type cannot be empty.');
 			}
 			CSSSyntaxScanner::assertValidFragment($paramType, '@function parameter type', [';', '{', '}']);
+			if (str_contains($paramType, '/*') && CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($paramType)) === '') {
+				throw new InvalidArgumentException('@function parameter type cannot be empty.');
+			}
 
 			$defaultValue = $parameter['defaultValue'] ?? null;
 			if ($defaultValue !== null) {
@@ -84,6 +90,9 @@ final class CSSFunctionRule extends CSSGroupingRule
 					throw new CSSParserLimitException(sprintf('CSS @function parameter default value exceeds maximum size of %d bytes.', $maxBytes));
 				}
 				CSSSyntaxScanner::assertValidFragment($defaultValue, '@function parameter default value', [';', '{', '}']);
+				if (CSSSyntaxScanner::trimCssWhitespace(str_contains($defaultValue, '/*') ? CSSSyntaxScanner::removeComments($defaultValue) : $defaultValue) === '') {
+					throw new InvalidArgumentException('Empty default value for @function parameter: ' . $paramName);
+				}
 			}
 
 			$normalizedParameters[] = [
@@ -219,10 +228,10 @@ final class CSSFunctionRule extends CSSGroupingRule
 				}
 			}
 			if ($defaultValue !== null) {
-				if ($defaultValue === '') {
+				CSSSyntaxScanner::assertValidFragment($defaultValue, '@function parameter default value', [';', '{', '}']);
+				if (CSSSyntaxScanner::trimCssWhitespace(str_contains($defaultValue, '/*') ? CSSSyntaxScanner::removeComments($defaultValue) : $defaultValue) === '') {
 					throw new InvalidArgumentException('Empty default value for @function parameter: ' . $paramName);
 				}
-				CSSSyntaxScanner::assertValidFragment($defaultValue, '@function parameter default value', [';', '{', '}']);
 			}
 			$parameters[] = [
 				'name' => $paramName,

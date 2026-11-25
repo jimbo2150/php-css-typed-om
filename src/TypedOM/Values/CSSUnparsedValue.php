@@ -53,6 +53,9 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 	 */
 	public function __construct(array|string $value, ?CSSParserOptions $options = null, int $depth = 0)
 	{
+		if ($depth < 0) {
+			throw new InvalidArgumentException('Nesting depth cannot be negative.');
+		}
 		$this->maxBytes = $options !== null ? $options->maxBytes : CSSParserOptions::DEFAULT_MAX_BYTES;
 		$options ??= CSSParserOptions::default();
 		$effectiveMaxDepth = $options->maxDepth !== null
@@ -71,10 +74,15 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 				CSSSyntaxScanner::assertValidFragment($value, 'CSS unparsed value', [';', '{', '}']);
 			}
 			$this->values = self::parseFragmentsIterative($value, $depth, $this->maxBytes, $effectiveMaxDepth);
+			$hasVarRef = false;
 			foreach ($this->values as $item) {
 				if ($item instanceof CSSVariableReferenceValue) {
 					$item->setParentUnparsedInternal($this);
+					$hasVarRef = true;
 				}
+			}
+			if ($this->maxBytes !== null && $hasVarRef) {
+				$this->measureRenderedBytesInternal($this->maxBytes);
 			}
 			return;
 		}
@@ -106,7 +114,14 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 					if ($remainingBudget < 0) {
 						throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum size of %d bytes.', $this->maxBytes));
 					}
-					$fragBytes = $fragment->measureRenderedBytesInternal($remainingBudget);
+					try {
+						$fragBytes = $fragment->measureRenderedBytesInternal($remainingBudget);
+					} catch (CSSParserLimitException $e) {
+						if (str_contains($e->getMessage(), 'maximum size')) {
+							throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum size of %d bytes.', $this->maxBytes));
+						}
+						throw $e;
+					}
 					$preTotalBytes += $fragBytes;
 					if ($preTotalBytes > $this->maxBytes) {
 						throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum size of %d bytes.', $this->maxBytes));
@@ -691,6 +706,9 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 		$parts = $prefix === '' ? [] : [$prefix];
 		$totalBytes = strlen($prefix);
 		$maxAllowed = $maxBytes;
+		if ($maxAllowed !== null && $totalBytes > $maxAllowed) {
+			throw new CSSParserLimitException(sprintf('CSS unparsed value exceeds maximum size of %d bytes.', $maxAllowed));
+		}
 		$stack = [];
 		for ($i = count($rootValues) - 1; $i >= 0; $i--) {
 			$stack[] = [0, $rootValues[$i], 0];
@@ -983,7 +1001,6 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 		}
 
 		$rootFragments = [];
-		$identRegex = '/\G--(?:[-_a-zA-Z0-9]|[^\x00-\x7F]|' . CSSSyntaxScanner::IDENT_ESCAPE_REGEX . ')+/u';
 		$workStack = [[0, $length, $rootDepth, null]];
 
 		while ($workStack !== []) {
@@ -1050,12 +1067,14 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 					$close = $matchingParens[$pos];
 					if ($close < $sliceEnd) {
 						$cursor = self::skipCssTrivia($source, $pos + 1, $close);
-						if ($cursor + 1 < $close && $source[$cursor] === '-' && $source[$cursor + 1] === '-'
-							&& preg_match($identRegex, $source, $idMatch, 0, $cursor) === 1
-							&& ($cursor + strlen($idMatch[0])) <= $close
+						if ($cursor + 1 < $close
+							&& $source[$cursor] === '-'
+							&& $source[$cursor + 1] === '-'
+							&& ($identEnd = CSSSyntaxScanner::scanIdentEnd($source, $cursor, $close)) !== null
+							&& $identEnd > $cursor + 2
 						) {
-							$ident = $idMatch[0];
-							$afterIdent = self::skipCssTrivia($source, $cursor + strlen($ident), $close);
+							$ident = substr($source, $cursor, $identEnd - $cursor);
+							$afterIdent = self::skipCssTrivia($source, $identEnd, $close);
 							if ($afterIdent === $close || ($afterIdent < $close && $source[$afterIdent] === ',')) {
 								$hasFallback = $afterIdent < $close && $source[$afterIdent] === ',';
 								if ($hasFallback && isset($parenHasForbidden[$pos])) {

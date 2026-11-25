@@ -9,6 +9,12 @@ final class CSSSupportsRule extends CSSConditionRule
 	public function __construct(string $conditionText, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
 		parent::__construct('supports', $conditionText, $maxBytes);
+		$this->assertConditionNotEmpty($this->prelude);
+	}
+
+	protected function requiresNonEmptyCondition(): bool
+	{
+		return true;
 	}
 
 	public function getType(): int

@@ -117,6 +117,7 @@ abstract class CSSRule
 
 	public function __clone(): void
 	{
+		$this->maxBytes = $this->resolveMaxBytesInternal();
 		$this->parentSheetRef = null;
 		$this->parentRuleRef = null;
 	}

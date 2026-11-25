@@ -14,7 +14,7 @@ Magic `conditionText` reads the prelude. It is writable through `__set()` only w
 | Signature | Parameters / behavior | Example |
 |---|---|---|
 | `getConditionText(): string` | Returns the current condition/prelude text. | `$condition->getConditionText();` |
-| `setConditionText(string $conditionText): void` | Enforces the owning stylesheet's `maxBytes` (or `DEFAULT_MAX_BYTES` when detached), trims CSS whitespace, and validates structural syntax (the empty string is allowed). Throws `InvalidArgumentException` / `CSSParserLimitException` for disallowed structure or oversized input. | `$condition->setConditionText('(width > 40rem)');` |
+| `setConditionText(string $conditionText): void` | Enforces the owning stylesheet's `maxBytes` (or constructor-configured `maxBytes` when detached), trims CSS whitespace, and validates structural syntax (`@media` allows `''`, while `@supports` and `@container` require non-empty, non-comment-only conditions). Throws `InvalidArgumentException` / `CSSParserLimitException` for disallowed structure, empty condition, or oversized input. | `$condition->setConditionText('(width > 40rem)');` |
 | `__get(string $name): mixed` | Adds virtual `conditionText`, otherwise delegates through `CSSGroupingRule` to `CSSRule`. | `$condition->conditionText;` |
 | `__isset(string $name): bool` | Returns `true` for `conditionText` or parent virtual properties. | `isset($condition->conditionText);` |
 | `__set(string $name, mixed $value): void` | A string `conditionText` assignment calls `setConditionText()`; other assignments delegate and fail with `Error` unless supported by a parent. | `$condition->conditionText = '(width > 40rem)';` |

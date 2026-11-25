@@ -17,5 +17,6 @@ Magic read-only `name` exposes the prelude; `cssRules` and standard CSSRule virt
 | `getType(): int` | Returns `CSSRule::LAYER_BLOCK_RULE`. | `$rule->getType();` |
 | `getNameText(): string` | Returns the layer name/prelude. | `$rule->getNameText();` |
 | `__get(string $name): mixed` | Exposes `name`; all other names delegate to `CSSGroupingRule::__get()`. | `$rule->name;` |
+| `__isset(string $name): bool` | True for `name`; other names delegate to `CSSGroupingRule::__isset()`. | `isset($rule->name);` |
 
 All inherited public methods are described on the linked parent pages.

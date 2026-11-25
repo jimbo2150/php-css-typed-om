@@ -69,6 +69,9 @@ abstract class CSSNumericValue extends CSSStyleValue
 		?CSSParserOptions $options = null,
 		int $depth = 0,
 	): self {
+		if ($depth < 0) {
+			throw new InvalidArgumentException('Nesting depth cannot be negative.');
+		}
 		if ($cssText !== null) {
 			$value = CSSStyleValue::parse($propertyOrCssText, $cssText, $options);
 			if (!$value instanceof self) {
@@ -107,6 +110,9 @@ abstract class CSSNumericValue extends CSSStyleValue
 	 */
 	public static function tryParse(string $cssText, ?CSSParserOptions $options = null, int $depth = 0): ?self
 	{
+		if ($depth < 0) {
+			throw new InvalidArgumentException('Nesting depth cannot be negative.');
+		}
 		$options ??= CSSParserOptions::default();
 		if ($options->maxBytes !== null && strlen($cssText) > $options->maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS numeric value exceeds maximum size of %d bytes.', $options->maxBytes));
@@ -639,6 +645,9 @@ abstract class CSSNumericValue extends CSSStyleValue
 	 */
 	public static function tryParseValidated(string $trimmedCssText, ?CSSParserOptions $options = null, int $depth = 0): ?self
 	{
+		if ($depth < 0) {
+			throw new InvalidArgumentException('Nesting depth cannot be negative.');
+		}
 		if ($trimmedCssText === '') {
 			return null;
 		}

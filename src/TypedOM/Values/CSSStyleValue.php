@@ -92,6 +92,9 @@ abstract class CSSStyleValue implements Stringable
 			throw new InvalidArgumentException('CSS value cannot be empty.');
 		}
 		CSSSyntaxScanner::assertValidFragment($trimmed, 'CSS value', [';', '{', '}']);
+		if (!str_starts_with($property, '--') && str_contains($trimmed, '/*') && CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
+			throw new InvalidArgumentException('CSS value cannot be empty.');
+		}
 
 		return self::parseValidated($property, $trimmed, $options);
 	}
@@ -135,7 +138,7 @@ abstract class CSSStyleValue implements Stringable
 		$values = [];
 		foreach (CSSSyntaxScanner::splitTopLevel($validatedCssText, ',', 0, null, self::MAX_LIST_ITEMS) as $value) {
 			$value = CSSSyntaxScanner::trimCssWhitespace($value);
-			if ($value !== '') {
+			if ($value !== '' && (!str_contains($value, '/*') || CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($value)) !== '')) {
 				if (count($values) >= self::MAX_LIST_ITEMS) {
 					throw new CSSParserLimitException(sprintf('CSS value list exceeds maximum limit of %d items.', self::MAX_LIST_ITEMS));
 				}

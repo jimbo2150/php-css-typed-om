@@ -51,6 +51,9 @@ class CSSCalcParser
 	 */
 	public static function parse(string $calcString, ?CSSParserOptions $options = null, int $depth = 0): CSSNumericValue
 	{
+		if ($depth < 0) {
+			throw new InvalidArgumentException('Nesting depth cannot be negative.');
+		}
 		$options ??= CSSParserOptions::default();
 		if ($options->maxBytes !== null && strlen($calcString) > $options->maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS calc() expression exceeds maximum size of %d bytes.', $options->maxBytes));
@@ -93,6 +96,9 @@ class CSSCalcParser
 	 */
 	public static function parseExpression(string $expression, ?CSSParserOptions $options = null, int $depth = 0): CSSNumericValue
 	{
+		if ($depth < 0) {
+			throw new InvalidArgumentException('Nesting depth cannot be negative.');
+		}
 		$options ??= CSSParserOptions::default();
 		if ($options->maxBytes !== null && strlen($expression) > $options->maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS math expression exceeds maximum size of %d bytes.', $options->maxBytes));

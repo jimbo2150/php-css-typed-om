@@ -58,12 +58,26 @@ final class CSSPropertyRule extends CSSAtRule
 
 	public function getSyntax(): string
 	{
-		return trim($this->styleDeclaration?->getPropertyValue('syntax') ?? '', " \t\n\r\f\"'");
+		$raw = CSSSyntaxScanner::trimCssWhitespace($this->styleDeclaration?->getPropertyValue('syntax') ?? '');
+		if (str_contains($raw, '/*')) {
+			$raw = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($raw));
+		}
+		$len = strlen($raw);
+		if ($len >= 2 && (($raw[0] === '"' && $raw[$len - 1] === '"') || ($raw[0] === "'" && $raw[$len - 1] === "'"))) {
+			return substr($raw, 1, -1);
+		}
+
+		return $raw;
 	}
 
 	public function getInherits(): bool
 	{
-		return strtolower($this->styleDeclaration?->getPropertyValue('inherits') ?? '') === 'true';
+		$raw = CSSSyntaxScanner::trimCssWhitespace($this->styleDeclaration?->getPropertyValue('inherits') ?? '');
+		if (str_contains($raw, '/*')) {
+			$raw = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($raw));
+		}
+
+		return strtolower($raw) === 'true';
 	}
 
 	public function getInitialValue(): ?string

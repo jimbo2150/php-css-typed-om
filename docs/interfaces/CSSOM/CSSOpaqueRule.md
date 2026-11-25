@@ -7,7 +7,7 @@
 
 ## Properties
 
-The constructor-promoted `source` field is private and has no accessor. Standard CSSRule virtual properties are inherited.
+The private readonly `source` property has no public accessor. Standard CSSRule virtual properties are inherited.
 
 ## Public Methods
 

@@ -80,6 +80,9 @@ final class CSSScopeRule extends CSSGroupingRule
 				throw new InvalidArgumentException('Unclosed @scope start selector.');
 			}
 			$start = CSSSyntaxScanner::trimCssWhitespace(substr($prelude, 1, $close - 1));
+			if ($start === '') {
+				throw new InvalidArgumentException('Empty @scope start selector is not allowed.');
+			}
 			$offset = $close + 1;
 		}
 
@@ -104,6 +107,9 @@ final class CSSScopeRule extends CSSGroupingRule
 				throw new InvalidArgumentException('Malformed @scope end selector.');
 			}
 			$end = CSSSyntaxScanner::trimCssWhitespace(substr($rest, $open + 1, $close - $open - 1));
+			if ($end === '') {
+				throw new InvalidArgumentException('Empty @scope end selector is not allowed.');
+			}
 		}
 
 		return [$start, $end];

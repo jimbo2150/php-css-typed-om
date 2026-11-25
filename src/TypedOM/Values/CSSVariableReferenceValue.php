@@ -55,6 +55,9 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 		?CSSParserOptions $options = null,
 		int $depth = 0,
 	) {
+		if ($depth < 0) {
+			throw new InvalidArgumentException('Nesting depth cannot be negative.');
+		}
 		$options ??= CSSParserOptions::default();
 		$effectiveMaxDepth = $options->maxDepth !== null
 			? min(CSSUnparsedValue::MAX_UNPARSED_DEPTH, $options->maxDepth)
@@ -259,6 +262,9 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 		?CSSParserOptions $options = null,
 		int $depth = 0,
 	): void {
+		if ($depth < 0) {
+			throw new InvalidArgumentException('Nesting depth cannot be negative.');
+		}
 		if ($fallback === null) {
 			$previousFallback = $this->fallbackValue;
 			$this->fallbackValue = null;
@@ -302,7 +308,10 @@ final class CSSVariableReferenceValue extends CSSStyleValue
 			maxErrors: $options->maxErrors ?? CSSParserOptions::DEFAULT_MAX_ERRORS,
 		);
 		$nextFallback = self::normalizeFallback($fallback, $effectiveOptions, $cap - $minRemaining - 1, $localMaxBytes, $cap);
-		$nextFallback?->clampLimitsInternal($budget['ancestorMinMaxBytes'], $budget['ancestorMinMaxDepth']);
+		$nextFallback?->clampLimitsInternal(
+			$budget['ancestorMinMaxBytes'],
+			min($callerMaxDepth, $budget['ancestorMinMaxDepth']),
+		);
 
 		$previousFallback = $this->fallbackValue;
 		$this->fallbackValue = $nextFallback;

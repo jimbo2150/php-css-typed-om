@@ -61,8 +61,15 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 		$this->owner = $owner !== null ? WeakReference::create($owner) : null;
 	}
 
+	/** @internal */
+	public function setMaxBytesInternal(?int $maxBytes): void
+	{
+		$this->maxBytes = $maxBytes;
+	}
+
 	public function __clone(): void
 	{
+		$this->maxBytes = $this->resolveMaxBytes();
 		$this->onChange = null;
 		$this->owner = null;
 	}

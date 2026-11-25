@@ -155,15 +155,15 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 			}
 			throw new InvalidArgumentException('StylePropertyMap values cannot be empty.');
 		}
-		if (!str_starts_with($normalizedProperty, '--') && str_contains($cssText, '/*') && CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($cssText)) === '') {
-			throw new InvalidArgumentException('StylePropertyMap values cannot be empty.');
-		}
 		$runningBytes += $separatorBytes + strlen($cssText);
 		if ($options->maxBytes !== null && $runningBytes > $options->maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS property value exceeds maximum size of %d bytes.', $options->maxBytes));
 		}
 
 		CSSStyleDeclaration::validatePropertyValue($cssText);
+		if (!str_starts_with($normalizedProperty, '--') && str_contains($cssText, '/*') && CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($cssText)) === '') {
+			throw new InvalidArgumentException('StylePropertyMap values cannot be empty.');
+		}
 		if (!$item instanceof CSSStyleValue) {
 			CSSStyleValue::parseValidated($normalizedProperty, $cssText, $options);
 		}

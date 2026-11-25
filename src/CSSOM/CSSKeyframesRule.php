@@ -41,11 +41,7 @@ final class CSSKeyframesRule extends CSSGroupingRule
 	 */
 	public function setNameText(string $name): void
 	{
-		$maxBytes = $this->resolveMaxBytesInternal();
-		if ($maxBytes !== null && strlen($name) > $maxBytes) {
-			throw new CSSParserLimitException(sprintf('CSS @keyframes name exceeds maximum size of %d bytes.', $maxBytes));
-		}
-		$this->prelude = self::validateName($name);
+		$this->prelude = self::validateName($name, $this->resolveMaxBytesInternal());
 	}
 
 	public function getType(): int

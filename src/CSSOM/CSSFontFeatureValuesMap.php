@@ -61,7 +61,7 @@ final class CSSFontFeatureValuesMap implements Countable, IteratorAggregate
 	public function set(string $name, int|array $values): void
 	{
 		$sheet = $this->ownerRule?->getParentStyleSheet();
-		$maxBytes = $sheet !== null ? $sheet->getMaxBytesInternal() : CSSParserOptions::DEFAULT_MAX_BYTES;
+		$maxBytes = $this->ownerRule !== null ? $this->ownerRule->resolveMaxBytesInternal() : CSSParserOptions::DEFAULT_MAX_BYTES;
 		[$name, $normalizedValues] = self::validateFeatureEntry($name, $values, $maxBytes);
 		$isNewKey = !array_key_exists($name, $this->values);
 

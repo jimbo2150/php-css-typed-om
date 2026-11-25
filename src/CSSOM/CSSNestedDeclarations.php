@@ -15,8 +15,11 @@ final class CSSNestedDeclarations extends CSSRule
 {
 	private readonly CSSStyleProperties $styleProperties;
 
-	public function __construct(CSSStyleDeclaration $style)
-	{
+	public function __construct(
+		CSSStyleDeclaration $style,
+		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+	) {
+		$this->maxBytes = $maxBytes;
 		$this->styleProperties = CSSStyleProperties::fromDeclaration($style);
 		$this->styleProperties->setParentRule($this);
 	}

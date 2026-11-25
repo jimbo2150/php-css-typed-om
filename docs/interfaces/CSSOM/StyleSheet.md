@@ -22,6 +22,7 @@ Constructor metadata `href`, `title`, `ownerRule`, and `parentStyleSheet` are pr
 | `getOwnerRule(): ?CSSRule` | Returns owning rule or `null`. | `$sheet->getOwnerRule();` |
 | `getParentStyleSheet(): ?StyleSheet` | Returns parent sheet or `null`. | `$sheet->getParentStyleSheet();` |
 | `__get(string $name): mixed` | Maps the seven virtual properties above; unknown properties throw `Error`. | `$sheet->media;` |
+| `__isset(string $name): bool` | True for `type`, `title`, `disabled`, and `media`, and for non-null `href`, `ownerRule`, and `parentStyleSheet`. | `isset($sheet->media);` |
 | `__set(string $name, mixed $value): void` | Boolean `disabled` assignment calls setter; every other assignment throws `Error`. | `$sheet->disabled = true;` |
 | `__clone(): void` | Clones the `MediaList` detached from any prior rule callback. | `$copy = clone $sheet;` |
 

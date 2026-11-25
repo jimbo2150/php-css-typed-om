@@ -21,5 +21,7 @@ Internal protected backing fields `$atRuleName`, `$prelude`, `$styleDeclaration`
 | `getType(): int` | Maps recognized at-rule names to `CSSRule` constants; unknown names return `UNKNOWN_RULE`. | `$rule->getType();` |
 | `getCssText(): string` | Serializes `@name prelude;` or `@name prelude { declarations }` according to `hasBlock`. | `$rule->getCssText();` |
 | `__get(string $name): mixed` | Provides virtual `name`, `prelude`, and `style`; delegates other names to `CSSRule::__get()` and throws `Error` for unknown names. | `$rule->name;` |
+| `__isset(string $name): bool` | True for `name`, `prelude`, or non-null `style`, otherwise delegates to `CSSRule::__isset()`. | `isset($rule->name);` |
+| `__clone(): void` | Clones any attached descriptor style declaration and rebinds its parent rule cleanly. | `$copy = clone $rule;` |
 
 Other inherited public methods, including parent association, string conversion, and immutable magic property writes, are documented on [`CSSRule`](CSSRule.md).

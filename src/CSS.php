@@ -192,7 +192,11 @@ abstract class CSS
 		if ($definition instanceof CSSPropertyRule) {
 			$name = $definition->getNameText();
 			$syntax = $definition->getSyntax();
-			$rawInherits = strtolower(trim($definition->getStyle()?->getPropertyValue('inherits') ?? ''));
+			$rawInherits = CSSSyntaxScanner::trimCssWhitespace($definition->getStyle()?->getPropertyValue('inherits') ?? '');
+			if (str_contains($rawInherits, '/*')) {
+				$rawInherits = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($rawInherits));
+			}
+			$rawInherits = strtolower($rawInherits);
 			if ($rawInherits !== 'true' && $rawInherits !== 'false') {
 				throw new InvalidArgumentException('CSSPropertyRule must specify inherits as "true" or "false".');
 			}

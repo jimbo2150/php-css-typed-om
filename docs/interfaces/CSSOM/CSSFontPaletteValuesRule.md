@@ -19,5 +19,6 @@ Magic read-only `name`, `fontFamily`, `basePalette`, and `overrideColors` expose
 | `getBasePalette(): string` | Returns the `base-palette` descriptor or `''`. | `$rule->getBasePalette();` |
 | `getOverrideColors(): string` | Returns the `override-colors` descriptor or `''`. | `$rule->getOverrideColors();` |
 | `__get(string $name): mixed` | Exposes the four virtual properties above and delegates other names to `CSSAtRule::__get()`. | `$rule->basePalette;` |
+| `__isset(string $name): bool` | True for `name`, `fontFamily`, `basePalette`, and `overrideColors`, otherwise delegates to `CSSAtRule::__isset()`. | `isset($rule->name);` |
 
 Inherited public methods are detailed on [`CSSAtRule`](CSSAtRule.md) and [`CSSRule`](CSSRule.md).

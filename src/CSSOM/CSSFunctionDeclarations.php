@@ -15,8 +15,11 @@ final class CSSFunctionDeclarations extends CSSRule
 {
 	private readonly CSSFunctionDescriptors $styleDescriptors;
 
-	public function __construct(CSSFunctionDescriptors $style)
-	{
+	public function __construct(
+		CSSFunctionDescriptors $style,
+		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+	) {
+		$this->maxBytes = $maxBytes;
 		$this->styleDescriptors = $style->getParentRule() !== null ? clone $style : $style;
 		$this->styleDescriptors->setParentRule($this);
 	}

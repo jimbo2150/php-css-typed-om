@@ -22,3 +22,4 @@ Magic `keyText` reads/writes the keyframe selector list (`from`, `to`, or `[0%, 
 | `__get(string $name): mixed` | Exposes `keyText` and `style`; other names delegate to `CSSRule::__get()`. | `$kf->keyText;` |
 | `__isset(string $name): bool` | True for `keyText` and `style`, otherwise delegates to `CSSRule::__isset()`. | `isset($kf->keyText);` |
 | `__set(string $name, mixed $value): void` | String `keyText` assignments call `setKeyText()`; other writes delegate to `CSSRule::__set()`. | `$kf->keyText = 'to';` |
+| `__clone(): void` | Clones the nested declaration block and rebinds its parent rule cleanly. | `$copy = clone $kf;` |

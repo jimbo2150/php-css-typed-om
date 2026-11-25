@@ -133,6 +133,7 @@ final class CSSParser
 		int $initialRuleCount = 0,
 		int $initialDeclarationCount = 0,
 	): CSSRule {
+		self::assertNonNegativeInitialCounters($initialDepth, $initialRuleCount, $initialDeclarationCount);
 		$options ??= CSSParserOptions::default();
 		if ($options->maxBytes !== null && strlen($cssText) > $options->maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS rule exceeds maximum size of %d bytes.', $options->maxBytes));
@@ -183,6 +184,7 @@ final class CSSParser
 		int $initialDeclarationCount = 0,
 		bool $functionMode = false,
 	): CSSRule {
+		self::assertNonNegativeInitialCounters($initialDepth, $initialRuleCount, $initialDeclarationCount);
 		$options ??= CSSParserOptions::default();
 		if ($options->maxBytes !== null && strlen($cssText) > $options->maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS rule exceeds maximum size of %d bytes.', $options->maxBytes));
@@ -235,6 +237,7 @@ final class CSSParser
 		int $initialRuleCount = 0,
 		int $initialDeclarationCount = 0,
 	): CSSKeyframeRule {
+		self::assertNonNegativeInitialCounters($initialDepth, $initialRuleCount, $initialDeclarationCount);
 		$options ??= CSSParserOptions::default();
 		if ($options->maxBytes !== null && strlen($cssText) > $options->maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS keyframe rule exceeds maximum size of %d bytes.', $options->maxBytes));
@@ -284,6 +287,7 @@ final class CSSParser
 		int $initialRuleCount = 0,
 		int $initialDeclarationCount = 0,
 	): CSSMarginRule {
+		self::assertNonNegativeInitialCounters($initialDepth, $initialRuleCount, $initialDeclarationCount);
 		$options ??= CSSParserOptions::default();
 		if ($options->maxBytes !== null && strlen($cssText) > $options->maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS margin rule exceeds maximum size of %d bytes.', $options->maxBytes));
@@ -852,12 +856,12 @@ final class CSSParser
 
 		try {
 			$rule = match ($name) {
-				'font-face' => new CSSFontFaceRule($style),
+				'font-face' => new CSSFontFaceRule($style, $options->maxBytes),
 				'property' => new CSSPropertyRule($condition, $style, $sawEmptyInitialValue, $options->maxBytes),
 				'counter-style' => new CSSCounterStyleRule($condition, $style, $options->maxBytes),
 				'font-palette-values' => new CSSFontPaletteValuesRule($condition, $style, $options->maxBytes),
 				'position-try' => new CSSPositionTryRule($condition, $style, $options->maxBytes),
-				'view-transition' => new CSSViewTransitionRule($style),
+				'view-transition' => new CSSViewTransitionRule($style, $options->maxBytes),
 				default => new CSSAtRule($name, $condition, $style, true, $options->maxBytes),
 			};
 		} catch (InvalidArgumentException $exception) {
@@ -1068,8 +1072,8 @@ final class CSSParser
 				if ($ownerRule !== null && !$pageMode && ($hasNestedRule || $isGroupingWithDecls) && count($currentStyle) > 0) {
 					if (self::canRecordRule($options, $ruleCount, $sheet, $delimOffset, $throwOnLimit)) {
 						$declarations = $functionMode && $currentStyle instanceof CSSFunctionDescriptors
-							? new CSSFunctionDeclarations($currentStyle)
-							: new CSSNestedDeclarations($currentStyle);
+							? new CSSFunctionDeclarations($currentStyle, $options->maxBytes)
+							: new CSSNestedDeclarations($currentStyle, $options->maxBytes);
 						$ownerRule->getCssRules()->appendDetached($declarations);
 						$ruleCount++;
 					}
@@ -1146,8 +1150,8 @@ final class CSSParser
 			if ($ownerRule !== null && ($hasNestedRule || $isGroupingWithDecls) && count($currentStyle) > 0) {
 				if (self::canRecordRule($options, $ruleCount, $sheet, $offset, $throwOnLimit)) {
 					$declarations = $functionMode && $currentStyle instanceof CSSFunctionDescriptors
-						? new CSSFunctionDeclarations($currentStyle)
-						: new CSSNestedDeclarations($currentStyle);
+						? new CSSFunctionDeclarations($currentStyle, $options->maxBytes)
+						: new CSSNestedDeclarations($currentStyle, $options->maxBytes);
 					$ownerRule->getCssRules()->appendDetached($declarations);
 					$ruleCount++;
 				}
@@ -1741,6 +1745,22 @@ final class CSSParser
 		}
 
 		return $offset;
+	}
+
+	private static function assertNonNegativeInitialCounters(
+		int $initialDepth,
+		int $initialRuleCount,
+		int $initialDeclarationCount,
+	): void {
+		if ($initialDepth < 0) {
+			throw new InvalidArgumentException('Nesting depth cannot be negative.');
+		}
+		if ($initialRuleCount < 0) {
+			throw new InvalidArgumentException('Initial rule count cannot be negative.');
+		}
+		if ($initialDeclarationCount < 0) {
+			throw new InvalidArgumentException('Initial declaration count cannot be negative.');
+		}
 	}
 
 	private static function canRecordRule(
