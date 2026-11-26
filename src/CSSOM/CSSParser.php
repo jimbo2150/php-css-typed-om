@@ -666,7 +666,7 @@ final class CSSParser
 				if (!$limitReached && ($options->maxRules === null || $ruleCount < $options->maxRules)) {
 					$fastPos = $cursorOffset;
 					while ($fastPos < $length) {
-						$fastPos += strspn($source, " \t\n", $fastPos, $length - $fastPos);
+						$fastPos += strspn($source, " \t\n\r\f", $fastPos, $length - $fastPos);
 						if ($fastPos + 1 < $length && $source[$fastPos] === '/' && $source[$fastPos + 1] === '*') {
 							$cEnd = strpos($source, '*/', $fastPos + 2);
 							if ($cEnd === false || $cEnd + 1 >= $length) {
@@ -2862,9 +2862,24 @@ final class CSSParser
 		while ($p < $length) {
 			$span = strcspn($source, self::FAST_DECL_UNSAFE_BYTES, $p, $length - $p);
 			$stop = $p + $span;
-			$commentPos = $span > 0 ? strpos($source, '/*', $p) : false;
+			$commentPos = null;
+			if ($span > 1) {
+				$scanPos = $p;
+				$scanLimit = $stop - 1;
+				while ($scanPos < $scanLimit) {
+					$slashPos = $scanPos + strcspn($source, '/', $scanPos, $scanLimit - $scanPos);
+					if ($slashPos >= $scanLimit) {
+						break;
+					}
+					if ($source[$slashPos + 1] === '*') {
+						$commentPos = $slashPos;
+						break;
+					}
+					$scanPos = $slashPos + 1;
+				}
+			}
 
-			if ($commentPos !== false && $commentPos < $stop) {
+			if ($commentPos !== null) {
 				if (!self::validateCleanAsciiPreludeSegment($source, $p, $commentPos, $parenDepth)) {
 					return null;
 				}

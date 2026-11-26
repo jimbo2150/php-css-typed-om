@@ -3793,5 +3793,18 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		// 7. Double-BOM in browserErrorRecovery: true strips strictly one leading BOM (§3.3)
 		$doubleBomSheet = CSSStyleSheet::parse("\xEF\xBB\xBF\xEF\xBB\xBFdiv { color: red; }", new CSSParserOptions(browserErrorRecovery: true));
 		self::assertSame("\xEF\xBB\xBFdiv { color: red; }", $doubleBomSheet->getCssText());
+
+		// 8. Linear O(N) @-rule prelude scan with large comment-free tail + '/' Edge Cases
+		$slashEdgeCases = CSSStyleSheet::parse("@media (aspect-ratio: 16/9) /* c */ { a { color: red; } }\n@media all//* c */ { b { color: blue; } }");
+		self::assertSame([], $slashEdgeCases->getParseErrors());
+		self::assertCount(2, $slashEdgeCases->cssRules);
+		self::assertSame("@media (aspect-ratio: 16/9) { a { color: red; } }\n@media all/ { b { color: blue; } }", $slashEdgeCases->getCssText());
+
+		$atTailPayload = str_repeat("@media all { }\n", 5000) . str_repeat(' ', 4 * 1024 * 1024);
+		$tStart = hrtime(true);
+		$atTailSheet = CSSStyleSheet::parse($atTailPayload);
+		$elapsedMs = (hrtime(true) - $tStart) / 1_000_000;
+		self::assertCount(5000, $atTailSheet->cssRules);
+		self::assertLessThan(250.0, $elapsedMs);
 	}
 }
