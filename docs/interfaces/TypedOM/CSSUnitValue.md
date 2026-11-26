@@ -13,7 +13,7 @@
 | `value` | Public property declared `mixed`, with a setter hook validating finite numeric values and coercing them to `float`; readable and writable. |
 | `unit` | Public read-only `string` canonical Typed OM unit name (`'number'`, `'percent'`, `'px'`, `'x'`, etc.). |
 
-No public constants or enum cases. Inherits the `CSSNumericValue` methods `parse`, `from`, `type`, `getType`, `getNumericType`, `getNumericCategory`, `to`, `toSum`, `mul`, `div`, `min`, `max`, `equals`, `mergeAdditiveTypes`, `__get`, `__set`, and inherited `parseAll`; their signatures, behavior, and examples are fully specified in [CSSNumericValue](CSSNumericValue.md#public-api). `add`, `sub`, `__toString`, and `clone` are overridden below, and `unitType()` returns the unit category name.
+No public constants or enum cases. Inherits the `CSSNumericValue` methods `parse`, `from`, `type`, `getType`, `getNumericType`, `getNumericCategory`, `to`, `toSum`, `mul`, `div`, `min`, `max`, `equals`, `mergeAdditiveTypes`, `__get`, `__set`, and `parseAll`; their signatures, behavior, and examples are fully specified in [CSSNumericValue](CSSNumericValue.md#public-api). `add`, `sub`, `__toString`, and `clone` are overridden below, and `unitType()` returns the unit category name.
 
 | Method | Signature and behavior |
 |---|---|

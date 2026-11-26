@@ -27,7 +27,7 @@ This library **must adhere as strictly as possible** to the governing W3C / CSS 
 - `src/CSSOM/` — Stylesheets, rules (`CSSStyleRule`, `CSSMediaRule`, `CSSPropertyRule`, etc.), declarations (`CSSStyleDeclaration`, strict descriptor subclasses), `CSSParser`, `CSSParserOptions`, `CSSParserLimitException`, and `CSSRenderer`.
 - `src/Parser/` — `CSSSyntaxScanner` (token/delimiter/escape/comment scanning) and `CSSCalcParser` (iterative shunting-yard & math function parser).
 - `src/Geometry/` — `DOMMatrixReadOnly` and `DOMMatrix`.
-- `src/TypedOM/` — `CSSContext`, `StylePropertyMapReadOnly`, `StylePropertyMap`, traits (`src/TypedOM/Traits/`), and values (`src/TypedOM/Values/`, `Color/`, `Numeric/`, `Numeric/Math/`).
+- `src/TypedOM/` — `CSSContext`, `StylePropertyMapReadOnly`, `StylePropertyMap`, and values (`src/TypedOM/Values/`, `Color/`, `Numeric/`, `Numeric/Math/`).
 - `docs/interfaces.md` & `docs/interfaces/` — Public API reference catalog.
 - `tests/` — PHPUnit 11/12 unit, spec-compliance, fuzz, and security/limits test suites.
 - `benchmarks/bench.php` — Performance benchmark runner.

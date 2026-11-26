@@ -493,11 +493,15 @@ abstract class CSSMathValue extends CSSNumericValue
 				for ($i = $count - 1; $i >= 0; $i--) {
 					$child = $values[$i];
 					if ($child instanceof CSSMathInvert) {
+						if ($visits >= self::MAX_MATH_NODES) {
+							throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
+						}
+						$visits++;
 						$operand = $child->values->values[0] ?? null;
 						if ($operand === null) {
 							$stack[] = [0, $i > 0 ? ' / 1' : '1 / 1'];
 						} else {
-							$stack[] = [1, $operand, 3, false, $depth + 1, $innerDepth];
+							$stack[] = [1, $operand, 3, false, $depth + 2, $innerDepth];
 							$stack[] = [0, $i > 0 ? ' / ' : '1 / '];
 						}
 					} else {
@@ -555,15 +559,19 @@ abstract class CSSMathValue extends CSSNumericValue
 						$mag = -$child->value;
 						$stack[] = [0, ' - ' . ($mag === 0.0 ? 0.0 : $mag) . $symbol];
 					} elseif ($child instanceof CSSMathNegate) {
+						if ($visits >= self::MAX_MATH_NODES) {
+							throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
+						}
+						$visits++;
 						$operand = $child->values->values[0] ?? null;
 						if ($operand === null) {
 							$stack[] = [0, ' - 0'];
 						} elseif (self::sumNegateOperandNeedsParens($operand)) {
 							$stack[] = [0, ')'];
-							$stack[] = [1, $operand, 1, false, $depth + 1, $innerDepth + 1];
+							$stack[] = [1, $operand, 1, false, $depth + 2, $innerDepth + 1];
 							$stack[] = [0, ' - ('];
 						} else {
-							$stack[] = [1, $operand, 1, false, $depth + 1, $innerDepth];
+							$stack[] = [1, $operand, 1, false, $depth + 2, $innerDepth];
 							$stack[] = [0, ' - '];
 						}
 					} else {

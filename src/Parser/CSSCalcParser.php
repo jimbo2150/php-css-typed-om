@@ -1074,7 +1074,7 @@ class CSSCalcParser
 				$name = null;
 				$afterName = -1;
 				if ($character !== '\\') {
-					$idLen = strspn($expression, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-', $offset + 1, $sliceEnd - $offset - 1) + 1;
+					$idLen = strspn($expression, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_', $offset + 1, $sliceEnd - $offset - 1) + 1;
 					$candidateEnd = $offset + $idLen;
 					if ($candidateEnd >= $sliceEnd || ($expression[$candidateEnd] !== '\\' && ord($expression[$candidateEnd]) < 0x80)) {
 						$name = substr($expression, $offset, $idLen);

@@ -712,8 +712,17 @@ abstract class CSSColorValue extends CSSStyleValue
 			return CSSColorGamutMapper::map($this, $space);
 		}
 		$thisSpace = $this->getSpaceNameInternal();
-		if ($this instanceof CSSColor && $thisSpace === $space) {
-			return $this->clone();
+		$isXyzAlias = ($thisSpace === 'xyz' || $thisSpace === 'xyz-d65') && ($space === 'xyz' || $space === 'xyz-d65');
+		if ($this instanceof CSSColor && ($thisSpace === $space || $isXyzAlias)) {
+			if ($thisSpace === $space) {
+				return $this->clone();
+			}
+
+			return CSSColor::fromValidated(
+				CSSKeywordValue::fromValidated($space),
+				$this->channels,
+				$this->alphaValue->clone(),
+			);
 		}
 
 		$missing = CSSColorConversionMeta::extractMissingMask($this);
@@ -738,13 +747,15 @@ abstract class CSSColorValue extends CSSStyleValue
 	{
 		$alpha = $this->alphaValue instanceof CSSKeywordValue ? null : self::resolvePercentUnit($this->alphaValue);
 		$thisSpace = $this->getSpaceNameInternal();
+		$canonThis = $thisSpace === 'xyz' ? 'xyz-d65' : $thisSpace;
 		$canonTarget = match ($space) {
 			'rgba' => 'rgb',
 			'hsla' => 'hsl',
+			'xyz' => 'xyz-d65',
 			default => $space,
 		};
 
-		if ($thisSpace === $canonTarget) {
+		if ($canonThis === $canonTarget) {
 			$comps = $this->getComponentValuesInternal();
 
 			return [match ($canonTarget) {
@@ -1880,6 +1891,10 @@ abstract class CSSColorValue extends CSSStyleValue
 	 */
 	private static function splitColorArguments(string $body, bool $allowLegacyComma): array
 	{
+		if (str_contains($body, '/*')) {
+			return self::splitColorArgumentsSlow($body, $allowLegacyComma);
+		}
+
 		$len = strlen($body);
 		$maxParts = CSSColor::MAX_CUSTOM_CHANNELS + 4;
 		$channels = [];
@@ -1928,9 +1943,6 @@ abstract class CSSColorValue extends CSSStyleValue
 			if ($depth > 0) {
 				$offset++;
 				continue;
-			}
-			if ($ch === '/' && ($offset + 1) < $len && $body[$offset + 1] === '*') {
-				return self::splitColorArgumentsSlow($body, $allowLegacyComma);
 			}
 			if ($tokenStart >= 0) {
 				$token = substr($body, $tokenStart, $offset - $tokenStart);
@@ -2058,12 +2070,13 @@ abstract class CSSColorValue extends CSSStyleValue
 			$numLen = $hasPct ? $tLen - 1 : $tLen;
 			$numStr = $hasPct ? substr($token, 0, $numLen) : $token;
 			if ($numLen > 0 && strspn($numStr, '0123456789.+-eE') === $numLen && is_numeric($numStr)) {
-				$numVal = (float) $numStr;
-				if (!is_finite($numVal)) {
-					throw new InvalidArgumentException('Invalid CSS numeric value: ' . $token);
+				$dotPos = strpos($numStr, '.');
+				if ($dotPos === false || ($dotPos + 1 < $numLen && $numStr[$dotPos + 1] >= '0' && $numStr[$dotPos + 1] <= '9')) {
+					$numVal = (float) $numStr;
+					if (is_finite($numVal)) {
+						return new CSSUnitValue($numVal, $hasPct ? CSSUnitEnum::PERCENT : CSSUnitEnum::NUMBER);
+					}
 				}
-
-				return new CSSUnitValue($numVal, $hasPct ? CSSUnitEnum::PERCENT : CSSUnitEnum::NUMBER);
 			}
 		}
 

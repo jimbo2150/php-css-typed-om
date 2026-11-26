@@ -1,8 +1,8 @@
 # Project interfaces and public API
 
-This catalog covers the types declared under `src/`: public classes (including abstract/base classes), enums, and traits. The package declares no PHP `interface` types; the word “interface” here means the library's public API types. Each linked page documents the type's public methods, parameters, return behavior, and usage examples, plus its public properties, constants, or enum cases where applicable. Methods inherited from parent classes are included on the relevant API pages.
+This catalog covers the public types declared under `src/`: public classes (including abstract/base classes) and enums. The package declares no PHP `interface` types; the word “interface” here means the library's public API types. Each linked page documents the type's public methods, parameters, return behavior, and usage examples, plus its public properties, constants, or enum cases where applicable. Methods inherited from parent classes are included on the relevant API pages.
 
-The documented names and signatures follow the PHP source. Trait pages describe the public methods contributed when a consuming class uses that trait. Internal/private helpers are not part of the public API.
+The documented names and signatures follow the PHP source. Internal/private helpers are not part of the public API.
 
 ## Root utilities
 

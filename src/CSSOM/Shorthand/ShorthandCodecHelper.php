@@ -171,7 +171,7 @@ final class ShorthandCodecHelper
 
 		foreach ($propValues as $key => $raw) {
 			if (!$needComponents
-				&& strcspn($raw, ',\\/') === strlen($raw)
+				&& strcspn($raw, ',\\/(\'"') === strlen($raw)
 				&& !isset(CSSValueComponentParser::CSS_WIDE_KEYWORDS[strtolower($raw)])
 			) {
 				if ($count === null) {

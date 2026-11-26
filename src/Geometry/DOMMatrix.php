@@ -115,13 +115,15 @@ class DOMMatrix extends DOMMatrixReadOnly
 			return;
 		}
 
+		$next = $l;
 		for ($r = 0; $r < 4; $r++) {
 			$l0 = $l[$r];
 			$l1 = $l[4 + $r];
-			$this->elements[$r] = self::assertFiniteFloat($l0 * $a + $l1 * $b, 'matrix product');
-			$this->elements[4 + $r] = self::assertFiniteFloat($l0 * $c + $l1 * $d, 'matrix product');
-			$this->elements[12 + $r] = self::assertFiniteFloat($l0 * $e + $l1 * $f + $l[12 + $r], 'matrix product');
+			$next[$r] = self::assertFiniteFloat($l0 * $a + $l1 * $b, 'matrix product');
+			$next[4 + $r] = self::assertFiniteFloat($l0 * $c + $l1 * $d, 'matrix product');
+			$next[12 + $r] = self::assertFiniteFloat($l0 * $e + $l1 * $f + $l[12 + $r], 'matrix product');
 		}
+		$this->elements = $next;
 	}
 
 	/** @param DOMMatrixReadOnly|list<int|float>|array<string, mixed> $other */

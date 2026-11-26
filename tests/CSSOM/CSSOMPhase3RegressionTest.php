@@ -11,6 +11,7 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleSheet;
 use Jimbo2150\PhpCssTypedOm\CSSOM\Shorthand\CSSShorthandExpander;
 use Jimbo2150\PhpCssTypedOm\CSSOM\Shorthand\CSSShorthandSerializer;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use PHPUnit\Framework\TestCase;
 
 final class CSSOMPhase3RegressionTest extends TestCase
@@ -180,5 +181,29 @@ final class CSSOMPhase3RegressionTest extends TestCase
 				self::assertSame($val, $decl->getPropertyValue($lh), "decl flex: {$inputStr} -> {$lh}");
 			}
 		}
+	}
+
+	public function testCommaLayersWithSubstitutionsDoNotCollapseAndFlexBasisEscapesStaySafe(): void
+	{
+		$transitionDecl = CSSStyleDeclaration::parse(
+			'transition-property: opacity; transition-duration: var(--d); transition-timing-function: ease; transition-delay: 0s;',
+		);
+		self::assertSame('', $transitionDecl->getPropertyValue('transition'));
+		self::assertStringContainsString('transition-duration: var(--d)', $transitionDecl->getCssText());
+
+		$animationDecl = CSSStyleDeclaration::parse(
+			'animation-name: fade; animation-duration: env(--custom, 1s); animation-timing-function: ease; animation-delay: 0s; animation-iteration-count: 1; animation-direction: normal; animation-fill-mode: none; animation-play-state: running;',
+		);
+		self::assertSame('', $animationDecl->getPropertyValue('animation'));
+
+		$serializedFlex = CSSShorthandSerializer::serializeDeclarationBlock([
+			'flex-grow' => ['value' => '2', 'priority' => ''],
+			'flex-shrink' => ['value' => '1', 'priority' => ''],
+			'flex-basis' => ['value' => '/*c*/ 0', 'priority' => ''],
+		], [], true, CSSParserOptions::default());
+		self::assertSame('2 1 /*c*/ 0', $serializedFlex[0]['value'] ?? '');
+
+		self::assertNull(CSSSyntaxScanner::skipWhitespaceAndComments('/* a */', 0, 6));
+		self::assertSame(7, CSSSyntaxScanner::skipWhitespaceAndComments('/* a */', 0, 7));
 	}
 }

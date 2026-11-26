@@ -978,7 +978,7 @@ final class BoxAndLineShorthandCodec
 			return '0 1 auto';
 		}
 
-		$basisLooksLikeNumber = (strspn($basis, '0123456789.+-eE') === strlen($basis) || str_contains($basis, '('))
+		$basisLooksLikeNumber = (strspn($basis, '0123456789.+-eE') === strlen($basis) || strpbrk($basis, '(/\\') !== false)
 			&& CSSValueValidator::validateStandardProperty('flex-grow', $basis, $options);
 		if ($grow === '1' && $shrink === '1' && !$basisLooksLikeNumber) {
 			return $basis;

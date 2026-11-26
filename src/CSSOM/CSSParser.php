@@ -691,7 +691,7 @@ final class CSSParser
 									$rules,
 									$stopOnBrace,
 									$spanIndex,
-									$fastAtIsKnown ? $fastAtName : null,
+									$fastAtName,
 								);
 								if ($prepared === false) {
 									if ($stopOnBrace && $allowEofClose) {

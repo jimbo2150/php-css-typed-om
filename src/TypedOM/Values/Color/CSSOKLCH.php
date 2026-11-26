@@ -101,6 +101,10 @@ final class CSSOKLCH extends CSSColorValue
 		$l = self::resolvePercentUnit($this->c0Value);
 		$c = self::resolveLinearChannel($this->c1Value, 0.4);
 		$h = fmod(fmod(self::resolveAngleDegrees($this->c2Value), 360.0) + 360.0, 360.0);
+		if ($c < 0.0) {
+			$c = -$c;
+			$h = fmod($h + 180.0, 360.0);
+		}
 
 		return [$l, $c, $h === 0.0 ? 0.0 : $h];
 	}

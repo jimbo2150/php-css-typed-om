@@ -53,14 +53,6 @@ final class LayeredTimingShorthandCodec
 		'y' => true,
 	];
 
-	public static function supports(string $shorthand): bool
-	{
-		return match ($shorthand) {
-			'transition', 'animation', 'animation-range', 'scroll-timeline', 'view-timeline' => true,
-			default => false,
-		};
-	}
-
 	/**
 	 * @param list<ParsedComponent> $components
 	 * @return ?array<string, string>

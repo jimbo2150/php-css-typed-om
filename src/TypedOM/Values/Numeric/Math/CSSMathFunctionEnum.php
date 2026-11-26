@@ -58,6 +58,7 @@ enum CSSMathFunctionEnum: string
 		return $this === self::HYPOT;
 	}
 
+	/** @internal */
 	public function returnsNumber(): bool
 	{
 		return match ($this) {
@@ -66,6 +67,7 @@ enum CSSMathFunctionEnum: string
 		};
 	}
 
+	/** @internal */
 	public function returnsAngle(): bool
 	{
 		return match ($this) {

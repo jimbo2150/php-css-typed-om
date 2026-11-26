@@ -116,7 +116,7 @@ class CSSUnitValue extends CSSNumericValue implements Stringable
 				$sum += $sign * $v->value;
 				continue;
 			}
-			if (!$v instanceof self && $thisUnit === CSSUnitEnum::NUMBER) {
+			if ((is_int($v) || is_float($v)) && $thisUnit === CSSUnitEnum::NUMBER) {
 				$float = (float) $v;
 				if (!is_finite($float)) {
 					throw new InvalidArgumentException('CSS numeric operand must be finite.');

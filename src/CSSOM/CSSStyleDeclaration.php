@@ -59,8 +59,12 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	/** @var array<int, array{bytes: int, refs: int}> */
 	private array $pendingPayloadAccounting = [];
 
+	private const int FLAG_HAS_SHORTHAND_LONGHAND = 1;
+	private const int FLAG_EXEMPT_FROM_PROPERTY_GRAMMAR = 2;
+	private const int FLAG_OWNER_EXEMPT_FROM_PROPERTY_GRAMMAR = 4;
+
 	private int $nextPendingId = 1;
-	private bool $hasShorthandLonghand = false;
+	private int $flags = 0;
 	private int $physicalGroupMask = 0;
 	private int $logicalGroupMask = 0;
 
@@ -68,15 +72,12 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	private ?array $cachedKeys = null;
 
 	private ?CSSRule $ownerRule = null;
-	private bool $exemptFromPropertyGrammar = false;
-	private bool $ownerExemptFromPropertyGrammar = false;
 	private ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES;
 	private ?int $maxDeclarations = CSSParserOptions::DEFAULT_MAX_DECLARATIONS;
 	private ?int $maxDepth = CSSParserOptions::DEFAULT_MAX_DEPTH;
 	private ?int $maxMathDepth = CSSParserOptions::DEFAULT_MAX_MATH_DEPTH;
 	private int $contentBytes = 0;
-	private bool $hasCachedValidationOptions = false;
-	private ?CSSParserOptions $cachedValidationOptions = null;
+	private CSSParserOptions|false|null $cachedValidationOptions = false;
 
 	private const int MAX_ACCESSOR_CACHE = 512;
 
@@ -123,12 +124,12 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				}
 			}
 		}
-		$this->exemptFromPropertyGrammar = !$this->shouldValidatePropertyValuesInternal();
-		$this->ownerExemptFromPropertyGrammar = false;
+		$exempt = !$this->shouldValidatePropertyValuesInternal();
+		$this->flags = ($this->flags & ~(self::FLAG_EXEMPT_FROM_PROPERTY_GRAMMAR | self::FLAG_OWNER_EXEMPT_FROM_PROPERTY_GRAMMAR))
+			| ($exempt ? self::FLAG_EXEMPT_FROM_PROPERTY_GRAMMAR : 0);
 		$this->ownerRule = null;
 		$this->cachedKeys = null;
-		$this->hasCachedValidationOptions = false;
-		$this->cachedValidationOptions = null;
+		$this->cachedValidationOptions = false;
 	}
 
 	/** @internal Adopts a matching-subclass declaration block (cloning if owned) or converts a generic block with limit clamping. */
@@ -209,8 +210,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			$this->maxDepth = $maxDepth;
 			$this->maxMathDepth = $maxMathDepth;
 		}
-		$this->hasCachedValidationOptions = false;
-		$this->cachedValidationOptions = null;
+		$this->cachedValidationOptions = false;
 	}
 
 	/** @internal */
@@ -223,24 +223,20 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	): void {
 		if ($maxBytes !== null && ($this->maxBytes === null || $maxBytes < $this->maxBytes)) {
 			$this->maxBytes = $maxBytes;
-			$this->hasCachedValidationOptions = false;
-			$this->cachedValidationOptions = null;
+			$this->cachedValidationOptions = false;
 		}
 		if ($maxDeclarations !== null && ($this->maxDeclarations === null || $maxDeclarations < $this->maxDeclarations)) {
 			$this->maxDeclarations = $maxDeclarations;
-			$this->hasCachedValidationOptions = false;
-			$this->cachedValidationOptions = null;
+			$this->cachedValidationOptions = false;
 		}
 		if ($syncDepths) {
 			if ($maxDepth !== null && ($this->maxDepth === null || $maxDepth < $this->maxDepth)) {
 				$this->maxDepth = $maxDepth;
-				$this->hasCachedValidationOptions = false;
-				$this->cachedValidationOptions = null;
+				$this->cachedValidationOptions = false;
 			}
 			if ($maxMathDepth !== null && ($this->maxMathDepth === null || $maxMathDepth < $this->maxMathDepth)) {
 				$this->maxMathDepth = $maxMathDepth;
-				$this->hasCachedValidationOptions = false;
-				$this->cachedValidationOptions = null;
+				$this->cachedValidationOptions = false;
 			}
 		}
 	}
@@ -249,8 +245,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	public function setMaxBytesInternal(?int $maxBytes): void
 	{
 		$this->maxBytes = $maxBytes;
-		$this->hasCachedValidationOptions = false;
-		$this->cachedValidationOptions = null;
+		$this->cachedValidationOptions = false;
 	}
 
 	/** @internal */
@@ -356,8 +351,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	/** @internal */
 	public function shouldValidatePropertyValuesInternal(): bool
 	{
-		return !$this->exemptFromPropertyGrammar
-			&& !$this->ownerExemptFromPropertyGrammar
+		return ($this->flags & (self::FLAG_EXEMPT_FROM_PROPERTY_GRAMMAR | self::FLAG_OWNER_EXEMPT_FROM_PROPERTY_GRAMMAR)) === 0
 			&& static::validatesPropertyValues();
 	}
 
@@ -393,7 +387,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		return CSSShorthandSerializer::serializeDeclarationBlock(
 			$this->declarations,
 			$this->pendingShorthands,
-			$this->hasShorthandLonghand,
+			($this->flags & self::FLAG_HAS_SHORTHAND_LONGHAND) !== 0,
 			$this->resolveValidationOptionsInternal(),
 		);
 	}
@@ -548,14 +542,13 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 
 	private function resolveValidationOptionsInternal(): ?CSSParserOptions
 	{
-		if ($this->hasCachedValidationOptions) {
+		if ($this->cachedValidationOptions !== false) {
 			return $this->cachedValidationOptions;
 		}
 
 		$maxBytes = $this->resolveMaxBytesInternal();
 		$maxDepth = $this->resolveMaxDepthInternal();
 		$maxMathDepth = $this->resolveMaxMathDepthInternal();
-		$this->hasCachedValidationOptions = true;
 		if ($maxDepth === CSSParserOptions::DEFAULT_MAX_DEPTH
 			&& $maxMathDepth === CSSParserOptions::DEFAULT_MAX_MATH_DEPTH
 			&& $maxBytes === CSSParserOptions::DEFAULT_MAX_BYTES
@@ -642,9 +635,12 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	public function setParentRule(?CSSRule $parentRule): void
 	{
 		$this->ownerRule = $parentRule;
-		$this->ownerExemptFromPropertyGrammar = $parentRule !== null && !$parentRule->validatesDescriptorPropertyValuesInternal();
-		$this->hasCachedValidationOptions = false;
-		$this->cachedValidationOptions = null;
+		if ($parentRule !== null && !$parentRule->validatesDescriptorPropertyValuesInternal()) {
+			$this->flags |= self::FLAG_OWNER_EXEMPT_FROM_PROPERTY_GRAMMAR;
+		} else {
+			$this->flags &= ~self::FLAG_OWNER_EXEMPT_FROM_PROPERTY_GRAMMAR;
+		}
+		$this->cachedValidationOptions = false;
 	}
 
 	public function getLength(): int
@@ -786,8 +782,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		}
 		unset($this->sourceSpans[$name]);
 		$this->declarations[$name] = ['value' => $value, 'priority' => $priority];
-		if (!$this->hasShorthandLonghand && CSSShorthandRegistry::isShorthandLonghand($name)) {
-			$this->hasShorthandLonghand = true;
+		if (($this->flags & self::FLAG_HAS_SHORTHAND_LONGHAND) === 0 && CSSShorthandRegistry::isShorthandLonghand($name)) {
+			$this->flags |= self::FLAG_HAS_SHORTHAND_LONGHAND;
 		}
 		$this->recordLogicalGroupMask($name);
 		$this->contentBytes = $nextContentBytes;
@@ -850,8 +846,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		}
 		unset($this->sourceSpans[$normalizedName]);
 		$this->declarations[$normalizedName] = ['value' => $trimmedValue, 'priority' => $priority];
-		if (!$this->hasShorthandLonghand && CSSShorthandRegistry::isShorthandLonghand($normalizedName)) {
-			$this->hasShorthandLonghand = true;
+		if (($this->flags & self::FLAG_HAS_SHORTHAND_LONGHAND) === 0 && CSSShorthandRegistry::isShorthandLonghand($normalizedName)) {
+			$this->flags |= self::FLAG_HAS_SHORTHAND_LONGHAND;
 		}
 		$this->recordLogicalGroupMask($normalizedName);
 		$this->contentBytes = $nextContentBytes;
@@ -888,7 +884,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		$this->parsedBlockSpan = null;
 		$this->pendingShorthands = [];
 		$this->pendingPayloadAccounting = [];
-		$this->hasShorthandLonghand = false;
+		$this->flags &= ~self::FLAG_HAS_SHORTHAND_LONGHAND;
 		$this->physicalGroupMask = 0;
 		$this->logicalGroupMask = 0;
 		$this->nextPendingId = 1;
@@ -956,7 +952,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		$this->parsedBlockSpan = $replacement->parsedBlockSpan;
 		$this->pendingShorthands = $replacement->pendingShorthands;
 		$this->pendingPayloadAccounting = $replacement->pendingPayloadAccounting;
-		$this->hasShorthandLonghand = $replacement->hasShorthandLonghand;
+		$this->flags = ($this->flags & ~self::FLAG_HAS_SHORTHAND_LONGHAND) | ($replacement->flags & self::FLAG_HAS_SHORTHAND_LONGHAND);
 		$this->physicalGroupMask = $replacement->physicalGroupMask;
 		$this->logicalGroupMask = $replacement->logicalGroupMask;
 		$this->nextPendingId = $replacement->nextPendingId;
@@ -1748,8 +1744,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		} else {
 			unset($this->sourceSpans[$name]);
 		}
-		if (!$this->hasShorthandLonghand && CSSShorthandRegistry::isShorthandLonghand($name)) {
-			$this->hasShorthandLonghand = true;
+		if (($this->flags & self::FLAG_HAS_SHORTHAND_LONGHAND) === 0 && CSSShorthandRegistry::isShorthandLonghand($name)) {
+			$this->flags |= self::FLAG_HAS_SHORTHAND_LONGHAND;
 		}
 		$this->recordLogicalGroupMask($name);
 		$this->cachedKeys = null;
@@ -1949,7 +1945,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		}
 
 		if ($isPending && $toCommit !== []) {
-			$this->hasShorthandLonghand = true;
+			$this->flags |= self::FLAG_HAS_SHORTHAND_LONGHAND;
 		}
 		foreach ($toCommit as $lh => $val) {
 			if (!$reappendAll) {
@@ -1969,8 +1965,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 					'kind' => $expanded['pendingKind'],
 				];
 			}
-			if (!$this->hasShorthandLonghand && CSSShorthandRegistry::isShorthandLonghand($lh)) {
-				$this->hasShorthandLonghand = true;
+			if (($this->flags & self::FLAG_HAS_SHORTHAND_LONGHAND) === 0 && CSSShorthandRegistry::isShorthandLonghand($lh)) {
+				$this->flags |= self::FLAG_HAS_SHORTHAND_LONGHAND;
 			}
 			$this->recordLogicalGroupMask($lh);
 		}

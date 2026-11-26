@@ -130,6 +130,8 @@ enum CSSUnitEnum: string
 
 	/**
 	 * Returns the px multiplication factor for absolute length units, or null otherwise.
+	 *
+	 * @internal
 	 */
 	public function absoluteToPxFactor(): ?float
 	{
@@ -147,6 +149,8 @@ enum CSSUnitEnum: string
 
 	/**
 	 * Returns true for relative (font/viewport/container) length units.
+	 *
+	 * @internal
 	 */
 	public function isRelativeLength(): bool
 	{
@@ -155,6 +159,8 @@ enum CSSUnitEnum: string
 
 	/**
 	 * Returns the radians multiplication factor for angle units, or null otherwise.
+	 *
+	 * @internal
 	 */
 	public function angleToRadiansFactor(): ?float
 	{
@@ -170,6 +176,7 @@ enum CSSUnitEnum: string
 	/**
 	 * Returns `[canonicalUnit, factor]` for CSS Values 4 canonicalizable units (px, deg, s, Hz, dppx), or null otherwise.
 	 *
+	 * @internal
 	 * @return array{0: self, 1: float}|null
 	 */
 	public function toCanonicalUnitAndFactor(): ?array
@@ -223,6 +230,8 @@ enum CSSUnitEnum: string
 
 	/**
 	 * Returns the canonical unit enum for a CSS numeric dimension category.
+	 *
+	 * @internal
 	 */
 	public static function canonicalUnitForDimension(string $dimension): ?self
 	{
@@ -240,6 +249,8 @@ enum CSSUnitEnum: string
 
 	/**
 	 * Returns the canonical factor (`px`/`deg`/`s`/`Hz`/`dppx`/`fr`) for a lowercase CSS unit symbol (including `'q'`).
+	 *
+	 * @internal
 	 */
 	public static function canonicalFactorBySymbol(string $unitLower): ?float
 	{

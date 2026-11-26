@@ -73,6 +73,9 @@ final class CSSImageValue extends CSSStyleValue
 			}
 			$close = CSSSyntaxScanner::findMatchingUrlEnd($trimmedImage, $open);
 		} else {
+			if (strcspn($trimmedImage, ';{}') !== strlen($trimmedImage)) {
+				CSSSyntaxScanner::assertValidFragment($trimmedImage, 'CSS image value', [';', '{', '}'], [';', '{', '}']);
+			}
 			$close = CSSSyntaxScanner::findMatchingDelimiter($trimmedImage, $open);
 		}
 		if ($close !== strlen($trimmedImage) - 1) {

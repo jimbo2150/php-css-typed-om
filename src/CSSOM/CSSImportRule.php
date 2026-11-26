@@ -294,6 +294,13 @@ final class CSSImportRule extends CSSAtRule
 		if ($mediaText === '') {
 			return;
 		}
+		if (strlen($mediaText) < CSSStyleValue::MAX_LIST_ITEMS
+			&& !str_contains($mediaText, '\\')
+			&& stripos($mediaText, 'layer') === false
+			&& stripos($mediaText, 'supports') === false
+		) {
+			return;
+		}
 		$tokenizer = CSSTokenizer::forParserInternal($mediaText, CSSParserOptions::default(), false, false, 0, strlen($mediaText));
 		$depth = 0;
 		$tokenCount = 0;

@@ -8,8 +8,7 @@ namespace Jimbo2150\PhpCssTypedOm\Grammar;
  * Authoritative W3C CSS Values & Units / Module Level 3-5 VDS grammar registry
  * for all standard CSS properties and shared non-terminals.
  *
- * Serves as the single source of truth for recognized standard CSS properties
- * (`CSSStandardProperties::isKnown()`).
+ * Serves as the single source of truth for recognized standard CSS properties.
  *
  * @internal
  */
@@ -962,7 +961,7 @@ final class CSSPropertyGrammarRegistry
 					$allIdent = false;
 					break;
 				}
-				$set[$kw] = true;
+				$set[strtolower($kw)] = true;
 			}
 			if ($allIdent && $set !== []) {
 				$pureKeywords[$prop] = $set;

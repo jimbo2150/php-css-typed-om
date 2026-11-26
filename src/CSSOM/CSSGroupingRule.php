@@ -395,7 +395,7 @@ class CSSGroupingRule extends CSSRule
 				$cloned->setParentLinks($targetSheet, $destOwner);
 				$destList->appendClonedInternal($cloned);
 				$totalAdded++;
-				if ($destOwner === null && $targetSheet !== null && $targetSheet->isStrictPreludeRuleInternal($cloned)) {
+				if ($destOwner === null && $targetSheet !== null && ($cloned instanceof CSSCharsetRule || $cloned instanceof CSSImportRule || $cloned instanceof CSSNamespaceRule)) {
 					$strictPreludeAdded++;
 				}
 				$ownedStyle = $cloned->getOwnedStyleInternal();

@@ -293,12 +293,18 @@ final class CSSMathSimplifier
 
 	private static function simplifyNegateLeafOrFlat(CSSNumericValue $child, int &$visits, int &$allocated): CSSNumericValue
 	{
+		$negated = true;
 		while ($child instanceof CSSMathNegate) {
 			$inner = $child->values->values[0] ?? null;
 			if ($inner === null) {
 				break;
 			}
+			self::countVisit($visits);
+			$negated = !$negated;
 			$child = $inner;
+		}
+		if (!$negated) {
+			return $child;
 		}
 		if ($child instanceof CSSUnitValue) {
 			self::countAllocation($allocated);
@@ -364,12 +370,17 @@ final class CSSMathSimplifier
 
 	private static function simplifyInvertFactor(CSSNumericValue $child, int &$allocated): CSSNumericValue
 	{
+		$invert = true;
 		while ($child instanceof CSSMathInvert) {
 			$inner = $child->values->values[0] ?? null;
 			if ($inner === null) {
 				break;
 			}
+			$invert = !$invert;
 			$child = $inner;
+		}
+		if (!$invert) {
+			return $child;
 		}
 		if ($child instanceof CSSUnitValue && $child->getUnitObjInternal() === CSSUnitEnum::NUMBER) {
 			$inv = fdiv(1.0, $child->value);

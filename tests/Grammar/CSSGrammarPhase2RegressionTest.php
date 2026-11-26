@@ -165,18 +165,41 @@ final class CSSGrammarPhase2RegressionTest extends TestCase
 		$nearCap = CSSNumericValue::MAX_MATH_NODES - 10;
 		$evalCache2 = [];
 		$steps2 = 0;
+		try {
+			CSSGrammarMatcher::matches(
+				$grammar,
+				$parsed['source'],
+				$parsed['hasComments'],
+				$parsed['components'],
+				$opts,
+				$steps2,
+				$evalCache2,
+				$nearCap,
+			);
+			self::fail('Expected CSSParserLimitException from CSSGrammarMatcher::matches near MAX_MATH_NODES.');
+		} catch (CSSParserLimitException) {
+			$this->addToAssertionCount(1);
+		}
+
+		$evalCache3 = [];
+		$nearCapDirect = CSSNumericValue::MAX_MATH_NODES - 1;
 		$this->expectException(CSSParserLimitException::class);
-		CSSGrammarMatcher::matches(
-			$grammar,
-			$parsed['source'],
-			$parsed['hasComments'],
-			$parsed['components'],
-			$opts,
-			$steps2,
-			$evalCache2,
-			$nearCap,
-		);
-		CSSDataTypeMatcher::evaluateMathComponentInternal($parsed['source'], $parsed['components'][0], $opts, $evalCache2, $nearCap);
+		CSSDataTypeMatcher::evaluateMathComponentInternal($parsed['source'], $parsed['components'][0], $opts, $evalCache3, $nearCapDirect);
+	}
+
+	public function testMixedCaseKeywordPropertiesAreRecognized(): void
+	{
+		self::assertTrue(CSSValueValidator::validateStandardProperty('text-rendering', 'optimizeLegibility'));
+		self::assertTrue(CSSValueValidator::validateStandardProperty('text-rendering', 'geometricPrecision'));
+		self::assertTrue(CSSValueValidator::validateStandardProperty('text-rendering', 'optimizeSpeed'));
+		self::assertTrue(CSSValueValidator::validateStandardProperty('text-rendering', 'optimizelegibility'));
+		self::assertTrue(CSSValueValidator::validateStandardProperty('shape-rendering', 'crispEdges'));
+		self::assertTrue(CSSValueValidator::validateStandardProperty('shape-rendering', 'geometricPrecision'));
+		self::assertTrue(CSSValueValidator::validateStandardProperty('pointer-events', 'visiblePainted'));
+		self::assertTrue(CSSValueValidator::validateStandardProperty('pointer-events', 'visibleFill'));
+		self::assertTrue(CSSValueValidator::validateStandardProperty('pointer-events', 'visibleStroke'));
+		self::assertTrue(CSSValueValidator::validateStandardProperty('pointer-events', 'bounding-box'));
+		self::assertFalse(CSSValueValidator::validateStandardProperty('text-rendering', 'notAKeyword'));
 	}
 
 	public function testCustomSyntaxGrammarCacheReusesDeduplicatedEntry(): void

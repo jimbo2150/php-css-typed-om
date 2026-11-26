@@ -143,4 +143,54 @@ final class CSSColorPhase5RegressionTest extends TestCase
 			$this->assertSame($css, (string) $parsed);
 		}
 	}
+
+	public function testTrailingDotRejectionsCommentSplittingXyzAliasNoneAndOklchNegativeChroma(): void
+	{
+		// CSS <number-token> must reject trailing dots while preserving -0 and non-finite rejection
+		foreach (['rgb(10. 20 30)', 'rgb(10.% 20% 30%)', 'rgb(10.e2 20 30)'] as $invalid) {
+			try {
+				CSSColorValue::parse($invalid);
+				self::fail('Expected InvalidArgumentException for ' . $invalid);
+			} catch (InvalidArgumentException) {
+				$this->addToAssertionCount(1);
+			}
+		}
+
+		try {
+			CSSColorValue::parse('rgb(1e500 0 0)');
+			self::fail('Expected InvalidArgumentException for overflow color channel.');
+		} catch (InvalidArgumentException) {
+			$this->addToAssertionCount(1);
+		}
+
+		$negZero = CSSColorValue::parse('rgb(-0 0 0)');
+		$this->assertSame('rgb(-0% 0% 0%)', (string) $negZero);
+
+		// Comments containing ) / ( inside calc() must not break splitColorArguments()
+		$commented = CSSColorValue::parse('rgb(calc(10% /* ) ( */ + 20%) 30% 40% / 50%)');
+		$this->assertSame('rgb(30% 30% 40% / 50%)', (string) $commented);
+
+		// xyz <-> xyz-d65 aliasing preserves missing `none` components across to() and color-mix()
+		$xyzNone = CSSColorValue::parse('color(xyz none 0.25 0.5)');
+		$converted = $xyzNone->to('xyz-d65');
+		$this->assertSame('color(xyz-d65 none 0.25 0.5)', (string) $converted);
+
+		$mixed = CSSColorValue::parse('color-mix(in xyz-d65, color(xyz none 0.2 0.4), color(xyz 0.4 0.6 0.8))');
+		$this->assertStringStartsWith('color(xyz-d65 0.4 0.4', (string) $mixed);
+		[$floats, $alpha] = $xyzNone->toSpaceFloatsInternal('xyz-d65');
+		$this->assertNull($floats[0]);
+		$this->assertEqualsWithDelta(0.25, $floats[1], 1e-9);
+		$this->assertEqualsWithDelta(0.5, $floats[2], 1e-9);
+		$this->assertEqualsWithDelta(1.0, $alpha, 1e-9);
+
+		// Negative chroma in CSSOKLCH normalizes magnitude and flips hue +180deg
+		$negChroma = new CSSOKLCH(CSS::percent(70), -0.2, 30);
+		[$okL, $okC, $okH] = $negChroma->toOklchFloatsInternal();
+		$this->assertEqualsWithDelta(0.7, $okL, 1e-9);
+		$this->assertEqualsWithDelta(0.2, $okC, 1e-9);
+		$this->assertEqualsWithDelta(210.0, $okH, 1e-9);
+
+		$gamutMapped = (new CSSOKLCH(CSS::percent(70), -0.5, 30))->toGamut('srgb');
+		$this->assertTrue($gamutMapped->inGamut('srgb'));
+	}
 }

@@ -18,16 +18,23 @@ final class CSSSyntaxScanner
 
 	public const string IDENT_ESCAPE_REGEX = '\\\\(?>(?:[0-9a-fA-F]{1,6}(?:\r\n|[ \t\n\r\f])?)|[^0-9a-fA-F\x00-\x1F\x7F])';
 
+	/** @internal */
 	public const string CONTROL_BYTES = "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0B\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x7F";
 
 	private const string FAST_FRAGMENT_MASK = self::CONTROL_BYTES . "\\/\"'()[]{};";
+
+	private const string DEFAULT_BALANCED_MASK = "\\/\"'()[]{}";
+
+	private const string DEFAULT_FRAGMENT_SCAN_MASK = "\\/\"'()[]{};";
 
 	private const string ASCII_WHITESPACE = self::CSS_WHITESPACE;
 
 	private const int ESCAPED_URL_WINDOW = 40;
 
+	/** @internal */
 	public const string HEX_DIGITS = '0123456789abcdefABCDEF';
 
+	/** @internal */
 	public const string ASCII_IDENT_BYTES = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_';
 
 	/** @var array<string, string> */
@@ -901,10 +908,7 @@ final class CSSSyntaxScanner
 			if ($pos === $len) {
 				return;
 			}
-			if (strcspn($source, self::CONTROL_BYTES, $pos, $len - $pos) !== ($len - $pos)) {
-				throw new InvalidArgumentException($label . ' contains disallowed control characters.');
-			}
-			self::scanBalancedOrAssertInternal($source, 0, $len, ';{}', '', false, $label, $pos);
+			self::scanBalancedOrAssertInternal($source, 0, $len, ';{}', '', true, $label, $pos);
 			return;
 		}
 		$topBytes = $forbiddenTopLevel === [] ? '' : implode('', $forbiddenTopLevel);
@@ -922,16 +926,18 @@ final class CSSSyntaxScanner
 		?string $label,
 		int $initialOffset = -1,
 	): bool {
-		$length = $end === null ? strlen($source) : min($end, strlen($source));
-		if ($checkControlBytes && strcspn($source, self::CONTROL_BYTES, 0, $length) !== $length) {
-			if ($label !== null) {
-				throw new InvalidArgumentException($label . ' contains disallowed control characters.');
-			}
-			return false;
-		}
-
+		$length = $initialOffset >= 0 && $end !== null
+			? $end
+			: ($end === null ? strlen($source) : min($end, strlen($source)));
 		$baseStart = max(0, $start);
-		$mask = "\\/\"'()[]{}" . $topBytes . $anyBytes;
+		$defaultTop = $topBytes === ';{}';
+		$mask = match (true) {
+			$checkControlBytes && $defaultTop && $anyBytes === '' => self::FAST_FRAGMENT_MASK,
+			$checkControlBytes => self::CONTROL_BYTES . self::DEFAULT_BALANCED_MASK . $topBytes . $anyBytes,
+			$topBytes === '' && $anyBytes === '' => self::DEFAULT_BALANCED_MASK,
+			$defaultTop && $anyBytes === '' => self::DEFAULT_FRAGMENT_SCAN_MASK,
+			default => self::DEFAULT_BALANCED_MASK . $topBytes . $anyBytes,
+		};
 		$offset = $initialOffset >= $baseStart ? $initialOffset : ($baseStart + strcspn($source, $mask, $baseStart, $length - $baseStart));
 		if ($offset >= $length) {
 			return true;
@@ -951,9 +957,28 @@ final class CSSSyntaxScanner
 
 			$character = $source[$offset];
 
+			if ($checkControlBytes
+				&& (($character < ' ' && $character !== "\t" && $character !== "\n" && $character !== "\r" && $character !== "\f") || $character === "\x7F")
+			) {
+				if ($label !== null) {
+					throw new InvalidArgumentException($label . ' contains disallowed control characters.');
+				}
+				return false;
+			}
+
 			if ($character === '"' || $character === "'") {
 				$valid = true;
 				$strEnd = self::scanQuotedString($source, $offset, $length, $valid);
+				if ($checkControlBytes) {
+					$scanEnd = $valid ? $strEnd : $length;
+					$spanLen = $scanEnd - $offset - 1;
+					if ($spanLen > 0 && strcspn($source, self::CONTROL_BYTES, $offset + 1, $spanLen) !== $spanLen) {
+						if ($label !== null) {
+							throw new InvalidArgumentException($label . ' contains disallowed control characters.');
+						}
+						return false;
+					}
+				}
 				if (!$valid) {
 					if ($label !== null) {
 						throw new InvalidArgumentException($label . ' has unbalanced syntax or unclosed comments/strings.');
@@ -967,7 +992,18 @@ final class CSSSyntaxScanner
 			if ($character === '/') {
 				if ($offset + 1 < $length && $source[$offset + 1] === '*') {
 					$commentEnd = strpos($source, '*/', $offset + 2);
-					if ($commentEnd === false || $commentEnd + 1 >= $length) {
+					$unclosed = $commentEnd === false || $commentEnd + 1 >= $length;
+					if ($checkControlBytes) {
+						$scanEnd = $unclosed ? $length : $commentEnd;
+						$spanLen = $scanEnd - $offset - 2;
+						if ($spanLen > 0 && strcspn($source, self::CONTROL_BYTES, $offset + 2, $spanLen) !== $spanLen) {
+							if ($label !== null) {
+								throw new InvalidArgumentException($label . ' contains disallowed control characters.');
+							}
+							return false;
+						}
+					}
+					if ($unclosed) {
 						if ($label !== null) {
 							throw new InvalidArgumentException($label . ' has unbalanced syntax or unclosed comments/strings.');
 						}
@@ -976,7 +1012,9 @@ final class CSSSyntaxScanner
 					$offset = $commentEnd + 2;
 					continue;
 				}
-				if (($anyBytes !== '' && str_contains($anyBytes, $character)) || ($stack === [] && $topBytes !== '' && str_contains($topBytes, $character))) {
+				if (($anyBytes !== '' && str_contains($anyBytes, $character))
+					|| ($stack === [] && !$defaultTop && $topBytes !== '' && str_contains($topBytes, $character))
+				) {
 					if ($label !== null) {
 						throw new InvalidArgumentException(sprintf('%s cannot contain "%s".', $label, $character));
 					}
@@ -994,6 +1032,14 @@ final class CSSSyntaxScanner
 					return false;
 				}
 				$next = $source[$offset + 1];
+				if ($checkControlBytes
+					&& (($next < ' ' && $next !== "\t" && $next !== "\n" && $next !== "\r" && $next !== "\f") || $next === "\x7F")
+				) {
+					if ($label !== null) {
+						throw new InvalidArgumentException($label . ' contains disallowed control characters.');
+					}
+					return false;
+				}
 				if ($next === "\n" || $next === "\r" || $next === "\f") {
 					if ($label !== null) {
 						throw new InvalidArgumentException($label . ' has unbalanced syntax or unclosed comments/strings.');
@@ -1005,7 +1051,9 @@ final class CSSSyntaxScanner
 				continue;
 			}
 
-			if (($anyBytes !== '' && str_contains($anyBytes, $character)) || ($stack === [] && $topBytes !== '' && str_contains($topBytes, $character))) {
+			if (($anyBytes !== '' && str_contains($anyBytes, $character))
+				|| ($stack === [] && ($defaultTop ? ($character === ';' || $character === '{' || $character === '}') : ($topBytes !== '' && str_contains($topBytes, $character))))
+			) {
 				if ($label !== null) {
 					throw new InvalidArgumentException(sprintf('%s cannot contain "%s".', $label, $character));
 				}
@@ -1015,6 +1063,16 @@ final class CSSSyntaxScanner
 			if ($character === '(' && self::isUnquotedUrlStart($source, $offset, $baseStart, $length, $lastEscapeOffset)) {
 				$valid = true;
 				$urlEnd = self::scanUnquotedUrl($source, $offset, $length, $valid);
+				if ($checkControlBytes) {
+					$scanEnd = $valid ? $urlEnd : $length;
+					$spanLen = $scanEnd - $offset - 1;
+					if ($spanLen > 0 && strcspn($source, self::CONTROL_BYTES, $offset + 1, $spanLen) !== $spanLen) {
+						if ($label !== null) {
+							throw new InvalidArgumentException($label . ' contains disallowed control characters.');
+						}
+						return false;
+					}
+				}
 				if (!$valid) {
 					if ($label !== null) {
 						throw new InvalidArgumentException($label . ' has unbalanced syntax or unclosed comments/strings.');
@@ -1806,7 +1864,7 @@ final class CSSSyntaxScanner
 			}
 			if ($pos + 1 < $length && $source[$pos] === '/' && $source[$pos + 1] === '*') {
 				$commentEnd = strpos($source, '*/', $pos + 2);
-				if ($commentEnd === false) {
+				if ($commentEnd === false || $commentEnd + 1 >= $length) {
 					return null;
 				}
 				$pos = $commentEnd + 2;
