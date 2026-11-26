@@ -44,9 +44,9 @@ final class CSSGrammarParser
 	/**
 	 * @throws InvalidArgumentException When the VDS grammar string is invalid or exceeds limits
 	 */
-	public static function parse(string $grammar): CSSGrammarNode
+	public static function parse(string $grammar, bool $caseSensitiveKeywords = false): CSSGrammarNode
 	{
-		$tokens = self::tokenizeVds($grammar);
+		$tokens = self::tokenizeVds($grammar, $caseSensitiveKeywords);
 		if ($tokens === []) {
 			throw new InvalidArgumentException('CSS grammar string cannot be empty.');
 		}
@@ -192,7 +192,7 @@ final class CSSGrammarParser
 			}
 
 			$atom = match ($kind) {
-				self::TOK_IDENT => self::allocNode($nodeCount, CSSGrammarNodeType::Keyword, (string) $tok['value']),
+				self::TOK_IDENT => self::allocNode($nodeCount, CSSGrammarNodeType::Keyword, (string) $tok['value'], [], 1, 1, false, null, null, [], $caseSensitiveKeywords),
 				self::TOK_DELIM => self::allocNode($nodeCount, CSSGrammarNodeType::Delim, (string) $tok['value']),
 				self::TOK_ZERO => self::allocNode($nodeCount, CSSGrammarNodeType::DataType, 'zero'),
 				self::TOK_PROP_REF => self::allocNode($nodeCount, CSSGrammarNodeType::NonTerminal, '@prop:' . (string) $tok['value']),
@@ -356,6 +356,7 @@ final class CSSGrammarParser
 		?float $rangeMin = null,
 		?float $rangeMax = null,
 		array $excludedKeywords = [],
+		bool $caseSensitive = false,
 	): CSSGrammarNode {
 		if (++$nodeCount > self::MAX_GRAMMAR_NODES) {
 			throw new InvalidArgumentException('CSS grammar exceeds maximum AST node count.');
@@ -372,6 +373,7 @@ final class CSSGrammarParser
 			$rangeMin,
 			$rangeMax,
 			$excludedKeywords,
+			$caseSensitive,
 		);
 	}
 
@@ -380,7 +382,7 @@ final class CSSGrammarParser
 	 *
 	 * @return list<array{type: int, value?: string, min?: int, max?: ?int, comma?: bool, rangeMin?: ?float, rangeMax?: ?float, excluded?: list<string>}>
 	 */
-	private static function tokenizeVds(string $grammar): array
+	private static function tokenizeVds(string $grammar, bool $caseSensitiveKeywords = false): array
 	{
 		$len = strlen($grammar);
 		$pos = 0;
@@ -476,13 +478,13 @@ final class CSSGrammarParser
 			}
 
 			if (preg_match('/\G([a-zA-Z_-][a-zA-Z0-9_-]*)/', $grammar, $m, 0, $pos) === 1) {
-				$ident = strtolower($m[1]);
-				$pos += strlen($m[1]);
+				$rawIdent = $m[1];
+				$pos += strlen($rawIdent);
 				if ($pos < $len && $grammar[$pos] === '(') {
-					$tokens[] = ['type' => self::TOK_FUNCTION_OPEN, 'value' => $ident];
+					$tokens[] = ['type' => self::TOK_FUNCTION_OPEN, 'value' => strtolower($rawIdent)];
 					$pos++;
 				} else {
-					$tokens[] = ['type' => self::TOK_IDENT, 'value' => $ident];
+					$tokens[] = ['type' => self::TOK_IDENT, 'value' => $caseSensitiveKeywords ? $rawIdent : strtolower($rawIdent)];
 					self::consumeOptionalPostfixModifiers($grammar, $pos, $len, $tokens, false);
 				}
 				continue;

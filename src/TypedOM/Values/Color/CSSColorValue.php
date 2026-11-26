@@ -1376,6 +1376,20 @@ abstract class CSSColorValue extends CSSStyleValue
 		return $resolved !== null ? $resolved : new CSSKeywordValue('currentcolor');
 	}
 
+	/** @internal Zero-allocation check for named CSS color / `transparent`. */
+	public static function isNamedColorIdentInternal(string $lowerIdent): bool
+	{
+		return $lowerIdent === 'transparent' || isset(self::NAMED_COLORS[$lowerIdent]);
+	}
+
+	/** @internal Zero-allocation check for 3/4/6/8-digit CSS hex digits (without leading `#`). */
+	public static function isValidHexInternal(string $digits): bool
+	{
+		$len = strlen($digits);
+
+		return ($len === 3 || $len === 4 || $len === 6 || $len === 8) && ctype_xdigit($digits);
+	}
+
 	/** @internal */
 	public static function tryParseNamedColorIdentInternal(string $lowerIdent): ?CSSRGB
 	{

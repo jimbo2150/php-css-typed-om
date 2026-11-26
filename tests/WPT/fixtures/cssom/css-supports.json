@@ -176,6 +176,33 @@
       "input": { "propertyOrCondition": "all", "value": "var(--reset)" },
       "expected": { "result": true },
       "status": "pass"
+    },
+    {
+      "id": "cssom/supports/two-arg-unitless-zero-rotate-false",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "error-recovery",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "transform", "value": "rotate(0)" },
+      "expected": { "result": false },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/supports/two-arg-negative-transition-duration-false",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "error-recovery",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "transition", "value": "-1s" },
+      "expected": { "result": false },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/supports/two-arg-light-dark-system-color-true",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "parsing",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "color", "value": "light-dark(CanvasText, white)" },
+      "expected": { "result": true },
+      "status": "pass"
     }
   ]
 }

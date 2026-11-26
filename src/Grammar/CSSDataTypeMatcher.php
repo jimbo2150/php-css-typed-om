@@ -11,6 +11,9 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSTokenType;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSDeferredColorException;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericType;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 
 /**
  * Matches primitive and functional CSS Values & Units / CSS Color / CSS Images data types
@@ -21,10 +24,16 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSDeferredColorException;
  */
 final class CSSDataTypeMatcher
 {
+	/** @var array<string, CSSGrammarNode> */
+	private static array $cachedSimpleNodes = [];
+
+	private static ?CSSGrammarNode $cachedPositiveNumberNode = null;
+
 	/** @var array<string, true> */
 	private const array PRIMITIVE_TYPES = [
 		'number' => true,
 		'integer' => true,
+		'non-zero-integer' => true,
 		'zero' => true,
 		'length' => true,
 		'percentage' => true,
@@ -175,7 +184,7 @@ final class CSSDataTypeMatcher
 	private const array COLOR_FUNCTIONS = [
 		'rgb' => true, 'rgba' => true, 'hsl' => true, 'hsla' => true, 'hwb' => true,
 		'lab' => true, 'lch' => true, 'oklab' => true, 'oklch' => true,
-		'color' => true, 'color-mix' => true, 'light-dark' => true, 'device-cmyk' => true,
+		'color' => true, 'color-mix' => true, 'light-dark' => true,
 	];
 
 	/** @var array<string, true> */
@@ -213,11 +222,17 @@ final class CSSDataTypeMatcher
 		return isset(self::RELATIVE_LENGTH_UNITS[$lowerUnit]);
 	}
 
+	public static function isKnownLengthUnitInternal(string $lowerUnit): bool
+	{
+		return isset(self::LENGTH_UNITS[$lowerUnit]);
+	}
+
 	/**
 	 * Matches `$node` (`CSSGrammarNodeType::DataType`) starting at `$pos` in `$components`.
 	 * Returns all reachable end indices (usually `[]` or `[$pos + 1]`).
 	 *
 	 * @param list<ParsedComponent> $components
+	 * @param array<string, mixed> $evalCache
 	 * @return list<int>
 	 * @throws CSSParserLimitException When resource limits (e.g. `maxMathDepth`) are exceeded
 	 */
@@ -228,6 +243,8 @@ final class CSSDataTypeMatcher
 		array $components,
 		int $pos,
 		CSSParserOptions $options,
+		array &$evalCache = [],
+		int &$mathBudget = 0,
 	): array {
 		$count = count($components);
 		if ($pos >= $count) {
@@ -237,18 +254,18 @@ final class CSSDataTypeMatcher
 		$type = (string) $node->value;
 
 		return match ($type) {
-			'number', 'integer', 'zero', 'length', 'percentage', 'length-percentage',
+			'number', 'integer', 'non-zero-integer', 'zero', 'length', 'percentage', 'length-percentage',
 			'angle', 'angle-percentage', 'time', 'time-percentage', 'resolution',
-			'flex', 'alpha-value', 'hue', 'frequency', 'dimension' => self::matchNumericType($node, $source, $hasComments, $components[$pos], $pos, $options),
+			'flex', 'alpha-value', 'hue', 'frequency', 'dimension' => self::matchNumericType($node, $source, $hasComments, $components[$pos], $pos, $options, $evalCache, $mathBudget),
 
-			'color' => self::matchColor($source, $hasComments, $components[$pos], $pos, $options),
-			'hex-color' => self::matchHexColor($source, $components[$pos], $pos),
+			'color' => self::matchColor($source, $hasComments, $components[$pos], $pos, $options, $evalCache, $mathBudget),
+			'hex-color' => self::matchHexColor($components[$pos], $pos),
 			'named-color' => self::matchNamedColor($components[$pos], $pos),
 			'system-color' => self::matchSystemColor($components[$pos], $pos, false),
 			'deprecated-color' => self::matchSystemColor($components[$pos], $pos, true),
 
 			'url' => self::matchUrl($components[$pos], $pos),
-			'image' => self::matchImage($source, $hasComments, $components[$pos], $pos, $options),
+			'image' => self::matchImage($source, $hasComments, $components[$pos], $pos, $options, $evalCache, $mathBudget),
 
 			'transform-function' => self::matchTransformFunction($source, $hasComments, $components[$pos], $pos, $options),
 			'transform-list' => self::matchTransformList($source, $hasComments, $components, $pos, $options),
@@ -258,7 +275,7 @@ final class CSSDataTypeMatcher
 			'custom-ident' => self::matchCustomIdent($components[$pos], $pos, $node->excludedKeywords),
 			'dashed-ident' => self::matchDashedIdent($components[$pos], $pos),
 			'urange' => self::matchUnicodeRange($source, $components, $pos),
-			'ratio' => self::matchRatio($source, $hasComments, $components, $pos, $options),
+			'ratio' => self::matchRatio($source, $hasComments, $components, $pos, $options, $evalCache, $mathBudget),
 			'declaration-value' => self::matchAnySequence($components, $pos, false),
 			'any-value' => self::matchAnySequence($components, $pos, true),
 
@@ -268,6 +285,7 @@ final class CSSDataTypeMatcher
 
 	/**
 	 * @param ParsedComponent $comp
+	 * @param array<string, mixed> $evalCache
 	 * @return list<int>
 	 */
 	private static function matchNumericType(
@@ -277,6 +295,8 @@ final class CSSDataTypeMatcher
 		array $comp,
 		int $pos,
 		CSSParserOptions $options,
+		array &$evalCache = [],
+		int &$mathBudget = 0,
 	): array {
 		$type = (string) $node->value;
 
@@ -309,20 +329,46 @@ final class CSSDataTypeMatcher
 				return [];
 			}
 
-			$slice = CSSValueComponentParser::sliceClean($source, $comp['start'], $comp['end'], $hasComments);
-			try {
-				$mathVal = CSSCalcParser::parseUnitOrMathSlice($slice, 0, strlen($slice), $options, 0, true);
-			} catch (CSSParserLimitException $e) {
-				throw $e;
-			} catch (InvalidArgumentException) {
+			$cacheKey = 'm:' . $comp['start'] . ':' . $comp['end'];
+			if (array_key_exists($cacheKey, $evalCache)) {
+				$cached = $evalCache[$cacheKey];
+				if ($cached === false) {
+					return [];
+				}
+				/** @var CSSNumericType $numericType */
+				$numericType = $cached['type'];
+				/** @var bool $isZero */
+				$isZero = $cached['isZero'];
+			} else {
+				if (++$mathBudget > CSSNumericValue::MAX_MATH_NODES) {
+					throw new CSSParserLimitException('CSS math evaluation budget exceeded.');
+				}
+
+				$slice = CSSValueComponentParser::sliceClean($source, $comp['start'], $comp['end'], $hasComments);
+				try {
+					$mathVal = CSSCalcParser::parseUnitOrMathSlice($slice, 0, strlen($slice), $options, 0, true);
+				} catch (CSSParserLimitException $e) {
+					throw $e;
+				} catch (InvalidArgumentException) {
+					$evalCache[$cacheKey] = false;
+					return [];
+				}
+
+				if ($mathVal === null) {
+					$evalCache[$cacheKey] = false;
+					return [];
+				}
+
+				$numericType = $mathVal->getNumericTypeInternal();
+				$isZero = $mathVal instanceof CSSUnitValue && $mathVal->value === 0.0;
+				$evalCache[$cacheKey] = ['type' => $numericType, 'isZero' => $isZero];
+			}
+
+			if ($type === 'non-zero-integer' && $isZero) {
 				return [];
 			}
 
-			if ($mathVal === null) {
-				return [];
-			}
-
-			if (!self::matchesMathNumericType($type, $mathVal->getNumericTypeInternal())) {
+			if (!self::matchesMathNumericType($type, $numericType)) {
 				return [];
 			}
 
@@ -343,18 +389,18 @@ final class CSSDataTypeMatcher
 			'zero' => $tokType === CSSTokenType::Number && $val === 0.0,
 			'number' => $tokType === CSSTokenType::Number,
 			'integer' => $tokType === CSSTokenType::Number && $isInt,
+			'non-zero-integer' => $tokType === CSSTokenType::Number && $isInt && $val !== 0.0,
 			'percentage' => $tokType === CSSTokenType::Percentage,
 			'length' => ($tokType === CSSTokenType::Dimension && isset(self::LENGTH_UNITS[$unitLower]))
 				|| ($tokType === CSSTokenType::Number && $val === 0.0),
 			'length-percentage' => $tokType === CSSTokenType::Percentage
 				|| ($tokType === CSSTokenType::Dimension && isset(self::LENGTH_UNITS[$unitLower]))
 				|| ($tokType === CSSTokenType::Number && $val === 0.0),
-			'angle', 'hue' => ($tokType === CSSTokenType::Dimension && isset(self::ANGLE_UNITS[$unitLower]))
-				|| ($tokType === CSSTokenType::Number && $val === 0.0)
-				|| ($type === 'hue' && $tokType === CSSTokenType::Number),
+			'angle' => $tokType === CSSTokenType::Dimension && isset(self::ANGLE_UNITS[$unitLower]),
+			'hue' => ($tokType === CSSTokenType::Dimension && isset(self::ANGLE_UNITS[$unitLower]))
+				|| $tokType === CSSTokenType::Number,
 			'angle-percentage' => $tokType === CSSTokenType::Percentage
-				|| ($tokType === CSSTokenType::Dimension && isset(self::ANGLE_UNITS[$unitLower]))
-				|| ($tokType === CSSTokenType::Number && $val === 0.0),
+				|| ($tokType === CSSTokenType::Dimension && isset(self::ANGLE_UNITS[$unitLower])),
 			'time' => $tokType === CSSTokenType::Dimension && isset(self::TIME_UNITS[$unitLower]),
 			'time-percentage' => $tokType === CSSTokenType::Percentage
 				|| ($tokType === CSSTokenType::Dimension && isset(self::TIME_UNITS[$unitLower])),
@@ -413,7 +459,7 @@ final class CSSDataTypeMatcher
 	 * - `calc(0)` resolves to numeric category `'number'` and is NOT a `<length>`
 	 * - `<integer>` accepts dimensionless numeric math expressions
 	 */
-	private static function matchesMathNumericType(string $type, \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericType $numericType): bool
+	private static function matchesMathNumericType(string $type, CSSNumericType $numericType): bool
 	{
 		$dims = $numericType->toArray();
 		$hint = $numericType->percentHint;
@@ -424,33 +470,36 @@ final class CSSDataTypeMatcher
 			}
 		}
 
-		$isNumber = $nonZero === [] && $hint === null;
-		$isPercent = $nonZero === ['percent' => 1] && $hint === null;
-		$isPureDim = static fn (string $dim): bool => $nonZero === [$dim => 1] && $hint === null;
-		$isHintedDim = static fn (string $dim): bool => $nonZero === [$dim => 1] && ($hint === null || $hint === $dim);
+		$countNonZero = count($nonZero);
+		$singleDim = $countNonZero === 1 && reset($nonZero) === 1 ? key($nonZero) : null;
+		$isNumber = $countNonZero === 0 && $hint === null;
+		$isPercent = $singleDim === 'percent' && $hint === null;
+		$isPureDim = $singleDim !== null && $singleDim !== 'percent' && $hint === null;
+		$isHinted = $singleDim !== null && $singleDim !== 'percent' && ($hint === null || $hint === $singleDim);
 
 		return match ($type) {
-			'number', 'integer' => $isNumber,
+			'number', 'integer', 'non-zero-integer' => $isNumber,
 			'percentage' => $isPercent,
 			'alpha-value' => $isNumber || $isPercent,
 			'zero' => false,
-			'length' => $isPureDim('length'),
-			'length-percentage' => $isHintedDim('length') || $isPercent,
-			'angle' => $isPureDim('angle'),
-			'hue' => $isPureDim('angle') || $isNumber,
-			'angle-percentage' => $isHintedDim('angle') || $isPercent,
-			'time' => $isPureDim('time'),
-			'time-percentage' => $isHintedDim('time') || $isPercent,
-			'resolution' => $isPureDim('resolution'),
-			'flex' => $isPureDim('flex'),
-			'frequency' => $isPureDim('frequency'),
-			'dimension' => count($nonZero) === 1 && !isset($nonZero['percent']) && reset($nonZero) === 1 && $hint === null,
+			'length' => $isPureDim && $singleDim === 'length',
+			'length-percentage' => ($isHinted && $singleDim === 'length') || $isPercent,
+			'angle' => $isPureDim && $singleDim === 'angle',
+			'hue' => ($isPureDim && $singleDim === 'angle') || $isNumber,
+			'angle-percentage' => ($isHinted && $singleDim === 'angle') || $isPercent,
+			'time' => $isPureDim && $singleDim === 'time',
+			'time-percentage' => ($isHinted && $singleDim === 'time') || $isPercent,
+			'resolution' => $isPureDim && $singleDim === 'resolution',
+			'flex' => $isPureDim && $singleDim === 'flex',
+			'frequency' => $isPureDim && $singleDim === 'frequency',
+			'dimension' => $isPureDim,
 			default => false,
 		};
 	}
 
 	/**
 	 * @param ParsedComponent $comp
+	 * @param array<string, mixed> $evalCache
 	 * @return list<int>
 	 */
 	private static function matchColor(
@@ -459,22 +508,18 @@ final class CSSDataTypeMatcher
 		array $comp,
 		int $pos,
 		CSSParserOptions $options,
+		array &$evalCache = [],
+		int &$mathBudget = 0,
 	): array {
 		if ($comp['kind'] === 'token') {
 			$tokType = $comp['tokenType'] ?? null;
 			if ($tokType === CSSTokenType::Hash) {
-				$hex = '#' . (string) ($comp['name'] ?? '');
-				try {
-					CSSColorValue::parseHexInternal($hex);
-					return [$pos + 1];
-				} catch (InvalidArgumentException) {
-					return [];
-				}
+				return CSSColorValue::isValidHexInternal((string) ($comp['name'] ?? '')) ? [$pos + 1] : [];
 			}
 			if ($tokType === CSSTokenType::Ident) {
 				$lower = strtolower((string) ($comp['name'] ?? ''));
 				if ($lower === 'currentcolor'
-					|| CSSColorValue::tryParseNamedColorIdentInternal($lower) !== null
+					|| CSSColorValue::isNamedColorIdentInternal($lower)
 					|| isset(self::SYSTEM_COLORS[$lower])
 					|| isset(self::DEPRECATED_SYSTEM_COLORS[$lower])
 				) {
@@ -490,15 +535,27 @@ final class CSSDataTypeMatcher
 			if (!isset(self::COLOR_FUNCTIONS[$fn])) {
 				return [];
 			}
+
+			$cacheKey = 'c:' . $comp['start'] . ':' . $comp['end'];
+			if (array_key_exists($cacheKey, $evalCache)) {
+				return $evalCache[$cacheKey] ? [$pos + 1] : [];
+			}
+			if (++$mathBudget > CSSNumericValue::MAX_MATH_NODES) {
+				throw new CSSParserLimitException('CSS color evaluation budget exceeded.');
+			}
+
 			$slice = CSSValueComponentParser::sliceClean($source, $comp['start'], $comp['end'], $hasComments);
 			try {
 				CSSColorValue::parseInternal($slice, null, $options, null, true);
+				$evalCache[$cacheKey] = true;
 				return [$pos + 1];
 			} catch (CSSParserLimitException $e) {
 				throw $e;
 			} catch (CSSDeferredColorException) {
+				$evalCache[$cacheKey] = true;
 				return [$pos + 1];
 			} catch (InvalidArgumentException) {
+				$evalCache[$cacheKey] = false;
 				return [];
 			}
 		}
@@ -510,17 +567,13 @@ final class CSSDataTypeMatcher
 	 * @param ParsedComponent $comp
 	 * @return list<int>
 	 */
-	private static function matchHexColor(string $source, array $comp, int $pos): array
+	private static function matchHexColor(array $comp, int $pos): array
 	{
 		if ($comp['kind'] !== 'token' || ($comp['tokenType'] ?? null) !== CSSTokenType::Hash) {
 			return [];
 		}
-		try {
-			CSSColorValue::parseHexInternal('#' . (string) ($comp['name'] ?? ''));
-			return [$pos + 1];
-		} catch (InvalidArgumentException) {
-			return [];
-		}
+
+		return CSSColorValue::isValidHexInternal((string) ($comp['name'] ?? '')) ? [$pos + 1] : [];
 	}
 
 	/**
@@ -534,7 +587,7 @@ final class CSSDataTypeMatcher
 		}
 		$lower = strtolower((string) ($comp['name'] ?? ''));
 
-		return CSSColorValue::tryParseNamedColorIdentInternal($lower) !== null ? [$pos + 1] : [];
+		return CSSColorValue::isNamedColorIdentInternal($lower) ? [$pos + 1] : [];
 	}
 
 	/**
@@ -597,6 +650,7 @@ final class CSSDataTypeMatcher
 	 * Matches `<image>`: `<url>` | `<gradient>` | `image-set(...)` | `cross-fade(...)` | `image(...)` | `element(...)` | `paint(...)`.
 	 *
 	 * @param ParsedComponent $comp
+	 * @param array<string, mixed> $evalCache
 	 * @return list<int>
 	 */
 	private static function matchImage(
@@ -605,6 +659,8 @@ final class CSSDataTypeMatcher
 		array $comp,
 		int $pos,
 		CSSParserOptions $options,
+		array &$evalCache = [],
+		int &$mathBudget = 0,
 	): array {
 		if (self::matchUrl($comp, $pos) !== []) {
 			return [$pos + 1];
@@ -618,7 +674,7 @@ final class CSSDataTypeMatcher
 		$args = $comp['components'] ?? [];
 
 		if (isset(self::GRADIENT_FUNCTIONS[$fn])) {
-			return self::validateGradientArgs($fn, $source, $hasComments, $args, $options) ? [$pos + 1] : [];
+			return self::validateGradientArgs($fn, $source, $hasComments, $args, $options, $evalCache, $mathBudget) ? [$pos + 1] : [];
 		}
 
 		if ($fn === 'element') {
@@ -641,14 +697,48 @@ final class CSSDataTypeMatcher
 			return [];
 		}
 
-		if ($fn === 'image' || $fn === 'image-set' || $fn === 'cross-fade' || $fn === 'paint') {
-			if ($args === []) {
+		if ($fn === 'image-set' || $fn === 'cross-fade') {
+			$segments = self::splitComponentArgsByComma($args);
+			if ($segments === null) {
 				return [];
 			}
-			if ($fn === 'paint' && (($args[0]['tokenType'] ?? null) !== CSSTokenType::Ident)) {
+			$argGrammar = CSSPropertyGrammarRegistry::resolveNonTerminal($fn === 'image-set' ? 'image-set-arg' : 'cross-fade-arg');
+			if ($argGrammar === null) {
 				return [];
 			}
-			// Reject empty comma segments in functional image notations
+			foreach ($segments as $seg) {
+				if (!CSSGrammarMatcher::matches($argGrammar, $source, $hasComments, $seg, $options)) {
+					return [];
+				}
+			}
+			return [$pos + 1];
+		}
+
+		if ($fn === 'image') {
+			$segments = self::splitComponentArgsByComma($args);
+			if ($segments === null) {
+				return [];
+			}
+			$segCount = count($segments);
+			foreach ($segments as $idx => $seg) {
+				if (self::isValidImageFunctionArg($seg)) {
+					continue;
+				}
+				// Optional final <color> fallback
+				if ($idx === $segCount - 1 && count($seg) === 1
+					&& self::matchColor($source, $hasComments, $seg[0], 0, $options, $evalCache, $mathBudget) !== []
+				) {
+					continue;
+				}
+				return [];
+			}
+			return [$pos + 1];
+		}
+
+		if ($fn === 'paint') {
+			if ($args === [] || ($args[0]['kind'] ?? '') !== 'token' || ($args[0]['tokenType'] ?? null) !== CSSTokenType::Ident) {
+				return [];
+			}
 			return self::splitComponentArgsByComma($args) !== null ? [$pos + 1] : [];
 		}
 
@@ -656,9 +746,35 @@ final class CSSDataTypeMatcher
 	}
 
 	/**
+	 * @param list<ParsedComponent> $seg
+	 */
+	private static function isValidImageFunctionArg(array $seg): bool
+	{
+		$idx = 0;
+		$count = count($seg);
+		if ($count === 0) {
+			return false;
+		}
+		if (($seg[0]['kind'] ?? '') === 'token' && ($seg[0]['tokenType'] ?? null) === CSSTokenType::Ident) {
+			$tag = strtolower((string) ($seg[0]['name'] ?? ''));
+			if ($tag === 'ltr' || $tag === 'rtl') {
+				$idx = 1;
+			}
+		}
+		if ($idx !== $count - 1) {
+			return false;
+		}
+		$item = $seg[$idx];
+
+		return self::matchUrl($item, 0) !== []
+			|| (($item['kind'] ?? '') === 'token' && ($item['tokenType'] ?? null) === CSSTokenType::String);
+	}
+
+	/**
 	 * Validates structured CSS gradient arguments (`linear-gradient`, `radial-gradient`, `conic-gradient`, repeating-*).
 	 *
 	 * @param list<ParsedComponent> $args
+	 * @param array<string, mixed> $evalCache
 	 */
 	private static function validateGradientArgs(
 		string $fn,
@@ -666,17 +782,20 @@ final class CSSDataTypeMatcher
 		bool $hasComments,
 		array $args,
 		CSSParserOptions $options,
+		array &$evalCache,
+		int &$mathBudget,
 	): bool {
 		$segments = self::splitComponentArgsByComma($args);
 		if ($segments === null || count($segments) < 2) {
 			return false;
 		}
 
+		$isConic = str_contains($fn, 'conic');
 		$stopStartIndex = 0;
 		$first = $segments[0];
 
-		// Detect whether first segment is an angle / direction / shape / position / color interpolation prelude
-		$firstIsColorStop = self::isValidColorStop($source, $hasComments, $first, $options);
+		// Detect whether first segment is a color stop or a structured gradient prelude
+		$firstIsColorStop = self::isValidColorStop($isConic, $source, $hasComments, $first, $options, $evalCache, $mathBudget);
 		if (!$firstIsColorStop) {
 			if (!self::isValidGradientPrelude($fn, $source, $hasComments, $first, $options)) {
 				return false;
@@ -689,19 +808,17 @@ final class CSSDataTypeMatcher
 		}
 
 		$stopCount = count($segments);
+		$hintType = $isConic ? 'angle-percentage' : 'length-percentage';
 		for ($idx = $stopStartIndex; $idx < $stopCount; $idx++) {
 			$seg = $segments[$idx];
-			if (self::isValidColorStop($source, $hasComments, $seg, $options)) {
+			if (self::isValidColorStop($isConic, $source, $hasComments, $seg, $options, $evalCache, $mathBudget)) {
 				continue;
 			}
 			// Intermediate color hint (<length-percentage> or <angle-percentage> for conic) allowed strictly between two stops
-			if ($idx > $stopStartIndex && $idx < $stopCount - 1 && count($seg) === 1) {
-				$hintType = str_contains($fn, 'conic') ? 'angle-percentage' : 'length-percentage';
-				if (self::matchesSingleNumericKind($hintType, $source, $hasComments, $seg[0], $options)
-					|| ($hintType === 'angle-percentage' && self::matchesSingleNumericKind('length-percentage', $source, $hasComments, $seg[0], $options))
-				) {
-					continue;
-				}
+			if ($idx > $stopStartIndex && $idx < $stopCount - 1 && count($seg) === 1
+				&& self::matchesSingleNumericKind($hintType, $source, $hasComments, $seg[0], $options, $evalCache, $mathBudget)
+			) {
+				continue;
 			}
 
 			return false;
@@ -712,35 +829,37 @@ final class CSSDataTypeMatcher
 
 	/**
 	 * @param list<ParsedComponent> $seg
+	 * @param array<string, mixed> $evalCache
 	 */
 	private static function isValidColorStop(
+		bool $isConic,
 		string $source,
 		bool $hasComments,
 		array $seg,
 		CSSParserOptions $options,
+		array &$evalCache,
+		int &$mathBudget,
 	): bool {
 		$count = count($seg);
 		if ($count < 1 || $count > 3) {
 			return false;
 		}
 
-		// Color stop: `<color> <pos>? <pos>?` OR `<pos> <color>`
-		if (self::matchColor($source, $hasComments, $seg[0], 0, $options) !== []) {
+		$posType = $isConic ? 'angle-percentage' : 'length-percentage';
+
+		// Color stop: `<color> <pos>{0,2}` OR `<pos>{1,2} <color>`
+		if (self::matchColor($source, $hasComments, $seg[0], 0, $options, $evalCache, $mathBudget) !== []) {
 			for ($k = 1; $k < $count; $k++) {
-				if (!self::matchesSingleNumericKind('length-percentage', $source, $hasComments, $seg[$k], $options)
-					&& !self::matchesSingleNumericKind('angle-percentage', $source, $hasComments, $seg[$k], $options)
-				) {
+				if (!self::matchesSingleNumericKind($posType, $source, $hasComments, $seg[$k], $options, $evalCache, $mathBudget)) {
 					return false;
 				}
 			}
 			return true;
 		}
 
-		if ($count >= 2 && self::matchColor($source, $hasComments, $seg[$count - 1], 0, $options) !== []) {
+		if ($count >= 2 && self::matchColor($source, $hasComments, $seg[$count - 1], 0, $options, $evalCache, $mathBudget) !== []) {
 			for ($k = 0; $k < $count - 1; $k++) {
-				if (!self::matchesSingleNumericKind('length-percentage', $source, $hasComments, $seg[$k], $options)
-					&& !self::matchesSingleNumericKind('angle-percentage', $source, $hasComments, $seg[$k], $options)
-				) {
+				if (!self::matchesSingleNumericKind($posType, $source, $hasComments, $seg[$k], $options, $evalCache, $mathBudget)) {
 					return false;
 				}
 			}
@@ -763,29 +882,14 @@ final class CSSDataTypeMatcher
 		if ($seg === []) {
 			return false;
 		}
-		if (str_contains($fn, 'linear')) {
-			if (count($seg) === 1 && self::matchesSingleNumericKind('angle', $source, $hasComments, $seg[0], $options)) {
-				return true;
-			}
-			$firstWord = ($seg[0]['tokenType'] ?? null) === CSSTokenType::Ident ? strtolower((string) ($seg[0]['name'] ?? '')) : '';
-			return $firstWord === 'to' || $firstWord === 'in';
-		}
+		$nonTerminal = match (true) {
+			str_contains($fn, 'linear') => 'linear-gradient-prelude',
+			str_contains($fn, 'radial') => 'radial-gradient-prelude',
+			default => 'conic-gradient-prelude',
+		};
+		$grammar = CSSPropertyGrammarRegistry::resolveNonTerminal($nonTerminal);
 
-		// radial-gradient / conic-gradient preludes: shape/size keywords, `at <position>`, `from <angle>`, `in <color-space>`, or length/angle
-		foreach ($seg as $comp) {
-			$kind = $comp['kind'] ?? '';
-			if ($kind === 'token') {
-				$t = $comp['tokenType'] ?? null;
-				if ($t === CSSTokenType::Ident || $t === CSSTokenType::Dimension || $t === CSSTokenType::Percentage || $t === CSSTokenType::Number) {
-					continue;
-				}
-			} elseif ($kind === 'function' && CSSCalcParser::isMathFunctionName((string) ($comp['name'] ?? ''))) {
-				continue;
-			}
-			return false;
-		}
-
-		return true;
+		return $grammar !== null && CSSGrammarMatcher::matches($grammar, $source, $hasComments, $seg, $options);
 	}
 
 	/**
@@ -817,6 +921,7 @@ final class CSSDataTypeMatcher
 
 	/**
 	 * @param ParsedComponent $comp
+	 * @param array<string, mixed> $evalCache
 	 */
 	private static function matchesSingleNumericKind(
 		string $numericTypeName,
@@ -824,10 +929,12 @@ final class CSSDataTypeMatcher
 		bool $hasComments,
 		array $comp,
 		CSSParserOptions $options,
+		array &$evalCache,
+		int &$mathBudget,
 	): bool {
-		$dummyNode = new CSSGrammarNode(0, CSSGrammarNodeType::DataType, $numericTypeName);
+		$dummyNode = self::$cachedSimpleNodes[$numericTypeName] ??= new CSSGrammarNode(0, CSSGrammarNodeType::DataType, $numericTypeName);
 
-		return self::matchNumericType($dummyNode, $source, $hasComments, $comp, 0, $options) !== [];
+		return self::matchNumericType($dummyNode, $source, $hasComments, $comp, 0, $options, $evalCache, $mathBudget) !== [];
 	}
 
 	/**
@@ -961,6 +1068,7 @@ final class CSSDataTypeMatcher
 	 * Matches `<ratio>` = `<number [0,∞]> [ / <number [0,∞]> ]?`.
 	 *
 	 * @param list<ParsedComponent> $components
+	 * @param array<string, mixed> $evalCache
 	 * @return list<int>
 	 */
 	private static function matchRatio(
@@ -969,9 +1077,11 @@ final class CSSDataTypeMatcher
 		array $components,
 		int $pos,
 		CSSParserOptions $options,
+		array &$evalCache = [],
+		int &$mathBudget = 0,
 	): array {
-		$numNode = new CSSGrammarNode(0, CSSGrammarNodeType::DataType, 'number', [], 1, 1, false, 0.0, null);
-		if (self::matchNumericType($numNode, $source, $hasComments, $components[$pos], $pos, $options) === []) {
+		$numNode = self::$cachedPositiveNumberNode ??= new CSSGrammarNode(0, CSSGrammarNodeType::DataType, 'number', [], 1, 1, false, 0.0, null);
+		if (self::matchNumericType($numNode, $source, $hasComments, $components[$pos], $pos, $options, $evalCache, $mathBudget) === []) {
 			return [];
 		}
 
@@ -981,7 +1091,7 @@ final class CSSDataTypeMatcher
 			&& ($components[$pos + 1]['kind'] ?? '') === 'token'
 			&& ($components[$pos + 1]['tokenType'] ?? null) === CSSTokenType::Delim
 			&& substr($source, $components[$pos + 1]['start'], $components[$pos + 1]['end'] - $components[$pos + 1]['start']) === '/'
-			&& self::matchNumericType($numNode, $source, $hasComments, $components[$pos + 2], $pos + 2, $options) !== []
+			&& self::matchNumericType($numNode, $source, $hasComments, $components[$pos + 2], $pos + 2, $options, $evalCache, $mathBudget) !== []
 		) {
 			$ends[] = $pos + 3;
 		}

@@ -11,6 +11,7 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPropertyRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStandardProperties;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
+use Jimbo2150\PhpCssTypedOm\Grammar\CSSValueComponentParser;
 use Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
@@ -346,6 +347,7 @@ abstract class CSS
 	public static function clearRegisteredProperties(): void
 	{
 		self::$registeredProperties = [];
+		CSSValueValidator::clearCustomSyntaxCacheInternal();
 	}
 
 	/**
@@ -496,6 +498,9 @@ abstract class CSS
 				}
 				continue;
 			}
+			if ($multiplierCount > 0) {
+				throw new InvalidArgumentException('Invalid custom property syntax multiplier: ' . $component);
+			}
 			if (preg_match('/^-?[a-zA-Z_][a-zA-Z0-9_-]*$/D', $base) !== 1) {
 				throw new InvalidArgumentException('Invalid custom property syntax component: ' . $component);
 			}
@@ -550,7 +555,14 @@ abstract class CSS
 		}
 
 		if (str_starts_with($normalized, '--')) {
-			return true;
+			if ($trimmed === '') {
+				return true;
+			}
+			try {
+				return CSSValueComponentParser::parse($trimmed, $options, true) !== null;
+			} catch (CSSParserLimitException) {
+				return false;
+			}
 		}
 
 		if (!CSSStandardProperties::isKnown($normalized)) {
@@ -660,11 +672,12 @@ abstract class CSS
 	private static function buildSupportsMatchingParens(string $source, ?int $maxDepth, array &$matchingParens): bool
 	{
 		$length = strlen($source);
+		/** @var list<array{0: int, 1: string}> $stack */
 		$stack = [];
 		$offset = 0;
 		$lastEscapeOffset = -1;
 		$pairCount = 0;
-		$mask = "\\\"'()";
+		$mask = "\\\"'()[]{}";
 
 		while ($offset < $length) {
 			$offset += strcspn($source, $mask, $offset, $length - $offset);
@@ -691,25 +704,36 @@ abstract class CSS
 				}
 				continue;
 			}
-			if ($ch === '(') {
-				if (CSSSyntaxScanner::isUnquotedUrlStartInternal($source, $offset, 0, $length, $lastEscapeOffset)) {
+			if ($ch === '(' || $ch === '[' || $ch === '{') {
+				if ($ch === '(' && CSSSyntaxScanner::isUnquotedUrlStartInternal($source, $offset, 0, $length, $lastEscapeOffset)) {
 					$valid = false;
 					$urlEnd = CSSSyntaxScanner::scanUnquotedUrlEnd($source, $offset, $length, $valid);
 					$offset = $urlEnd < $length ? $urlEnd + 1 : $length;
 					continue;
 				}
-				$stack[] = $offset;
+				$expectedClose = match ($ch) {
+					'(' => ')',
+					'[' => ']',
+					'{' => '}',
+				};
+				$stack[] = [$offset, $expectedClose];
 				if ($maxDepth !== null && count($stack) > $maxDepth) {
 					return false;
 				}
 				$offset++;
 				continue;
 			}
-			// $ch === ')'
+			// $ch is ')', ']', or '}'
 			if ($stack === []) {
 				return false;
 			}
-			$matchingParens[array_pop($stack)] = $offset;
+			[$openOffset, $expectedClose] = array_pop($stack);
+			if ($ch !== $expectedClose) {
+				return false;
+			}
+			if ($ch === ')') {
+				$matchingParens[$openOffset] = $offset;
+			}
 			if (++$pairCount > 65_536) {
 				return false;
 			}

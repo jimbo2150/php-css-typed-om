@@ -189,24 +189,28 @@ abstract class CSSStyleValue implements Stringable
 		}
 
 		$rawSegments = [];
+		$hasEmptySegment = false;
 		foreach (CSSSyntaxScanner::splitTopLevel($validatedCssText, ',', 0, null, self::MAX_LIST_ITEMS) as $value) {
 			$value = CSSSyntaxScanner::trimCssWhitespace($value);
-			if ($value !== '' && (!str_contains($value, '/*') || CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($value)) !== '')) {
-				if (count($rawSegments) >= self::MAX_LIST_ITEMS) {
-					throw new CSSParserLimitException(sprintf('CSS value list exceeds maximum limit of %d items.', self::MAX_LIST_ITEMS));
-				}
-				$rawSegments[] = $value;
+			$isEmpty = $value === '' || (str_contains($value, '/*') && CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($value)) === '');
+			if ($isEmpty) {
+				$hasEmptySegment = true;
+				continue;
 			}
+			if (count($rawSegments) >= self::MAX_LIST_ITEMS) {
+				throw new CSSParserLimitException(sprintf('CSS value list exceeds maximum limit of %d items.', self::MAX_LIST_ITEMS));
+			}
+			$rawSegments[] = $value;
 		}
 
-		if ($rawSegments === []) {
+		if ($rawSegments === [] || ($validateGrammar && $hasEmptySegment)) {
 			throw new InvalidArgumentException('CSS value list cannot be empty.');
 		}
 
 		if ($validateGrammar && $normalizedProperty !== '') {
-			$joined = implode(', ', $rawSegments);
-			if (!CSSValueValidator::validatePropertyValue($normalizedProperty, $joined, $options, true)) {
-				throw new InvalidArgumentException(sprintf('Invalid value "%s" for property "%s".', $joined, $normalizedProperty));
+			$trimmedAll = CSSSyntaxScanner::trimCssWhitespace($validatedCssText);
+			if (!CSSValueValidator::validatePropertyValue($normalizedProperty, $trimmedAll, $options, true)) {
+				throw new InvalidArgumentException(sprintf('Invalid value "%s" for property "%s".', $trimmedAll, $normalizedProperty));
 			}
 		}
 

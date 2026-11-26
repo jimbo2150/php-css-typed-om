@@ -141,12 +141,11 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 		}
 
 		$allowEmpty = str_starts_with($normalizedProperty, '--') && count($flat) === 1;
-		$singlePart = count($flat) === 1;
 		$joined = '';
 		$runningBytes = 0;
 		foreach ($flat as $index => $item) {
 			$sep = $index === 0 ? '' : (CSSSyntaxScanner::endsWithBareHexEscape($joined) ? '  ' : ' ');
-			$part = $this->validateSingleValue($normalizedProperty, $item, $options, $runningBytes, strlen($sep), $allowEmpty, $singlePart);
+			$part = $this->validateSingleValue($normalizedProperty, $item, $options, $runningBytes, strlen($sep), $allowEmpty, false);
 			$joined .= $sep . $part;
 		}
 

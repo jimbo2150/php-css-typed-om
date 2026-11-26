@@ -116,5 +116,19 @@ final class CSSGrammarParserTest extends TestCase
 			} catch (InvalidArgumentException) {
 			}
 		}
+
+		// Case-sensitive keyword parsing (@property custom idents)
+		$caseNode = CSSGrammarParser::parse('foo | Bar', true);
+		$opts = CSSParserOptions::default();
+		foreach (['foo', 'Bar'] as $okIdent) {
+			$parsed = CSSValueComponentParser::parse($okIdent, $opts);
+			self::assertNotNull($parsed);
+			self::assertTrue(CSSGrammarMatcher::matches($caseNode, $parsed['source'], $parsed['hasComments'], $parsed['components'], $opts));
+		}
+		foreach (['FOO', 'bar'] as $badIdent) {
+			$parsed = CSSValueComponentParser::parse($badIdent, $opts);
+			self::assertNotNull($parsed);
+			self::assertFalse(CSSGrammarMatcher::matches($caseNode, $parsed['source'], $parsed['hasComments'], $parsed['components'], $opts));
+		}
 	}
 }

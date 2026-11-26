@@ -6,6 +6,7 @@ namespace Jimbo2150\PhpCssTypedOm\Grammar;
 
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSTokenizer;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSTokenType;
@@ -60,7 +61,7 @@ final class CSSValueComponentParser
 		'first-valid' => true,
 	];
 
-	private const int MAX_COMPONENT_TOKENS = 65_536;
+	private const int MAX_COMPONENT_TOKENS = 131_072;
 
 	/**
 	 * Parses `$value` iteratively into CSS Syntax L3 component values, or returns `null`
@@ -83,7 +84,8 @@ final class CSSValueComponentParser
 		$tokenizer = CSSTokenizer::forParserInternal($value, $options, false, true, 0, $len);
 
 		$maxDepth = $options->maxDepth;
-		/** @var list<array{kind: 'brace'|'bracket'|'function'|'paren'|'root', closeType: ?CSSTokenType, name: ?string, start: int, innerStart: int, hasEscapes: bool, components: list<mixed>}> $stack */
+		$maxMathDepth = $options->maxMathDepth;
+		/** @var list<array{kind: 'brace'|'bracket'|'function'|'paren'|'root', closeType: ?CSSTokenType, name: ?string, start: int, innerStart: int, hasEscapes: bool, isMath: bool, mathDepth: int, components: list<mixed>}> $stack */
 		$stack = [
 			[
 				'kind' => 'root',
@@ -92,6 +94,8 @@ final class CSSValueComponentParser
 				'start' => 0,
 				'innerStart' => 0,
 				'hasEscapes' => false,
+				'isMath' => false,
+				'mathDepth' => 0,
 				'components' => [],
 			],
 		];
@@ -119,7 +123,7 @@ final class CSSValueComponentParser
 			if ($type === CSSTokenType::BadString || $type === CSSTokenType::BadUrl) {
 				return null;
 			}
-			if ($type === CSSTokenType::Delim && $tokenizer->tokenParseErrorMessage !== null) {
+			if ($tokenizer->tokenParseErrorMessage !== null) {
 				return null;
 			}
 			if ($type === CSSTokenType::Whitespace) {
@@ -153,19 +157,37 @@ final class CSSValueComponentParser
 					throw new CSSParserLimitException(sprintf('CSS nesting depth exceeds maximum limit of %d.', $maxDepth));
 				}
 
+				$parentFrame = $stack[$newDepth - 1];
 				$fnName = null;
 				$kind = 'paren';
 				$closeType = CSSTokenType::RightParenthesis;
+				$frameIsMath = false;
+				$frameMathDepth = 0;
+
 				if ($type === CSSTokenType::Function) {
 					$fnName = strtolower($tokenizer->decodeCurrentIdentInternal());
 					$kind = 'function';
 					$closeType = CSSTokenType::RightParenthesis;
+					if ($parentFrame['isMath']) {
+						$frameIsMath = true;
+						$frameMathDepth = $parentFrame['mathDepth'] + 1;
+					} elseif (CSSCalcParser::isMathFunctionName($fnName)) {
+						$frameIsMath = true;
+						$frameMathDepth = $fnName === 'calc' ? 0 : 1;
+					}
 				} elseif ($type === CSSTokenType::LeftSquareBracket) {
 					$kind = 'bracket';
 					$closeType = CSSTokenType::RightSquareBracket;
 				} elseif ($type === CSSTokenType::LeftCurlyBracket) {
 					$kind = 'brace';
 					$closeType = CSSTokenType::RightCurlyBracket;
+				} elseif ($parentFrame['isMath']) {
+					$frameIsMath = true;
+					$frameMathDepth = $parentFrame['mathDepth'] + 1;
+				}
+
+				if ($frameIsMath && $maxMathDepth !== null && $frameMathDepth > $maxMathDepth) {
+					throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
 				}
 
 				$stack[] = [
@@ -175,6 +197,8 @@ final class CSSValueComponentParser
 					'start' => $tokenizer->tokenStart,
 					'innerStart' => $tokenizer->tokenEnd,
 					'hasEscapes' => $tokenizer->tokenHasEscapes,
+					'isMath' => $frameIsMath,
+					'mathDepth' => $frameMathDepth,
 					'components' => [],
 				];
 				continue;
@@ -235,7 +259,7 @@ final class CSSValueComponentParser
 		// Validate arbitrary substitution functions if any were seen
 		$hasSubstitution = false;
 		foreach ($potentialSubstitutions as $subNode) {
-			if (!self::validateSubstitutionFunction($subNode)) {
+			if (!self::validateSubstitutionFunction($subNode, $value)) {
 				return null;
 			}
 			$hasSubstitution = true;
@@ -319,13 +343,14 @@ final class CSSValueComponentParser
 	 *
 	 * @param array<string, mixed> $node
 	 */
-	private static function validateSubstitutionFunction(array $node): bool
+	private static function validateSubstitutionFunction(array $node, string $source): bool
 	{
 		$fn = (string) ($node['name'] ?? '');
 		/** @var list<array<string, mixed>> $args */
 		$args = $node['components'] ?? [];
+		$argCount = count($args);
 
-		if ($args === []) {
+		if ($argCount === 0) {
 			return false;
 		}
 
@@ -339,7 +364,7 @@ final class CSSValueComponentParser
 			if (!str_starts_with($ident, '--') || strlen($ident) <= 2) {
 				return false;
 			}
-			if (count($args) === 1) {
+			if ($argCount === 1) {
 				return true;
 			}
 			// Second component must be Comma; fallback after comma MAY be empty (`var(--a, )` is valid per CSS Variables L1 §3)
@@ -353,27 +378,75 @@ final class CSSValueComponentParser
 			if (($first['kind'] ?? '') !== 'token' || ($first['tokenType'] ?? null) !== CSSTokenType::Ident) {
 				return false;
 			}
-			if (count($args) === 1) {
-				return true;
+			// CSS Environment Variables L1: `env(<ident> <integer>* [ , <declaration-value>? ]?)`
+			$idx = 1;
+			while ($idx < $argCount) {
+				$tok = $args[$idx];
+				if (($tok['kind'] ?? '') !== 'token') {
+					return false;
+				}
+				$tt = $tok['tokenType'] ?? null;
+				if ($tt === CSSTokenType::Comma) {
+					return true;
+				}
+				if ($tt !== CSSTokenType::Number) {
+					return false;
+				}
+				$info = self::decodeNumericToken($source, $tok);
+				if (!$info['isInteger']) {
+					return false;
+				}
+				$idx++;
 			}
-			$second = $args[1];
 
-			return ($second['kind'] ?? '') === 'token' && ($second['tokenType'] ?? null) === CSSTokenType::Comma;
+			return true;
 		}
 
 		if ($fn === 'attr') {
-			// attr(<attr-name> [type]? [, <fallback>]?)
+			// attr([ <ident-token> | '*' ] '|' <ident-token> | <ident-token> ... )
 			$first = $args[0];
-			if (($first['kind'] ?? '') === 'token') {
-				$tokType = $first['tokenType'] ?? null;
-
-				return $tokType === CSSTokenType::Ident || $tokType === CSSTokenType::Delim;
+			if (($first['kind'] ?? '') !== 'token') {
+				return false;
+			}
+			$tt = $first['tokenType'] ?? null;
+			if ($tt === CSSTokenType::Ident) {
+				if ($argCount >= 3
+					&& ($args[1]['kind'] ?? '') === 'token'
+					&& ($args[1]['tokenType'] ?? null) === CSSTokenType::Delim
+					&& substr($source, (int) ($args[1]['start'] ?? 0), ((int) ($args[1]['end'] ?? 0)) - ((int) ($args[1]['start'] ?? 0))) === '|'
+				) {
+					return ($args[2]['kind'] ?? '') === 'token' && ($args[2]['tokenType'] ?? null) === CSSTokenType::Ident;
+				}
+				return true;
+			}
+			if ($tt === CSSTokenType::Delim) {
+				$ch = substr($source, (int) ($first['start'] ?? 0), ((int) ($first['end'] ?? 0)) - ((int) ($first['start'] ?? 0)));
+				if ($ch === '*' && $argCount >= 3
+					&& ($args[1]['kind'] ?? '') === 'token'
+					&& ($args[1]['tokenType'] ?? null) === CSSTokenType::Delim
+					&& substr($source, (int) ($args[1]['start'] ?? 0), ((int) ($args[1]['end'] ?? 0)) - ((int) ($args[1]['start'] ?? 0))) === '|'
+				) {
+					return ($args[2]['kind'] ?? '') === 'token' && ($args[2]['tokenType'] ?? null) === CSSTokenType::Ident;
+				}
+				if ($ch === '|' && $argCount >= 2) {
+					return ($args[1]['kind'] ?? '') === 'token' && ($args[1]['tokenType'] ?? null) === CSSTokenType::Ident;
+				}
 			}
 
 			return false;
 		}
 
-		// `if(...)` / `first-valid(...)`: non-empty balanced argument list
-		return true;
+		// `if(...)` / `first-valid(...)`: must contain at least one non-separator component (reject `first-valid(,,,)` / `if(;)`)
+		foreach ($args as $arg) {
+			if (($arg['kind'] ?? '') !== 'token') {
+				return true;
+			}
+			$tt = $arg['tokenType'] ?? null;
+			if ($tt !== CSSTokenType::Comma && $tt !== CSSTokenType::Semicolon) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 }

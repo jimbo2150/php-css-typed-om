@@ -60,6 +60,9 @@ final class CSSGrammarMatcher
 
 		/** @var array<int, array<int, array<int, list<int>>>> $memo [$ctxId][$nodeId][$pos] = list<int> */
 		$memo = [];
+		/** @var array<string, mixed> $evalCache */
+		$evalCache = [];
+		$mathBudget = 0;
 		$steps = 0;
 
 		// Root frame awaits eval(ctxId=0, rootNode, pos=0)
@@ -101,9 +104,14 @@ final class CSSGrammarMatcher
 						if ($pos < $ctxCount
 							&& $ctxComps[$pos]['kind'] === 'token'
 							&& ($ctxComps[$pos]['tokenType'] ?? null) === CSSTokenType::Ident
-							&& strtolower((string) ($ctxComps[$pos]['name'] ?? '')) === $node->value
 						) {
-							$ends = [$pos + 1];
+							$tokIdent = (string) ($ctxComps[$pos]['name'] ?? '');
+							$matched = $node->caseSensitive
+								? ($tokIdent === $node->value)
+								: (strtolower($tokIdent) === $node->value);
+							if ($matched) {
+								$ends = [$pos + 1];
+							}
 						}
 						$memo[$ctxId][$node->id][$pos] = $ends;
 						break;
@@ -122,7 +130,7 @@ final class CSSGrammarMatcher
 						break;
 
 					case CSSGrammarNodeType::DataType:
-						$memo[$ctxId][$node->id][$pos] = CSSDataTypeMatcher::matchEnds($node, $source, $hasComments, $ctxComps, $pos, $options);
+						$memo[$ctxId][$node->id][$pos] = CSSDataTypeMatcher::matchEnds($node, $source, $hasComments, $ctxComps, $pos, $options, $evalCache, $mathBudget);
 						break;
 
 					case CSSGrammarNodeType::NonTerminal:
@@ -279,7 +287,7 @@ final class CSSGrammarMatcher
 							'n' => $n,
 							'requireAll' => $node->type === CSSGrammarNodeType::AllOrder,
 							'queue' => [[0, $pos]],
-							'visited' => ['0:' . $pos => true],
+							'visited' => [($pos << 31) => true],
 							'qIdx' => 0,
 							'branchIdx' => 0,
 							'accepted' => [],
@@ -314,7 +322,9 @@ final class CSSGrammarMatcher
 					$stack[] = ['phase' => self::PHASE_EVAL, 'ctxId' => $ctxId, 'node' => $targets[$idx], 'pos' => $pos];
 				} else {
 					$ends = array_keys($acc);
-					sort($ends);
+					if (count($ends) > 1) {
+						sort($ends);
+					}
 					$memo[$ctxId][$node->id][$pos] = $ends;
 				}
 				continue;
@@ -439,7 +449,9 @@ final class CSSGrammarMatcher
 				// Completed repetition round $repCount + 1
 				$repCount++;
 				$newFrontier = array_keys($nextFrontier);
-				sort($newFrontier);
+				if (count($newFrontier) > 1) {
+					sort($newFrontier);
+				}
 
 				$madeNewAccepted = false;
 				if ($repCount >= $node->min) {
@@ -520,7 +532,7 @@ final class CSSGrammarMatcher
 						$accepted[$nextPos] = true;
 					}
 					if ($nextMask !== $fullMask) {
-						$key = $nextMask . ':' . $nextPos;
+						$key = ($nextPos << 31) | $nextMask;
 						if (!isset($visited[$key])) {
 							$visited[$key] = true;
 							$queue[] = [$nextMask, $nextPos];
@@ -554,7 +566,9 @@ final class CSSGrammarMatcher
 
 				if (!$scheduled) {
 					$ends = array_keys($accepted);
-					sort($ends);
+					if (count($ends) > 1) {
+						sort($ends);
+					}
 					$memo[$ctxId][$node->id][$pos] = $ends;
 				}
 			}

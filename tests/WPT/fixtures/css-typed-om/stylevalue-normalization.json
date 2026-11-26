@@ -155,6 +155,15 @@
       "input": { "property": "cursor", "cssText": "url(a.cur), pointer" },
       "expected": { "count": 2, "items": ["url(a.cur)", "pointer"] },
       "status": "pass"
+    },
+    {
+      "id": "css-typed-om/normalize/parse-all-empty-comma-segment-throws",
+      "upstream": "css/css-typed-om/stylevalue-objects/parse-invalid.html",
+      "category": "error-recovery",
+      "operation": "typed-om.stylevalue.parseAll",
+      "input": { "property": "background-image", "cssText": ", url(a.png)" },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "pass"
     }
   ]
 }

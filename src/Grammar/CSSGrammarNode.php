@@ -26,6 +26,7 @@ final readonly class CSSGrammarNode
 		public ?float $rangeMin = null,
 		public ?float $rangeMax = null,
 		public array $excludedKeywords = [],
+		public bool $caseSensitive = false,
 	) {
 	}
 }

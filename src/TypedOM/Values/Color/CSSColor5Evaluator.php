@@ -7,6 +7,7 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color;
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
+use Jimbo2150\PhpCssTypedOm\Grammar\CSSDataTypeMatcher;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext;
@@ -183,6 +184,9 @@ final class CSSColor5Evaluator
 				}
 				$named = CSSColorValue::tryParseNamedColorIdentInternal($lowerIdent);
 				if ($named === null) {
+					if (CSSDataTypeMatcher::isSystemOrDeprecatedColor($lowerIdent)) {
+						throw new CSSDeferredColorException('CSS system color requires runtime context to resolve.');
+					}
 					throw new InvalidArgumentException('Unsupported CSS color value: ' . substr($source, $start, $end - $start));
 				}
 				$slots[$targetSlot] = $named;

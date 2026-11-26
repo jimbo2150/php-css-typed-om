@@ -11,6 +11,7 @@ use Error;
 use InvalidArgumentException;
 use IteratorAggregate;
 use Jimbo2150\PhpCssTypedOm\CSS;
+use Jimbo2150\PhpCssTypedOm\Grammar\CSSValueComponentParser;
 use Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSInputPreprocessor;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
@@ -47,6 +48,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	private ?array $cachedKeys = null;
 
 	private ?CSSRule $ownerRule = null;
+	private bool $exemptFromPropertyGrammar = false;
 	private ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES;
 	private ?int $maxDeclarations = CSSParserOptions::DEFAULT_MAX_DECLARATIONS;
 	private ?int $maxDepth = CSSParserOptions::DEFAULT_MAX_DEPTH;
@@ -93,6 +95,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				}
 			}
 		}
+		$this->exemptFromPropertyGrammar = !$this->shouldValidatePropertyValuesInternal();
 		$this->ownerRule = null;
 		$this->cachedKeys = null;
 	}
@@ -294,7 +297,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	/** @internal */
 	public function shouldValidatePropertyValuesInternal(): bool
 	{
-		if (!static::validatesPropertyValues()) {
+		if ($this->exemptFromPropertyGrammar || !static::validatesPropertyValues()) {
 			return false;
 		}
 		$owner = $this->ownerRule;
@@ -428,7 +431,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		if (!str_starts_with($name, '--') && str_contains($value, '/*') && CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($value)) === '') {
 			throw new InvalidArgumentException('CSS property value cannot be empty.');
 		}
-		if ($this->shouldValidatePropertyValuesInternal() && CSSStandardProperties::isKnown($name)) {
+		if ($this->shouldValidatePropertyValuesInternal()) {
 			$maxDepth = $this->resolveMaxDepthInternal();
 			$maxMathDepth = $this->resolveMaxMathDepthInternal();
 			$validationOptions = ($maxDepth === CSSParserOptions::DEFAULT_MAX_DEPTH
@@ -441,7 +444,15 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 					maxMathDepth: $maxMathDepth,
 					maxDeclarations: $this->resolveMaxDeclarationsInternal(),
 				);
-			if (!CSSValueValidator::validateStandardProperty($name, $value, $validationOptions)) {
+			if (CSSStandardProperties::isKnown($name)) {
+				if (!CSSValueValidator::validateStandardProperty($name, $value, $validationOptions)) {
+					throw new InvalidArgumentException(sprintf('Invalid value "%s" for CSS property "%s".', $value, $name));
+				}
+			} elseif (str_starts_with($name, '--')) {
+				if (CSSValueComponentParser::parse($value, $validationOptions, true) === null) {
+					throw new InvalidArgumentException(sprintf('Invalid value "%s" for CSS property "%s".', $value, $name));
+				}
+			} elseif (CSSValueComponentParser::parse($value, $validationOptions, false) === null) {
 				throw new InvalidArgumentException(sprintf('Invalid value "%s" for CSS property "%s".', $value, $name));
 			}
 		}
@@ -805,9 +816,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	}
 
 	/**
-	 * @internal Extracts a slice without quotes/escapes/comments/brackets/control-bytes if parens are balanced and free of `url(`/`-->`.
+	 * @internal Extracts a slice without quotes/escapes/comments/brackets/control-bytes if parens are balanced (and within `$maxDepth`) and free of `url(`/`-->`.
 	 */
-	public static function extractCleanAsciiSliceInternal(string $source, int $start, int $end): ?string
+	public static function extractCleanAsciiSliceInternal(string $source, int $start, int $end, ?int $maxDepth = null): ?string
 	{
 		$len = $end - $start;
 		if ($len <= 0) {
@@ -832,6 +843,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			}
 			if ($slice[$pos] === '(') {
 				$depth++;
+				if ($maxDepth !== null && $depth > $maxDepth) {
+					return null;
+				}
 			} else {
 				$depth--;
 				if ($depth < 0) {
@@ -1097,6 +1111,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 						}
 						$suffix .= ')';
 					}
+				} elseif (self::endsWithUnescapedTrailingBackslash($value)) {
+					$value = substr($value, 0, -1) . "\u{FFFD}";
 				}
 				for ($b = count($unclosedBlocks) - 1; $b >= 0; $b--) {
 					$suffix .= $unclosedBlocks[$b];
@@ -1249,7 +1265,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 					throw $exception;
 				}
 				self::recordDiagnostic($exception->getMessage(), $segmentOffset, $diagnostics, $options, $allowSentinelSlot);
-				return false;
+				return true;
 			}
 			if (!$validGrammar) {
 				self::handleInvalidDeclaration(
@@ -1362,7 +1378,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			$stop = $pos + $span;
 
 			if (($stop >= $length || $source[$stop] === ';')
-				&& ($cleanSlice = self::extractCleanAsciiSliceInternal($source, $pos, $stop)) !== null
+				&& ($cleanSlice = self::extractCleanAsciiSliceInternal($source, $pos, $stop, $options->maxDepth)) !== null
 			) {
 				$ok = $this->parseCleanAsciiDeclarationInternal(
 					$cleanSlice,
@@ -1397,6 +1413,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			$badTokenMessage = null;
 			$hasUnclosedConstruct = false;
 			$hasTopLevelBraces = false;
+			$maxDepth = $options->maxDepth;
+			$limitErrorOffset = null;
+			$limitErrorMessage = null;
 			$sliceStart = $pos;
 			$sliceEnd = $length;
 
@@ -1431,19 +1450,44 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				if ($tokenizer->tokenClosedAtEof) {
 					$hasUnclosedConstruct = true;
 				}
-				if ($type === CSSTokenType::Delim && $tokenizer->tokenParseErrorMessage !== null) {
-					// Standalone backslash before newline or EOF error already handled; keep token
+				if (!$browserMode && $tokenizer->tokenParseErrorMessage !== null) {
+					$badTokenOffset ??= $tokenizer->tokenStart;
+					$badTokenMessage ??= $tokenizer->tokenParseErrorMessage;
 				}
 
 				if ($type === CSSTokenType::LeftParenthesis || $type === CSSTokenType::Function) {
 					$blockStack[] = ')';
+					if ($maxDepth !== null && count($blockStack) > $maxDepth) {
+						$limitMsg = sprintf('Maximum CSS nesting depth of %d exceeded.', $maxDepth);
+						if ($strict) {
+							throw new CSSParserLimitException($limitMsg);
+						}
+						$limitErrorOffset ??= $tokenizer->tokenStart;
+						$limitErrorMessage ??= $limitMsg;
+					}
 				} elseif ($type === CSSTokenType::LeftSquareBracket) {
 					$blockStack[] = ']';
+					if ($maxDepth !== null && count($blockStack) > $maxDepth) {
+						$limitMsg = sprintf('Maximum CSS nesting depth of %d exceeded.', $maxDepth);
+						if ($strict) {
+							throw new CSSParserLimitException($limitMsg);
+						}
+						$limitErrorOffset ??= $tokenizer->tokenStart;
+						$limitErrorMessage ??= $limitMsg;
+					}
 				} elseif ($type === CSSTokenType::LeftCurlyBracket) {
 					if ($blockStack === []) {
 						$hasTopLevelBraces = true;
 					}
 					$blockStack[] = '}';
+					if ($maxDepth !== null && count($blockStack) > $maxDepth) {
+						$limitMsg = sprintf('Maximum CSS nesting depth of %d exceeded.', $maxDepth);
+						if ($strict) {
+							throw new CSSParserLimitException($limitMsg);
+						}
+						$limitErrorOffset ??= $tokenizer->tokenStart;
+						$limitErrorMessage ??= $limitMsg;
+					}
 				} elseif ($type === CSSTokenType::RightParenthesis
 					|| $type === CSSTokenType::RightSquareBracket
 					|| $type === CSSTokenType::RightCurlyBracket
@@ -1474,6 +1518,12 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 					'closedQuote' => $tokenizer->tokenClosedQuote,
 					'trailingBsAtEof' => $tokenizer->tokenTrailingBackslashAtEof,
 				];
+			}
+
+			if ($limitErrorMessage !== null) {
+				self::recordDiagnostic($limitErrorMessage, $limitErrorOffset ?? $sliceStart, $diagnostics, $options, false);
+				$pos = $tokenizer->getOffsetInternal();
+				continue;
 			}
 
 			// In default mode, catch any raw control bytes inside the slice; in browser mode, check only non-comment token spans.

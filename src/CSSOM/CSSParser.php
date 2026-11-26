@@ -752,7 +752,7 @@ final class CSSParser
 						$fastStop = $fastPos + $fastSpan;
 						if ($fastStop < $length
 							&& $source[$fastStop] === '{'
-							&& ($cleanSlice = CSSStyleDeclaration::extractCleanAsciiSliceInternal($source, $fastPos, $fastStop)) !== null
+							&& ($cleanSlice = CSSStyleDeclaration::extractCleanAsciiSliceInternal($source, $fastPos, $fastStop, $options->maxDepth)) !== null
 						) {
 							$prelude = trim($cleanSlice, " \t\n");
 							if ($prelude !== '') {
@@ -1148,7 +1148,7 @@ final class CSSParser
 					$stop = $pos + $span;
 					if ($stop < $length
 						&& ($source[$stop] === ';' || $source[$stop] === '}')
-						&& ($cleanSlice = CSSStyleDeclaration::extractCleanAsciiSliceInternal($source, $pos, $stop)) !== null
+						&& ($cleanSlice = CSSStyleDeclaration::extractCleanAsciiSliceInternal($source, $pos, $stop, $options->maxDepth)) !== null
 					) {
 						/** @var CSSStyleDeclaration $currentStyle */
 						$currentStyle = $stack[$topIdx]['currentStyle'];
@@ -1240,7 +1240,7 @@ final class CSSParser
 
 				// Consume statement tokens for either a declaration or a nested rule.
 				$stmtStart = $activeTokenizer->tokenStart;
-				$collected = self::consumeStyleStatementTokens($source, $activeTokenizer, $firstType, $checkControlBytes, $browserMode);
+				$collected = self::consumeStyleStatementTokens($source, $activeTokenizer, $firstType, $checkControlBytes, $browserMode, $options->maxDepth);
 				$cursorOffset = $activeTokenizer->getOffsetInternal();
 				$delimType = $collected['delimiter'];
 				$delimOffset = $collected['delimOffset'];
@@ -1520,7 +1520,13 @@ final class CSSParser
 
 				// Wait: what if statement is a nested statement @-rule (e.g. `@unknown foo;`) inside a block?
 				// Per existing CSSParser / CSS Style Blocks, only block at-rules are structured; `@foo;` falls through as invalid declaration (or in CSSOM `@unknown;` inside style block records error).
-				if (!$declLimitRecorded) {
+				if ($collected['limitMessage'] !== null) {
+					if ($throwOnLimit) {
+						throw new CSSParserLimitException($collected['limitMessage']);
+					}
+					$sheet->recordParseError($collected['limitMessage'], $collected['limitOffset'] ?? $stmtStart);
+					$declLimitRecorded = true;
+				} elseif (!$declLimitRecorded) {
 					$declLimitRecorded = !$currentStyle->parseDeclarationFromTokensInternal(
 						$source,
 						$stmtStart,
@@ -2595,6 +2601,8 @@ final class CSSParser
 	 *   controlOffset: ?int,
 	 *   badTokenOffset: ?int,
 	 *   badTokenMessage: ?string,
+	 *   limitOffset: ?int,
+	 *   limitMessage: ?string,
 	 *   hasUnclosedConstruct: bool,
 	 *   unclosedBlocks: list<string>,
 	 *   hasTopLevelBraces: bool
@@ -2606,6 +2614,7 @@ final class CSSParser
 		CSSTokenType $firstType,
 		bool $checkControlBytes,
 		bool $browserMode,
+		?int $maxDepth = null,
 	): array {
 		$length = strlen($source);
 		$atKeywordEnd = $firstType === CSSTokenType::AtKeyword ? $tokenizer->tokenEnd : 0;
@@ -2615,6 +2624,8 @@ final class CSSParser
 		$controlOffset = $tokenizer->tokenControlByteOffset;
 		$badTokenOffset = null;
 		$badTokenMessage = null;
+		$limitOffset = null;
+		$limitMessage = null;
 		$hasUnclosedConstruct = false;
 		$hasTopLevelBraces = false;
 		$stmtStart = $tokenizer->tokenStart;
@@ -2651,6 +2662,9 @@ final class CSSParser
 				$badTokenMessage ??= $type === CSSTokenType::BadString
 					? 'Invalid CSS string token.'
 					: 'Invalid CSS url() token.';
+			} elseif (!$browserMode && $tokenizer->tokenParseErrorMessage !== null) {
+				$badTokenOffset ??= $tokenizer->tokenStart;
+				$badTokenMessage ??= $tokenizer->tokenParseErrorMessage;
 			}
 			if ($tokenizer->tokenClosedAtEof) {
 				$hasUnclosedConstruct = true;
@@ -2658,10 +2672,22 @@ final class CSSParser
 
 			if ($type === CSSTokenType::LeftParenthesis || $type === CSSTokenType::Function) {
 				$blockStack[] = ')';
+				if ($maxDepth !== null && count($blockStack) > $maxDepth && $limitMessage === null) {
+					$limitOffset = $tokenizer->tokenStart;
+					$limitMessage = sprintf('Maximum CSS nesting depth of %d exceeded.', $maxDepth);
+				}
 			} elseif ($type === CSSTokenType::LeftSquareBracket) {
 				$blockStack[] = ']';
+				if ($maxDepth !== null && count($blockStack) > $maxDepth && $limitMessage === null) {
+					$limitOffset = $tokenizer->tokenStart;
+					$limitMessage = sprintf('Maximum CSS nesting depth of %d exceeded.', $maxDepth);
+				}
 			} elseif ($type === CSSTokenType::LeftCurlyBracket) {
 				$blockStack[] = '}';
+				if ($maxDepth !== null && count($blockStack) > $maxDepth && $limitMessage === null) {
+					$limitOffset = $tokenizer->tokenStart;
+					$limitMessage = sprintf('Maximum CSS nesting depth of %d exceeded.', $maxDepth);
+				}
 			} elseif ($type === CSSTokenType::RightParenthesis || $type === CSSTokenType::RightSquareBracket || $type === CSSTokenType::RightCurlyBracket) {
 				$closer = match ($type) {
 					CSSTokenType::RightParenthesis => ')',
@@ -2714,6 +2740,8 @@ final class CSSParser
 			'controlOffset' => $controlOffset,
 			'badTokenOffset' => $badTokenOffset,
 			'badTokenMessage' => $badTokenMessage,
+			'limitOffset' => $limitOffset,
+			'limitMessage' => $limitMessage,
 			'hasUnclosedConstruct' => $hasUnclosedConstruct,
 			'unclosedBlocks' => $blockStack,
 			'hasTopLevelBraces' => $hasTopLevelBraces,

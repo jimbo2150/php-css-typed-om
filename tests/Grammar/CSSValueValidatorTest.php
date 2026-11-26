@@ -8,6 +8,8 @@ use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSS;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSCounterStyleRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFontFaceRule;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPropertyRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStandardProperties;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
@@ -243,6 +245,7 @@ final class CSSValueValidatorTest extends TestCase
 				['--bad-inherit', '<color>', 'inherit'],
 				['--bad-type', '<color>', '10px'],
 				['--bad-kw', 'auto | none', 'purple'],
+				['--bad-light-dark', '<color>', 'light-dark(red, blue)'],
 			] as [$name, $syntax, $initial]) {
 				try {
 					CSS::registerProperty([
@@ -255,8 +258,139 @@ final class CSSValueValidatorTest extends TestCase
 				} catch (InvalidArgumentException) {
 				}
 			}
+
+			// Case-sensitive custom property keywords & disallowed literal multipliers
+			CSS::registerProperty([
+				'name' => '--case',
+				'syntax' => 'foo | Bar',
+				'inherits' => false,
+				'initialValue' => 'foo',
+			]);
+			self::assertInstanceOf(CSSStyleValue::class, CSSStyleValue::parse('--case', 'Bar'));
+			foreach (['FOO', 'bar'] as $badCaseVal) {
+				try {
+					CSSStyleValue::parse('--case', $badCaseVal);
+					self::fail("Expected --case: {$badCaseVal} to throw InvalidArgumentException.");
+				} catch (InvalidArgumentException) {
+				}
+			}
+			foreach (['foo+', 'bar#'] as $badMultSyntax) {
+				try {
+					CSS::registerProperty(['name' => '--bad-mult', 'syntax' => $badMultSyntax, 'inherits' => false]);
+					self::fail("Expected registerProperty syntax '{$badMultSyntax}' to throw InvalidArgumentException.");
+				} catch (InvalidArgumentException) {
+				}
+			}
 		} finally {
 			CSS::clearRegisteredProperties();
+		}
+	}
+
+	public function testSpecPrecisionAndReviewHardeningCases(): void
+	{
+		// Angles reject unitless 0 while <hue> allows unitless numbers
+		self::assertFalse(CSS::supports('transform', 'rotate(0)'));
+		self::assertFalse(CSS::supports('background-image', 'linear-gradient(0, red, blue)'));
+		self::assertFalse(CSS::supports('filter', 'hue-rotate(0)'));
+		self::assertFalse(CSS::supports('offset-rotate', '0'));
+		self::assertTrue(CSS::supports('color', 'hsl(0 100% 50%)'));
+
+		// device-cmyk rejected in CSSColorValue-aligned <color>; light-dark(systemColor, color) accepted
+		self::assertFalse(CSS::supports('color', 'device-cmyk(0 0 0 0)'));
+		self::assertTrue(CSS::supports('color', 'light-dark(CanvasText, white)'));
+
+		// transition & animation duration-before-delay ordering
+		self::assertFalse(CSS::supports('transition', '-1s'));
+		self::assertFalse(CSS::supports('animation', '-1s fade'));
+		self::assertFalse(CSS::supports('transition', 'opacity -0.5s'));
+		self::assertTrue(CSS::supports('transition', 'opacity 0s -0.5s'));
+		self::assertTrue(CSS::supports('animation', 'auto fade'));
+		self::assertTrue(CSS::supports('animation', '2s -1s fade'));
+
+		// <grid-line> rejects 0, drop-shadow rejects negative blur
+		self::assertFalse(CSS::supports('grid-column', '0'));
+		self::assertTrue(CSS::supports('grid-column', '1'));
+		self::assertTrue(CSS::supports('grid-column', '-1'));
+		self::assertFalse(CSS::supports('filter', 'drop-shadow(1px 2px -3px red)'));
+		self::assertTrue(CSS::supports('filter', 'drop-shadow(1px 2px 3px red)'));
+
+		// Strict gradient preludes, color stops, image-set, cross-fade, and image()
+		foreach ([
+			'linear-gradient(to banana, red, blue)',
+			'linear-gradient(red 45deg, blue)',
+			'conic-gradient(red 10px, blue)',
+			'radial-gradient(circle 10px 20px, red, blue)',
+			'image-set(banana)',
+			'cross-fade(banana)',
+		] as $badImage) {
+			self::assertFalse(CSS::supports('background-image', $badImage), "Expected invalid image '{$badImage}' to be rejected.");
+		}
+		foreach ([
+			'linear-gradient(in oklch, red, blue)',
+			'conic-gradient(from 45deg at center, red 0deg, blue 180deg)',
+			'image-set(url(a.png) 1x, url(b.png) 2x)',
+			'cross-fade(50% red, blue)',
+			'image(rtl "a.png", red)',
+		] as $goodImage) {
+			self::assertTrue(CSS::supports('background-image', $goodImage), "Expected valid image '{$goodImage}' to be accepted.");
+		}
+
+		// Expanded CSS Values / Anchor / SVG2 / Font shorthands
+		self::assertTrue(CSS::supports('content', 'counter(c, none)'));
+		self::assertTrue(CSS::supports('offset-path', 'ray(45deg)'));
+		self::assertFalse(CSS::supports('offset-path', 'ray(closest-side)'));
+		self::assertTrue(CSS::supports('top', 'anchor(--a bottom)'));
+		self::assertTrue(CSS::supports('width', 'anchor-size(--a width)'));
+		self::assertTrue(CSS::supports('clip', 'rect(0 10px 20px auto)'));
+		self::assertTrue(CSS::supports('stroke-dasharray', '4 2'));
+		self::assertTrue(CSS::supports('font', '500 16px sans-serif'));
+		self::assertFalse(CSS::supports('font', 'bolder 16px sans-serif'));
+		self::assertTrue(CSS::supports('letter-spacing', '10%'));
+		self::assertTrue(CSS::supports('word-spacing', '5%'));
+
+		// Arbitrary substitution validation (env indices, attr QName, empty if/first-valid)
+		self::assertTrue(CSS::supports('padding-top', 'env(safe-area-inset-top 0 1)'));
+		self::assertFalse(CSS::supports('padding-top', 'env(safe-area-inset-top 1.5)'));
+		self::assertFalse(CSS::supports('padding-top', 'env(safe-area-inset-top foo)'));
+		self::assertTrue(CSS::supports('content', 'attr(ns|name)'));
+		self::assertFalse(CSS::supports('content', 'attr(123|name)'));
+		self::assertFalse(CSS::supports('color', 'if(;)'));
+		self::assertFalse(CSS::supports('color', 'first-valid(;)'));
+
+		// Cloning exempt descriptor declarations preserves exemption across setProperty and StylePropertyMap::set
+		$ffSheet = CSSStyleSheet::parse('@font-face { font-family: "Demo"; src: url(a.woff2); }');
+		$ffRule = $ffSheet->cssRules[0];
+		self::assertInstanceOf(CSSFontFaceRule::class, $ffRule);
+		$clonedFfStyle = clone $ffRule->style;
+		$clonedFfStyle->setProperty('font-weight', '100 900');
+		self::assertSame('100 900', $clonedFfStyle->getPropertyValue('font-weight'));
+		(new StylePropertyMap($clonedFfStyle))->set('font-weight', '200 800');
+		self::assertSame('200 800', $clonedFfStyle->getPropertyValue('font-weight'));
+
+		$propSheet = CSSStyleSheet::parse('@property --accent { syntax: "<color>"; inherits: false; initial-value: red; }');
+		$propRule = $propSheet->cssRules[0];
+		self::assertInstanceOf(CSSPropertyRule::class, $propRule);
+		$clonedPropStyle = clone $propRule->style;
+		$clonedPropStyle->setProperty('syntax', '"<length>"');
+		self::assertSame('"<length>"', $clonedPropStyle->getPropertyValue('syntax'));
+
+		// Lenient stylesheet parsing drops only the declaration hitting maxMathDepth and retains siblings
+		$mathSheet = CSSStyleSheet::parse(
+			'.box { width: calc(calc(calc(1px))); color: red; }',
+			new CSSParserOptions(maxMathDepth: 1),
+		);
+		self::assertCount(1, $mathSheet->cssRules);
+		$box = $mathSheet->cssRules[0];
+		self::assertInstanceOf(CSSStyleRule::class, $box);
+		self::assertSame('', $box->style->getPropertyValue('width'));
+		self::assertSame('red', $box->style->getPropertyValue('color'));
+		self::assertNotEmpty($mathSheet->getParseErrors());
+
+		// CSSParserLimitException propagates from strict validateStandardProperty
+		try {
+			CSSValueValidator::validateStandardProperty('width', 'calc(calc(calc(1px)))', new CSSParserOptions(maxMathDepth: 1));
+			self::fail('Expected maxMathDepth=1 to throw CSSParserLimitException.');
+		} catch (CSSParserLimitException) {
 		}
 	}
 }

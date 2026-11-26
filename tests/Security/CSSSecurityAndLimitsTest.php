@@ -3039,19 +3039,34 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		}
 		self::assertSame('1px', (string) CSSCalcParser::parse('calc(1px)', $unlimitedCalc, PHP_INT_MAX - 1));
 
-		// StylePropertyMapReadOnly::get() comma limit & parseAll comment skipping
+		// StylePropertyMapReadOnly::get() & setProperty() comma cap + parseAll empty-segment rejection
 		$commaDecl = new CSSStyleDeclaration();
-		$commaDecl->setProperty('x-comma-test', str_repeat(',', CSSStyleValue::MAX_LIST_ITEMS + 2) . 'red');
-		$commaMap = new StylePropertyMapReadOnly($commaDecl);
 		try {
-			$commaMap->get('x-comma-test');
+			$commaDecl->setProperty('x-comma-test', str_repeat(',', CSSStyleValue::MAX_LIST_ITEMS + 2) . 'red');
+			self::fail('Expected CSSStyleDeclaration::setProperty() to enforce MAX_LIST_ITEMS comma cap.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+		$ffRule = CSSParser::parseSingleRule('@font-face { src: url(a.woff2); }');
+		self::assertInstanceOf(CSSFontFaceRule::class, $ffRule);
+		$ffRule->style->setProperty('src', str_repeat(',', CSSStyleValue::MAX_LIST_ITEMS + 2) . 'url(a.woff2)');
+		$commaMap = new StylePropertyMapReadOnly($ffRule->style);
+		try {
+			$commaMap->get('src');
 			self::fail('Expected StylePropertyMapReadOnly::get() to enforce MAX_LIST_ITEMS comma cap.');
 		} catch (CSSParserLimitException $e) {
 			self::assertNotSame('', $e->getMessage());
 		}
-		$parsedAllColor = CSSStyleValue::parseAll('color', '/* a */, red');
-		self::assertCount(1, $parsedAllColor);
-		self::assertSame('rgb(100% 0% 0%)', (string) $parsedAllColor[0]);
+		foreach ([
+			['color', '/* a */, red'],
+			['background-image', '/* a */, url(a.png)'],
+		] as [$prop, $emptySegVal]) {
+			try {
+				CSSStyleValue::parseAll($prop, $emptySegVal);
+				self::fail("Expected parseAll({$prop}, {$emptySegVal}) to throw InvalidArgumentException.");
+			} catch (InvalidArgumentException) {
+			}
+		}
 
 		// 4. Workstream 4: CSSFunctionRule comments, CSSViewTransitionRule/CSSPropertyRule/CSS::registerProperty comments/escapes/raw limit, quote/url unwrapping, FontFace
 		$fnCommented = CSSFunctionRule::fromPrelude('--f(/*c*/--x /*c*/ <length> /*c*/: /*c*/ 1px) /*c*/ returns /*c*/ <length>');
@@ -3856,5 +3871,64 @@ final class CSSSecurityAndLimitsTest extends TestCase
 			self::assertNotSame('', $e->getMessage());
 		}
 		self::assertFalse(CSS::supports('width', $nestedCalc, new CSSParserOptions(maxMathDepth: 1)));
+
+		// 10. Trailing unescaped backslash rejected in strict/default mode and normalized to U+FFFD in browser mode
+		self::assertFalse(CSS::supports('color', 'red \\'));
+		try {
+			CSSStyleDeclaration::parse('color: red \\', strict: true);
+			self::fail('Expected trailing unescaped backslash in strict CSSStyleDeclaration::parse() to throw.');
+		} catch (InvalidArgumentException) {
+		}
+		try {
+			(new CSSStyleDeclaration())->setProperty('color', 'red \\');
+			self::fail('Expected trailing unescaped backslash in setProperty() to throw.');
+		} catch (InvalidArgumentException) {
+		}
+		$strictBsSheet = CSSStyleSheet::parse('a { color: red \\ }');
+		self::assertNotEmpty($strictBsSheet->getParseErrors());
+		$strictBsRule = $strictBsSheet->cssRules[0] ?? null;
+		self::assertInstanceOf(CSSStyleRule::class, $strictBsRule);
+		self::assertSame('', $strictBsRule->style->getPropertyValue('color'));
+
+		$browserBsDecl = CSSStyleDeclaration::parse('--x: red \\', strict: false, options: new CSSParserOptions(browserErrorRecovery: true));
+		self::assertSame("red \u{FFFD}", $browserBsDecl->getPropertyValue('--x'));
+		$browserFnBsDecl = CSSStyleDeclaration::parse('--y: fn(10px, 20px \\', strict: false, options: new CSSParserOptions(browserErrorRecovery: true));
+		self::assertSame("fn(10px, 20px \u{FFFD})", $browserFnBsDecl->getPropertyValue('--y'));
+		$browserUrlBsDecl = CSSStyleDeclaration::parse('background-image: url(a.png\\', strict: false, options: new CSSParserOptions(browserErrorRecovery: true));
+		self::assertSame("url(a.png\u{FFFD})", $browserUrlBsDecl->getPropertyValue('background-image'));
+
+		// 11. maxDepth enforced on value blocks (), [], {} across setProperty, parse, CSSStyleSheet, and CSS::supports
+		$tightDepth = new CSSParserOptions(maxDepth: 2);
+		self::assertFalse(CSS::supports('(--x: [[[a]]])', null, $tightDepth));
+		foreach ([
+			static fn () => CSSStyleDeclaration::parse('--x: (((a)))', strict: true, options: $tightDepth),
+			static fn () => (new CSSStyleDeclaration('', $tightDepth))->setProperty('--x', '(((a)))'),
+			static fn () => (new CSSStyleDeclaration('', $tightDepth))->setProperty('x-unknown', '[[[a]]]'),
+			static fn () => CSSParser::parseSingleRule('.a { --x: (((a))); }', $tightDepth),
+		] as $depthFail) {
+			try {
+				$depthFail();
+				self::fail('Expected maxDepth=2 on value blocks to throw CSSParserLimitException.');
+			} catch (CSSParserLimitException) {
+			}
+		}
+
+		// 12. maxMathDepth enforced in component parser & maxBytes enforced on validator fast paths + duplicate @property caps
+		try {
+			\Jimbo2150\PhpCssTypedOm\Grammar\CSSValueComponentParser::parse('calc(calc(calc(1px)))', new CSSParserOptions(maxMathDepth: 1));
+			self::fail('Expected maxMathDepth=1 in CSSValueComponentParser::parse() to throw CSSParserLimitException.');
+		} catch (CSSParserLimitException) {
+		}
+		try {
+			(new CSSStyleDeclaration('', new CSSParserOptions(maxMathDepth: 1)))->setProperty('--x', 'calc(calc(calc(1px)))');
+			self::fail('Expected maxMathDepth=1 on --x setProperty() to throw CSSParserLimitException.');
+		} catch (CSSParserLimitException) {
+		}
+		self::assertFalse(\Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator::validateStandardProperty('width', 'auto', new CSSParserOptions(maxBytes: 2)));
+
+		$dupSyntax = implode(' | ', array_fill(0, 200, '<length>'));
+		$tDup = hrtime(true);
+		self::assertFalse(\Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator::validateRegisteredCustomProperty($dupSyntax, 'red', false));
+		self::assertLessThan(50.0, (hrtime(true) - $tDup) / 1_000_000);
 	}
 }
