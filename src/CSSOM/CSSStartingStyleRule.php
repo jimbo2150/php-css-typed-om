@@ -8,7 +8,8 @@ final class CSSStartingStyleRule extends CSSGroupingRule
 {
 	public function __construct(?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
-		parent::__construct('starting-style', '', $maxBytes);
+		self::assertValidMaxBytesInternal($maxBytes);
+		$this->initGroupingRuleInternal('starting-style', '', $maxBytes);
 	}
 
 	public function getType(): int

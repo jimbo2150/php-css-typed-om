@@ -592,14 +592,110 @@ final class CSSShorthandRegistry
 		'overscroll-behavior-inline' => ['group' => 12, 'logical' => true],
 	];
 
+	/**
+	 * Authoritative dispatch map for every concrete shorthand codec (`box`, `bg`, `font`, `grid`, `timing`).
+	 *
+	 * @var array<string, 'box'|'bg'|'font'|'grid'|'timing'>
+	 */
+	private const array SHORTHAND_CODEC = [
+		'margin' => 'box',
+		'padding' => 'box',
+		'inset' => 'box',
+		'border-width' => 'box',
+		'border-style' => 'box',
+		'border-color' => 'box',
+		'scroll-margin' => 'box',
+		'scroll-padding' => 'box',
+		'margin-block' => 'box',
+		'margin-inline' => 'box',
+		'padding-block' => 'box',
+		'padding-inline' => 'box',
+		'inset-block' => 'box',
+		'inset-inline' => 'box',
+		'border-block-width' => 'box',
+		'border-block-style' => 'box',
+		'border-block-color' => 'box',
+		'border-inline-width' => 'box',
+		'border-inline-style' => 'box',
+		'border-inline-color' => 'box',
+		'scroll-margin-block' => 'box',
+		'scroll-margin-inline' => 'box',
+		'scroll-padding-block' => 'box',
+		'scroll-padding-inline' => 'box',
+		'gap' => 'box',
+		'overflow' => 'box',
+		'overscroll-behavior' => 'box',
+		'contain-intrinsic-size' => 'box',
+		'place-content' => 'box',
+		'place-items' => 'box',
+		'place-self' => 'box',
+		'border-top' => 'box',
+		'border-right' => 'box',
+		'border-bottom' => 'box',
+		'border-left' => 'box',
+		'border-block-start' => 'box',
+		'border-block-end' => 'box',
+		'border-inline-start' => 'box',
+		'border-inline-end' => 'box',
+		'border-block' => 'box',
+		'border-inline' => 'box',
+		'border' => 'box',
+		'outline' => 'box',
+		'column-rule' => 'box',
+		'border-radius' => 'box',
+		'border-image' => 'box',
+		'mask-border' => 'box',
+		'flex' => 'box',
+		'flex-flow' => 'box',
+		'columns' => 'box',
+		'container' => 'box',
+		'list-style' => 'box',
+		'marker' => 'box',
+		'offset' => 'box',
+		'position-try' => 'box',
+		'text-box' => 'box',
+		'text-decoration' => 'box',
+		'text-emphasis' => 'box',
+		'text-wrap' => 'box',
+		'white-space' => 'box',
+		'background-position' => 'bg',
+		'background' => 'bg',
+		'mask' => 'bg',
+		'font-synthesis' => 'font',
+		'font-variant' => 'font',
+		'font' => 'font',
+		'grid-row' => 'grid',
+		'grid-column' => 'grid',
+		'grid-area' => 'grid',
+		'grid-template' => 'grid',
+		'grid' => 'grid',
+		'transition' => 'timing',
+		'animation' => 'timing',
+		'animation-range' => 'timing',
+		'scroll-timeline' => 'timing',
+		'view-timeline' => 'timing',
+	];
+
+	/** @var ?list<string> */
+	private static ?array $allShorthands = null;
+
 	/** @var ?list<string> */
 	private static ?array $allLonghands = null;
 
 	/** @var ?array<string, list<string>> */
 	private static ?array $reverseIndex = null;
 
-	/** @var ?array<string, list<array{group: int, logical: bool}>> */
-	private static ?array $shorthandLogicalGroups = null;
+	/** @var ?array<string, array<int, bool>> */
+	private static ?array $shorthandLogicalGroupMap = null;
+
+	/** @var array<string, array<string, true>> */
+	private static array $shorthandLonghandSets = [];
+
+	/** @return ?('box'|'bg'|'font'|'grid'|'timing') */
+	public static function getCodecInternal(string $shorthand): ?string
+	{
+		return self::SHORTHAND_CODEC[$shorthand] ?? null;
+	}
 
 	public static function isShorthand(string $normalizedLowerProperty): bool
 	{
@@ -611,10 +707,29 @@ final class CSSShorthandRegistry
 	 */
 	public static function getAllShorthands(): array
 	{
+		if (self::$allShorthands !== null) {
+			return self::$allShorthands;
+		}
 		$keys = array_keys(self::SHORTHAND_LONGHANDS);
 		$keys[] = 'all';
 
-		return $keys;
+		return self::$allShorthands = $keys;
+	}
+
+	/**
+	 * @return array<string, true>
+	 */
+	public static function getShorthandLonghandSetInternal(string $shorthand): array
+	{
+		if (isset(self::$shorthandLonghandSets[$shorthand])) {
+			return self::$shorthandLonghandSets[$shorthand];
+		}
+		$longhands = self::SHORTHAND_LONGHANDS[$shorthand] ?? null;
+		if ($longhands === null) {
+			return [];
+		}
+
+		return self::$shorthandLonghandSets[$shorthand] = array_fill_keys($longhands, true);
 	}
 
 	/**
@@ -691,21 +806,33 @@ final class CSSShorthandRegistry
 	}
 
 	/**
-	 * Returns distinct logical groups represented among the shorthand's longhands.
+	 * Returns map `[groupId => isLogical]` for the shorthand's constituent longhands.
 	 *
-	 * @return list<array{group: int, logical: bool}>
+	 * @return array<int, bool>
 	 */
-	public static function getLogicalGroupsForShorthand(string $shorthand): array
+	public static function getShorthandLogicalGroupMapInternal(string $shorthand): array
 	{
 		if ($shorthand === 'all') {
 			return [];
 		}
-
-		if (self::$shorthandLogicalGroups === null) {
-			self::buildShorthandLogicalGroups();
+		if (self::$shorthandLogicalGroupMap === null) {
+			$map = [];
+			foreach (self::SHORTHAND_LONGHANDS as $name => $longhands) {
+				$groups = [];
+				foreach ($longhands as $lh) {
+					$info = self::LOGICAL_GROUPS[$lh] ?? null;
+					if ($info !== null) {
+						$groups[$info['group']] = $info['logical'];
+					}
+				}
+				if ($groups !== []) {
+					$map[$name] = $groups;
+				}
+			}
+			self::$shorthandLogicalGroupMap = $map;
 		}
 
-		return self::$shorthandLogicalGroups[$shorthand] ?? [];
+		return self::$shorthandLogicalGroupMap[$shorthand] ?? [];
 	}
 
 	private static function buildReverseIndex(): void
@@ -757,30 +884,5 @@ final class CSSShorthandRegistry
 		}
 
 		self::$reverseIndex = $index;
-	}
-
-	private static function buildShorthandLogicalGroups(): void
-	{
-		$map = [];
-		foreach (self::SHORTHAND_LONGHANDS as $shorthand => $longhands) {
-			$seen = [];
-			$groups = [];
-			foreach ($longhands as $lh) {
-				$info = self::LOGICAL_GROUPS[$lh] ?? null;
-				if ($info === null) {
-					continue;
-				}
-				$key = $info['group'] . ':' . ($info['logical'] ? '1' : '0');
-				if (!isset($seen[$key])) {
-					$seen[$key] = true;
-					$groups[] = $info;
-				}
-			}
-			if ($groups !== []) {
-				$map[$shorthand] = $groups;
-			}
-		}
-
-		self::$shorthandLogicalGroups = $map;
 	}
 }

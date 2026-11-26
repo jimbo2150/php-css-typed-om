@@ -6,6 +6,7 @@ namespace Jimbo2150\PhpCssTypedOm\Geometry;
 
 use Error;
 use InvalidArgumentException;
+use ReflectionClass;
 
 /**
  * Four-corner quadrilateral with live mutable DOMPoint corners (W3C Geometry Interfaces Level 1).
@@ -49,15 +50,19 @@ class DOMQuad
 		$rect = $other instanceof DOMRectReadOnly ? $other : DOMRectReadOnly::fromRect($other);
 		$x = $rect->getX();
 		$y = $rect->getY();
-		$xw = DOMMatrixReadOnly::assertFiniteInternal($x + $rect->getWidth(), 'quad.right');
-		$yh = DOMMatrixReadOnly::assertFiniteInternal($y + $rect->getHeight(), 'quad.bottom');
+		$xw = DOMMatrixReadOnly::assertFiniteFloat($x + $rect->getWidth(), 'quad.right');
+		$yh = DOMMatrixReadOnly::assertFiniteFloat($y + $rect->getHeight(), 'quad.bottom');
 
-		return new self(
-			new DOMPoint($x, $y),
-			new DOMPoint($xw, $y),
-			new DOMPoint($xw, $yh),
-			new DOMPoint($x, $yh),
-		);
+		static $reflection = null;
+		$reflection ??= new ReflectionClass(self::class);
+		/** @var self $quad */
+		$quad = $reflection->newInstanceWithoutConstructor();
+		$quad->p1Point = new DOMPoint($x, $y);
+		$quad->p2Point = new DOMPoint($xw, $y);
+		$quad->p3Point = new DOMPoint($xw, $yh);
+		$quad->p4Point = new DOMPoint($x, $yh);
+
+		return $quad;
 	}
 
 	/**

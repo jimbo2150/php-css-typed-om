@@ -23,6 +23,17 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
  */
 final class CSSFontFeatureValuesRule extends CSSGroupingRule
 {
+	/** @var array<string, true> */
+	private const array VALID_CATEGORIES = [
+		'annotation' => true,
+		'ornaments' => true,
+		'stylistic' => true,
+		'styleset' => true,
+		'character-variant' => true,
+		'swash' => true,
+		'historical-forms' => true,
+	];
+
 	/** @var array<string, string> */
 	private const array FEATURE_ACCESSORS = [
 		'annotation' => 'annotation',
@@ -42,18 +53,14 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 	public function __construct(string $fontFamily, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
 		self::assertValidMaxBytesInternal($maxBytes);
-		if ($maxBytes !== null && strlen($fontFamily) > $maxBytes) {
-			throw new CSSParserLimitException(sprintf('CSS @font-feature-values rule exceeds maximum size of %d bytes.', $maxBytes));
-		}
-		$fontFamily = CSSSyntaxScanner::trimCssWhitespace($fontFamily);
-		if ($fontFamily === '') {
-			throw new InvalidArgumentException('@font-feature-values requires a font-family list.');
-		}
-		CSSSyntaxScanner::assertValidFragment($fontFamily, 'Font family list', [';', '{', '}']);
-		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($fontFamily)) === '') {
-			throw new InvalidArgumentException('@font-feature-values requires a font-family list.');
-		}
-		parent::__construct('font-feature-values', $fontFamily, $maxBytes);
+		$validated = self::validateNonEmptyFragmentInternal(
+			$fontFamily,
+			$maxBytes,
+			'CSS @font-feature-values rule',
+			'@font-feature-values requires a font-family list.',
+			'Font family list',
+		);
+		$this->initGroupingRuleInternal('font-feature-values', $validated, $maxBytes);
 	}
 
 	/** @internal */
@@ -74,19 +81,13 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 
 	public function setFontFamily(string $fontFamily): void
 	{
-		$maxBytes = $this->resolveMaxBytesInternal();
-		if ($maxBytes !== null && strlen($fontFamily) > $maxBytes) {
-			throw new CSSParserLimitException(sprintf('Font family list exceeds maximum size of %d bytes.', $maxBytes));
-		}
-		$fontFamily = CSSSyntaxScanner::trimCssWhitespace($fontFamily);
-		if ($fontFamily === '') {
-			throw new InvalidArgumentException('@font-feature-values requires a font-family list.');
-		}
-		CSSSyntaxScanner::assertValidFragment($fontFamily, 'Font family list', [';', '{', '}']);
-		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($fontFamily)) === '') {
-			throw new InvalidArgumentException('@font-feature-values requires a font-family list.');
-		}
-		$this->prelude = $fontFamily;
+		$this->prelude = self::validateNonEmptyFragmentInternal(
+			$fontFamily,
+			$this->resolveMaxBytesInternal(),
+			'Font family list',
+			'@font-feature-values requires a font-family list.',
+			'Font family list',
+		);
 	}
 
 	/** @internal */
@@ -101,7 +102,7 @@ final class CSSFontFeatureValuesRule extends CSSGroupingRule
 	public function getFeatureMap(string $featureType): CSSFontFeatureValuesMap
 	{
 		$featureType = strtolower(CSSSyntaxScanner::trimCssWhitespace($featureType));
-		if (!in_array($featureType, self::FEATURE_ACCESSORS, true)) {
+		if (!isset(self::VALID_CATEGORIES[$featureType])) {
 			throw new InvalidArgumentException('Invalid font feature value category: ' . $featureType);
 		}
 		if (!isset($this->featureMaps[$featureType])) {

@@ -26,13 +26,13 @@ final class CSSTokenizer implements IteratorAggregate
 {
 	public const int DEFAULT_MAX_TOKENS = 1_000_000;
 
-	private const string HEX_DIGITS = '0123456789abcdefABCDEF';
 	private const string ASCII_DIGITS = '0123456789';
-	private const string ASCII_IDENT_BYTES = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_';
-	private const string ASCII_WHITESPACE = " \t\n\r\f";
-	private const string CONTROL_BYTES = "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0B\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x7F";
-	private const string URL_SPECIAL_BYTES = " \t\n\r\f\"'()\\" . self::CONTROL_BYTES;
+	private const string URL_SPECIAL_BYTES = " \t\n\r\f\"'()\\" . CSSSyntaxScanner::CONTROL_BYTES;
 	private const string REPLACEMENT_CHAR = "\u{FFFD}";
+	private const string STRING_MASK_DQ_CHECK = "\"\\\n\r\f" . CSSSyntaxScanner::CONTROL_BYTES;
+	private const string STRING_MASK_SQ_CHECK = "'\\\n\r\f" . CSSSyntaxScanner::CONTROL_BYTES;
+	private const string STRING_MASK_DQ_NOCHECK = "\"\\\n\r\f";
+	private const string STRING_MASK_SQ_NOCHECK = "'\\\n\r\f";
 
 	private string $source;
 	private int $offset;
@@ -48,7 +48,8 @@ final class CSSTokenizer implements IteratorAggregate
 	private array $parseErrors = [];
 
 	private ?CSSToken $peekedToken = null;
-	private bool $hasDirtyTokenState = false;
+	private bool $hasDirtyPayload = false;
+	private bool $hasDirtyRareState = false;
 
 	// Scalar cursor state for zero-allocation @internal parsing
 	/** @internal */
@@ -57,6 +58,10 @@ final class CSSTokenizer implements IteratorAggregate
 	public int $tokenStart = 0;
 	/** @internal */
 	public int $tokenEnd = 0;
+	/** @internal */
+	public int $tokenNumEnd = 0;
+	/** @internal */
+	public bool $tokenIsInteger = false;
 	/** @internal */
 	public ?string $tokenFlag = null;
 	/** @internal */
@@ -160,14 +165,14 @@ final class CSSTokenizer implements IteratorAggregate
 		$count = 0;
 
 		while (true) {
-			$token = $tokenizer->nextToken();
-			if ($token->type === CSSTokenType::Eof) {
+			$type = $tokenizer->advanceInternal();
+			if ($type === CSSTokenType::Eof) {
 				if ($includeEof) {
 					$count++;
 					if ($maxTokens !== null && $count > $maxTokens) {
 						throw new CSSParserLimitException(sprintf('CSS token stream exceeds maximum limit of %d tokens.', $maxTokens));
 					}
-					$tokens[] = $token;
+					$tokens[] = $tokenizer->materializeCurrentToken();
 				}
 				break;
 			}
@@ -175,7 +180,7 @@ final class CSSTokenizer implements IteratorAggregate
 			if ($maxTokens !== null && $count > $maxTokens) {
 				throw new CSSParserLimitException(sprintf('CSS token stream exceeds maximum limit of %d tokens.', $maxTokens));
 			}
-			$tokens[] = $token;
+			$tokens[] = $tokenizer->materializeCurrentToken();
 		}
 
 		return $tokens;
@@ -255,7 +260,7 @@ final class CSSTokenizer implements IteratorAggregate
 		if ($this->peekedToken !== null) {
 			$this->peekedToken = null;
 		}
-		if ($this->hasDirtyTokenState) {
+		if ($this->hasDirtyPayload) {
 			$this->tokenFlag = null;
 			$this->tokenNumericValue = null;
 			$this->tokenRepr = null;
@@ -263,6 +268,9 @@ final class CSSTokenizer implements IteratorAggregate
 			$this->tokenUnit = null;
 			$this->tokenUnitStart = 0;
 			$this->tokenUnitEnd = 0;
+			$this->hasDirtyPayload = false;
+		}
+		if ($this->hasDirtyRareState) {
 			$this->tokenHasEscapes = false;
 			$this->tokenHadLeadingComment = false;
 			$this->tokenClosedAtEof = false;
@@ -273,7 +281,7 @@ final class CSSTokenizer implements IteratorAggregate
 			$this->tokenControlByteOffset = null;
 			$this->tokenParseErrorMessage = null;
 			$this->tokenParseErrorOffset = null;
-			$this->hasDirtyTokenState = false;
+			$this->hasDirtyRareState = false;
 		}
 
 		$src = $this->source;
@@ -282,7 +290,7 @@ final class CSSTokenizer implements IteratorAggregate
 
 		// §4.3.2 Consume comments
 		while ($pos + 1 < $end && $src[$pos] === '/' && $src[$pos + 1] === '*') {
-			$this->hasDirtyTokenState = true;
+			$this->hasDirtyRareState = true;
 			$this->tokenHadLeadingComment = true;
 			$commentEnd = strpos($src, '*/', $pos + 2);
 			if ($commentEnd === false || $commentEnd + 1 >= $end) {
@@ -309,26 +317,32 @@ final class CSSTokenizer implements IteratorAggregate
 
 		$this->tokenStart = $pos;
 		$ch = $src[$pos];
-		$ord = ord($ch);
 
-		// Whitespace
+		// Whitespace fast path
 		if ($ch === ' ' || $ch === "\t" || $ch === "\n" || (!$this->preprocessed && ($ch === "\r" || $ch === "\f"))) {
-			$wsMask = $this->preprocessed ? " \t\n" : self::ASCII_WHITESPACE;
+			$wsMask = $this->preprocessed ? " \t\n" : CSSSyntaxScanner::CSS_WHITESPACE;
 			$pos += strspn($src, $wsMask, $pos, $end - $pos);
 			$this->offset = $pos;
 			$this->tokenEnd = $pos;
 			return $this->tokenType = CSSTokenType::Whitespace;
 		}
 
-		// Quoted strings
-		if ($ch === '"' || $ch === "'") {
-			$this->consumeStringToken($src, $pos, $end);
+		// ASCII ident-start fast path (most frequent CSS token class)
+		if (($ch >= 'a' && $ch <= 'z') || ($ch >= 'A' && $ch <= 'Z') || $ch === '_') {
+			$this->consumeIdentLikeToken($src, $pos, $end);
+			$this->offset = $pos;
+			return $this->tokenType;
+		}
+
+		// ASCII digit fast path
+		if ($ch >= '0' && $ch <= '9') {
+			$this->consumeNumericToken($src, $pos, $end);
 			$this->offset = $pos;
 			$this->tokenEnd = $pos;
 			return $this->tokenType;
 		}
 
-		// Single-byte punctuation fast path
+		// O(1) string switch jump table for delimiters, quotes, and punctuation
 		switch ($ch) {
 			case '(':
 				$this->offset = $pos + 1;
@@ -366,180 +380,150 @@ final class CSSTokenizer implements IteratorAggregate
 				$this->offset = $pos + 1;
 				$this->tokenEnd = $pos + 1;
 				return $this->tokenType = CSSTokenType::RightCurlyBracket;
-		}
-
-		// '#'
-		if ($ch === '#') {
-			$nextPos = $pos + 1;
-			$dummyLen = 0;
-			if ($nextPos < $end && ($this->isIdentCodePointAt($src, $nextPos, $end, $dummyLen) || $this->isValidEscapeAt($src, $nextPos, $end))) {
-				$pos = $nextPos;
-				if ($this->decodePayload) {
-					$this->hasDirtyTokenState = true;
-					$this->tokenFlag = $this->startsIdentSequenceAt($src, $pos, $end)
-						? CSSToken::HASH_ID
-						: CSSToken::HASH_UNRESTRICTED;
+			case '"':
+			case "'":
+				$this->consumeStringToken($src, $pos, $end);
+				$this->offset = $pos;
+				$this->tokenEnd = $pos;
+				return $this->tokenType;
+			case '#':
+				$nextPos = $pos + 1;
+				$dummyLen = 0;
+				if ($nextPos < $end && ($this->isIdentCodePointAt($src, $nextPos, $end, $dummyLen) || $this->isValidEscapeAt($src, $nextPos, $end))) {
+					$pos = $nextPos;
+					if ($this->decodePayload) {
+						$this->hasDirtyPayload = true;
+						$this->tokenFlag = $this->startsIdentSequenceAt($src, $pos, $end)
+							? CSSToken::HASH_ID
+							: CSSToken::HASH_UNRESTRICTED;
+					}
+					$val = $this->consumeIdentSequence($src, $pos, $end, $this->decodePayload);
+					if ($val !== '') {
+						$this->tokenValue = $val;
+						$this->hasDirtyPayload = true;
+					}
+					$this->offset = $pos;
+					$this->tokenEnd = $pos;
+					return $this->tokenType = CSSTokenType::Hash;
 				}
-				$val = $this->consumeIdentSequence($src, $pos, $end, $this->decodePayload);
-				if ($val !== '') {
-					$this->tokenValue = $val;
-					$this->hasDirtyTokenState = true;
+				$this->offset = $pos + 1;
+				$this->tokenEnd = $pos + 1;
+				$this->tokenValue = '#';
+				$this->hasDirtyPayload = true;
+				return $this->tokenType = CSSTokenType::Delim;
+			case '+':
+				if (self::startsNumberAt($src, $pos, $end)) {
+					$this->consumeNumericToken($src, $pos, $end);
+					$this->offset = $pos;
+					$this->tokenEnd = $pos;
+					return $this->tokenType;
 				}
-				$this->offset = $pos;
-				$this->tokenEnd = $pos;
-				return $this->tokenType = CSSTokenType::Hash;
-			}
-			$this->offset = $pos + 1;
-			$this->tokenEnd = $pos + 1;
-			$this->tokenValue = '#';
-			$this->hasDirtyTokenState = true;
-			return $this->tokenType = CSSTokenType::Delim;
-		}
-
-		// '+'
-		if ($ch === '+') {
-			if (self::startsNumberAt($src, $pos, $end)) {
-				$this->consumeNumericToken($src, $pos, $end);
-				$this->offset = $pos;
-				$this->tokenEnd = $pos;
-				return $this->tokenType;
-			}
-			$this->offset = $pos + 1;
-			$this->tokenEnd = $pos + 1;
-			$this->tokenValue = '+';
-			$this->hasDirtyTokenState = true;
-			return $this->tokenType = CSSTokenType::Delim;
-		}
-
-		// '-'
-		if ($ch === '-') {
-			if (self::startsNumberAt($src, $pos, $end)) {
-				$this->consumeNumericToken($src, $pos, $end);
-				$this->offset = $pos;
-				$this->tokenEnd = $pos;
-				return $this->tokenType;
-			}
-			if ($pos + 2 < $end && $src[$pos + 1] === '-' && $src[$pos + 2] === '>') {
-				$this->offset = $pos + 3;
-				$this->tokenEnd = $pos + 3;
-				return $this->tokenType = CSSTokenType::Cdc;
-			}
-			if ($this->startsIdentSequenceAt($src, $pos, $end)) {
-				$this->consumeIdentLikeToken($src, $pos, $end);
-				$this->offset = $pos;
-				return $this->tokenType;
-			}
-			$this->offset = $pos + 1;
-			$this->tokenEnd = $pos + 1;
-			$this->tokenValue = '-';
-			$this->hasDirtyTokenState = true;
-			return $this->tokenType = CSSTokenType::Delim;
-		}
-
-		// '.'
-		if ($ch === '.') {
-			if (self::startsNumberAt($src, $pos, $end)) {
-				$this->consumeNumericToken($src, $pos, $end);
-				$this->offset = $pos;
-				$this->tokenEnd = $pos;
-				return $this->tokenType;
-			}
-			$this->offset = $pos + 1;
-			$this->tokenEnd = $pos + 1;
-			$this->tokenValue = '.';
-			$this->hasDirtyTokenState = true;
-			return $this->tokenType = CSSTokenType::Delim;
-		}
-
-		// '<'
-		if ($ch === '<') {
-			if ($pos + 3 < $end && $src[$pos + 1] === '!' && $src[$pos + 2] === '-' && $src[$pos + 3] === '-') {
-				$this->offset = $pos + 4;
-				$this->tokenEnd = $pos + 4;
-				return $this->tokenType = CSSTokenType::Cdo;
-			}
-			$this->offset = $pos + 1;
-			$this->tokenEnd = $pos + 1;
-			$this->tokenValue = '<';
-			$this->hasDirtyTokenState = true;
-			return $this->tokenType = CSSTokenType::Delim;
-		}
-
-		// '@'
-		if ($ch === '@') {
-			if ($this->startsIdentSequenceAt($src, $pos + 1, $end)) {
-				$pos++;
-				$val = $this->consumeIdentSequence($src, $pos, $end, $this->decodePayload);
-				if ($val !== '') {
-					$this->tokenValue = $val;
-					$this->hasDirtyTokenState = true;
+				$this->offset = $pos + 1;
+				$this->tokenEnd = $pos + 1;
+				$this->tokenValue = '+';
+				$this->hasDirtyPayload = true;
+				return $this->tokenType = CSSTokenType::Delim;
+			case '-':
+				if (self::startsNumberAt($src, $pos, $end)) {
+					$this->consumeNumericToken($src, $pos, $end);
+					$this->offset = $pos;
+					$this->tokenEnd = $pos;
+					return $this->tokenType;
 				}
-				$this->offset = $pos;
-				$this->tokenEnd = $pos;
-				return $this->tokenType = CSSTokenType::AtKeyword;
-			}
-			$this->offset = $pos + 1;
-			$this->tokenEnd = $pos + 1;
-			$this->tokenValue = '@';
-			$this->hasDirtyTokenState = true;
-			return $this->tokenType = CSSTokenType::Delim;
-		}
+				if ($pos + 2 < $end && $src[$pos + 1] === '-' && $src[$pos + 2] === '>') {
+					$this->offset = $pos + 3;
+					$this->tokenEnd = $pos + 3;
+					return $this->tokenType = CSSTokenType::Cdc;
+				}
+				if ($this->startsIdentSequenceAt($src, $pos, $end)) {
+					$this->consumeIdentLikeToken($src, $pos, $end);
+					$this->offset = $pos;
+					return $this->tokenType;
+				}
+				$this->offset = $pos + 1;
+				$this->tokenEnd = $pos + 1;
+				$this->tokenValue = '-';
+				$this->hasDirtyPayload = true;
+				return $this->tokenType = CSSTokenType::Delim;
+			case '.':
+				if (self::startsNumberAt($src, $pos, $end)) {
+					$this->consumeNumericToken($src, $pos, $end);
+					$this->offset = $pos;
+					$this->tokenEnd = $pos;
+					return $this->tokenType;
+				}
+				$this->offset = $pos + 1;
+				$this->tokenEnd = $pos + 1;
+				$this->tokenValue = '.';
+				$this->hasDirtyPayload = true;
+				return $this->tokenType = CSSTokenType::Delim;
+			case '<':
+				if ($pos + 3 < $end && $src[$pos + 1] === '!' && $src[$pos + 2] === '-' && $src[$pos + 3] === '-') {
+					$this->offset = $pos + 4;
+					$this->tokenEnd = $pos + 4;
+					return $this->tokenType = CSSTokenType::Cdo;
+				}
+				$this->offset = $pos + 1;
+				$this->tokenEnd = $pos + 1;
+				$this->tokenValue = '<';
+				$this->hasDirtyPayload = true;
+				return $this->tokenType = CSSTokenType::Delim;
+			case '@':
+				if ($this->startsIdentSequenceAt($src, $pos + 1, $end)) {
+					$pos++;
+					$val = $this->consumeIdentSequence($src, $pos, $end, $this->decodePayload);
+					if ($val !== '') {
+						$this->tokenValue = $val;
+						$this->hasDirtyPayload = true;
+					}
+					$this->offset = $pos;
+					$this->tokenEnd = $pos;
+					return $this->tokenType = CSSTokenType::AtKeyword;
+				}
+				$this->offset = $pos + 1;
+				$this->tokenEnd = $pos + 1;
+				$this->tokenValue = '@';
+				$this->hasDirtyPayload = true;
+				return $this->tokenType = CSSTokenType::Delim;
+			case '\\':
+				if ($this->isValidEscapeAt($src, $pos, $end)) {
+					$this->consumeIdentLikeToken($src, $pos, $end);
+					$this->offset = $pos;
+					return $this->tokenType;
+				}
+				$this->recordInternalError('Invalid CSS escape before newline.', $pos);
+				$this->offset = $pos + 1;
+				$this->tokenEnd = $pos + 1;
+				$this->tokenValue = '\\';
+				$this->hasDirtyPayload = true;
+				return $this->tokenType = CSSTokenType::Delim;
+			default:
+				$ord = ord($ch);
+				if ($ord >= 0x80) {
+					$byteLen = 1;
+					$cp = self::readUtf8CodePointAt($src, $pos, $end, $byteLen);
+					if ($cp >= 0x80 && self::isNonAsciiIdentCodePoint($cp)) {
+						$this->consumeIdentLikeToken($src, $pos, $end);
+						$this->offset = $pos;
+						return $this->tokenType;
+					}
+					$this->offset = $pos + $byteLen;
+					$this->tokenEnd = $this->offset;
+					$this->tokenValue = substr($src, $pos, $byteLen);
+					$this->hasDirtyPayload = true;
+					return $this->tokenType = CSSTokenType::Delim;
+				}
 
-		// '\'
-		if ($ch === '\\') {
-			if ($this->isValidEscapeAt($src, $pos, $end)) {
-				$this->consumeIdentLikeToken($src, $pos, $end);
-				$this->offset = $pos;
-				return $this->tokenType;
-			}
-			$this->recordInternalError('Invalid CSS escape before newline.', $pos);
-			$this->offset = $pos + 1;
-			$this->tokenEnd = $pos + 1;
-			$this->tokenValue = '\\';
-			$this->hasDirtyTokenState = true;
-			return $this->tokenType = CSSTokenType::Delim;
+				if ($this->checkControlBytes && ($ord <= 0x08 || $ord === 0x0B || ($ord >= 0x0E && $ord <= 0x1F) || $ord === 0x7F)) {
+					$this->tokenControlByteOffset = $pos;
+					$this->hasDirtyRareState = true;
+				}
+				$this->offset = $pos + 1;
+				$this->tokenEnd = $pos + 1;
+				$this->tokenValue = $ch;
+				$this->hasDirtyPayload = true;
+				return $this->tokenType = CSSTokenType::Delim;
 		}
-
-		// Digit
-		if ($ord >= 0x30 && $ord <= 0x39) {
-			$this->consumeNumericToken($src, $pos, $end);
-			$this->offset = $pos;
-			$this->tokenEnd = $pos;
-			return $this->tokenType;
-		}
-
-		// Ident-start (ASCII)
-		if (($ord >= 0x61 && $ord <= 0x7A) || ($ord >= 0x41 && $ord <= 0x5A) || $ord === 0x5F) {
-			$this->consumeIdentLikeToken($src, $pos, $end);
-			$this->offset = $pos;
-			return $this->tokenType;
-		}
-
-		// Non-ASCII code point (>= 0x80)
-		if ($ord >= 0x80) {
-			$byteLen = 1;
-			$cp = self::readUtf8CodePointAt($src, $pos, $end, $byteLen);
-			if ($cp >= 0x80 && self::isNonAsciiIdentCodePoint($cp)) {
-				$this->consumeIdentLikeToken($src, $pos, $end);
-				$this->offset = $pos;
-				return $this->tokenType;
-			}
-			$this->offset = $pos + $byteLen;
-			$this->tokenEnd = $this->offset;
-			$this->tokenValue = substr($src, $pos, $byteLen);
-			$this->hasDirtyTokenState = true;
-			return $this->tokenType = CSSTokenType::Delim;
-		}
-
-		// Any other ASCII byte -> <delim-token>
-		if ($this->checkControlBytes && ($ord <= 0x08 || $ord === 0x0B || ($ord >= 0x0E && $ord <= 0x1F) || $ord === 0x7F)) {
-			$this->tokenControlByteOffset = $pos;
-		}
-		$this->offset = $pos + 1;
-		$this->tokenEnd = $pos + 1;
-		$this->tokenValue = $ch;
-		$this->hasDirtyTokenState = true;
-		return $this->tokenType = CSSTokenType::Delim;
 	}
 
 	/**
@@ -566,45 +550,7 @@ final class CSSTokenizer implements IteratorAggregate
 			return $raw;
 		}
 
-		return $this->decodeEscapedIdentSlice($raw);
-	}
-
-	/**
-	 * @internal Returns lowercased at-keyword name for the current `AtKeyword` token.
-	 */
-	public function getCurrentAtKeywordLowerInternal(): string
-	{
-		return strtolower($this->decodeCurrentIdentInternal());
-	}
-
-	/**
-	 * @internal Returns whether the current `Ident` token matches ASCII `$expectedLower` (case-insensitively).
-	 */
-	public function currentIdentEqualsLowerInternal(string $expectedLower): bool
-	{
-		if (!$this->tokenHasEscapes) {
-			$len = $this->tokenEnd - $this->tokenStart;
-			return $len === strlen($expectedLower)
-				&& substr_compare($this->source, $expectedLower, $this->tokenStart, $len, true) === 0;
-		}
-
-		return strtolower($this->decodeCurrentIdentInternal()) === $expectedLower;
-	}
-
-	/**
-	 * @internal Returns true if the current token is an `Ident` or `Function` ending with a bare hex escape (no trailing ws).
-	 */
-	public function currentTokenEndsWithBareHexEscapeInternal(): bool
-	{
-		if (!$this->tokenHasEscapes) {
-			return false;
-		}
-		$rawEnd = $this->tokenType === CSSTokenType::Function ? $this->tokenEnd - 1 : $this->tokenEnd;
-		if ($rawEnd <= $this->tokenStart) {
-			return false;
-		}
-
-		return CSSSyntaxScanner::endsWithBareHexEscape(substr($this->source, $this->tokenStart, $rawEnd - $this->tokenStart));
+		return CSSSyntaxScanner::decodeCssIdentEscapes($raw);
 	}
 
 	private function materializeCurrentToken(): CSSToken
@@ -624,35 +570,37 @@ final class CSSTokenizer implements IteratorAggregate
 	private function consumeStringToken(string $src, int &$pos, int $end): void
 	{
 		$quote = $src[$pos];
-		$this->hasDirtyTokenState = true;
+		$this->hasDirtyRareState = true;
 		$this->tokenClosedQuote = $quote;
 		$pos++;
+		$strStart = $pos;
 		$decode = $this->decodePayload;
-		$chunks = $decode ? [] : null;
+		$chunks = null;
 		$chunkStart = $pos;
-		$mask = $quote . "\\\n\r\f" . ($this->checkControlBytes ? self::CONTROL_BYTES : '');
+		$mask = $quote === '"'
+			? ($this->checkControlBytes ? self::STRING_MASK_DQ_CHECK : self::STRING_MASK_DQ_NOCHECK)
+			: ($this->checkControlBytes ? self::STRING_MASK_SQ_CHECK : self::STRING_MASK_SQ_NOCHECK);
 
 		while ($pos < $end) {
-			$span = strcspn($src, $mask, $pos, $end - $pos);
-			$pos += $span;
+			$pos += strcspn($src, $mask, $pos, $end - $pos);
 			if ($pos >= $end) {
-				if ($chunks !== null && $pos > $chunkStart) {
-					$chunks[] = substr($src, $chunkStart, $pos - $chunkStart);
-				}
 				$this->tokenClosedAtEof = true;
 				$this->recordInternalError('Unclosed CSS string token.', $this->tokenStart);
-				$this->tokenValue = $chunks !== null ? implode('', $chunks) : '';
+				if ($decode) {
+					$this->tokenValue = $this->finalizeChunks($src, $chunks, $strStart, $chunkStart, $pos);
+					$this->hasDirtyPayload = $this->tokenValue !== '';
+				}
 				$this->tokenType = CSSTokenType::String;
 				return;
 			}
 
 			$ch = $src[$pos];
 			if ($ch === $quote) {
-				if ($chunks !== null && $pos > $chunkStart) {
-					$chunks[] = substr($src, $chunkStart, $pos - $chunkStart);
+				if ($decode) {
+					$this->tokenValue = $this->finalizeChunks($src, $chunks, $strStart, $chunkStart, $pos);
+					$this->hasDirtyPayload = $this->tokenValue !== '';
 				}
 				$pos++;
-				$this->tokenValue = $chunks !== null ? implode('', $chunks) : '';
 				$this->tokenType = CSSTokenType::String;
 				return;
 			}
@@ -667,8 +615,11 @@ final class CSSTokenizer implements IteratorAggregate
 
 			if ($ch === '\\') {
 				$this->tokenHasEscapes = true;
-				if ($chunks !== null && $pos > $chunkStart) {
-					$chunks[] = substr($src, $chunkStart, $pos - $chunkStart);
+				if ($decode) {
+					$chunks ??= [];
+					if ($pos > $chunkStart) {
+						$chunks[] = substr($src, $chunkStart, $pos - $chunkStart);
+					}
 				}
 
 				if ($pos + 1 >= $end) {
@@ -677,7 +628,10 @@ final class CSSTokenizer implements IteratorAggregate
 					$this->tokenClosedAtEof = true;
 					$this->recordInternalError('Unclosed CSS string token.', $this->tokenStart);
 					$pos = $end;
-					$this->tokenValue = $chunks !== null ? implode('', $chunks) : '';
+					if ($decode) {
+						$this->tokenValue = $chunks !== null ? implode('', $chunks) : '';
+						$this->hasDirtyPayload = $this->tokenValue !== '';
+					}
 					$this->tokenType = CSSTokenType::String;
 					return;
 				}
@@ -707,13 +661,28 @@ final class CSSTokenizer implements IteratorAggregate
 			$pos++;
 		}
 
-		if ($chunks !== null && $pos > $chunkStart) {
-			$chunks[] = substr($src, $chunkStart, $pos - $chunkStart);
-		}
 		$this->tokenClosedAtEof = true;
 		$this->recordInternalError('Unclosed CSS string token.', $this->tokenStart);
-		$this->tokenValue = $chunks !== null ? implode('', $chunks) : '';
+		if ($decode) {
+			$this->tokenValue = $this->finalizeChunks($src, $chunks, $strStart, $chunkStart, $pos);
+			$this->hasDirtyPayload = $this->tokenValue !== '';
+		}
 		$this->tokenType = CSSTokenType::String;
+	}
+
+	/**
+	 * @param ?list<string> $chunks
+	 */
+	private function finalizeChunks(string $src, ?array $chunks, int $strStart, int $chunkStart, int $pos): string
+	{
+		if ($chunks === null) {
+			return $pos > $strStart ? substr($src, $strStart, $pos - $strStart) : '';
+		}
+		if ($pos > $chunkStart) {
+			$chunks[] = substr($src, $chunkStart, $pos - $chunkStart);
+		}
+
+		return implode('', $chunks);
 	}
 
 	private function consumeIdentLikeToken(string $src, int &$pos, int $end): void
@@ -727,7 +696,7 @@ final class CSSTokenizer implements IteratorAggregate
 
 			if ($this->tokenHasEscapes) {
 				$decodedForUrl = !$this->decodePayload
-					? $this->decodeEscapedIdentSlice(substr($src, $identStart, $funcEnd - 1 - $identStart))
+					? CSSSyntaxScanner::decodeCssIdentEscapes(substr($src, $identStart, $funcEnd - 1 - $identStart))
 					: $decoded;
 				$isUrl = strtolower($decodedForUrl) === 'url';
 			} else {
@@ -736,23 +705,22 @@ final class CSSTokenizer implements IteratorAggregate
 
 			if ($isUrl) {
 				// §4.3.4: While the next two input code points are whitespace, consume the next input code point.
-				while ($pos + 1 < $end && $this->isWhitespaceByte($src[$pos]) && $this->isWhitespaceByte($src[$pos + 1])) {
-					if (!$this->preprocessed && $src[$pos] === "\r" && $src[$pos + 1] === "\n") {
-						// In non-preprocessed mode, CRLF is a single whitespace code point; check the byte after CRLF.
-						if ($pos + 2 < $end && $this->isWhitespaceByte($src[$pos + 2])) {
-							$pos += 2;
-							continue;
-						}
-						break;
+				$wsMask = $this->preprocessed ? " \t\n" : CSSSyntaxScanner::CSS_WHITESPACE;
+				$wsLen = strspn($src, $wsMask, $pos, $end - $pos);
+				if ($wsLen >= 2) {
+					$back = (!$this->preprocessed && $src[$pos + $wsLen - 1] === "\n" && $src[$pos + $wsLen - 2] === "\r")
+						? 2
+						: 1;
+					if ($wsLen > $back) {
+						$pos += $wsLen - $back;
 					}
-					$pos++;
 				}
 
 				if ($this->isQuotedUrlNext($src, $pos, $end)) {
 					$this->tokenEnd = $funcEnd;
 					if ($this->decodePayload) {
 						$this->tokenValue = $decoded;
-						$this->hasDirtyTokenState = true;
+						$this->hasDirtyPayload = true;
 					}
 					$this->tokenType = CSSTokenType::Function;
 					return;
@@ -766,7 +734,7 @@ final class CSSTokenizer implements IteratorAggregate
 			$this->tokenEnd = $funcEnd;
 			if ($this->decodePayload) {
 				$this->tokenValue = $decoded;
-				$this->hasDirtyTokenState = true;
+				$this->hasDirtyPayload = true;
 			}
 			$this->tokenType = CSSTokenType::Function;
 			return;
@@ -775,7 +743,7 @@ final class CSSTokenizer implements IteratorAggregate
 		$this->tokenEnd = $pos;
 		if ($this->decodePayload) {
 			$this->tokenValue = $decoded;
-			$this->hasDirtyTokenState = true;
+			$this->hasDirtyPayload = true;
 		}
 		$this->tokenType = CSSTokenType::Ident;
 	}
@@ -804,12 +772,13 @@ final class CSSTokenizer implements IteratorAggregate
 
 	private function consumeUrlToken(string $src, int &$pos, int $end): void
 	{
-		$this->hasDirtyTokenState = true;
-		$wsMask = $this->preprocessed ? " \t\n" : self::ASCII_WHITESPACE;
+		$this->hasDirtyRareState = true;
+		$wsMask = $this->preprocessed ? " \t\n" : CSSSyntaxScanner::CSS_WHITESPACE;
 		$pos += strspn($src, $wsMask, $pos, $end - $pos);
 
+		$strStart = $pos;
 		$decode = $this->decodePayload;
-		$chunks = $decode ? [] : null;
+		$chunks = null;
 		$chunkStart = $pos;
 
 		while ($pos < $end) {
@@ -820,30 +789,34 @@ final class CSSTokenizer implements IteratorAggregate
 
 			$ch = $src[$pos];
 			if ($ch === ')') {
-				if ($chunks !== null && $pos > $chunkStart) {
-					$chunks[] = substr($src, $chunkStart, $pos - $chunkStart);
+				if ($decode) {
+					$this->tokenValue = $this->finalizeChunks($src, $chunks, $strStart, $chunkStart, $pos);
+					$this->hasDirtyPayload = $this->tokenValue !== '';
 				}
 				$pos++;
-				$this->tokenValue = $chunks !== null ? implode('', $chunks) : '';
 				$this->tokenType = CSSTokenType::Url;
 				return;
 			}
 
 			if ($ch === ' ' || $ch === "\t" || $ch === "\n" || $ch === "\r" || $ch === "\f") {
-				if ($chunks !== null && $pos > $chunkStart) {
-					$chunks[] = substr($src, $chunkStart, $pos - $chunkStart);
-				}
+				$valEnd = $pos;
 				$pos += strspn($src, $wsMask, $pos, $end - $pos);
 				if ($pos >= $end) {
 					$this->tokenClosedAtEof = true;
 					$this->recordInternalError('Unclosed CSS url() token.', $this->tokenStart);
-					$this->tokenValue = $chunks !== null ? implode('', $chunks) : '';
+					if ($decode) {
+						$this->tokenValue = $this->finalizeChunks($src, $chunks, $strStart, $chunkStart, $valEnd);
+						$this->hasDirtyPayload = $this->tokenValue !== '';
+					}
 					$this->tokenType = CSSTokenType::Url;
 					return;
 				}
 				if ($src[$pos] === ')') {
+					if ($decode) {
+						$this->tokenValue = $this->finalizeChunks($src, $chunks, $strStart, $chunkStart, $valEnd);
+						$this->hasDirtyPayload = $this->tokenValue !== '';
+					}
 					$pos++;
-					$this->tokenValue = $chunks !== null ? implode('', $chunks) : '';
 					$this->tokenType = CSSTokenType::Url;
 					return;
 				}
@@ -856,8 +829,11 @@ final class CSSTokenizer implements IteratorAggregate
 
 			if ($ch === '\\') {
 				$this->tokenHasEscapes = true;
-				if ($chunks !== null && $pos > $chunkStart) {
-					$chunks[] = substr($src, $chunkStart, $pos - $chunkStart);
+				if ($decode) {
+					$chunks ??= [];
+					if ($pos > $chunkStart) {
+						$chunks[] = substr($src, $chunkStart, $pos - $chunkStart);
+					}
 				}
 				if ($this->isValidEscapeAt($src, $pos, $end)) {
 					$decodedEsc = $this->consumeEscapedCodePoint($src, $pos, $end, $decode);
@@ -887,12 +863,12 @@ final class CSSTokenizer implements IteratorAggregate
 			return;
 		}
 
-		if ($chunks !== null && $pos > $chunkStart) {
-			$chunks[] = substr($src, $chunkStart, $pos - $chunkStart);
-		}
 		$this->tokenClosedAtEof = true;
 		$this->recordInternalError('Unclosed CSS url() token.', $this->tokenStart);
-		$this->tokenValue = $chunks !== null ? implode('', $chunks) : '';
+		if ($decode) {
+			$this->tokenValue = $this->finalizeChunks($src, $chunks, $strStart, $chunkStart, $pos);
+			$this->hasDirtyPayload = $this->tokenValue !== '';
+		}
 		$this->tokenType = CSSTokenType::Url;
 	}
 
@@ -943,23 +919,27 @@ final class CSSTokenizer implements IteratorAggregate
 			}
 		}
 
+		$this->tokenNumEnd = $pos;
+		$this->tokenIsInteger = $typeFlag === CSSToken::NUMERIC_INTEGER;
+
 		if ($this->decodePayload) {
 			$repr = substr($src, $numStart, $pos - $numStart);
 			$this->tokenRepr = $repr;
 			$this->tokenNumericValue = (float) $repr;
-			$this->hasDirtyTokenState = true;
+			$this->hasDirtyPayload = true;
 		}
 
 		if ($this->startsIdentSequenceAt($src, $pos, $end)) {
+			$this->tokenUnitStart = $pos;
 			if ($this->decodePayload) {
-				$this->tokenUnitStart = $pos;
 				$unit = $this->consumeIdentSequence($src, $pos, $end, true);
 				$this->tokenUnitEnd = $pos;
 				$this->tokenFlag = $typeFlag;
 				$this->tokenUnit = $unit;
-				$this->hasDirtyTokenState = true;
+				$this->hasDirtyPayload = true;
 			} else {
 				$this->consumeIdentSequence($src, $pos, $end, false);
+				$this->tokenUnitEnd = $pos;
 			}
 			$this->tokenType = CSSTokenType::Dimension;
 			return;
@@ -974,7 +954,7 @@ final class CSSTokenizer implements IteratorAggregate
 
 		if ($this->decodePayload) {
 			$this->tokenFlag = $typeFlag;
-			$this->hasDirtyTokenState = true;
+			$this->hasDirtyPayload = true;
 		}
 		$this->tokenType = CSSTokenType::Number;
 	}
@@ -986,7 +966,7 @@ final class CSSTokenizer implements IteratorAggregate
 		$chunkStart = $pos;
 
 		while ($pos < $end) {
-			$asciiLen = strspn($src, self::ASCII_IDENT_BYTES, $pos, $end - $pos);
+			$asciiLen = strspn($src, CSSSyntaxScanner::ASCII_IDENT_BYTES, $pos, $end - $pos);
 			if ($asciiLen > 0) {
 				$pos += $asciiLen;
 				if ($pos >= $end) {
@@ -1008,7 +988,7 @@ final class CSSTokenizer implements IteratorAggregate
 
 			if ($ch === '\\' && $this->isValidEscapeAt($src, $pos, $end)) {
 				$this->tokenHasEscapes = true;
-				$this->hasDirtyTokenState = true;
+				$this->hasDirtyRareState = true;
 				if ($chunks !== null && $pos > $chunkStart) {
 					$chunks[] = substr($src, $chunkStart, $pos - $chunkStart);
 				}
@@ -1045,7 +1025,7 @@ final class CSSTokenizer implements IteratorAggregate
 			return $decode ? self::REPLACEMENT_CHAR : '';
 		}
 
-		$hexLen = strspn($src, self::HEX_DIGITS, $pos, min(6, $end - $pos));
+		$hexLen = strspn($src, CSSSyntaxScanner::HEX_DIGITS, $pos, min(6, $end - $pos));
 		if ($hexLen > 0) {
 			$hex = $decode ? substr($src, $pos, $hexLen) : '';
 			$pos += $hexLen;
@@ -1068,7 +1048,7 @@ final class CSSTokenizer implements IteratorAggregate
 				return self::REPLACEMENT_CHAR;
 			}
 
-			return self::encodeUtf8Codepoint($codepoint);
+			return CSSSyntaxScanner::encodeUtf8Codepoint($codepoint);
 		}
 
 		$ord = ord($src[$pos]);
@@ -1084,63 +1064,6 @@ final class CSSTokenizer implements IteratorAggregate
 		$pos += $byteLen;
 
 		return $escaped;
-	}
-
-	private function decodeEscapedIdentSlice(string $raw): string
-	{
-		$len = strlen($raw);
-		$pos = 0;
-		$chunks = [];
-
-		while ($pos < $len) {
-			$span = strcspn($raw, '\\', $pos, $len - $pos);
-			if ($span > 0) {
-				$chunks[] = substr($raw, $pos, $span);
-				$pos += $span;
-				if ($pos >= $len) {
-					break;
-				}
-			}
-
-			$pos++; // skip '\'
-			if ($pos >= $len) {
-				$chunks[] = self::REPLACEMENT_CHAR;
-				break;
-			}
-
-			$hexLen = strspn($raw, self::HEX_DIGITS, $pos, min(6, $len - $pos));
-			if ($hexLen > 0) {
-				$codepoint = (int) hexdec(substr($raw, $pos, $hexLen));
-				$pos += $hexLen;
-				if ($pos < $len) {
-					$ws = $raw[$pos];
-					if ($ws === "\r" && $pos + 1 < $len && $raw[$pos + 1] === "\n") {
-						$pos += 2;
-					} elseif ($ws === ' ' || $ws === "\t" || $ws === "\n" || $ws === "\r" || $ws === "\f") {
-						$pos++;
-					}
-				}
-				if ($codepoint === 0 || ($codepoint >= 0xD800 && $codepoint <= 0xDFFF) || $codepoint > 0x10FFFF) {
-					$chunks[] = self::REPLACEMENT_CHAR;
-				} else {
-					$chunks[] = self::encodeUtf8Codepoint($codepoint);
-				}
-				continue;
-			}
-
-			$ord = ord($raw[$pos]);
-			if ($ord < 0x80) {
-				$chunks[] = $raw[$pos];
-				$pos++;
-			} else {
-				$byteLen = 1;
-				self::readUtf8CodePointAt($raw, $pos, $len, $byteLen);
-				$chunks[] = substr($raw, $pos, $byteLen);
-				$pos += $byteLen;
-			}
-		}
-
-		return implode('', $chunks);
 	}
 
 	private function isValidEscapeAt(string $src, int $pos, int $end): bool
@@ -1253,7 +1176,7 @@ final class CSSTokenizer implements IteratorAggregate
 	{
 		if ($this->parserMode) {
 			if ($this->tokenParseErrorMessage === null) {
-				$this->hasDirtyTokenState = true;
+				$this->hasDirtyRareState = true;
 				$this->tokenParseErrorMessage = $message;
 				$this->tokenParseErrorOffset = $offset;
 			}
@@ -1345,23 +1268,5 @@ final class CSSTokenizer implements IteratorAggregate
 
 		$byteLen = 1;
 		return -1;
-	}
-
-	private static function encodeUtf8Codepoint(int $cp): string
-	{
-		if ($cp <= 0x7F) {
-			return chr($cp);
-		}
-		if ($cp <= 0x7FF) {
-			return chr(0xC0 | ($cp >> 6)) . chr(0x80 | ($cp & 0x3F));
-		}
-		if ($cp <= 0xFFFF) {
-			return chr(0xE0 | ($cp >> 12)) . chr(0x80 | (($cp >> 6) & 0x3F)) . chr(0x80 | ($cp & 0x3F));
-		}
-
-		return chr(0xF0 | ($cp >> 18))
-			. chr(0x80 | (($cp >> 12) & 0x3F))
-			. chr(0x80 | (($cp >> 6) & 0x3F))
-			. chr(0x80 | ($cp & 0x3F));
 	}
 }

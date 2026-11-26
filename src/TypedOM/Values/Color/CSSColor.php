@@ -11,7 +11,6 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathValue;
 use ReflectionClass;
 
 /**
@@ -92,18 +91,16 @@ final class CSSColor extends CSSColorValue
 		return $this->colorSpaceValue->clone();
 	}
 
-	public function setColorSpace(CSSKeywordValue|string $colorSpace): void
+	/**
+	 * @internal Normalizes a CSS `color()` space name into `[canonicalSpace, isPredefined]`.
+	 * @return array{0: string, 1: bool}
+	 */
+	public static function normalizeColorSpaceInternal(string $rawInput): array
 	{
-		$rawInput = $colorSpace instanceof CSSKeywordValue ? $colorSpace->getValue() : $colorSpace;
-		if (strlen($rawInput) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-			throw new CSSParserLimitException(sprintf('CSS color space exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
-		}
 		$raw = CSSSyntaxScanner::trimCssWhitespace($rawInput);
 		$decoded = CSSSyntaxScanner::decodeIdentAt($raw, 0, strlen($raw));
 		if ($decoded !== null && $decoded['end'] === strlen($raw) && str_starts_with($decoded['ident'], '--')) {
-			$normalized = CSSStyleDeclaration::normalizePropertyName($raw);
-			$this->colorSpaceValue = new CSSKeywordValue($normalized);
-			return;
+			return [CSSStyleDeclaration::normalizePropertyName($raw), false];
 		}
 
 		$lower = ($decoded !== null && $decoded['end'] === strlen($raw))
@@ -112,10 +109,21 @@ final class CSSColor extends CSSColorValue
 		if (!isset(self::PREDEFINED_SPACES[$lower])) {
 			throw new InvalidArgumentException('Unsupported CSS color space: ' . $raw);
 		}
-		if ($this->channelsValue !== null && count($this->channelsValue) !== 3) {
-			throw new InvalidArgumentException(sprintf('Predefined color space "%s" requires exactly 3 channels.', $lower));
+
+		return [$lower, true];
+	}
+
+	public function setColorSpace(CSSKeywordValue|string $colorSpace): void
+	{
+		$rawInput = $colorSpace instanceof CSSKeywordValue ? $colorSpace->getValue() : $colorSpace;
+		if (strlen($rawInput) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('CSS color space exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
 		}
-		$this->colorSpaceValue = new CSSKeywordValue($lower);
+		[$normalized, $isPredefined] = self::normalizeColorSpaceInternal($rawInput);
+		if ($isPredefined && $this->channelsValue !== null && count($this->channelsValue) !== 3) {
+			throw new InvalidArgumentException(sprintf('Predefined color space "%s" requires exactly 3 channels.', $normalized));
+		}
+		$this->colorSpaceValue = CSSKeywordValue::fromValidated($normalized);
 	}
 
 	/** @return list<CSSNumericValue|CSSKeywordValue> */
@@ -170,11 +178,6 @@ final class CSSColor extends CSSColorValue
 		$this->alphaValue = $this->alphaValue->clone();
 	}
 
-	public function clone(): static
-	{
-		return clone $this;
-	}
-
 	/** @internal */
 	public function getSpaceNameInternal(): string
 	{
@@ -193,33 +196,60 @@ final class CSSColor extends CSSColorValue
 	/** @internal */
 	public function toBoundedCssTextInternal(?int $maxBytes): string
 	{
-		$space = (string) $this->colorSpaceValue;
-		$used = 7 + strlen($space);
-		if ($maxBytes !== null && $used > $maxBytes) {
-			throw new CSSParserLimitException(sprintf('CSS color value exceeds maximum size of %d bytes.', $maxBytes));
-		}
-		$body = $space;
-		$prev = $space;
-		foreach ($this->channelsValue ?? [] as $channel) {
-			$sep = CSSSyntaxScanner::endsWithBareHexEscape($prev) ? '  ' : ' ';
-			$used += strlen($sep);
-			if ($maxBytes !== null && $used > $maxBytes) {
-				throw new CSSParserLimitException(sprintf('CSS color value exceeds maximum size of %d bytes.', $maxBytes));
-			}
-			$remaining = $maxBytes !== null ? $maxBytes - $used : null;
-			$part = $channel instanceof CSSMathValue
-				? $channel->toBoundedCssTextInternal($remaining)
-				: (string) $channel;
-			$used += strlen($part);
-			if ($maxBytes !== null && $used > $maxBytes) {
-				throw new CSSParserLimitException(sprintf('CSS color value exceeds maximum size of %d bytes.', $maxBytes));
-			}
-			$body .= $sep . $part;
-			$prev = $part;
-		}
-		$remainingForAlpha = $maxBytes !== null ? $maxBytes - $used : null;
+		return $this->serializeFunctionChannelsBounded('color', $this->channelsValue ?? [], $maxBytes, (string) $this->colorSpaceValue);
+	}
 
-		return 'color(' . $body . $this->formatAlphaSuffixBounded($remainingForAlpha, $maxBytes) . ')';
+	public function toLab(): CSSLab
+	{
+		if ($this->colorSpaceValue->getValue() === 'xyz-d50') {
+			$x50 = self::resolveLinearChannel($this->channelsValue[0], 1.0);
+			$y50 = self::resolveLinearChannel($this->channelsValue[1], 1.0);
+			$z50 = self::resolveLinearChannel($this->channelsValue[2], 1.0);
+			[$l, $a, $b] = self::xyzD50ToLab($x50, $y50, $z50);
+
+			/** @var CSSLab */
+			return self::buildFromFloatsInternal('lab', $l, $a, $b, $this->alphaValue->clone(), CSSColorConversionMeta::extractMissingMask($this));
+		}
+
+		return parent::toLab();
+	}
+
+	public function toLCH(): CSSLCH
+	{
+		if ($this->colorSpaceValue->getValue() === 'xyz-d50') {
+			$x50 = self::resolveLinearChannel($this->channelsValue[0], 1.0);
+			$y50 = self::resolveLinearChannel($this->channelsValue[1], 1.0);
+			$z50 = self::resolveLinearChannel($this->channelsValue[2], 1.0);
+			[$l, $a, $b] = self::xyzD50ToLab($x50, $y50, $z50);
+			$c = hypot($a, $b);
+			$h = $c < 1e-12 ? 0.0 : fmod(rad2deg(atan2($b, $a)) + 360.0, 360.0);
+
+			/** @var CSSLCH */
+			return self::buildFromFloatsInternal('lch', $l, $c, $h, $this->alphaValue->clone(), CSSColorConversionMeta::extractMissingMask($this));
+		}
+
+		return parent::toLCH();
+	}
+
+	protected function toSrgbChannels(): array
+	{
+		$space = $this->colorSpaceValue->getValue();
+		if ($space === 'srgb') {
+			return [
+				self::resolveLinearChannel($this->channelsValue[0], 1.0),
+				self::resolveLinearChannel($this->channelsValue[1], 1.0),
+				self::resolveLinearChannel($this->channelsValue[2], 1.0),
+			];
+		}
+		if ($space === 'srgb-linear') {
+			return [
+				self::linearToSrgb(self::resolveLinearChannel($this->channelsValue[0], 1.0)),
+				self::linearToSrgb(self::resolveLinearChannel($this->channelsValue[1], 1.0)),
+				self::linearToSrgb(self::resolveLinearChannel($this->channelsValue[2], 1.0)),
+			];
+		}
+
+		return parent::toSrgbChannels();
 	}
 
 	protected function toXyzD65(): array
@@ -229,21 +259,11 @@ final class CSSColor extends CSSColorValue
 			throw new InvalidArgumentException(sprintf('Cannot convert custom color space "%s".', $space));
 		}
 
-		$c0 = self::resolveLinearChannel($this->channelsValue[0], 1.0);
-		$c1 = self::resolveLinearChannel($this->channelsValue[1], 1.0);
-		$c2 = self::resolveLinearChannel($this->channelsValue[2], 1.0);
-
-		[$x, $y, $z] = match ($space) {
-			'xyz', 'xyz-d65' => [$c0, $c1, $c2],
-			'xyz-d50' => self::xyzD50ToD65($c0, $c1, $c2),
-			'srgb-linear' => self::linearSrgbToXyzD65($c0, $c1, $c2),
-			'srgb' => self::linearSrgbToXyzD65(self::srgbToLinear($c0), self::srgbToLinear($c1), self::srgbToLinear($c2)),
-			'display-p3' => self::linearDisplayP3ToXyzD65(self::srgbToLinear($c0), self::srgbToLinear($c1), self::srgbToLinear($c2)),
-			'a98-rgb' => self::linearA98ToXyzD65(self::a98ToLinear($c0), self::a98ToLinear($c1), self::a98ToLinear($c2)),
-			'prophoto-rgb' => self::xyzD50ToD65(...self::linearProphotoToXyzD50(self::prophotoToLinear($c0), self::prophotoToLinear($c1), self::prophotoToLinear($c2))),
-			'rec2020' => self::linearRec2020ToXyzD65(self::rec2020ToLinear($c0), self::rec2020ToLinear($c1), self::rec2020ToLinear($c2)),
-		};
-
-		return [$x, $y, $z, $this->alphaValue->clone()];
+		return self::spaceFloatsToXyzD65Internal(
+			$space,
+			self::resolveLinearChannel($this->channelsValue[0], 1.0),
+			self::resolveLinearChannel($this->channelsValue[1], 1.0),
+			self::resolveLinearChannel($this->channelsValue[2], 1.0),
+		);
 	}
 }

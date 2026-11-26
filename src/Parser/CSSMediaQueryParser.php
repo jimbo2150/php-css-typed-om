@@ -41,32 +41,6 @@ final class CSSMediaQueryParser
 		'or' => true,
 	];
 
-	/** @var array<string, true> */
-	private const array ALLOWED_VALUE_FUNCTIONS = [
-		'calc' => true,
-		'min' => true,
-		'max' => true,
-		'clamp' => true,
-		'env' => true,
-		'round' => true,
-		'mod' => true,
-		'rem' => true,
-		'abs' => true,
-		'sign' => true,
-		'sin' => true,
-		'cos' => true,
-		'tan' => true,
-		'asin' => true,
-		'acos' => true,
-		'atan' => true,
-		'atan2' => true,
-		'pow' => true,
-		'sqrt' => true,
-		'hypot' => true,
-		'log' => true,
-		'exp' => true,
-	];
-
 	/**
 	 * Parses and canonically serializes a Media Queries Level 4/5 `<media-query-list>`.
 	 *
@@ -87,20 +61,22 @@ final class CSSMediaQueryParser
 			return [];
 		}
 
-		[$tokens, $pairEnd, $items] = self::tokenizeAndSplitList($mediaText, $options, $browserErrorRecovery);
+		[$tokens, $pairEnd, $items] = CSSSyntaxScanner::tokenizeBracketedInternal(
+			$mediaText,
+			$options,
+			self::MAX_MEDIA_NODES,
+			'Media query',
+			true,
+			$browserErrorRecovery,
+			true,
+			CSSStyleValue::MAX_LIST_ITEMS,
+		);
 
 		$queries = [];
-		foreach ($items as $item) {
-			$start = $item['start'];
-			$end = $item['end'];
-			while ($start < $end && $tokens[$start]['type'] === CSSTokenType::Whitespace) {
-				$start++;
-			}
-			while ($end > $start && $tokens[$end - 1]['type'] === CSSTokenType::Whitespace) {
-				$end--;
-			}
+		foreach ($items as [$start, $end, $hasError]) {
+			CSSSyntaxScanner::trimTokenRange($tokens, $start, $end);
 			if ($start >= $end) {
-				if ($item['hasError'] && !$browserErrorRecovery) {
+				if ($hasError && !$browserErrorRecovery) {
 					throw new InvalidArgumentException('Media query contains disallowed tokens or unclosed comments.');
 				}
 				continue;
@@ -112,7 +88,7 @@ final class CSSMediaQueryParser
 				$pairEnd,
 				$start,
 				$end,
-				$item['hasError'],
+				$hasError,
 				$browserErrorRecovery,
 			);
 		}
@@ -136,19 +112,21 @@ final class CSSMediaQueryParser
 			throw new CSSParserLimitException(sprintf('Media query exceeds maximum size of %d bytes.', $options->maxBytes));
 		}
 
-		[$tokens, $pairEnd, $items] = self::tokenizeAndSplitList($queryText, $options, $browserErrorRecovery);
+		[$tokens, $pairEnd, $items] = CSSSyntaxScanner::tokenizeBracketedInternal(
+			$queryText,
+			$options,
+			self::MAX_MEDIA_NODES,
+			'Media query',
+			true,
+			$browserErrorRecovery,
+			true,
+			CSSStyleValue::MAX_LIST_ITEMS,
+		);
 		if (count($items) > 1) {
 			throw new InvalidArgumentException('A single media query cannot contain top-level commas.');
 		}
-		$item = $items[0] ?? ['start' => 0, 'end' => 0, 'hasError' => false];
-		$start = $item['start'];
-		$end = $item['end'];
-		while ($start < $end && $tokens[$start]['type'] === CSSTokenType::Whitespace) {
-			$start++;
-		}
-		while ($end > $start && $tokens[$end - 1]['type'] === CSSTokenType::Whitespace) {
-			$end--;
-		}
+		[$start, $end, $hasError] = $items[0] ?? [0, 0, false];
+		CSSSyntaxScanner::trimTokenRange($tokens, $start, $end);
 		if ($start >= $end) {
 			throw new InvalidArgumentException('A single non-empty media query is required.');
 		}
@@ -159,118 +137,13 @@ final class CSSMediaQueryParser
 			$pairEnd,
 			$start,
 			$end,
-			$item['hasError'],
+			$hasError,
 			$browserErrorRecovery,
 		);
 	}
 
 	/**
-	 * @return array{
-	 *   0: list<array{type: CSSTokenType, start: int, end: int, value: string, flag: ?string, num: ?float, unit: ?string, repr: ?string}>,
-	 *   1: array<int, int>,
-	 *   2: list<array{start: int, end: int, hasError: bool}>
-	 * }
-	 */
-	private static function tokenizeAndSplitList(
-		string $source,
-		CSSParserOptions $options,
-		bool $browserErrorRecovery,
-	): array {
-		$tokenizer = CSSTokenizer::forParserInternal($source, $options, false, true, 0, null, true);
-		$tokens = [];
-		$pairEnd = [];
-		$openStack = [];
-		$items = [];
-		$itemStart = 0;
-		$itemNonWs = 0;
-		$itemError = false;
-		$totalTokens = 0;
-
-		while (true) {
-			$type = $tokenizer->advanceInternal();
-			if ($tokenizer->commentControlErrorOffsets !== [] || $tokenizer->tokenControlByteOffset !== null) {
-				$itemError = true;
-			}
-			if ($tokenizer->tokenUnclosedCommentOffset !== null) {
-				$itemError = true;
-			}
-			if ($type === CSSTokenType::Eof) {
-				if ($openStack !== []) {
-					$itemError = true;
-				}
-				$items[] = ['start' => $itemStart, 'end' => $totalTokens, 'hasError' => $itemError];
-				if (count($items) > CSSStyleValue::MAX_LIST_ITEMS) {
-					throw new CSSParserLimitException(sprintf('Media query list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
-				}
-				break;
-			}
-
-			if ($totalTokens >= self::MAX_MEDIA_NODES) {
-				throw new CSSParserLimitException(sprintf('Media query exceeds maximum node limit of %d.', self::MAX_MEDIA_NODES));
-			}
-
-			if ($openStack === [] && $type === CSSTokenType::Comma) {
-				$items[] = ['start' => $itemStart, 'end' => $totalTokens, 'hasError' => $itemError];
-				if (count($items) > CSSStyleValue::MAX_LIST_ITEMS) {
-					throw new CSSParserLimitException(sprintf('Media query list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
-				}
-				$itemStart = $totalTokens + 1;
-				$itemNonWs = 0;
-				$itemError = false;
-			} else {
-				if ($type !== CSSTokenType::Whitespace) {
-					$itemNonWs++;
-					if ($itemNonWs > CSSStyleValue::MAX_LIST_ITEMS) {
-						throw new CSSParserLimitException(sprintf('Media query exceeds maximum limit of %d tokens.', CSSStyleValue::MAX_LIST_ITEMS));
-					}
-				}
-				if ($type === CSSTokenType::BadString || $type === CSSTokenType::BadUrl) {
-					$itemError = true;
-				} elseif (!$browserErrorRecovery && $tokenizer->tokenClosedAtEof) {
-					$itemError = true;
-				} elseif ($type === CSSTokenType::Semicolon || $type === CSSTokenType::LeftCurlyBracket || $type === CSSTokenType::RightCurlyBracket) {
-					$itemError = true;
-				}
-
-				if ($type === CSSTokenType::LeftParenthesis || $type === CSSTokenType::Function) {
-					$openStack[] = [$totalTokens, ')'];
-					if ($options->maxDepth !== null && count($openStack) > $options->maxDepth) {
-						throw new CSSParserLimitException(sprintf('Media query exceeds maximum nesting depth of %d.', $options->maxDepth));
-					}
-				} elseif ($type === CSSTokenType::LeftSquareBracket) {
-					$openStack[] = [$totalTokens, ']'];
-					if ($options->maxDepth !== null && count($openStack) > $options->maxDepth) {
-						throw new CSSParserLimitException(sprintf('Media query exceeds maximum nesting depth of %d.', $options->maxDepth));
-					}
-				} elseif ($type === CSSTokenType::RightParenthesis || $type === CSSTokenType::RightSquareBracket) {
-					$closer = $type === CSSTokenType::RightParenthesis ? ')' : ']';
-					if ($openStack !== [] && $openStack[count($openStack) - 1][1] === $closer) {
-						[$openIdx] = array_pop($openStack);
-						$pairEnd[$openIdx] = $totalTokens;
-					} else {
-						$itemError = true;
-					}
-				}
-			}
-
-			$tokens[] = [
-				'type' => $type,
-				'start' => $tokenizer->tokenStart,
-				'end' => $tokenizer->tokenEnd,
-				'value' => $tokenizer->tokenValue,
-				'flag' => $tokenizer->tokenFlag,
-				'num' => $tokenizer->tokenNumericValue,
-				'unit' => $tokenizer->tokenUnit,
-				'repr' => $tokenizer->tokenRepr,
-			];
-			$totalTokens++;
-		}
-
-		return [$tokens, $pairEnd, $items];
-	}
-
-	/**
-	 * @param list<array{type: CSSTokenType, start: int, end: int, value: string, flag: ?string, num: ?float, unit: ?string, repr: ?string}> $tokens
+	 * @param list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}> $tokens
 	 * @param array<int, int> $pairEnd
 	 */
 	private static function parseSingleFromSlice(
@@ -294,14 +167,14 @@ final class CSSMediaQueryParser
 			if ($browserErrorRecovery) {
 				return 'not all';
 			}
-			throw new InvalidArgumentException('Invalid media query: ' . CSSSyntaxScanner::trimCssWhitespace(substr($source, $tokens[$start]['start'], $tokens[$end - 1]['end'] - $tokens[$start]['start'])));
+			throw new InvalidArgumentException('Invalid media query: ' . CSSSyntaxScanner::trimCssWhitespace(substr($source, $tokens[$start][1], $tokens[$end - 1][2] - $tokens[$start][1])));
 		}
 
 		return $result;
 	}
 
 	/**
-	 * @param list<array{type: CSSTokenType, start: int, end: int, value: string, flag: ?string, num: ?float, unit: ?string, repr: ?string}> $tokens
+	 * @param list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}> $tokens
 	 * @param array<int, int> $pairEnd
 	 */
 	private static function parseMediaQueryTokens(
@@ -312,16 +185,16 @@ final class CSSMediaQueryParser
 		int $end,
 	): ?string {
 		$first = $tokens[$start];
-		if ($first['type'] === CSSTokenType::LeftParenthesis) {
+		if ($first[0] === CSSTokenType::LeftParenthesis) {
 			return self::parseConditionIterative($source, $tokens, $pairEnd, $start, $end, true);
 		}
-		if ($first['type'] !== CSSTokenType::Ident) {
+		if ($first[0] !== CSSTokenType::Ident) {
 			return null;
 		}
 
-		$kw = strtolower($first['value']);
+		$kw = strtolower($first[3]);
 		$pos = $start + 1;
-		while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
+		while ($pos < $end && $tokens[$pos][0] === CSSTokenType::Whitespace) {
 			$pos++;
 		}
 
@@ -329,17 +202,17 @@ final class CSSMediaQueryParser
 			if ($pos >= $end) {
 				return null;
 			}
-			if ($tokens[$pos]['type'] === CSSTokenType::LeftParenthesis) {
+			if ($tokens[$pos][0] === CSSTokenType::LeftParenthesis) {
 				return self::parseConditionIterative($source, $tokens, $pairEnd, $start, $end, true);
 			}
-			if ($tokens[$pos]['type'] !== CSSTokenType::Ident) {
+			if ($tokens[$pos][0] !== CSSTokenType::Ident) {
 				return null;
 			}
 			$prefix = 'not ';
 			$typeToken = $tokens[$pos];
 			$pos++;
 		} elseif ($kw === 'only') {
-			if ($pos >= $end || $tokens[$pos]['type'] !== CSSTokenType::Ident) {
+			if ($pos >= $end || $tokens[$pos][0] !== CSSTokenType::Ident) {
 				return null;
 			}
 			$prefix = 'only ';
@@ -350,7 +223,7 @@ final class CSSMediaQueryParser
 			$typeToken = $first;
 		}
 
-		$rawType = $typeToken['value'];
+		$rawType = $typeToken[3];
 		if ($rawType === '' || str_starts_with($rawType, '--')) {
 			return null;
 		}
@@ -358,20 +231,20 @@ final class CSSMediaQueryParser
 		if (isset(self::RESERVED_MEDIA_TYPES[$lowerType])) {
 			return null;
 		}
-		$serializedType = $prefix . CSS::escape($lowerType);
+		$serializedType = $prefix . ($typeToken[7] ? CSS::escape($lowerType) : $lowerType);
 
-		while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
+		while ($pos < $end && $tokens[$pos][0] === CSSTokenType::Whitespace) {
 			$pos++;
 		}
 		if ($pos >= $end) {
 			return $serializedType;
 		}
 
-		if ($tokens[$pos]['type'] !== CSSTokenType::Ident || strtolower($tokens[$pos]['value']) !== 'and') {
+		if ($tokens[$pos][0] !== CSSTokenType::Ident || strtolower($tokens[$pos][3]) !== 'and') {
 			return null;
 		}
 		$pos++;
-		while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
+		while ($pos < $end && $tokens[$pos][0] === CSSTokenType::Whitespace) {
 			$pos++;
 		}
 		if ($pos >= $end) {
@@ -389,7 +262,7 @@ final class CSSMediaQueryParser
 	/**
 	 * Iterative parser for `<media-condition>` and `<media-condition-without-or>`.
 	 *
-	 * @param list<array{type: CSSTokenType, start: int, end: int, value: string, flag: ?string, num: ?float, unit: ?string, repr: ?string}> $tokens
+	 * @param list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}> $tokens
 	 * @param array<int, int> $pairEnd
 	 */
 	private static function parseConditionIterative(
@@ -400,6 +273,23 @@ final class CSSMediaQueryParser
 		int $rootEnd,
 		bool $rootAllowOr,
 	): ?string {
+		// Flat single `(feature: value)` / `(feature)` fast path: skip work-stack & slot allocation.
+		if ($tokens[$rootStart][0] === CSSTokenType::LeftParenthesis && ($pairEnd[$rootStart] ?? null) === ($rootEnd - 1)) {
+			$innerStart = $rootStart + 1;
+			$innerEnd = $rootEnd - 1;
+			CSSSyntaxScanner::trimTokenRange($tokens, $innerStart, $innerEnd);
+			if ($innerStart >= $innerEnd) {
+				return null;
+			}
+			$first = $tokens[$innerStart];
+			if ($first[0] !== CSSTokenType::LeftParenthesis
+				&& !($first[0] === CSSTokenType::Ident && strtolower($first[3]) === 'not')
+			) {
+				$feature = self::parseMediaFeature($source, $tokens, $pairEnd, $innerStart, $innerEnd);
+				return $feature !== null ? '(' . $feature . ')' : null;
+			}
+		}
+
 		$slots = [null];
 		$nextSlot = 1;
 		// Frame: [phase (0=parse, 1=assemble), start, end, allowOr, destSlot, prefix, op, childSlots]
@@ -432,36 +322,29 @@ final class CSSMediaQueryParser
 			}
 
 			[, $start, $end, $allowOr, $destSlot] = $frame;
-			while ($start < $end && $tokens[$start]['type'] === CSSTokenType::Whitespace) {
-				$start++;
-			}
-			while ($end > $start && $tokens[$end - 1]['type'] === CSSTokenType::Whitespace) {
-				$end--;
-			}
+			CSSSyntaxScanner::trimTokenRange($tokens, $start, $end);
 			if ($start >= $end) {
 				return null;
 			}
 
 			// `<media-not> = not <media-in-parens>`
-			if ($tokens[$start]['type'] === CSSTokenType::Ident && strtolower($tokens[$start]['value']) === 'not') {
+			if ($tokens[$start][0] === CSSTokenType::Ident && strtolower($tokens[$start][3]) === 'not') {
 				$pos = $start + 1;
-				while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
+				while ($pos < $end && $tokens[$pos][0] === CSSTokenType::Whitespace) {
 					$pos++;
 				}
-				if ($pos >= $end || $tokens[$pos]['type'] !== CSSTokenType::LeftParenthesis) {
+				if ($pos >= $end || $tokens[$pos][0] !== CSSTokenType::LeftParenthesis) {
 					return null;
 				}
 				$closeIdx = $pairEnd[$pos] ?? null;
 				if ($closeIdx === null || $closeIdx + 1 !== $end) {
 					return null;
 				}
-				$innerStart = $pos + 1;
-				$innerEnd = $closeIdx;
 				$childSlot = $nextSlot++;
 				$slots[$childSlot] = null;
 
 				$stack[] = [1, $start, $end, $allowOr, $destSlot, 'not', '', [$childSlot]];
-				self::pushInParensWork($source, $tokens, $pairEnd, $innerStart, $innerEnd, $childSlot, $slots, $stack);
+				self::pushInParensWork($source, $tokens, $pairEnd, $pos + 1, $closeIdx, $childSlot, $slots, $stack);
 				continue;
 			}
 
@@ -470,7 +353,7 @@ final class CSSMediaQueryParser
 			$expectedOp = '';
 			$children = [];
 			while ($pos < $end) {
-				if ($tokens[$pos]['type'] !== CSSTokenType::LeftParenthesis) {
+				if ($tokens[$pos][0] !== CSSTokenType::LeftParenthesis) {
 					return null;
 				}
 				$closeIdx = $pairEnd[$pos] ?? null;
@@ -482,17 +365,17 @@ final class CSSMediaQueryParser
 				$children[] = [$pos + 1, $closeIdx, $childSlot];
 
 				$pos = $closeIdx + 1;
-				while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
+				while ($pos < $end && $tokens[$pos][0] === CSSTokenType::Whitespace) {
 					$pos++;
 				}
 				if ($pos >= $end) {
 					break;
 				}
 
-				if ($tokens[$pos]['type'] !== CSSTokenType::Ident) {
+				if ($tokens[$pos][0] !== CSSTokenType::Ident) {
 					return null;
 				}
-				$op = strtolower($tokens[$pos]['value']);
+				$op = strtolower($tokens[$pos][3]);
 				if ($op !== 'and' && $op !== 'or') {
 					return null;
 				}
@@ -506,7 +389,7 @@ final class CSSMediaQueryParser
 				}
 
 				$pos++;
-				while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
+				while ($pos < $end && $tokens[$pos][0] === CSSTokenType::Whitespace) {
 					$pos++;
 				}
 				if ($pos >= $end) {
@@ -535,7 +418,7 @@ final class CSSMediaQueryParser
 	}
 
 	/**
-	 * @param list<array{type: CSSTokenType, start: int, end: int, value: string, flag: ?string, num: ?float, unit: ?string, repr: ?string}> $tokens
+	 * @param list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}> $tokens
 	 * @param array<int, int> $pairEnd
 	 * @param array<int, ?string> $slots
 	 * @param list<array<int, mixed>> $stack
@@ -550,24 +433,19 @@ final class CSSMediaQueryParser
 		array &$slots,
 		array &$stack,
 	): bool {
-		while ($innerStart < $innerEnd && $tokens[$innerStart]['type'] === CSSTokenType::Whitespace) {
-			$innerStart++;
-		}
-		while ($innerEnd > $innerStart && $tokens[$innerEnd - 1]['type'] === CSSTokenType::Whitespace) {
-			$innerEnd--;
-		}
+		CSSSyntaxScanner::trimTokenRange($tokens, $innerStart, $innerEnd);
 		if ($innerStart >= $innerEnd) {
 			return false;
 		}
 
 		$first = $tokens[$innerStart];
-		$isNestedCondition = $first['type'] === CSSTokenType::LeftParenthesis;
-		if (!$isNestedCondition && $first['type'] === CSSTokenType::Ident && strtolower($first['value']) === 'not') {
+		$isNestedCondition = $first[0] === CSSTokenType::LeftParenthesis;
+		if (!$isNestedCondition && $first[0] === CSSTokenType::Ident && strtolower($first[3]) === 'not') {
 			$afterNot = $innerStart + 1;
-			while ($afterNot < $innerEnd && $tokens[$afterNot]['type'] === CSSTokenType::Whitespace) {
+			while ($afterNot < $innerEnd && $tokens[$afterNot][0] === CSSTokenType::Whitespace) {
 				$afterNot++;
 			}
-			if ($afterNot >= $innerEnd || $tokens[$afterNot]['type'] !== CSSTokenType::LeftParenthesis) {
+			if ($afterNot >= $innerEnd || $tokens[$afterNot][0] !== CSSTokenType::LeftParenthesis) {
 				return false;
 			}
 			$isNestedCondition = true;
@@ -587,7 +465,7 @@ final class CSSMediaQueryParser
 	}
 
 	/**
-	 * @param list<array{type: CSSTokenType, start: int, end: int, value: string, flag: ?string, num: ?float, unit: ?string, repr: ?string}> $tokens
+	 * @param list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}> $tokens
 	 * @param array<int, int> $pairEnd
 	 */
 	private static function parseMediaFeature(
@@ -597,21 +475,37 @@ final class CSSMediaQueryParser
 		int $start,
 		int $end,
 	): ?string {
-		// Collect non-whitespace top-level indices inside feature parens
+		// Single top-level scan collecting non-ws indices, first colon, and range comparison operators.
 		$nonWs = [];
 		$colonPos = null;
+		$ops = [];
 		$pos = $start;
 		while ($pos < $end) {
 			$tok = $tokens[$pos];
-			if ($tok['type'] === CSSTokenType::Whitespace) {
+			$type = $tok[0];
+			if ($type === CSSTokenType::Whitespace) {
 				$pos++;
 				continue;
 			}
-			if ($tok['type'] === CSSTokenType::Colon) {
+			if ($type === CSSTokenType::Colon) {
 				$colonPos ??= count($nonWs);
+			} elseif ($type === CSSTokenType::Delim) {
+				$ch = $tok[3];
+				if ($ch === '<' || $ch === '>') {
+					if ($pos + 1 < $end && $tokens[$pos + 1][0] === CSSTokenType::Delim && $tokens[$pos + 1][3] === '=') {
+						$ops[] = [$ch . '=', $pos, $pos + 2];
+						$nonWs[] = $pos;
+						$nonWs[] = $pos + 1;
+						$pos += 2;
+						continue;
+					}
+					$ops[] = [$ch, $pos, $pos + 1];
+				} elseif ($ch === '=') {
+					$ops[] = ['=', $pos, $pos + 1];
+				}
 			}
 			$nonWs[] = $pos;
-			if ($tok['type'] === CSSTokenType::Function || $tok['type'] === CSSTokenType::LeftParenthesis || $tok['type'] === CSSTokenType::LeftSquareBracket) {
+			if ($type === CSSTokenType::Function || $type === CSSTokenType::LeftParenthesis || $type === CSSTokenType::LeftSquareBracket) {
 				$close = $pairEnd[$pos] ?? null;
 				if ($close === null || $close >= $end) {
 					return null;
@@ -627,21 +521,20 @@ final class CSSMediaQueryParser
 		}
 
 		// 1. `<mf-boolean>` = `<mf-name>` (including MQ5 `<dashed-ident>`)
-		if (count($nonWs) === 1 && $tokens[$nonWs[0]]['type'] === CSSTokenType::Ident) {
-			return self::serializeFeatureName($tokens[$nonWs[0]]['value'], true);
+		if (count($nonWs) === 1 && $tokens[$nonWs[0]][0] === CSSTokenType::Ident) {
+			return self::serializeFeatureName($tokens[$nonWs[0]][3], $tokens[$nonWs[0]][7], true);
 		}
 
 		// 2. `<mf-plain>` = `<mf-name> : <mf-value>`
 		if ($colonPos !== null) {
-			if ($colonPos !== 1 || $tokens[$nonWs[0]]['type'] !== CSSTokenType::Ident || count($nonWs) < 3) {
+			if ($colonPos !== 1 || $tokens[$nonWs[0]][0] !== CSSTokenType::Ident || count($nonWs) < 3) {
 				return null;
 			}
-			$name = self::serializeFeatureName($tokens[$nonWs[0]]['value'], false);
+			$name = self::serializeFeatureName($tokens[$nonWs[0]][3], $tokens[$nonWs[0]][7], false);
 			if ($name === null) {
 				return null;
 			}
-			$valStart = $nonWs[2];
-			$val = self::parseMediaFeatureValue($source, $tokens, $pairEnd, $valStart, $end);
+			$val = self::parseMediaFeatureValue($source, $tokens, $pairEnd, $nonWs[2], $end);
 			if ($val === null) {
 				return null;
 			}
@@ -649,11 +542,11 @@ final class CSSMediaQueryParser
 			return $name . ': ' . $val;
 		}
 
-		// 3. `<mf-range>`
-		return self::parseMediaFeatureRange($source, $tokens, $pairEnd, $start, $end);
+		// 3. `<mf-range>` using operators captured during the single scan above
+		return self::parseMediaFeatureRange($source, $tokens, $pairEnd, $start, $end, $ops);
 	}
 
-	private static function serializeFeatureName(string $ident, bool $allowDashed): ?string
+	private static function serializeFeatureName(string $ident, bool $hasEscapes, bool $allowDashed): ?string
 	{
 		if ($ident === '') {
 			return null;
@@ -662,19 +555,20 @@ final class CSSMediaQueryParser
 			if (!$allowDashed || strlen($ident) < 3) {
 				return null;
 			}
-			return CSS::escape($ident);
+			return $hasEscapes ? CSS::escape($ident) : $ident;
 		}
 		$lower = strtolower($ident);
 		if (isset(self::RESERVED_FEATURE_KEYWORDS[$lower])) {
 			return null;
 		}
 
-		return CSS::escape($lower);
+		return $hasEscapes ? CSS::escape($lower) : $lower;
 	}
 
 	/**
-	 * @param list<array{type: CSSTokenType, start: int, end: int, value: string, flag: ?string, num: ?float, unit: ?string, repr: ?string}> $tokens
+	 * @param list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}> $tokens
 	 * @param array<int, int> $pairEnd
+	 * @param list<array{0: string, 1: int, 2: int}> $ops
 	 */
 	private static function parseMediaFeatureRange(
 		string $source,
@@ -682,108 +576,70 @@ final class CSSMediaQueryParser
 		array $pairEnd,
 		int $start,
 		int $end,
+		array $ops,
 	): ?string {
-		// Find top-level comparison operators: <, <=, =, >=, >
-		$ops = [];
-		$pos = $start;
-		while ($pos < $end) {
-			$tok = $tokens[$pos];
-			if ($tok['type'] === CSSTokenType::Function || $tok['type'] === CSSTokenType::LeftParenthesis || $tok['type'] === CSSTokenType::LeftSquareBracket) {
-				$close = $pairEnd[$pos] ?? null;
-				if ($close === null || $close >= $end) {
-					return null;
-				}
-				$pos = $close + 1;
-				continue;
-			}
-			if ($tok['type'] === CSSTokenType::Delim) {
-				$ch = $tok['value'];
-				if ($ch === '<' || $ch === '>') {
-					if ($pos + 1 < $end && $tokens[$pos + 1]['type'] === CSSTokenType::Delim && $tokens[$pos + 1]['value'] === '=') {
-						$ops[] = ['op' => $ch . '=', 'start' => $pos, 'end' => $pos + 2];
-						$pos += 2;
-						continue;
-					}
-					$ops[] = ['op' => $ch, 'start' => $pos, 'end' => $pos + 1];
-					$pos++;
-					continue;
-				}
-				if ($ch === '=') {
-					$ops[] = ['op' => '=', 'start' => $pos, 'end' => $pos + 1];
-					$pos++;
-					continue;
-				}
-			}
-			$pos++;
-		}
-
 		$opCount = count($ops);
 		if ($opCount === 1) {
-			$op = $ops[0];
-			$lhsName = self::trySingleFeatureName($tokens, $start, $op['start']);
+			[$opStr, $opStart, $opEnd] = $ops[0];
+			$lhsName = self::trySingleFeatureName($tokens, $start, $opStart);
 			if ($lhsName !== null) {
-				$rhsVal = self::parseMediaFeatureValue($source, $tokens, $pairEnd, $op['end'], $end);
+				$rhsVal = self::parseMediaFeatureValue($source, $tokens, $pairEnd, $opEnd, $end);
 				if ($rhsVal !== null) {
-					return $lhsName . ' ' . $op['op'] . ' ' . $rhsVal;
+					return $lhsName . ' ' . $opStr . ' ' . $rhsVal;
 				}
 			}
-			$rhsName = self::trySingleFeatureName($tokens, $op['end'], $end);
+			$rhsName = self::trySingleFeatureName($tokens, $opEnd, $end);
 			if ($rhsName !== null) {
-				$lhsVal = self::parseMediaFeatureValue($source, $tokens, $pairEnd, $start, $op['start']);
+				$lhsVal = self::parseMediaFeatureValue($source, $tokens, $pairEnd, $start, $opStart);
 				if ($lhsVal !== null) {
-					return $lhsVal . ' ' . $op['op'] . ' ' . $rhsName;
+					return $lhsVal . ' ' . $opStr . ' ' . $rhsName;
 				}
 			}
 			return null;
 		}
 
 		if ($opCount === 2) {
-			$op1 = $ops[0];
-			$op2 = $ops[1];
-			$bothLt = ($op1['op'] === '<' || $op1['op'] === '<=') && ($op2['op'] === '<' || $op2['op'] === '<=');
-			$bothGt = ($op1['op'] === '>' || $op1['op'] === '>=') && ($op2['op'] === '>' || $op2['op'] === '>=');
+			[$op1Str, $op1Start, $op1End] = $ops[0];
+			[$op2Str, $op2Start, $op2End] = $ops[1];
+			$bothLt = ($op1Str === '<' || $op1Str === '<=') && ($op2Str === '<' || $op2Str === '<=');
+			$bothGt = ($op1Str === '>' || $op1Str === '>=') && ($op2Str === '>' || $op2Str === '>=');
 			if (!$bothLt && !$bothGt) {
 				return null;
 			}
 
-			$midName = self::trySingleFeatureName($tokens, $op1['end'], $op2['start']);
+			$midName = self::trySingleFeatureName($tokens, $op1End, $op2Start);
 			if ($midName === null) {
 				return null;
 			}
-			$leftVal = self::parseMediaFeatureValue($source, $tokens, $pairEnd, $start, $op1['start']);
-			$rightVal = self::parseMediaFeatureValue($source, $tokens, $pairEnd, $op2['end'], $end);
+			$leftVal = self::parseMediaFeatureValue($source, $tokens, $pairEnd, $start, $op1Start);
+			$rightVal = self::parseMediaFeatureValue($source, $tokens, $pairEnd, $op2End, $end);
 			if ($leftVal === null || $rightVal === null) {
 				return null;
 			}
 
-			return $leftVal . ' ' . $op1['op'] . ' ' . $midName . ' ' . $op2['op'] . ' ' . $rightVal;
+			return $leftVal . ' ' . $op1Str . ' ' . $midName . ' ' . $op2Str . ' ' . $rightVal;
 		}
 
 		return null;
 	}
 
 	/**
-	 * @param list<array{type: CSSTokenType, start: int, end: int, value: string, flag: ?string, num: ?float, unit: ?string, repr: ?string}> $tokens
+	 * @param list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}> $tokens
 	 */
 	private static function trySingleFeatureName(array $tokens, int $start, int $end): ?string
 	{
-		while ($start < $end && $tokens[$start]['type'] === CSSTokenType::Whitespace) {
-			$start++;
-		}
-		while ($end > $start && $tokens[$end - 1]['type'] === CSSTokenType::Whitespace) {
-			$end--;
-		}
-		if ($end - $start !== 1 || $tokens[$start]['type'] !== CSSTokenType::Ident) {
+		CSSSyntaxScanner::trimTokenRange($tokens, $start, $end);
+		if ($end - $start !== 1 || $tokens[$start][0] !== CSSTokenType::Ident) {
 			return null;
 		}
 
-		return self::serializeFeatureName($tokens[$start]['value'], false);
+		return self::serializeFeatureName($tokens[$start][3], $tokens[$start][7], false);
 	}
 
 	/**
 	 * Parses `<mf-value>` (`<number>`, `<dimension>`, `<ident>`, `<ratio>`, or CSS math/env function).
 	 *
-	 * @param list<array{type: CSSTokenType, start: int, end: int, value: string, flag: ?string, num: ?float, unit: ?string, repr: ?string}> $tokens
+	 * @param list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}> $tokens
 	 * @param array<int, int> $pairEnd
 	 */
 	private static function parseMediaFeatureValue(
@@ -797,12 +653,12 @@ final class CSSMediaQueryParser
 		$pos = $start;
 		while ($pos < $end) {
 			$tok = $tokens[$pos];
-			if ($tok['type'] === CSSTokenType::Whitespace) {
+			if ($tok[0] === CSSTokenType::Whitespace) {
 				$pos++;
 				continue;
 			}
 			$items[] = $pos;
-			if ($tok['type'] === CSSTokenType::Function) {
+			if ($tok[0] === CSSTokenType::Function) {
 				$close = $pairEnd[$pos] ?? null;
 				if ($close === null || $close >= $end) {
 					return null;
@@ -816,27 +672,29 @@ final class CSSMediaQueryParser
 		$count = count($items);
 		if ($count === 1) {
 			$tok = $tokens[$items[0]];
-			if ($tok['type'] === CSSTokenType::Number) {
-				return self::formatNumber($tok['num']);
+			$type = $tok[0];
+			if ($type === CSSTokenType::Number) {
+				return self::formatNumber($tok[5]);
 			}
-			if ($tok['type'] === CSSTokenType::Dimension) {
-				$num = self::formatNumber($tok['num']);
-				$unit = $tok['unit'] ?? '';
+			if ($type === CSSTokenType::Dimension) {
+				$num = self::formatNumber($tok[5]);
+				$unit = $tok[6] ?? '';
 				if ($num === null || $unit === '') {
 					return null;
 				}
-				return $num . CSS::escape(strtolower($unit));
+				$lowerUnit = strtolower($unit);
+				return $num . ($tok[7] ? CSS::escape($lowerUnit) : $lowerUnit);
 			}
-			if ($tok['type'] === CSSTokenType::Ident) {
-				$lower = strtolower($tok['value']);
+			if ($type === CSSTokenType::Ident) {
+				$lower = strtolower($tok[3]);
 				if (isset(self::RESERVED_FEATURE_KEYWORDS[$lower])) {
 					return null;
 				}
-				return CSS::escape($lower);
+				return $tok[7] ? CSS::escape($lower) : $lower;
 			}
-			if ($tok['type'] === CSSTokenType::Function) {
-				$fnLower = strtolower($tok['value']);
-				if (!isset(self::ALLOWED_VALUE_FUNCTIONS[$fnLower])) {
+			if ($type === CSSTokenType::Function) {
+				$fnLower = strtolower($tok[3]);
+				if ($fnLower !== 'env' && !isset(CSSCalcParser::MATH_FUNCTIONS[$fnLower])) {
 					return null;
 				}
 				$closeIdx = $pairEnd[$items[0]] ?? null;
@@ -846,7 +704,7 @@ final class CSSMediaQueryParser
 				$innerStart = $items[0] + 1;
 				$innerEnd = $closeIdx;
 				$rawInner = $innerStart < $innerEnd
-					? substr($source, $tokens[$innerStart]['start'], $tokens[$innerEnd - 1]['end'] - $tokens[$innerStart]['start'])
+					? substr($source, $tokens[$innerStart][1], $tokens[$innerEnd - 1][2] - $tokens[$innerStart][1])
 					: '';
 				$cleanInner = str_contains($rawInner, '/*')
 					? CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($rawInner))
@@ -854,7 +712,7 @@ final class CSSMediaQueryParser
 				if ($cleanInner === '') {
 					return null;
 				}
-				return CSS::escape($fnLower) . '(' . $cleanInner . ')';
+				return $fnLower . '(' . $cleanInner . ')';
 			}
 
 			return null;
@@ -862,13 +720,13 @@ final class CSSMediaQueryParser
 
 		// `<ratio> = <number [0,∞]> / <number [0,∞]>`
 		if ($count === 3
-			&& $tokens[$items[0]]['type'] === CSSTokenType::Number
-			&& $tokens[$items[1]]['type'] === CSSTokenType::Delim
-			&& $tokens[$items[1]]['value'] === '/'
-			&& $tokens[$items[2]]['type'] === CSSTokenType::Number
+			&& $tokens[$items[0]][0] === CSSTokenType::Number
+			&& $tokens[$items[1]][0] === CSSTokenType::Delim
+			&& $tokens[$items[1]][3] === '/'
+			&& $tokens[$items[2]][0] === CSSTokenType::Number
 		) {
-			$n1 = $tokens[$items[0]]['num'];
-			$n2 = $tokens[$items[2]]['num'];
+			$n1 = $tokens[$items[0]][5];
+			$n2 = $tokens[$items[2]][5];
 			if ($n1 === null || $n2 === null || !is_finite($n1) || !is_finite($n2) || $n1 < 0.0 || $n2 < 0.0) {
 				return null;
 			}

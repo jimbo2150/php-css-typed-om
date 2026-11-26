@@ -19,6 +19,7 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 use PHPUnit\Framework\TestCase;
 
 final class CSSColorValueTest extends TestCase
@@ -27,20 +28,26 @@ final class CSSColorValueTest extends TestCase
 	{
 		$hex = CSSColorValue::parse('#ff0000');
 		self::assertInstanceOf(CSSRGB::class, $hex);
+		self::assertInstanceOf(CSSUnitValue::class, $hex->r);
 		self::assertEqualsWithDelta(100.0, $hex->r->value, 1e-9);
 		self::assertSame('percent', $hex->r->unit);
+		self::assertInstanceOf(CSSUnitValue::class, $hex->g);
 		self::assertEqualsWithDelta(0.0, $hex->g->value, 1e-9);
+		self::assertInstanceOf(CSSUnitValue::class, $hex->alpha);
 		self::assertEqualsWithDelta(100.0, $hex->alpha->value, 1e-9);
 		self::assertSame('rgb(100% 0% 0%)', (string) $hex);
 
 		$hexAlpha = CSSColorValue::parse('#0f08');
 		self::assertInstanceOf(CSSRGB::class, $hexAlpha);
+		self::assertInstanceOf(CSSUnitValue::class, $hexAlpha->g);
 		self::assertEqualsWithDelta(100.0, $hexAlpha->g->value, 1e-9);
+		self::assertInstanceOf(CSSUnitValue::class, $hexAlpha->alpha);
 		self::assertEqualsWithDelta((0x88 / 255.0) * 100.0, $hexAlpha->alpha->value, 1e-6);
 
 		// Legacy rgb() 0..255 maps to 0%..100%
 		$legacy = CSSColorValue::parse('rgb(255, 0, 0)');
 		self::assertInstanceOf(CSSRGB::class, $legacy);
+		self::assertInstanceOf(CSSUnitValue::class, $legacy->r);
 		self::assertSame('percent', $legacy->r->unit);
 		self::assertEqualsWithDelta(100.0, $legacy->r->value, 1e-9);
 

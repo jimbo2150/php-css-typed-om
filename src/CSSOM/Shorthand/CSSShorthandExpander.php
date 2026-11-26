@@ -27,6 +27,23 @@ final class CSSShorthandExpander
 		'border-color' => true,
 		'scroll-margin' => true,
 		'scroll-padding' => true,
+		'border-radius' => true,
+	];
+
+	private const array FAST_LINE_SHORTHANDS = [
+		'border' => true,
+		'border-top' => true,
+		'border-right' => true,
+		'border-bottom' => true,
+		'border-left' => true,
+		'border-block-start' => true,
+		'border-block-end' => true,
+		'border-inline-start' => true,
+		'border-inline-end' => true,
+		'border-block' => true,
+		'border-inline' => true,
+		'outline' => true,
+		'column-rule' => true,
 	];
 
 	private const array FAST_PAIR2_SHORTHANDS = [
@@ -54,12 +71,14 @@ final class CSSShorthandExpander
 	/**
 	 * Expands `$trimmedValue` for `$shorthand`.
 	 *
+	 * @param ?array{source: string, components: list<mixed>, hasSubstitution: bool, isCssWideKeyword: bool, hasComments: bool} $preParsed
 	 * @return ?ShorthandExpandResult
 	 */
 	public static function expand(
 		string $shorthand,
 		string $trimmedValue,
 		?CSSParserOptions $options = null,
+		?array $preParsed = null,
 	): ?array {
 		$longhands = CSSShorthandRegistry::getLonghands($shorthand);
 		if ($longhands === null || $trimmedValue === '') {
@@ -86,7 +105,7 @@ final class CSSShorthandExpander
 		}
 
 		$options ??= CSSParserOptions::default();
-		$parsed = CSSValueComponentParser::parse($trimmedValue, $options);
+		$parsed = $preParsed ?? CSSValueComponentParser::parse($trimmedValue, $options);
 		if ($parsed === null) {
 			return null;
 		}
@@ -110,31 +129,22 @@ final class CSSShorthandExpander
 		$hasComments = $parsed['hasComments'];
 		$components = $parsed['components'];
 
-		if (FontShorthandCodec::supports($shorthand)) {
-			return FontShorthandCodec::expand($shorthand, $source, $hasComments, $components, $options);
-		}
-		if (BoxAndLineShorthandCodec::supports($shorthand)) {
-			$expanded = BoxAndLineShorthandCodec::expand($shorthand, $source, $hasComments, $components, $options);
-
-			return $expanded !== null ? ['kind' => 'expanded', 'longhands' => $expanded] : null;
-		}
-		if (BackgroundAndMaskShorthandCodec::supports($shorthand)) {
-			$expanded = BackgroundAndMaskShorthandCodec::expand($shorthand, $source, $hasComments, $components, $options);
-
-			return $expanded !== null ? ['kind' => 'expanded', 'longhands' => $expanded] : null;
-		}
-		if (GridShorthandCodec::supports($shorthand)) {
-			$expanded = GridShorthandCodec::expand($shorthand, $source, $hasComments, $components, $options);
-
-			return $expanded !== null ? ['kind' => 'expanded', 'longhands' => $expanded] : null;
-		}
-		if (LayeredTimingShorthandCodec::supports($shorthand)) {
-			$expanded = LayeredTimingShorthandCodec::expand($shorthand, $source, $hasComments, $components, $options);
-
-			return $expanded !== null ? ['kind' => 'expanded', 'longhands' => $expanded] : null;
-		}
-
-		return null;
+		return match (CSSShorthandRegistry::getCodecInternal($shorthand)) {
+			'font' => FontShorthandCodec::expand($shorthand, $source, $hasComments, $components, $options),
+			'box' => ($expanded = BoxAndLineShorthandCodec::expand($shorthand, $source, $hasComments, $components, $options)) !== null
+				? ['kind' => 'expanded', 'longhands' => $expanded]
+				: null,
+			'bg' => ($expanded = BackgroundAndMaskShorthandCodec::expand($shorthand, $source, $hasComments, $components, $options)) !== null
+				? ['kind' => 'expanded', 'longhands' => $expanded]
+				: null,
+			'grid' => ($expanded = GridShorthandCodec::expand($shorthand, $source, $hasComments, $components, $options)) !== null
+				? ['kind' => 'expanded', 'longhands' => $expanded]
+				: null,
+			'timing' => ($expanded = LayeredTimingShorthandCodec::expand($shorthand, $source, $hasComments, $components, $options)) !== null
+				? ['kind' => 'expanded', 'longhands' => $expanded]
+				: null,
+			default => null,
+		};
 	}
 
 	/**
@@ -144,22 +154,11 @@ final class CSSShorthandExpander
 	private static function tryFastAsciiExpand(string $shorthand, array $longhands, string $value): ?array
 	{
 		if (isset(self::FAST_BOX4_SHORTHANDS[$shorthand])) {
-			$parts = str_contains($value, ' ') ? array_values(array_filter(explode(' ', $value), static fn (string $p): bool => $p !== '')) : [$value];
-			$count = count($parts);
-			if ($count < 1 || $count > 4) {
-				return null;
-			}
-
-			return match ($count) {
-				1 => [$longhands[0] => $parts[0], $longhands[1] => $parts[0], $longhands[2] => $parts[0], $longhands[3] => $parts[0]],
-				2 => [$longhands[0] => $parts[0], $longhands[1] => $parts[1], $longhands[2] => $parts[0], $longhands[3] => $parts[1]],
-				3 => [$longhands[0] => $parts[0], $longhands[1] => $parts[1], $longhands[2] => $parts[2], $longhands[3] => $parts[1]],
-				4 => [$longhands[0] => $parts[0], $longhands[1] => $parts[1], $longhands[2] => $parts[2], $longhands[3] => $parts[3]],
-			};
+			return BoxAndLineShorthandCodec::expandBox4Values($longhands, ShorthandCodecHelper::splitFlatSpaces($value));
 		}
 
 		if (isset(self::FAST_PAIR2_SHORTHANDS[$shorthand])) {
-			$parts = str_contains($value, ' ') ? array_values(array_filter(explode(' ', $value), static fn (string $p): bool => $p !== '')) : [$value];
+			$parts = ShorthandCodecHelper::splitFlatSpaces($value);
 			$count = count($parts);
 			if ($count === 1) {
 				return [$longhands[0] => $parts[0], $longhands[1] => $parts[0]];
@@ -171,74 +170,129 @@ final class CSSShorthandExpander
 			return null;
 		}
 
-		if ($shorthand === 'border-radius') {
-			$parts = str_contains($value, ' ') ? array_values(array_filter(explode(' ', $value), static fn (string $p): bool => $p !== '')) : [$value];
+		if (isset(self::FAST_LINE_SHORTHANDS[$shorthand])) {
+			$parts = ShorthandCodecHelper::splitFlatSpaces($value);
 			$count = count($parts);
-			if ($count < 1 || $count > 4) {
-				return null;
-			}
-
-			return match ($count) {
-				1 => [$longhands[0] => $parts[0], $longhands[1] => $parts[0], $longhands[2] => $parts[0], $longhands[3] => $parts[0]],
-				2 => [$longhands[0] => $parts[0], $longhands[1] => $parts[1], $longhands[2] => $parts[0], $longhands[3] => $parts[1]],
-				3 => [$longhands[0] => $parts[0], $longhands[1] => $parts[1], $longhands[2] => $parts[2], $longhands[3] => $parts[1]],
-				4 => [$longhands[0] => $parts[0], $longhands[1] => $parts[1], $longhands[2] => $parts[2], $longhands[3] => $parts[3]],
-			};
-		}
-
-		if ($shorthand === 'border' || $shorthand === 'border-top' || $shorthand === 'border-right' || $shorthand === 'border-bottom' || $shorthand === 'border-left') {
-			$parts = str_contains($value, ' ') ? array_values(array_filter(explode(' ', $value), static fn (string $p): bool => $p !== '')) : [$value];
-			if (count($parts) < 1 || count($parts) > 3) {
+			if ($count < 1 || $count > 3) {
 				return null;
 			}
 			$w = null;
 			$s = null;
 			$c = null;
+			$isOutline = $shorthand === 'outline';
 			foreach ($parts as $p) {
 				$lower = strtolower($p);
 				if ($s === null && isset(ShorthandCodecHelper::LINE_STYLES[$lower])) {
 					$s = $p;
 				} elseif ($w === null && self::isFastFlatLineWidth($p, $lower)) {
 					$w = $p;
-				} elseif ($c === null && self::isFastFlatColor($p, $lower)) {
+				} elseif ($c === null && (($isOutline && ($lower === 'auto' || $lower === 'invert')) || self::isFastFlatColor($p, $lower))) {
 					$c = $p;
 				} else {
 					return null;
 				}
 			}
-			$wVal = $w ?? 'medium';
-			$sVal = $s ?? 'none';
-			$cVal = $c ?? 'currentcolor';
-			if ($shorthand === 'border') {
-				return [
-					'border-top-width' => $wVal,
-					'border-right-width' => $wVal,
-					'border-bottom-width' => $wVal,
-					'border-left-width' => $wVal,
-					'border-top-style' => $sVal,
-					'border-right-style' => $sVal,
-					'border-bottom-style' => $sVal,
-					'border-left-style' => $sVal,
-					'border-top-color' => $cVal,
-					'border-right-color' => $cVal,
-					'border-bottom-color' => $cVal,
-					'border-left-color' => $cVal,
-					'border-image-source' => 'none',
-					'border-image-slice' => '100%',
-					'border-image-width' => '1',
-					'border-image-outset' => '0',
-					'border-image-repeat' => 'stretch',
-				];
-			}
 
-			return [
-				$longhands[0] => $wVal,
-				$longhands[1] => $sVal,
-				$longhands[2] => $cVal,
-			];
+			return BoxAndLineShorthandCodec::buildLineLonghands(
+				$shorthand,
+				$longhands,
+				$w ?? 'medium',
+				$s ?? 'none',
+				$c ?? ($isOutline ? 'auto' : 'currentcolor'),
+			);
+		}
+
+		if ($shorthand === 'flex') {
+			return self::tryFastFlatFlex(ShorthandCodecHelper::splitFlatSpaces($value));
 		}
 
 		return null;
+	}
+
+	/**
+	 * @param list<string> $parts
+	 * @return ?array<string, string>
+	 */
+	private static function tryFastFlatFlex(array $parts): ?array
+	{
+		$count = count($parts);
+		if ($count === 1) {
+			$p0 = $parts[0];
+			$lower = strtolower($p0);
+			if ($lower === 'none') {
+				return ['flex-grow' => '0', 'flex-shrink' => '0', 'flex-basis' => 'auto'];
+			}
+			if ($lower === 'auto') {
+				return ['flex-grow' => '1', 'flex-shrink' => '1', 'flex-basis' => 'auto'];
+			}
+			if (self::isFastFlatNonNegNumber($p0)) {
+				return ['flex-grow' => $p0, 'flex-shrink' => '1', 'flex-basis' => '0%'];
+			}
+			if (self::isFastFlatFlexBasis($p0, $lower)) {
+				return ['flex-grow' => '1', 'flex-shrink' => '1', 'flex-basis' => $p0];
+			}
+
+			return null;
+		}
+
+		if ($count === 2) {
+			[$p0, $p1] = $parts;
+			$g0 = self::isFastFlatNonNegNumber($p0);
+			$g1 = self::isFastFlatNonNegNumber($p1);
+			if ($g0 && $g1) {
+				return ['flex-grow' => $p0, 'flex-shrink' => $p1, 'flex-basis' => '0%'];
+			}
+			if ($g0 && self::isFastFlatFlexBasis($p1, strtolower($p1))) {
+				return ['flex-grow' => $p0, 'flex-shrink' => '1', 'flex-basis' => $p1];
+			}
+			if ($g1 && self::isFastFlatFlexBasis($p0, strtolower($p0))) {
+				return ['flex-grow' => $p1, 'flex-shrink' => '1', 'flex-basis' => $p0];
+			}
+
+			return null;
+		}
+
+		if ($count === 3) {
+			[$p0, $p1, $p2] = $parts;
+			$g0 = self::isFastFlatNonNegNumber($p0);
+			$g1 = self::isFastFlatNonNegNumber($p1);
+			$g2 = self::isFastFlatNonNegNumber($p2);
+			if ($g0 && $g1 && self::isFastFlatFlexBasis($p2, strtolower($p2))) {
+				return ['flex-grow' => $p0, 'flex-shrink' => $p1, 'flex-basis' => $p2];
+			}
+			if ($g1 && $g2 && self::isFastFlatFlexBasis($p0, strtolower($p0))) {
+				return ['flex-grow' => $p1, 'flex-shrink' => $p2, 'flex-basis' => $p0];
+			}
+		}
+
+		return null;
+	}
+
+	private static function isFastFlatNonNegNumber(string $raw): bool
+	{
+		$len = strlen($raw);
+		if ($len === 0 || strspn($raw, '0123456789.') !== $len || $raw[$len - 1] === '.') {
+			return false;
+		}
+
+		return is_numeric($raw);
+	}
+
+	private static function isFastFlatFlexBasis(string $raw, string $lower): bool
+	{
+		if ($lower === 'auto' || $lower === 'content' || $lower === 'max-content' || $lower === 'min-content' || $lower === 'fit-content') {
+			return true;
+		}
+		if ($raw === '0') {
+			return true;
+		}
+		$numLen = strspn($raw, '0123456789.');
+		if ($numLen === 0 || $numLen === strlen($raw) || $raw[$numLen - 1] === '.' || !is_numeric(substr($raw, 0, $numLen))) {
+			return false;
+		}
+		$unit = strtolower(substr($raw, $numLen));
+
+		return $unit === '%' || CSSDataTypeMatcher::isKnownLengthUnitInternal($unit);
 	}
 
 	private static function isFastFlatLineWidth(string $raw, string $lower): bool

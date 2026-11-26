@@ -29,15 +29,18 @@ final class CSSPropertyRule extends CSSAtRule
 		private bool $hasEmptyInitialValue = false,
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 	) {
-		self::assertValidMaxBytesInternal($maxBytes);
-		if ($maxBytes !== null && strlen($name) > $maxBytes) {
-			throw new CSSParserLimitException(sprintf('CSS @property name exceeds maximum size of %d bytes.', $maxBytes));
-		}
-		$normalized = CSSStyleDeclaration::normalizePropertyName($name);
-		if (!str_starts_with($normalized, '--')) {
-			throw new InvalidArgumentException('@property requires a custom property name starting with "--".');
-		}
-		parent::__construct('property', $normalized, $descriptors, true, $maxBytes);
+		$normalized = self::validateDashedIdentInternal(
+			$name,
+			$maxBytes,
+			'CSS @property name',
+			'@property requires a custom property name starting with "--".',
+		);
+		$this->initAtRuleInternal('property', $normalized, $descriptors, true, $maxBytes);
+	}
+
+	public function validatesDescriptorPropertyValuesInternal(): bool
+	{
+		return false;
 	}
 
 	public function getNameText(): string
@@ -59,20 +62,11 @@ final class CSSPropertyRule extends CSSAtRule
 
 	public function getSyntax(): string
 	{
-		$raw = CSSSyntaxScanner::trimCssWhitespace($this->styleDeclaration?->getPropertyValue('syntax') ?? '');
-		if (str_contains($raw, '/*')) {
-			$raw = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($raw));
-		}
-		$len = strlen($raw);
-		if ($len >= 2 && ($raw[0] === '"' || $raw[0] === "'")) {
-			$valid = false;
-			$end = CSSSyntaxScanner::scanQuotedStringEnd($raw, 0, $len, $valid);
-			if ($valid && $end === $len - 1) {
-				return substr($raw, 1, -1);
-			}
-		}
+		$raw = CSSSyntaxScanner::trimCssWhitespace(
+			CSSSyntaxScanner::stripCommentsIfPresent($this->styleDeclaration?->getPropertyValue('syntax') ?? ''),
+		);
 
-		return $raw;
+		return CSSSyntaxScanner::unwrapQuotedString($raw);
 	}
 
 	public function getInherits(): bool

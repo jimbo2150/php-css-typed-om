@@ -114,15 +114,43 @@ final readonly class CSSSelectorList implements Countable, Stringable
 	}
 
 	/**
-	 * @internal Entry point for `CSSStyleRule` / `CSSParser` supporting browser-mode comment control bytes.
+	 * @internal Canonical-only fast path for `CSSStyleRule` / `CSSParser` skipping AST specificity tree construction.
+	 * @return array{0: string, 1: bool}
 	 */
 	public static function parseForStyleRuleInternal(
 		string $selectorText,
 		?CSSParserOptions $options,
 		bool $allowRelative,
 		bool $allowCommentControlBytes,
-	): self {
-		return self::parseInternal($selectorText, $options, false, $allowRelative, !$allowCommentControlBytes);
+	): array {
+		$prepared = self::prepareSelectorTokens($selectorText, $options, false, !$allowCommentControlBytes);
+		assert($prepared !== null);
+		[$tokens, $pairEnd, $start, $end, $maxDepth] = $prepared;
+
+		$nodeCount = 0;
+		$lists = self::parseSelectorListIterative(
+			$selectorText,
+			$tokens,
+			$pairEnd,
+			$start,
+			$end,
+			false,
+			$allowRelative,
+			$maxDepth,
+			$nodeCount,
+			true,
+		);
+
+		$texts = [];
+		$hasLeading = false;
+		foreach ($lists[0] as $complex) {
+			$texts[] = $complex['text'];
+			if ($complex['leadingCombinator'] !== '') {
+				$hasLeading = true;
+			}
+		}
+
+		return [implode(', ', $texts), $hasLeading];
 	}
 
 	/** @return list<string> Canonically serialized complex selectors */
@@ -211,19 +239,36 @@ final readonly class CSSSelectorList implements Countable, Stringable
 		return 0;
 	}
 
-	private static function parseInternal(
+	/**
+	 * @return ?array{
+	 *   0: list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}>,
+	 *   1: array<int, int>,
+	 *   2: int,
+	 *   3: int,
+	 *   4: ?int
+	 * }
+	 */
+	private static function prepareSelectorTokens(
 		string $selectorText,
 		?CSSParserOptions $options,
 		bool $forgiving,
-		bool $relative,
-		bool $checkCommentControlBytes = true,
-	): self {
+		bool $checkCommentControlBytes,
+	): ?array {
 		$options ??= CSSParserOptions::default();
 		if ($options->maxBytes !== null && strlen($selectorText) > $options->maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS selector exceeds maximum size of %d bytes.', $options->maxBytes));
 		}
 
-		[$tokens, $pairEnd, $hasControl, $hasUnclosed] = self::tokenizeSelector($selectorText, $options, $checkCommentControlBytes);
+		[$tokens, $pairEnd, , $hasControl, $hasUnclosed] = CSSSyntaxScanner::tokenizeBracketedInternal(
+			$selectorText,
+			$options,
+			self::MAX_SELECTOR_NODES,
+			'CSS selector',
+			$checkCommentControlBytes,
+			false,
+			false,
+			CSSStyleValue::MAX_LIST_ITEMS,
+		);
 		if ($hasControl) {
 			throw new InvalidArgumentException('CSS selector contains disallowed control characters.');
 		}
@@ -231,22 +276,31 @@ final readonly class CSSSelectorList implements Countable, Stringable
 			throw new InvalidArgumentException('CSS selector contains unclosed string, url, comment, or delimiter.');
 		}
 
-		$tokenCount = count($tokens);
 		$start = 0;
-		$end = $tokenCount;
-		while ($start < $end && $tokens[$start]['type'] === CSSTokenType::Whitespace) {
-			$start++;
-		}
-		while ($end > $start && $tokens[$end - 1]['type'] === CSSTokenType::Whitespace) {
-			$end--;
-		}
-
+		$end = count($tokens);
+		CSSSyntaxScanner::trimTokenRange($tokens, $start, $end);
 		if ($start >= $end) {
 			if ($forgiving) {
-				return new self([], '', false);
+				return null;
 			}
 			throw new InvalidArgumentException('CSS selector list cannot be empty.');
 		}
+
+		return [$tokens, $pairEnd, $start, $end, $options->maxDepth];
+	}
+
+	private static function parseInternal(
+		string $selectorText,
+		?CSSParserOptions $options,
+		bool $forgiving,
+		bool $relative,
+		bool $checkCommentControlBytes = true,
+	): self {
+		$prepared = self::prepareSelectorTokens($selectorText, $options, $forgiving, $checkCommentControlBytes);
+		if ($prepared === null) {
+			return new self([], '', false);
+		}
+		[$tokens, $pairEnd, $start, $end, $maxDepth] = $prepared;
 
 		$nodeCount = 0;
 		$lists = self::parseSelectorListIterative(
@@ -257,8 +311,9 @@ final readonly class CSSSelectorList implements Countable, Stringable
 			$end,
 			$forgiving,
 			$relative,
-			$options->maxDepth,
+			$maxDepth,
 			$nodeCount,
+			false,
 		);
 
 		$rootComplexes = $lists[0];
@@ -275,90 +330,9 @@ final readonly class CSSSelectorList implements Countable, Stringable
 	}
 
 	/**
-	 * @return array{
-	 *   0: list<array{type: CSSTokenType, start: int, end: int, value: string, flag: ?string, num: ?float, unit: ?string, repr: ?string, hasEscapes: bool}>,
-	 *   1: array<int, int>,
-	 *   2: bool,
-	 *   3: bool
-	 * }
-	 */
-	private static function tokenizeSelector(string $source, CSSParserOptions $options, bool $checkCommentControlBytes = true): array
-	{
-		$tokenizer = CSSTokenizer::forParserInternal($source, $options, false, true, 0, null, true);
-		$tokens = [];
-		$pairEnd = [];
-		$openStack = [];
-		$hasControl = false;
-		$hasUnclosed = false;
-		$idx = 0;
-
-		while (true) {
-			$type = $tokenizer->advanceInternal();
-			if (($checkCommentControlBytes && $tokenizer->commentControlErrorOffsets !== [])
-				|| $tokenizer->tokenControlByteOffset !== null
-			) {
-				$hasControl = true;
-			}
-			if ($tokenizer->tokenUnclosedCommentOffset !== null || $tokenizer->tokenClosedAtEof) {
-				$hasUnclosed = true;
-			}
-			if ($type === CSSTokenType::BadString || $type === CSSTokenType::BadUrl) {
-				$hasUnclosed = true;
-			}
-			if ($type === CSSTokenType::Eof) {
-				if ($openStack !== []) {
-					$hasUnclosed = true;
-				}
-				break;
-			}
-
-			if ($idx >= self::MAX_SELECTOR_NODES) {
-				throw new CSSParserLimitException(sprintf('CSS selector exceeds maximum node limit of %d.', self::MAX_SELECTOR_NODES));
-			}
-
-			if ($type === CSSTokenType::Semicolon || $type === CSSTokenType::LeftCurlyBracket || $type === CSSTokenType::RightCurlyBracket) {
-				$hasUnclosed = true;
-			} elseif ($type === CSSTokenType::LeftParenthesis || $type === CSSTokenType::Function) {
-				$openStack[] = [$idx, ')'];
-				if ($options->maxDepth !== null && count($openStack) > $options->maxDepth) {
-					throw new CSSParserLimitException(sprintf('CSS selector exceeds maximum nesting depth of %d.', $options->maxDepth));
-				}
-			} elseif ($type === CSSTokenType::LeftSquareBracket) {
-				$openStack[] = [$idx, ']'];
-				if ($options->maxDepth !== null && count($openStack) > $options->maxDepth) {
-					throw new CSSParserLimitException(sprintf('CSS selector exceeds maximum nesting depth of %d.', $options->maxDepth));
-				}
-			} elseif ($type === CSSTokenType::RightParenthesis || $type === CSSTokenType::RightSquareBracket) {
-				$closer = $type === CSSTokenType::RightParenthesis ? ')' : ']';
-				if ($openStack !== [] && $openStack[count($openStack) - 1][1] === $closer) {
-					[$openIdx] = array_pop($openStack);
-					$pairEnd[$openIdx] = $idx;
-				} else {
-					$hasUnclosed = true;
-				}
-			}
-
-			$tokens[] = [
-				'type' => $type,
-				'start' => $tokenizer->tokenStart,
-				'end' => $tokenizer->tokenEnd,
-				'value' => $tokenizer->tokenValue,
-				'flag' => $tokenizer->tokenFlag,
-				'num' => $tokenizer->tokenNumericValue,
-				'unit' => $tokenizer->tokenUnit,
-				'repr' => $tokenizer->tokenRepr,
-				'hasEscapes' => $tokenizer->tokenHasEscapes,
-			];
-			$idx++;
-		}
-
-		return [$tokens, $pairEnd, $hasControl, $hasUnclosed];
-	}
-
-	/**
 	 * Iterative parser over nested selector-list frames (`:is`, `:where`, `:not`, `:has`, `:nth-child(... of ...)`, `:host`, `::slotted`).
 	 *
-	 * @param list<array{type: CSSTokenType, start: int, end: int, value: string, flag: ?string, num: ?float, repr: ?string, hasEscapes: bool}> $tokens
+	 * @param list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}> $tokens
 	 * @param array<int, int> $pairEnd
 	 * @return array<int, list<array<string, mixed>>>
 	 */
@@ -372,102 +346,66 @@ final readonly class CSSSelectorList implements Countable, Stringable
 		bool $rootRelative,
 		?int $maxDepth,
 		int &$nodeCount,
+		bool $canonicalOnly = false,
 	): array {
 		$listSlots = [];
 		$nextListId = 1;
-		/** @var list<array<string, mixed>> $stack */
-		$stack = [[
-			'phase' => 0,
-			'listId' => 0,
-			'start' => $rootStart,
-			'end' => $rootEnd,
-			'forgiving' => $rootForgiving,
-			'relative' => $rootRelative,
-			'allowPseudoElements' => true,
-			'insideHas' => false,
-			'compoundOnly' => false,
-			'depth' => 0,
-			'forgivingItem' => false,
-			'complexes' => [],
-			'pendingComplex' => null,
-			'pendingChildren' => [],
-			'remainingRanges' => [],
-		]];
+		// Packed frame layout: [0=phase, 1=listId, 2=start, 3=end, 4=forgiving, 5=relative, 6=allowPseudoElements,
+		// 7=insideHas, 8=compoundOnly, 9=depth, 10=forgivingItem, 11=complexes, 12=pendingComplex, 13=remainingRanges]
+		/** @var list<array<int, mixed>> $stack */
+		$stack = [[0, 0, $rootStart, $rootEnd, $rootForgiving, $rootRelative, true, false, false, 0, false, [], null, []]];
 
 		while ($stack !== []) {
 			$topIdx = count($stack) - 1;
-			$frame = $stack[$topIdx];
+			$phase = $stack[$topIdx][0];
 
-			if ($frame['phase'] === 0) {
-				if ($maxDepth !== null && $frame['depth'] > $maxDepth) {
-					if ($frame['forgivingItem']) {
+			if ($phase === 0) {
+				if ($maxDepth !== null && $stack[$topIdx][9] > $maxDepth) {
+					if ($stack[$topIdx][10]) {
 						array_pop($stack);
 						continue;
 					}
 					throw new CSSParserLimitException(sprintf('CSS selector exceeds maximum nesting depth of %d.', $maxDepth));
 				}
 
-				$ranges = self::splitCommaRanges($tokens, $pairEnd, $frame['start'], $frame['end']);
+				$ranges = self::splitCommaRanges($tokens, $pairEnd, $stack[$topIdx][2], $stack[$topIdx][3]);
 				if (count($ranges) > CSSStyleValue::MAX_LIST_ITEMS) {
 					throw new CSSParserLimitException(sprintf('CSS selector list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
 				}
-				if ($frame['compoundOnly'] && count($ranges) > 1) {
-					if ($frame['forgivingItem']) {
-						$parentIdx = self::findAbortableForgivingItemFrame($stack, $topIdx);
-						if ($parentIdx !== null) {
-							array_splice($stack, $parentIdx + 1);
-							$stack[$parentIdx]['pendingComplex'] = null;
-							$stack[$parentIdx]['phase'] = 2;
-							continue;
-						}
+				if ($stack[$topIdx][8] && count($ranges) > 1) {
+					if ($stack[$topIdx][10] && self::abortForgivingItem($stack, $topIdx)) {
+						continue;
 					}
 					throw new InvalidArgumentException('Expected a single compound selector.');
 				}
 
-				$stack[$topIdx]['remainingRanges'] = array_reverse($ranges);
-				$stack[$topIdx]['phase'] = 1;
+				$stack[$topIdx][13] = array_reverse($ranges);
+				$stack[$topIdx][0] = 1;
 				continue;
 			}
 
-			if ($frame['phase'] === 1) {
-				if ($frame['remainingRanges'] === []) {
-					if (!$frame['forgiving'] && $frame['complexes'] === []) {
-						if ($frame['forgivingItem']) {
-							$parentIdx = self::findAbortableForgivingItemFrame($stack, $topIdx);
-							if ($parentIdx !== null) {
-								array_splice($stack, $parentIdx + 1);
-								$stack[$parentIdx]['pendingComplex'] = null;
-								$stack[$parentIdx]['phase'] = 2;
-								continue;
-							}
+			if ($phase === 1) {
+				if ($stack[$topIdx][13] === []) {
+					if (!$stack[$topIdx][4] && $stack[$topIdx][11] === []) {
+						if ($stack[$topIdx][10] && self::abortForgivingItem($stack, $topIdx)) {
+							continue;
 						}
 						throw new InvalidArgumentException('CSS selector list cannot be empty.');
 					}
-					$listSlots[$frame['listId']] = $frame['complexes'];
+					$listSlots[$stack[$topIdx][1]] = $stack[$topIdx][11];
 					array_pop($stack);
 					continue;
 				}
 
-				[$cStart, $cEnd] = array_pop($stack[$topIdx]['remainingRanges']);
-				while ($cStart < $cEnd && $tokens[$cStart]['type'] === CSSTokenType::Whitespace) {
-					$cStart++;
-				}
-				while ($cEnd > $cStart && $tokens[$cEnd - 1]['type'] === CSSTokenType::Whitespace) {
-					$cEnd--;
-				}
+				[$cStart, $cEnd] = array_pop($stack[$topIdx][13]);
+				CSSSyntaxScanner::trimTokenRange($tokens, $cStart, $cEnd);
 
 				if ($cStart >= $cEnd) {
-					if ($frame['forgiving']) {
+					if ($stack[$topIdx][4]) {
 						continue;
 					}
-					if ($frame['forgivingItem']) {
-						$parentIdx = self::findAbortableForgivingItemFrame($stack, $topIdx);
-						if ($parentIdx !== null) {
-							array_splice($stack, $parentIdx + 1);
-							$stack[$parentIdx]['pendingComplex'] = null;
-							$stack[$parentIdx]['phase'] = 2;
-							continue;
-						}
+					if ($stack[$topIdx][10] && self::abortForgivingItem($stack, $topIdx)) {
+						continue;
 					}
 					throw new InvalidArgumentException('Empty selector inside CSS selector list.');
 				}
@@ -478,58 +416,57 @@ final readonly class CSSSelectorList implements Countable, Stringable
 					$pairEnd,
 					$cStart,
 					$cEnd,
-					$frame['relative'],
-					$frame['allowPseudoElements'],
-					$frame['insideHas'],
-					$frame['compoundOnly'],
+					$stack[$topIdx][5],
+					$stack[$topIdx][6],
+					$stack[$topIdx][7],
+					$stack[$topIdx][8],
 					$nextListId,
 					$nodeCount,
+					$canonicalOnly,
 				);
 
 				if ($parsed === null) {
-					if ($frame['forgiving']) {
+					if ($stack[$topIdx][4]) {
 						continue;
 					}
-					if ($frame['forgivingItem']) {
-						$parentIdx = self::findAbortableForgivingItemFrame($stack, $topIdx);
-						if ($parentIdx !== null) {
-							array_splice($stack, $parentIdx + 1);
-							$stack[$parentIdx]['pendingComplex'] = null;
-							$stack[$parentIdx]['phase'] = 2;
-							continue;
-						}
+					if ($stack[$topIdx][10] && self::abortForgivingItem($stack, $topIdx)) {
+						continue;
 					}
-					$badSlice = substr($source, $tokens[$cStart]['start'], $tokens[$cEnd - 1]['end'] - $tokens[$cStart]['start']);
+					$badSlice = substr($source, $tokens[$cStart][1], $tokens[$cEnd - 1][2] - $tokens[$cStart][1]);
 					throw new InvalidArgumentException('Invalid CSS selector: ' . $badSlice);
 				}
 
-				$stack[$topIdx]['pendingComplex'] = $parsed['complex'];
-				$stack[$topIdx]['phase'] = 2;
+				if ($canonicalOnly && $parsed['childFrames'] === []) {
+					$stack[$topIdx][11][] = $parsed['complex'];
+					continue;
+				}
+
+				$stack[$topIdx][12] = $parsed['complex'];
+				$stack[$topIdx][0] = 2;
 
 				if ($parsed['childFrames'] !== []) {
-					$childForgivingItem = $frame['forgiving'] || $frame['forgivingItem'];
-					$childDepth = (int) $frame['depth'] + 1;
+					$childForgivingItem = $stack[$topIdx][4] || $stack[$topIdx][10];
+					$childDepth = (int) $stack[$topIdx][9] + 1;
 					if ($maxDepth !== null && $childDepth > $maxDepth) {
 						throw new CSSParserLimitException(sprintf('CSS selector exceeds maximum nesting depth of %d.', $maxDepth));
 					}
 					for ($i = count($parsed['childFrames']) - 1; $i >= 0; $i--) {
 						$cf = $parsed['childFrames'][$i];
 						$stack[] = [
-							'phase' => 0,
-							'listId' => $cf['listId'],
-							'start' => $cf['start'],
-							'end' => $cf['end'],
-							'forgiving' => $cf['forgiving'],
-							'relative' => $cf['relative'],
-							'allowPseudoElements' => $cf['allowPseudoElements'],
-							'insideHas' => $cf['insideHas'],
-							'compoundOnly' => $cf['compoundOnly'],
-							'depth' => $childDepth,
-							'forgivingItem' => $childForgivingItem && !$cf['forgiving'],
-							'complexes' => [],
-							'pendingComplex' => null,
-							'pendingChildren' => [],
-							'remainingRanges' => [],
+							0,
+							$cf['listId'],
+							$cf['start'],
+							$cf['end'],
+							$cf['forgiving'],
+							$cf['relative'],
+							$cf['allowPseudoElements'],
+							$cf['insideHas'],
+							$cf['compoundOnly'],
+							$childDepth,
+							$childForgivingItem && !$cf['forgiving'],
+							[],
+							null,
+							[],
 						];
 					}
 				}
@@ -537,11 +474,13 @@ final readonly class CSSSelectorList implements Countable, Stringable
 			}
 
 			// phase === 2: finalize pending complex selector with resolved child lists
-			$pending = $frame['pendingComplex'];
-			$stack[$topIdx]['pendingComplex'] = null;
-			$stack[$topIdx]['phase'] = 1;
+			$pending = $stack[$topIdx][12];
+			$stack[$topIdx][12] = null;
+			$stack[$topIdx][0] = 1;
 			if ($pending !== null) {
-				$stack[$topIdx]['complexes'][] = self::finalizeComplexSelector($pending, $listSlots);
+				$stack[$topIdx][11][] = $canonicalOnly
+					? self::finalizeCanonicalComplex($pending, $listSlots)
+					: self::finalizeComplexSelector($pending, $listSlots);
 			}
 		}
 
@@ -549,21 +488,24 @@ final readonly class CSSSelectorList implements Countable, Stringable
 	}
 
 	/**
-	 * @param list<array<string, mixed>> $stack
+	 * @param list<array<int, mixed>> $stack
 	 */
-	private static function findAbortableForgivingItemFrame(array $stack, int $currentIdx): ?int
+	private static function abortForgivingItem(array &$stack, int $currentIdx): bool
 	{
 		for ($i = $currentIdx; $i >= 0; $i--) {
-			if ($stack[$i]['forgiving'] && $stack[$i]['phase'] === 2) {
-				return $i;
+			if ($stack[$i][4] && $stack[$i][0] === 2) {
+				array_splice($stack, $i + 1);
+				$stack[$i][12] = null;
+				$stack[$i][0] = 2;
+				return true;
 			}
 		}
 
-		return null;
+		return false;
 	}
 
 	/**
-	 * @param list<array{type: CSSTokenType, start: int, end: int, value: string, flag: ?string, num: ?float, repr: ?string, hasEscapes: bool}> $tokens
+	 * @param list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}> $tokens
 	 * @param array<int, int> $pairEnd
 	 * @return list<array{0: int, 1: int}>
 	 */
@@ -573,13 +515,13 @@ final readonly class CSSSelectorList implements Countable, Stringable
 		$segStart = $start;
 		$pos = $start;
 		while ($pos < $end) {
-			$tok = $tokens[$pos];
-			if ($tok['type'] === CSSTokenType::LeftParenthesis || $tok['type'] === CSSTokenType::Function || $tok['type'] === CSSTokenType::LeftSquareBracket) {
+			$tokType = $tokens[$pos][0];
+			if ($tokType === CSSTokenType::LeftParenthesis || $tokType === CSSTokenType::Function || $tokType === CSSTokenType::LeftSquareBracket) {
 				$close = $pairEnd[$pos] ?? null;
 				$pos = ($close !== null && $close < $end) ? $close + 1 : $end;
 				continue;
 			}
-			if ($tok['type'] === CSSTokenType::Comma) {
+			if ($tokType === CSSTokenType::Comma) {
 				$ranges[] = [$segStart, $pos];
 				$segStart = $pos + 1;
 			}
@@ -591,7 +533,7 @@ final readonly class CSSSelectorList implements Countable, Stringable
 	}
 
 	/**
-	 * @param list<array{type: CSSTokenType, start: int, end: int, value: string, flag: ?string, num: ?float, repr: ?string, hasEscapes: bool}> $tokens
+	 * @param list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}> $tokens
 	 * @param array<int, int> $pairEnd
 	 * @return ?array{
 	 *   complex: array<string, mixed>,
@@ -610,19 +552,20 @@ final readonly class CSSSelectorList implements Countable, Stringable
 		bool $compoundOnly,
 		int &$nextListId,
 		int &$nodeCount,
+		bool $canonicalOnly = false,
 	): ?array {
 		$pos = $start;
 		$leadingCombinator = '';
 
-		if ($tokens[$pos]['type'] === CSSTokenType::Delim) {
-			$ch = $tokens[$pos]['value'];
+		if ($tokens[$pos][0] === CSSTokenType::Delim) {
+			$ch = $tokens[$pos][3];
 			if ($ch === '>' || $ch === '+' || $ch === '~') {
 				if (!$relative || $compoundOnly) {
 					return null;
 				}
 				$leadingCombinator = $ch;
 				$pos++;
-				while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
+				while ($pos < $end && $tokens[$pos][0] === CSSTokenType::Whitespace) {
 					$pos++;
 				}
 				if ($pos >= $end) {
@@ -647,6 +590,7 @@ final readonly class CSSSelectorList implements Countable, Stringable
 				$nextListId,
 				$nodeCount,
 				$childFrames,
+				$canonicalOnly,
 			);
 			if ($compound === null) {
 				return null;
@@ -661,7 +605,7 @@ final readonly class CSSSelectorList implements Countable, Stringable
 			}
 
 			$hadWs = false;
-			while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
+			while ($pos < $end && $tokens[$pos][0] === CSSTokenType::Whitespace) {
 				$hadWs = true;
 				$pos++;
 			}
@@ -670,19 +614,19 @@ final readonly class CSSSelectorList implements Countable, Stringable
 			}
 
 			$comb = null;
-			if ($tokens[$pos]['type'] === CSSTokenType::Delim) {
-				$ch = $tokens[$pos]['value'];
+			if ($tokens[$pos][0] === CSSTokenType::Delim) {
+				$ch = $tokens[$pos][3];
 				if ($ch === '>' || $ch === '+' || $ch === '~') {
 					$comb = $ch;
 					$pos++;
-				} elseif ($ch === '|' && $pos + 1 < $end && $tokens[$pos + 1]['type'] === CSSTokenType::Delim && $tokens[$pos + 1]['value'] === '|') {
+				} elseif ($ch === '|' && $pos + 1 < $end && $tokens[$pos + 1][0] === CSSTokenType::Delim && $tokens[$pos + 1][3] === '|') {
 					$comb = '||';
 					$pos += 2;
 				}
 			}
 
 			if ($comb !== null) {
-				while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
+				while ($pos < $end && $tokens[$pos][0] === CSSTokenType::Whitespace) {
 					$pos++;
 				}
 				if ($pos >= $end) {
@@ -700,6 +644,38 @@ final readonly class CSSSelectorList implements Countable, Stringable
 			return null;
 		}
 
+		if ($canonicalOnly) {
+			if ($childFrames === []) {
+				$out = $leadingCombinator !== '' ? $leadingCombinator . ' ' : '';
+				foreach ($compounds as $idx => $compound) {
+					if ($idx > 0) {
+						$comb = $combinators[$idx - 1];
+						$out .= $comb === ' ' ? ' ' : ' ' . $comb . ' ';
+					}
+					$out .= $compound['text'];
+				}
+				return [
+					'complex' => ['leadingCombinator' => $leadingCombinator, 'text' => $out],
+					'childFrames' => [],
+				];
+			}
+
+			$parts = $leadingCombinator !== '' ? [$leadingCombinator . ' '] : [];
+			foreach ($compounds as $idx => $compound) {
+				if ($idx > 0) {
+					$comb = $combinators[$idx - 1];
+					$parts[] = $comb === ' ' ? ' ' : ' ' . $comb . ' ';
+				}
+				foreach ($compound['parts'] as $part) {
+					$parts[] = $part;
+				}
+			}
+			return [
+				'complex' => ['leadingCombinator' => $leadingCombinator, 'parts' => $parts],
+				'childFrames' => $childFrames,
+			];
+		}
+
 		return [
 			'complex' => [
 				'leadingCombinator' => $leadingCombinator,
@@ -711,7 +687,95 @@ final readonly class CSSSelectorList implements Countable, Stringable
 	}
 
 	/**
-	 * @param list<array{type: CSSTokenType, start: int, end: int, value: string, flag: ?string, num: ?float, repr: ?string, hasEscapes: bool}> $tokens
+	 * Parses `<wq-name>` or `<type-selector>` (with optional `<ns-prefix>`).
+	 *
+	 * @param list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}> $tokens
+	 * @return ?array{ns: string, name: string, isUniversal: bool, hasExplicitNs: bool}
+	 */
+	private static function parseQualifiedName(array $tokens, int &$pos, int $end, bool $allowUniversal): ?array
+	{
+		if ($pos >= $end) {
+			return null;
+		}
+		$tok = $tokens[$pos];
+		$type = $tok[0];
+
+		if ($type === CSSTokenType::Delim && $tok[3] === '|') {
+			if ($pos + 1 >= $end || ($allowUniversal && $tokens[$pos + 1][0] === CSSTokenType::Delim && $tokens[$pos + 1][3] === '|')) {
+				return null;
+			}
+			$pos++;
+			$target = $tokens[$pos];
+			if ($target[0] === CSSTokenType::Ident) {
+				$pos++;
+				return ['ns' => '|', 'name' => $target[7] ? CSS::escape($target[3]) : $target[3], 'isUniversal' => false, 'hasExplicitNs' => true];
+			}
+			if ($allowUniversal && $target[0] === CSSTokenType::Delim && $target[3] === '*') {
+				$pos++;
+				return ['ns' => '|', 'name' => '*', 'isUniversal' => true, 'hasExplicitNs' => true];
+			}
+			return null;
+		}
+
+		if ($type === CSSTokenType::Delim && $tok[3] === '*') {
+			if ($pos + 1 < $end
+				&& $tokens[$pos + 1][0] === CSSTokenType::Delim
+				&& $tokens[$pos + 1][3] === '|'
+				&& !($pos + 2 < $end && $tokens[$pos + 2][0] === CSSTokenType::Delim && $tokens[$pos + 2][3] === '|')
+			) {
+				if ($pos + 2 >= $end) {
+					return null;
+				}
+				$pos += 2;
+				$target = $tokens[$pos];
+				if ($target[0] === CSSTokenType::Ident) {
+					$pos++;
+					return ['ns' => '*|', 'name' => $target[7] ? CSS::escape($target[3]) : $target[3], 'isUniversal' => false, 'hasExplicitNs' => false];
+				}
+				if ($allowUniversal && $target[0] === CSSTokenType::Delim && $target[3] === '*') {
+					$pos++;
+					return ['ns' => '*|', 'name' => '*', 'isUniversal' => true, 'hasExplicitNs' => false];
+				}
+				return null;
+			}
+			if (!$allowUniversal) {
+				return null;
+			}
+			$pos++;
+			return ['ns' => '', 'name' => '*', 'isUniversal' => true, 'hasExplicitNs' => false];
+		}
+
+		if ($type === CSSTokenType::Ident) {
+			if ($pos + 1 < $end
+				&& $tokens[$pos + 1][0] === CSSTokenType::Delim
+				&& $tokens[$pos + 1][3] === '|'
+				&& !($pos + 2 < $end && $tokens[$pos + 2][0] === CSSTokenType::Delim && $tokens[$pos + 2][3] === '|')
+			) {
+				if ($pos + 2 >= $end) {
+					return null;
+				}
+				$nsPrefix = ($tok[7] ? CSS::escape($tok[3]) : $tok[3]) . '|';
+				$pos += 2;
+				$target = $tokens[$pos];
+				if ($target[0] === CSSTokenType::Ident) {
+					$pos++;
+					return ['ns' => $nsPrefix, 'name' => $target[7] ? CSS::escape($target[3]) : $target[3], 'isUniversal' => false, 'hasExplicitNs' => true];
+				}
+				if ($allowUniversal && $target[0] === CSSTokenType::Delim && $target[3] === '*') {
+					$pos++;
+					return ['ns' => $nsPrefix, 'name' => '*', 'isUniversal' => true, 'hasExplicitNs' => true];
+				}
+				return null;
+			}
+			$pos++;
+			return ['ns' => '', 'name' => $tok[7] ? CSS::escape($tok[3]) : $tok[3], 'isUniversal' => false, 'hasExplicitNs' => false];
+		}
+
+		return null;
+	}
+
+	/**
+	 * @param list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}> $tokens
 	 * @param array<int, int> $pairEnd
 	 * @param list<array{listId: int, start: int, end: int, forgiving: bool, relative: bool, allowPseudoElements: bool, insideHas: bool, compoundOnly: bool}> $childFrames
 	 * @return ?array<string, mixed>
@@ -727,121 +791,73 @@ final readonly class CSSSelectorList implements Countable, Stringable
 		int &$nextListId,
 		int &$nodeCount,
 		array &$childFrames,
+		bool $canonicalOnly = false,
 	): ?array {
-		$typeSelector = null;
-		$subclasses = [];
-		$pseudoElements = [];
-		$afterPseudoElement = false;
+		$typeSelector = self::parseQualifiedName($tokens, $pos, $end, true);
 		$hasAny = false;
-		$hasNesting = false;
-
-		// Optional <type-selector> or universal `*` with optional <ns-prefix>
-		$tok = $tokens[$pos];
-		if ($tok['type'] === CSSTokenType::Ident) {
-			if ($pos + 1 < $end
-				&& $tokens[$pos + 1]['type'] === CSSTokenType::Delim
-				&& $tokens[$pos + 1]['value'] === '|'
-				&& !($pos + 2 < $end && $tokens[$pos + 2]['type'] === CSSTokenType::Delim && $tokens[$pos + 2]['value'] === '|')
-			) {
-				if ($pos + 2 >= $end) {
-					return null;
-				}
-				$nsPrefix = CSS::escape($tok['value']) . '|';
-				$pos += 2;
-				$target = $tokens[$pos];
-				if ($target['type'] === CSSTokenType::Delim && $target['value'] === '*') {
-					$typeSelector = ['ns' => $nsPrefix, 'name' => '*', 'isUniversal' => true, 'hasExplicitNs' => true];
-					$pos++;
-				} elseif ($target['type'] === CSSTokenType::Ident) {
-					$typeSelector = ['ns' => $nsPrefix, 'name' => CSS::escape($target['value']), 'isUniversal' => false, 'hasExplicitNs' => true];
-					$pos++;
-				} else {
-					return null;
-				}
-			} else {
-				$typeSelector = ['ns' => '', 'name' => CSS::escape($tok['value']), 'isUniversal' => false, 'hasExplicitNs' => false];
-				$pos++;
-			}
-			self::incrementNodes($nodeCount);
-			$hasAny = true;
-		} elseif ($tok['type'] === CSSTokenType::Delim && $tok['value'] === '*') {
-			if ($pos + 1 < $end
-				&& $tokens[$pos + 1]['type'] === CSSTokenType::Delim
-				&& $tokens[$pos + 1]['value'] === '|'
-				&& !($pos + 2 < $end && $tokens[$pos + 2]['type'] === CSSTokenType::Delim && $tokens[$pos + 2]['value'] === '|')
-			) {
-				if ($pos + 2 >= $end) {
-					return null;
-				}
-				$pos += 2;
-				$target = $tokens[$pos];
-				if ($target['type'] === CSSTokenType::Delim && $target['value'] === '*') {
-					$typeSelector = ['ns' => '*|', 'name' => '*', 'isUniversal' => true, 'hasExplicitNs' => false];
-					$pos++;
-				} elseif ($target['type'] === CSSTokenType::Ident) {
-					$typeSelector = ['ns' => '*|', 'name' => CSS::escape($target['value']), 'isUniversal' => false, 'hasExplicitNs' => false];
-					$pos++;
-				} else {
-					return null;
-				}
-			} else {
-				$typeSelector = ['ns' => '', 'name' => '*', 'isUniversal' => true, 'hasExplicitNs' => false];
-				$pos++;
-			}
-			self::incrementNodes($nodeCount);
-			$hasAny = true;
-		} elseif ($tok['type'] === CSSTokenType::Delim && $tok['value'] === '|') {
-			// Ensure `|` is NOT `||` column combinator
-			if ($pos + 1 >= $end || ($tokens[$pos + 1]['type'] === CSSTokenType::Delim && $tokens[$pos + 1]['value'] === '|')) {
-				return null;
-			}
-			$pos++;
-			$target = $tokens[$pos];
-			if ($target['type'] === CSSTokenType::Delim && $target['value'] === '*') {
-				$typeSelector = ['ns' => '|', 'name' => '*', 'isUniversal' => true, 'hasExplicitNs' => true];
-				$pos++;
-			} elseif ($target['type'] === CSSTokenType::Ident) {
-				$typeSelector = ['ns' => '|', 'name' => CSS::escape($target['value']), 'isUniversal' => false, 'hasExplicitNs' => true];
-				$pos++;
-			} else {
-				return null;
-			}
+		if ($typeSelector !== null) {
 			self::incrementNodes($nodeCount);
 			$hasAny = true;
 		}
 
+		$subclasses = [];
+		$pseudoElements = [];
+		$canonicalParts = [];
+		$textBuf = '';
+		$hasNonType = false;
+		$afterPseudoElement = false;
+		$hasNesting = false;
+
 		while ($pos < $end) {
 			$cur = $tokens[$pos];
-			$type = $cur['type'];
+			$type = $cur[0];
 
 			if ($type === CSSTokenType::Hash) {
-				if ($afterPseudoElement || $cur['flag'] !== CSSToken::HASH_ID) {
+				if ($afterPseudoElement || $cur[4] !== CSSToken::HASH_ID) {
 					return null;
 				}
 				self::incrementNodes($nodeCount);
-				$subclasses[] = ['kind' => 'id', 'text' => '#' . CSS::escape($cur['value']), 'spec' => [1, 0, 0]];
+				$text = '#' . ($cur[7] ? CSS::escape($cur[3]) : $cur[3]);
+				if ($canonicalOnly) {
+					$textBuf .= $text;
+				} else {
+					$subclasses[] = ['kind' => 'id', 'text' => $text, 'spec' => [1, 0, 0]];
+				}
+				$hasNonType = true;
 				$pos++;
 				$hasAny = true;
 				continue;
 			}
 
-			if ($type === CSSTokenType::Delim && $cur['value'] === '.') {
-				if ($afterPseudoElement || $pos + 1 >= $end || $tokens[$pos + 1]['type'] !== CSSTokenType::Ident) {
+			if ($type === CSSTokenType::Delim && $cur[3] === '.') {
+				if ($afterPseudoElement || $pos + 1 >= $end || $tokens[$pos + 1][0] !== CSSTokenType::Ident) {
 					return null;
 				}
 				self::incrementNodes($nodeCount);
-				$subclasses[] = ['kind' => 'class', 'text' => '.' . CSS::escape($tokens[$pos + 1]['value']), 'spec' => [0, 1, 0]];
+				$clsTok = $tokens[$pos + 1];
+				$text = '.' . ($clsTok[7] ? CSS::escape($clsTok[3]) : $clsTok[3]);
+				if ($canonicalOnly) {
+					$textBuf .= $text;
+				} else {
+					$subclasses[] = ['kind' => 'class', 'text' => $text, 'spec' => [0, 1, 0]];
+				}
+				$hasNonType = true;
 				$pos += 2;
 				$hasAny = true;
 				continue;
 			}
 
-			if ($type === CSSTokenType::Delim && $cur['value'] === '&') {
+			if ($type === CSSTokenType::Delim && $cur[3] === '&') {
 				if ($afterPseudoElement) {
 					return null;
 				}
 				self::incrementNodes($nodeCount);
-				$subclasses[] = ['kind' => 'nesting', 'text' => '&'];
+				if ($canonicalOnly) {
+					$textBuf .= '&';
+				} else {
+					$subclasses[] = ['kind' => 'nesting', 'text' => '&'];
+				}
+				$hasNonType = true;
 				$hasNesting = true;
 				$pos++;
 				$hasAny = true;
@@ -861,7 +877,12 @@ final readonly class CSSSelectorList implements Countable, Stringable
 					return null;
 				}
 				self::incrementNodes($nodeCount);
-				$subclasses[] = ['kind' => 'attr', 'text' => $attrText, 'spec' => [0, 1, 0]];
+				if ($canonicalOnly) {
+					$textBuf .= $attrText;
+				} else {
+					$subclasses[] = ['kind' => 'attr', 'text' => $attrText, 'spec' => [0, 1, 0]];
+				}
+				$hasNonType = true;
 				$pos = $closeIdx + 1;
 				$hasAny = true;
 				continue;
@@ -872,7 +893,7 @@ final readonly class CSSSelectorList implements Countable, Stringable
 					return null;
 				}
 				$next = $tokens[$pos + 1];
-				if ($next['type'] === CSSTokenType::Colon) {
+				if ($next[0] === CSSTokenType::Colon) {
 					if (!$allowPseudoElements || $afterPseudoElement || $pos + 2 >= $end) {
 						return null;
 					}
@@ -889,7 +910,21 @@ final readonly class CSSSelectorList implements Countable, Stringable
 					if ($pe === null) {
 						return null;
 					}
-					$pseudoElements[] = $pe['node'];
+					$node = $pe['node'];
+					if ($canonicalOnly) {
+						if ($node['kind'] === 'pseudo-elem-func') {
+							if ($textBuf !== '') {
+								$canonicalParts[] = $textBuf;
+								$textBuf = '';
+							}
+							$canonicalParts[] = ['::' . $node['name'] . '(', $node['listId'], ')'];
+						} else {
+							$textBuf .= $node['text'];
+						}
+					} else {
+						$pseudoElements[] = $node;
+					}
+					$hasNonType = true;
 					$pos = $pe['nextPos'];
 					$afterPseudoElement = true;
 					$hasAny = true;
@@ -912,14 +947,35 @@ final readonly class CSSSelectorList implements Countable, Stringable
 				if ($pc === null) {
 					return null;
 				}
-				if ($pc['isPseudoElement']) {
-					$pseudoElements[] = $pc['node'];
-					$afterPseudoElement = true;
-				} elseif ($afterPseudoElement) {
-					$pseudoElements[] = $pc['node'];
+				$node = $pc['node'];
+				if ($canonicalOnly) {
+					$kind = $node['kind'];
+					if ($kind === 'pseudo-list' || $kind === 'pseudo-host') {
+						if ($textBuf !== '') {
+							$canonicalParts[] = $textBuf;
+							$textBuf = '';
+						}
+						$canonicalParts[] = [':' . $node['name'] . '(', $node['listId'], ')'];
+					} elseif ($kind === 'pseudo-nth') {
+						if ($textBuf !== '') {
+							$canonicalParts[] = $textBuf;
+							$textBuf = '';
+						}
+						$canonicalParts[] = [':' . $node['name'] . '(' . $node['anb'] . ' of ', $node['listId'], ')'];
+					} else {
+						$textBuf .= $node['text'];
+					}
 				} else {
-					$subclasses[] = $pc['node'];
+					if ($pc['isPseudoElement'] || $afterPseudoElement) {
+						$pseudoElements[] = $node;
+					} else {
+						$subclasses[] = $node;
+					}
 				}
+				if ($pc['isPseudoElement']) {
+					$afterPseudoElement = true;
+				}
+				$hasNonType = true;
 				$pos = $pc['nextPos'];
 				$hasAny = true;
 				continue;
@@ -932,6 +988,27 @@ final readonly class CSSSelectorList implements Countable, Stringable
 			return null;
 		}
 
+		if ($canonicalOnly) {
+			$typeText = '';
+			if ($typeSelector !== null && !($typeSelector['isUniversal'] && !$typeSelector['hasExplicitNs'] && $hasNonType)) {
+				$typeText = $typeSelector['ns'] . $typeSelector['name'];
+			}
+			if ($canonicalParts === []) {
+				return ['text' => $typeText . $textBuf];
+			}
+			if ($typeText !== '') {
+				if (is_string($canonicalParts[0])) {
+					$canonicalParts[0] = $typeText . $canonicalParts[0];
+				} else {
+					array_unshift($canonicalParts, $typeText);
+				}
+			}
+			if ($textBuf !== '') {
+				$canonicalParts[] = $textBuf;
+			}
+			return ['parts' => $canonicalParts];
+		}
+
 		return [
 			'type' => $typeSelector,
 			'subclasses' => $subclasses,
@@ -941,57 +1018,23 @@ final readonly class CSSSelectorList implements Countable, Stringable
 	}
 
 	/**
-	 * @param list<array{type: CSSTokenType, start: int, end: int, value: string, flag: ?string, num: ?float, repr: ?string, hasEscapes: bool}> $tokens
+	 * @param list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}> $tokens
 	 */
 	private static function parseAttributeSelector(array $tokens, int $start, int $end): ?string
 	{
 		$pos = $start;
-		while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
-			$pos++;
-		}
+		CSSSyntaxScanner::trimTokenRange($tokens, $pos, $end);
 		if ($pos >= $end) {
 			return null;
 		}
 
-		// `<wq-name>` = `<ns-prefix>? <ident-token>`
-		$nsPrefix = '';
-		$cur = $tokens[$pos];
-		if ($cur['type'] === CSSTokenType::Delim && $cur['value'] === '|') {
-			if ($pos + 1 >= $end || $tokens[$pos + 1]['type'] !== CSSTokenType::Ident) {
-				return null;
-			}
-			$nsPrefix = '|';
-			$attrName = CSS::escape($tokens[$pos + 1]['value']);
-			$pos += 2;
-		} elseif ($cur['type'] === CSSTokenType::Delim && $cur['value'] === '*') {
-			if ($pos + 2 >= $end
-				|| $tokens[$pos + 1]['type'] !== CSSTokenType::Delim
-				|| $tokens[$pos + 1]['value'] !== '|'
-				|| $tokens[$pos + 2]['type'] !== CSSTokenType::Ident
-			) {
-				return null;
-			}
-			$nsPrefix = '*|';
-			$attrName = CSS::escape($tokens[$pos + 2]['value']);
-			$pos += 3;
-		} elseif ($cur['type'] === CSSTokenType::Ident) {
-			if ($pos + 1 < $end && $tokens[$pos + 1]['type'] === CSSTokenType::Delim && $tokens[$pos + 1]['value'] === '|') {
-				if ($pos + 2 >= $end || $tokens[$pos + 2]['type'] !== CSSTokenType::Ident) {
-					return null;
-				}
-				$nsPrefix = CSS::escape($cur['value']) . '|';
-				$attrName = CSS::escape($tokens[$pos + 2]['value']);
-				$pos += 3;
-			} else {
-				$attrName = CSS::escape($cur['value']);
-				$pos++;
-			}
-		} else {
+		$qName = self::parseQualifiedName($tokens, $pos, $end, false);
+		if ($qName === null) {
 			return null;
 		}
 
-		$wqName = $nsPrefix . $attrName;
-		while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
+		$wqName = $qName['ns'] . $qName['name'];
+		while ($pos < $end && $tokens[$pos][0] === CSSTokenType::Whitespace) {
 			$pos++;
 		}
 		if ($pos >= $end) {
@@ -999,14 +1042,14 @@ final readonly class CSSSelectorList implements Countable, Stringable
 		}
 
 		$matcher = null;
-		if ($tokens[$pos]['type'] === CSSTokenType::Delim) {
-			$c0 = $tokens[$pos]['value'];
+		if ($tokens[$pos][0] === CSSTokenType::Delim) {
+			$c0 = $tokens[$pos][3];
 			if ($c0 === '=') {
 				$matcher = '=';
 				$pos++;
 			} elseif ($pos + 1 < $end
-				&& $tokens[$pos + 1]['type'] === CSSTokenType::Delim
-				&& $tokens[$pos + 1]['value'] === '='
+				&& $tokens[$pos + 1][0] === CSSTokenType::Delim
+				&& $tokens[$pos + 1][3] === '='
 				&& isset(self::ATTR_MATCHERS[$c0 . '='])
 			) {
 				$matcher = $c0 . '=';
@@ -1017,7 +1060,7 @@ final readonly class CSSSelectorList implements Countable, Stringable
 			return null;
 		}
 
-		while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
+		while ($pos < $end && $tokens[$pos][0] === CSSTokenType::Whitespace) {
 			$pos++;
 		}
 		if ($pos >= $end) {
@@ -1025,28 +1068,28 @@ final readonly class CSSSelectorList implements Countable, Stringable
 		}
 
 		$valTok = $tokens[$pos];
-		if ($valTok['type'] !== CSSTokenType::String && $valTok['type'] !== CSSTokenType::Ident) {
+		if ($valTok[0] !== CSSTokenType::String && $valTok[0] !== CSSTokenType::Ident) {
 			return null;
 		}
-		$serializedValue = self::serializeDoubleQuotedString($valTok['value']);
+		$serializedValue = self::serializeDoubleQuotedString($valTok[3]);
 		$pos++;
 
-		while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
+		while ($pos < $end && $tokens[$pos][0] === CSSTokenType::Whitespace) {
 			$pos++;
 		}
 
 		$modifier = '';
 		if ($pos < $end) {
-			if ($tokens[$pos]['type'] !== CSSTokenType::Ident) {
+			if ($tokens[$pos][0] !== CSSTokenType::Ident) {
 				return null;
 			}
-			$modLower = strtolower($tokens[$pos]['value']);
+			$modLower = strtolower($tokens[$pos][3]);
 			if ($modLower !== 'i' && $modLower !== 's') {
 				return null;
 			}
 			$modifier = ' ' . $modLower;
 			$pos++;
-			while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
+			while ($pos < $end && $tokens[$pos][0] === CSSTokenType::Whitespace) {
 				$pos++;
 			}
 			if ($pos < $end) {
@@ -1058,7 +1101,7 @@ final readonly class CSSSelectorList implements Countable, Stringable
 	}
 
 	/**
-	 * @param list<array{type: CSSTokenType, start: int, end: int, value: string, flag: ?string, num: ?float, repr: ?string, hasEscapes: bool}> $tokens
+	 * @param list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}> $tokens
 	 * @param array<int, int> $pairEnd
 	 * @param list<array{listId: int, start: int, end: int, forgiving: bool, relative: bool, allowPseudoElements: bool, insideHas: bool, compoundOnly: bool}> $childFrames
 	 * @return ?array{node: array<string, mixed>, nextPos: int}
@@ -1074,28 +1117,24 @@ final readonly class CSSSelectorList implements Countable, Stringable
 		array &$childFrames,
 	): ?array {
 		$tok = $tokens[$pos];
-		if ($tok['type'] === CSSTokenType::Ident) {
+		if ($tok[0] === CSSTokenType::Ident) {
+			$lower = strtolower($tok[3]);
 			self::incrementNodes($nodeCount);
 			return [
-				'node' => ['kind' => 'pseudo-elem', 'text' => '::' . CSS::escape(strtolower($tok['value'])), 'spec' => [0, 0, 1]],
+				'node' => ['kind' => 'pseudo-elem', 'text' => '::' . ($tok[7] ? CSS::escape($lower) : $lower), 'spec' => [0, 0, 1]],
 				'nextPos' => $pos + 1,
 			];
 		}
 
-		if ($tok['type'] === CSSTokenType::Function) {
+		if ($tok[0] === CSSTokenType::Function) {
 			$closeIdx = $pairEnd[$pos] ?? null;
 			if ($closeIdx === null || $closeIdx >= $end) {
 				return null;
 			}
-			$fnLower = strtolower($tok['value']);
+			$fnLower = strtolower($tok[3]);
 			$innerStart = $pos + 1;
 			$innerEnd = $closeIdx;
-			while ($innerStart < $innerEnd && $tokens[$innerStart]['type'] === CSSTokenType::Whitespace) {
-				$innerStart++;
-			}
-			while ($innerEnd > $innerStart && $tokens[$innerEnd - 1]['type'] === CSSTokenType::Whitespace) {
-				$innerEnd--;
-			}
+			CSSSyntaxScanner::trimTokenRange($tokens, $innerStart, $innerEnd);
 			if ($innerStart >= $innerEnd) {
 				return null;
 			}
@@ -1122,13 +1161,13 @@ final readonly class CSSSelectorList implements Countable, Stringable
 			if ($fnLower === 'part') {
 				$parts = [];
 				for ($i = $innerStart; $i < $innerEnd; $i++) {
-					if ($tokens[$i]['type'] === CSSTokenType::Whitespace) {
+					if ($tokens[$i][0] === CSSTokenType::Whitespace) {
 						continue;
 					}
-					if ($tokens[$i]['type'] !== CSSTokenType::Ident) {
+					if ($tokens[$i][0] !== CSSTokenType::Ident) {
 						return null;
 					}
-					$parts[] = CSS::escape($tokens[$i]['value']);
+					$parts[] = $tokens[$i][7] ? CSS::escape($tokens[$i][3]) : $tokens[$i][3];
 				}
 				if ($parts === []) {
 					return null;
@@ -1140,7 +1179,7 @@ final readonly class CSSSelectorList implements Countable, Stringable
 				];
 			}
 
-			$rawInner = substr($source, $tokens[$innerStart]['start'], $tokens[$innerEnd - 1]['end'] - $tokens[$innerStart]['start']);
+			$rawInner = substr($source, $tokens[$innerStart][1], $tokens[$innerEnd - 1][2] - $tokens[$innerStart][1]);
 			$cleanInner = str_contains($rawInner, '/*')
 				? CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($rawInner))
 				: CSSSyntaxScanner::trimCssWhitespace($rawInner);
@@ -1149,7 +1188,7 @@ final readonly class CSSSelectorList implements Countable, Stringable
 			}
 			self::incrementNodes($nodeCount);
 			return [
-				'node' => ['kind' => 'pseudo-elem', 'text' => '::' . CSS::escape($fnLower) . '(' . $cleanInner . ')', 'spec' => [0, 0, 1]],
+				'node' => ['kind' => 'pseudo-elem', 'text' => '::' . ($tok[7] ? CSS::escape($fnLower) : $fnLower) . '(' . $cleanInner . ')', 'spec' => [0, 0, 1]],
 				'nextPos' => $closeIdx + 1,
 			];
 		}
@@ -1158,7 +1197,7 @@ final readonly class CSSSelectorList implements Countable, Stringable
 	}
 
 	/**
-	 * @param list<array{type: CSSTokenType, start: int, end: int, value: string, flag: ?string, num: ?float, repr: ?string, hasEscapes: bool}> $tokens
+	 * @param list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}> $tokens
 	 * @param array<int, int> $pairEnd
 	 * @param list<array{listId: int, start: int, end: int, forgiving: bool, relative: bool, allowPseudoElements: bool, insideHas: bool, compoundOnly: bool}> $childFrames
 	 * @return ?array{node: array<string, mixed>, nextPos: int, isPseudoElement: bool}
@@ -1177,8 +1216,8 @@ final readonly class CSSSelectorList implements Countable, Stringable
 		array &$childFrames,
 	): ?array {
 		$tok = $tokens[$pos];
-		if ($tok['type'] === CSSTokenType::Ident) {
-			$lower = strtolower($tok['value']);
+		if ($tok[0] === CSSTokenType::Ident) {
+			$lower = strtolower($tok[3]);
 			if (isset(self::LEGACY_PSEUDO_ELEMENTS[$lower])) {
 				if (!$allowPseudoElements || $afterPseudoElement) {
 					return null;
@@ -1193,13 +1232,13 @@ final readonly class CSSSelectorList implements Countable, Stringable
 
 			self::incrementNodes($nodeCount);
 			return [
-				'node' => ['kind' => 'pseudo-class', 'text' => ':' . CSS::escape($lower), 'spec' => [0, 1, 0]],
+				'node' => ['kind' => 'pseudo-class', 'text' => ':' . ($tok[7] ? CSS::escape($lower) : $lower), 'spec' => [0, 1, 0]],
 				'nextPos' => $pos + 1,
 				'isPseudoElement' => false,
 			];
 		}
 
-		if ($tok['type'] !== CSSTokenType::Function) {
+		if ($tok[0] !== CSSTokenType::Function) {
 			return null;
 		}
 		$closeIdx = $pairEnd[$pos] ?? null;
@@ -1207,15 +1246,10 @@ final readonly class CSSSelectorList implements Countable, Stringable
 			return null;
 		}
 
-		$fnLower = strtolower($tok['value']);
+		$fnLower = strtolower($tok[3]);
 		$innerStart = $pos + 1;
 		$innerEnd = $closeIdx;
-		while ($innerStart < $innerEnd && $tokens[$innerStart]['type'] === CSSTokenType::Whitespace) {
-			$innerStart++;
-		}
-		while ($innerEnd > $innerStart && $tokens[$innerEnd - 1]['type'] === CSSTokenType::Whitespace) {
-			$innerEnd--;
-		}
+		CSSSyntaxScanner::trimTokenRange($tokens, $innerStart, $innerEnd);
 
 		if ($fnLower === 'is' || $fnLower === 'where') {
 			$listId = $nextListId++;
@@ -1308,7 +1342,7 @@ final readonly class CSSSelectorList implements Countable, Stringable
 
 		if (isset(self::NTH_CHILD_PSEUDOS[$fnLower]) || isset(self::NTH_SIMPLE_PSEUDOS[$fnLower])) {
 			$allowOf = isset(self::NTH_CHILD_PSEUDOS[$fnLower]);
-			$nth = self::parseNthArgument($tokens, $innerStart, $innerEnd, $allowOf);
+			$nth = self::parseNthArgument($source, $tokens, $innerStart, $innerEnd, $allowOf);
 			if ($nth === null) {
 				return null;
 			}
@@ -1344,7 +1378,7 @@ final readonly class CSSSelectorList implements Countable, Stringable
 		}
 
 		if ($fnLower === 'lang') {
-			$langs = self::parseLangArguments($tokens, $innerStart, $innerEnd);
+			$langs = self::parseCommaArguments($tokens, $innerStart, $innerEnd, true);
 			if ($langs === null) {
 				return null;
 			}
@@ -1357,12 +1391,12 @@ final readonly class CSSSelectorList implements Countable, Stringable
 		}
 
 		if ($fnLower === 'dir' || $fnLower === 'state') {
-			if ($innerEnd - $innerStart !== 1 || $tokens[$innerStart]['type'] !== CSSTokenType::Ident) {
+			if ($innerEnd - $innerStart !== 1 || $tokens[$innerStart][0] !== CSSTokenType::Ident) {
 				return null;
 			}
-			$arg = $fnLower === 'dir'
-				? CSS::escape(strtolower($tokens[$innerStart]['value']))
-				: CSS::escape($tokens[$innerStart]['value']);
+			$argTok = $tokens[$innerStart];
+			$argRaw = $fnLower === 'dir' ? strtolower($argTok[3]) : $argTok[3];
+			$arg = $argTok[7] ? CSS::escape($argRaw) : $argRaw;
 			self::incrementNodes($nodeCount);
 			return [
 				'node' => ['kind' => 'pseudo-class', 'text' => ':' . $fnLower . '(' . $arg . ')', 'spec' => [0, 1, 0]],
@@ -1372,7 +1406,7 @@ final readonly class CSSSelectorList implements Countable, Stringable
 		}
 
 		if ($fnLower === 'active-view-transition-type') {
-			$types = self::parseIdentCommaArguments($tokens, $innerStart, $innerEnd);
+			$types = self::parseCommaArguments($tokens, $innerStart, $innerEnd, false);
 			if ($types === null) {
 				return null;
 			}
@@ -1384,7 +1418,7 @@ final readonly class CSSSelectorList implements Countable, Stringable
 			];
 		}
 
-		$rawInner = substr($source, $tokens[$innerStart]['start'], $tokens[$innerEnd - 1]['end'] - $tokens[$innerStart]['start']);
+		$rawInner = substr($source, $tokens[$innerStart][1], $tokens[$innerEnd - 1][2] - $tokens[$innerStart][1]);
 		$cleanInner = str_contains($rawInner, '/*')
 			? CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($rawInner))
 			: CSSSyntaxScanner::trimCssWhitespace($rawInner);
@@ -1393,7 +1427,7 @@ final readonly class CSSSelectorList implements Countable, Stringable
 		}
 		self::incrementNodes($nodeCount);
 		return [
-			'node' => ['kind' => 'pseudo-class', 'text' => ':' . CSS::escape($fnLower) . '(' . $cleanInner . ')', 'spec' => [0, 1, 0]],
+			'node' => ['kind' => 'pseudo-class', 'text' => ':' . ($tok[7] ? CSS::escape($fnLower) : $fnLower) . '(' . $cleanInner . ')', 'spec' => [0, 1, 0]],
 			'nextPos' => $closeIdx + 1,
 			'isPseudoElement' => false,
 		];
@@ -1402,10 +1436,10 @@ final readonly class CSSSelectorList implements Countable, Stringable
 	/**
 	 * Parses CSS Syntax L3 §6 `<an+b>` optionally followed by `of <selector-list>`.
 	 *
-	 * @param list<array{type: CSSTokenType, start: int, end: int, value: string, flag: ?string, num: ?float, repr: ?string, hasEscapes: bool}> $tokens
+	 * @param list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}> $tokens
 	 * @return ?array{anb: string, ofStart: ?int}
 	 */
-	private static function parseNthArgument(array $tokens, int $start, int $end, bool $allowOf): ?array
+	private static function parseNthArgument(string $source, array $tokens, int $start, int $end, bool $allowOf): ?array
 	{
 		if ($start >= $end) {
 			return null;
@@ -1418,8 +1452,8 @@ final readonly class CSSSelectorList implements Countable, Stringable
 		$needSignOrEnd = false;
 		$needUnsignedAfterMinus = false;
 
-		if ($tok['type'] === CSSTokenType::Ident) {
-			$lower = strtolower($tok['value']);
+		if ($tok[0] === CSSTokenType::Ident) {
+			$lower = strtolower($tok[3]);
 			if ($lower === 'odd') {
 				$a = 2;
 				$b = 1;
@@ -1432,9 +1466,13 @@ final readonly class CSSSelectorList implements Countable, Stringable
 				$a = $lower === '-n' ? -1 : 1;
 				$pos++;
 				$needSignOrEnd = true;
-			} elseif (preg_match('/^(-?)n-(\d+)$/iD', $lower, $m) === 1) {
-				$a = $m[1] === '-' ? -1 : 1;
-				$b = -(int) $m[2];
+			} elseif (str_starts_with($lower, 'n-') && strlen($lower) > 2 && ctype_digit(substr($lower, 2))) {
+				$a = 1;
+				$b = -(int) substr($lower, 2);
+				$pos++;
+			} elseif (str_starts_with($lower, '-n-') && strlen($lower) > 3 && ctype_digit(substr($lower, 3))) {
+				$a = -1;
+				$b = -(int) substr($lower, 3);
 				$pos++;
 			} elseif ($lower === 'n-' || $lower === '-n-') {
 				$a = $lower === '-n-' ? -1 : 1;
@@ -1443,19 +1481,19 @@ final readonly class CSSSelectorList implements Countable, Stringable
 			} else {
 				return null;
 			}
-		} elseif ($tok['type'] === CSSTokenType::Delim && $tok['value'] === '+') {
+		} elseif ($tok[0] === CSSTokenType::Delim && $tok[3] === '+') {
 			$pos++;
-			if ($pos >= $end || $tokens[$pos]['type'] !== CSSTokenType::Ident) {
+			if ($pos >= $end || $tokens[$pos][0] !== CSSTokenType::Ident) {
 				return null;
 			}
-			$lower = strtolower($tokens[$pos]['value']);
+			$lower = strtolower($tokens[$pos][3]);
 			if ($lower === 'n') {
 				$a = 1;
 				$pos++;
 				$needSignOrEnd = true;
-			} elseif (preg_match('/^n-(\d+)$/iD', $lower, $m) === 1) {
+			} elseif (str_starts_with($lower, 'n-') && strlen($lower) > 2 && ctype_digit(substr($lower, 2))) {
 				$a = 1;
-				$b = -(int) $m[1];
+				$b = -(int) substr($lower, 2);
 				$pos++;
 			} elseif ($lower === 'n-') {
 				$a = 1;
@@ -1464,24 +1502,24 @@ final readonly class CSSSelectorList implements Countable, Stringable
 			} else {
 				return null;
 			}
-		} elseif ($tok['type'] === CSSTokenType::Number && $tok['flag'] === CSSToken::NUMERIC_INTEGER) {
-			if (!is_finite((float) $tok['num'])) {
+		} elseif ($tok[0] === CSSTokenType::Number && $tok[4] === CSSToken::NUMERIC_INTEGER) {
+			if (!is_finite((float) $tok[5])) {
 				return null;
 			}
 			$a = 0;
-			$b = (int) $tok['num'];
+			$b = (int) $tok[5];
 			$pos++;
-		} elseif ($tok['type'] === CSSTokenType::Dimension && $tok['flag'] === CSSToken::NUMERIC_INTEGER) {
-			if (!is_finite((float) $tok['num'])) {
+		} elseif ($tok[0] === CSSTokenType::Dimension && $tok[4] === CSSToken::NUMERIC_INTEGER) {
+			if (!is_finite((float) $tok[5])) {
 				return null;
 			}
-			$a = (int) $tok['num'];
-			$unitLower = strtolower($tok['unit'] ?? '');
+			$a = (int) $tok[5];
+			$unitLower = strtolower($tok[6] ?? '');
 			if ($unitLower === 'n') {
 				$pos++;
 				$needSignOrEnd = true;
-			} elseif (preg_match('/^n-(\d+)$/iD', $unitLower, $m) === 1) {
-				$b = -(int) $m[1];
+			} elseif (str_starts_with($unitLower, 'n-') && strlen($unitLower) > 2 && ctype_digit(substr($unitLower, 2))) {
+				$b = -(int) substr($unitLower, 2);
 				$pos++;
 			} elseif ($unitLower === 'n-') {
 				$pos++;
@@ -1494,46 +1532,46 @@ final readonly class CSSSelectorList implements Countable, Stringable
 		}
 
 		if ($needUnsignedAfterMinus) {
-			while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
+			while ($pos < $end && $tokens[$pos][0] === CSSTokenType::Whitespace) {
 				$pos++;
 			}
-			if ($pos >= $end || $tokens[$pos]['type'] !== CSSTokenType::Number || $tokens[$pos]['flag'] !== CSSToken::NUMERIC_INTEGER) {
+			if ($pos >= $end || $tokens[$pos][0] !== CSSTokenType::Number || $tokens[$pos][4] !== CSSToken::NUMERIC_INTEGER) {
 				return null;
 			}
-			$repr = $tokens[$pos]['repr'] ?? '';
-			if ($repr === '' || $repr[0] === '+' || $repr[0] === '-' || !is_finite((float) $tokens[$pos]['num'])) {
+			$c0 = $source[$tokens[$pos][1]] ?? '';
+			if ($c0 === '' || $c0 === '+' || $c0 === '-' || !is_finite((float) $tokens[$pos][5])) {
 				return null;
 			}
-			$b = -(int) $tokens[$pos]['num'];
+			$b = -(int) $tokens[$pos][5];
 			$pos++;
 		} elseif ($needSignOrEnd) {
 			$wsBefore = $pos;
-			while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
+			while ($pos < $end && $tokens[$pos][0] === CSSTokenType::Whitespace) {
 				$pos++;
 			}
 			if ($pos < $end) {
 				$next = $tokens[$pos];
-				if ($next['type'] === CSSTokenType::Number && $next['flag'] === CSSToken::NUMERIC_INTEGER) {
-					$repr = $next['repr'] ?? '';
-					if ($repr === '' || ($repr[0] !== '+' && $repr[0] !== '-') || !is_finite((float) $next['num'])) {
+				if ($next[0] === CSSTokenType::Number && $next[4] === CSSToken::NUMERIC_INTEGER) {
+					$c0 = $source[$next[1]] ?? '';
+					if ($c0 === '' || ($c0 !== '+' && $c0 !== '-') || !is_finite((float) $next[5])) {
 						return null;
 					}
-					$b = (int) $next['num'];
+					$b = (int) $next[5];
 					$pos++;
-				} elseif ($next['type'] === CSSTokenType::Delim && ($next['value'] === '+' || $next['value'] === '-')) {
-					$sign = $next['value'] === '-' ? -1 : 1;
+				} elseif ($next[0] === CSSTokenType::Delim && ($next[3] === '+' || $next[3] === '-')) {
+					$sign = $next[3] === '-' ? -1 : 1;
 					$pos++;
-					while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
+					while ($pos < $end && $tokens[$pos][0] === CSSTokenType::Whitespace) {
 						$pos++;
 					}
-					if ($pos >= $end || $tokens[$pos]['type'] !== CSSTokenType::Number || $tokens[$pos]['flag'] !== CSSToken::NUMERIC_INTEGER) {
+					if ($pos >= $end || $tokens[$pos][0] !== CSSTokenType::Number || $tokens[$pos][4] !== CSSToken::NUMERIC_INTEGER) {
 						return null;
 					}
-					$repr = $tokens[$pos]['repr'] ?? '';
-					if ($repr === '' || $repr[0] === '+' || $repr[0] === '-' || !is_finite((float) $tokens[$pos]['num'])) {
+					$c0 = $source[$tokens[$pos][1]] ?? '';
+					if ($c0 === '' || $c0 === '+' || $c0 === '-' || !is_finite((float) $tokens[$pos][5])) {
 						return null;
 					}
-					$b = $sign * (int) $tokens[$pos]['num'];
+					$b = $sign * (int) $tokens[$pos][5];
 					$pos++;
 				} else {
 					$b = 0;
@@ -1544,17 +1582,17 @@ final readonly class CSSSelectorList implements Countable, Stringable
 			}
 		}
 
-		while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
+		while ($pos < $end && $tokens[$pos][0] === CSSTokenType::Whitespace) {
 			$pos++;
 		}
 
 		$ofStart = null;
 		if ($pos < $end) {
-			if (!$allowOf || $tokens[$pos]['type'] !== CSSTokenType::Ident || strtolower($tokens[$pos]['value']) !== 'of') {
+			if (!$allowOf || $tokens[$pos][0] !== CSSTokenType::Ident || strtolower($tokens[$pos][3]) !== 'of') {
 				return null;
 			}
 			$pos++;
-			while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
+			while ($pos < $end && $tokens[$pos][0] === CSSTokenType::Whitespace) {
 				$pos++;
 			}
 			if ($pos >= $end) {
@@ -1581,36 +1619,36 @@ final readonly class CSSSelectorList implements Countable, Stringable
 	}
 
 	/**
-	 * @param list<array{type: CSSTokenType, start: int, end: int, value: string, flag: ?string, num: ?float, repr: ?string, hasEscapes: bool}> $tokens
+	 * @param list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}> $tokens
 	 * @return ?list<string>
 	 */
-	private static function parseLangArguments(array $tokens, int $start, int $end): ?array
+	private static function parseCommaArguments(array $tokens, int $start, int $end, bool $allowStrings): ?array
 	{
 		$args = [];
 		$pos = $start;
 		while ($pos < $end) {
-			while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
+			while ($pos < $end && $tokens[$pos][0] === CSSTokenType::Whitespace) {
 				$pos++;
 			}
 			if ($pos >= $end) {
 				return null;
 			}
 			$tok = $tokens[$pos];
-			if ($tok['type'] === CSSTokenType::String) {
-				$args[] = self::serializeDoubleQuotedString($tok['value']);
-			} elseif ($tok['type'] === CSSTokenType::Ident) {
-				$args[] = CSS::escape($tok['value']);
+			if ($allowStrings && $tok[0] === CSSTokenType::String) {
+				$args[] = self::serializeDoubleQuotedString($tok[3]);
+			} elseif ($tok[0] === CSSTokenType::Ident) {
+				$args[] = $tok[7] ? CSS::escape($tok[3]) : $tok[3];
 			} else {
 				return null;
 			}
 			$pos++;
-			while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
+			while ($pos < $end && $tokens[$pos][0] === CSSTokenType::Whitespace) {
 				$pos++;
 			}
 			if ($pos >= $end) {
 				break;
 			}
-			if ($tokens[$pos]['type'] !== CSSTokenType::Comma) {
+			if ($tokens[$pos][0] !== CSSTokenType::Comma) {
 				return null;
 			}
 			$pos++;
@@ -1620,35 +1658,29 @@ final readonly class CSSSelectorList implements Countable, Stringable
 	}
 
 	/**
-	 * @param list<array{type: CSSTokenType, start: int, end: int, value: string, flag: ?string, num: ?float, repr: ?string, hasEscapes: bool}> $tokens
-	 * @return ?list<string>
+	 * @param array<string, mixed> $complex
+	 * @param array<int, list<array<string, mixed>>> $listSlots
+	 * @return array{leadingCombinator: string, text: string}
 	 */
-	private static function parseIdentCommaArguments(array $tokens, int $start, int $end): ?array
+	private static function finalizeCanonicalComplex(array $complex, array $listSlots): array
 	{
-		$args = [];
-		$pos = $start;
-		while ($pos < $end) {
-			while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
-				$pos++;
+		$out = '';
+		foreach ($complex['parts'] as $part) {
+			if (is_string($part)) {
+				$out .= $part;
+			} else {
+				$texts = [];
+				foreach ($listSlots[$part[1]] ?? [] as $child) {
+					$texts[] = $child['text'];
+				}
+				$out .= $part[0] . implode(', ', $texts) . $part[2];
 			}
-			if ($pos >= $end || $tokens[$pos]['type'] !== CSSTokenType::Ident) {
-				return null;
-			}
-			$args[] = CSS::escape($tokens[$pos]['value']);
-			$pos++;
-			while ($pos < $end && $tokens[$pos]['type'] === CSSTokenType::Whitespace) {
-				$pos++;
-			}
-			if ($pos >= $end) {
-				break;
-			}
-			if ($tokens[$pos]['type'] !== CSSTokenType::Comma) {
-				return null;
-			}
-			$pos++;
 		}
 
-		return $args !== [] ? $args : null;
+		return [
+			'leadingCombinator' => $complex['leadingCombinator'],
+			'text' => $out,
+		];
 	}
 
 	/**
@@ -1794,21 +1826,17 @@ final readonly class CSSSelectorList implements Countable, Stringable
 			}
 
 			if ($phase === 2) {
-				/** @var array{base: array{0: int, 1: int, 2: int}, childSlots: list<int>} $info */
-				$info = $frame[1];
+				/** @var list<int> $childSlots */
+				$childSlots = $frame[1];
 				$destSlot = $frame[2];
 				$max = [0, 0, 0];
-				foreach ($info['childSlots'] as $cSlot) {
+				foreach ($childSlots as $cSlot) {
 					$cSpec = $slots[$cSlot];
 					if (self::compareSpecificity($cSpec, $max) > 0) {
 						$max = $cSpec;
 					}
 				}
-				$slots[$destSlot] = [
-					$info['base'][0] + $max[0],
-					$info['base'][1] + $max[1],
-					$info['base'][2] + $max[2],
-				];
+				$slots[$destSlot] = $max;
 				continue;
 			}
 
@@ -1838,20 +1866,17 @@ final readonly class CSSSelectorList implements Countable, Stringable
 
 			$stack[] = [1, ['base' => $base, 'childSlots' => $childSlots], $destSlot];
 			for ($i = count($childWork) - 1; $i >= 0; $i--) {
-				[$workKind, $workPayload, $workSlot] = $childWork[$i];
-				if ($workKind === 'list') {
-					/** @var array{base: array{0: int, 1: int, 2: int}, children: list<array<string, mixed>>} $workPayload */
-					$listChildSlots = [];
-					$listSubWork = [];
-					foreach ($workPayload['children'] as $childComplex) {
-						$s = $nextSlot++;
-						$listChildSlots[] = $s;
-						$listSubWork[] = [$childComplex, $s];
-					}
-					$stack[] = [2, ['base' => $workPayload['base'], 'childSlots' => $listChildSlots], $workSlot];
-					for ($j = count($listSubWork) - 1; $j >= 0; $j--) {
-						$stack[] = [0, $listSubWork[$j][0], $listSubWork[$j][1]];
-					}
+				[$childrenList, $workSlot] = $childWork[$i];
+				$listChildSlots = [];
+				$listSubWork = [];
+				foreach ($childrenList as $childComplex) {
+					$s = $nextSlot++;
+					$listChildSlots[] = $s;
+					$listSubWork[] = [$childComplex, $s];
+				}
+				$stack[] = [2, $listChildSlots, $workSlot];
+				for ($j = count($listSubWork) - 1; $j >= 0; $j--) {
+					$stack[] = [0, $listSubWork[$j][0], $listSubWork[$j][1]];
 				}
 			}
 		}
@@ -1864,7 +1889,7 @@ final readonly class CSSSelectorList implements Countable, Stringable
 	 * @param array{0: int, 1: int, 2: int} $parentSpecificity
 	 * @param array{0: int, 1: int, 2: int} $base
 	 * @param list<int> $childSlots
-	 * @param list<array{0: string, 1: mixed, 2: int}> $childWork
+	 * @param list<array{0: list<array<string, mixed>>, 1: int}> $childWork
 	 */
 	private static function collectNodeSpecificityWork(
 		array $node,
@@ -1885,42 +1910,24 @@ final readonly class CSSSelectorList implements Countable, Stringable
 			if ($node['zeroSpec']) {
 				return;
 			}
+			/** @var list<array<string, mixed>> $children */
 			$children = $node['children'] ?? [];
 			if ($children === []) {
 				return;
 			}
 			$slot = $nextSlot++;
 			$childSlots[] = $slot;
-			$childWork[] = ['list', ['base' => [0, 0, 0], 'children' => $children], $slot];
+			$childWork[] = [$children, $slot];
 			return;
 		}
-		if ($kind === 'pseudo-nth') {
-			$base[1]++;
+		if ($kind === 'pseudo-nth' || $kind === 'pseudo-host' || $kind === 'pseudo-elem-func') {
+			$base[$kind === 'pseudo-elem-func' ? 2 : 1]++;
+			/** @var list<array<string, mixed>> $children */
 			$children = $node['children'] ?? [];
 			if ($children !== []) {
 				$slot = $nextSlot++;
 				$childSlots[] = $slot;
-				$childWork[] = ['list', ['base' => [0, 0, 0], 'children' => $children], $slot];
-			}
-			return;
-		}
-		if ($kind === 'pseudo-host') {
-			$base[1]++;
-			$children = $node['children'] ?? [];
-			if ($children !== []) {
-				$slot = $nextSlot++;
-				$childSlots[] = $slot;
-				$childWork[] = ['list', ['base' => [0, 0, 0], 'children' => $children], $slot];
-			}
-			return;
-		}
-		if ($kind === 'pseudo-elem-func') {
-			$base[2]++;
-			$children = $node['children'] ?? [];
-			if ($children !== []) {
-				$slot = $nextSlot++;
-				$childSlots[] = $slot;
-				$childWork[] = ['list', ['base' => [0, 0, 0], 'children' => $children], $slot];
+				$childWork[] = [$children, $slot];
 			}
 			return;
 		}
@@ -1935,6 +1942,10 @@ final readonly class CSSSelectorList implements Countable, Stringable
 	private static function serializeDoubleQuotedString(string $value): string
 	{
 		$len = strlen($value);
+		if (strcspn($value, "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f\"\\") === $len) {
+			return '"' . $value . '"';
+		}
+
 		$out = '"';
 		for ($i = 0; $i < $len; $i++) {
 			$ch = $value[$i];

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
-use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 
 /**
@@ -17,32 +16,31 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
  */
 final class CSSNamespaceRule extends CSSAtRule
 {
+	/** @var ?array{0: string, 1: string} */
+	private ?array $parsedPrelude = null;
+
 	public function __construct(string $prelude, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
 		self::assertValidMaxBytesInternal($maxBytes);
-		if ($maxBytes !== null && strlen($prelude) > $maxBytes) {
-			throw new CSSParserLimitException(sprintf('CSS @namespace rule exceeds maximum size of %d bytes.', $maxBytes));
-		}
-		$trimmed = CSSSyntaxScanner::trimCssWhitespace($prelude);
-		if ($trimmed === '') {
-			throw new InvalidArgumentException('@namespace requires a namespace URI.');
-		}
-		CSSSyntaxScanner::assertValidFragment($trimmed, '@namespace prelude', [';', '{', '}']);
-		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
-			throw new InvalidArgumentException('@namespace requires a namespace URI.');
-		}
-		parent::__construct('namespace', $prelude, null, false, $maxBytes);
+		self::validateNonEmptyFragmentInternal(
+			$prelude,
+			$maxBytes,
+			'CSS @namespace rule',
+			'@namespace requires a namespace URI.',
+			'@namespace prelude',
+		);
+		$this->initAtRuleInternal('namespace', $prelude, null, false, $maxBytes);
 	}
 
 	public function getPrefix(): string
 	{
-		[$prefix] = self::splitNamespacePrelude($this->prelude);
+		[$prefix] = $this->splitNamespacePrelude();
 		return $prefix;
 	}
 
 	public function getNamespaceURI(): string
 	{
-		[, $uri] = self::splitNamespacePrelude($this->prelude);
+		[, $uri] = $this->splitNamespacePrelude();
 		$uriLen = strlen($uri);
 		if ($uriLen > 0) {
 			$ident = CSSSyntaxScanner::decodeIdentAt($uri, 0, $uriLen);
@@ -53,38 +51,33 @@ final class CSSNamespaceRule extends CSSAtRule
 				$uri = CSSSyntaxScanner::trimCssWhitespace(substr($uri, $ident['end'] + 1, -1));
 			}
 		}
-		$len = strlen($uri);
-		if ($len >= 2 && ($uri[0] === '"' || $uri[0] === "'")) {
-			$valid = false;
-			$end = CSSSyntaxScanner::scanQuotedStringEnd($uri, 0, $len, $valid);
-			if ($valid && $end === $len - 1) {
-				return substr($uri, 1, -1);
-			}
-		}
-
-		return $uri;
+		return CSSSyntaxScanner::unwrapQuotedString($uri);
 	}
 
 	/** @return array{0: string, 1: string} */
-	private static function splitNamespacePrelude(string $prelude): array
+	private function splitNamespacePrelude(): array
 	{
-		$trimmed = CSSSyntaxScanner::trimCssWhitespace($prelude);
+		if ($this->parsedPrelude !== null) {
+			return $this->parsedPrelude;
+		}
+
+		$trimmed = CSSSyntaxScanner::trimCssWhitespace($this->prelude);
 		if ($trimmed !== '' && str_contains($trimmed, '/*')) {
 			$trimmed = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed));
 		}
 		$length = strlen($trimmed);
 		if ($length === 0) {
-			return ['', ''];
+			return $this->parsedPrelude = ['', ''];
 		}
 
 		// No prefix when prelude starts directly with quoted string or url(...)
 		$first = $trimmed[0];
 		if ($first === '"' || $first === "'") {
-			return ['', $trimmed];
+			return $this->parsedPrelude = ['', $trimmed];
 		}
 		$leadingIdent = CSSSyntaxScanner::decodeIdentAt($trimmed, 0, $length);
 		if ($leadingIdent !== null && strtolower($leadingIdent['ident']) === 'url' && $leadingIdent['end'] < $length && $trimmed[$leadingIdent['end']] === '(') {
-			return ['', $trimmed];
+			return $this->parsedPrelude = ['', $trimmed];
 		}
 
 		// Scan optional leading identifier prefix up to whitespace or quoted string
@@ -95,22 +88,7 @@ final class CSSNamespaceRule extends CSSAtRule
 				break;
 			}
 			if ($ch === '\\') {
-				$pos++;
-				if ($pos < $length) {
-					$hexLen = strspn($trimmed, '0123456789abcdefABCDEF', $pos, min(6, $length - $pos));
-					if ($hexLen > 0) {
-						$pos += $hexLen;
-						if ($pos < $length && str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $trimmed[$pos])) {
-							if ($trimmed[$pos] === "\r" && $pos + 1 < $length && $trimmed[$pos + 1] === "\n") {
-								$pos += 2;
-							} else {
-								$pos++;
-							}
-						}
-					} else {
-						$pos++;
-					}
-				}
+				$pos = CSSSyntaxScanner::advanceIdentEscapeEnd($trimmed, $pos, $length);
 				continue;
 			}
 			$pos++;
@@ -119,10 +97,10 @@ final class CSSNamespaceRule extends CSSAtRule
 		$prefix = CSSSyntaxScanner::trimCssWhitespace(substr($trimmed, 0, $pos));
 		$rest = CSSSyntaxScanner::trimCssWhitespace(substr($trimmed, $pos));
 		if ($rest === '') {
-			return ['', $prefix];
+			return $this->parsedPrelude = ['', $prefix];
 		}
 
-		return [$prefix, $rest];
+		return $this->parsedPrelude = [$prefix, $rest];
 	}
 
 	public function getType(): int

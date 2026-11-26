@@ -114,19 +114,6 @@ final class BoxAndLineShorthandCodec
 		'wavy' => true,
 	];
 
-	public static function supports(string $shorthand): bool
-	{
-		return isset(self::BOX4_SHORTHANDS[$shorthand])
-			|| isset(self::PAIR2_SHORTHANDS[$shorthand])
-			|| isset(self::LINE_SHORTHANDS[$shorthand])
-			|| match ($shorthand) {
-				'border-radius', 'border-image', 'mask-border', 'flex', 'flex-flow',
-				'columns', 'container', 'list-style', 'marker', 'offset', 'position-try',
-				'text-box', 'text-decoration', 'text-emphasis', 'text-wrap', 'white-space' => true,
-				default => false,
-			};
-	}
-
 	/**
 	 * @param list<ParsedComponent> $components
 	 * @return ?array<string, string>
@@ -205,7 +192,7 @@ final class BoxAndLineShorthandCodec
 			'border-image', 'mask-border' => self::serializeImageBorder($shorthand, $longhands, $values),
 			'flex' => self::serializeFlex($values, $options),
 			'flex-flow' => self::serializeUnorderedPair('flex-direction', 'flex-wrap', $values),
-			'columns' => self::serializeColumns($values),
+			'columns' => self::serializeUnorderedPair('column-width', 'column-count', $values),
 			'container' => self::serializeContainer($values),
 			'list-style' => self::serializeListStyle($values),
 			'marker' => self::serializeMarker($longhands, $values),
@@ -221,22 +208,14 @@ final class BoxAndLineShorthandCodec
 	}
 
 	/**
+	 * @internal Shared 4-value box longhand assignment used by `expandBox4()` and `CSSShorthandExpander`.
 	 * @param list<string> $longhands
-	 * @param list<ParsedComponent> $components
+	 * @param list<string> $parts
 	 * @return ?array<string, string>
 	 */
-	private static function expandBox4(array $longhands, string $source, bool $hasComments, array $components): ?array
+	public static function expandBox4Values(array $longhands, array $parts): ?array
 	{
-		$count = count($components);
-		if ($count < 1 || $count > 4) {
-			return null;
-		}
-		$parts = [];
-		foreach ($components as $comp) {
-			$parts[] = ShorthandCodecHelper::componentText($source, $comp, $hasComments);
-		}
-
-		return match ($count) {
+		return match (count($parts)) {
 			1 => [
 				$longhands[0] => $parts[0],
 				$longhands[1] => $parts[0],
@@ -261,7 +240,83 @@ final class BoxAndLineShorthandCodec
 				$longhands[2] => $parts[2],
 				$longhands[3] => $parts[3],
 			],
+			default => null,
 		};
+	}
+
+	/**
+	 * @internal Builds longhand assignments for any `<line>` shorthand (`border*`, `outline`, `column-rule`).
+	 * @param list<string> $longhands
+	 * @return array<string, string>
+	 */
+	public static function buildLineLonghands(
+		string $shorthand,
+		array $longhands,
+		string $wVal,
+		string $sVal,
+		string $cVal,
+	): array {
+		if ($shorthand === 'border') {
+			return [
+				'border-top-width' => $wVal,
+				'border-right-width' => $wVal,
+				'border-bottom-width' => $wVal,
+				'border-left-width' => $wVal,
+				'border-top-style' => $sVal,
+				'border-right-style' => $sVal,
+				'border-bottom-style' => $sVal,
+				'border-left-style' => $sVal,
+				'border-top-color' => $cVal,
+				'border-right-color' => $cVal,
+				'border-bottom-color' => $cVal,
+				'border-left-color' => $cVal,
+				'border-image-source' => 'none',
+				'border-image-slice' => '100%',
+				'border-image-width' => '1',
+				'border-image-outset' => '0',
+				'border-image-repeat' => 'stretch',
+			];
+		}
+
+		if ($shorthand === 'border-block' || $shorthand === 'border-inline') {
+			return [
+				$longhands[0] => $wVal,
+				$longhands[1] => $sVal,
+				$longhands[2] => $cVal,
+				$longhands[3] => $wVal,
+				$longhands[4] => $sVal,
+				$longhands[5] => $cVal,
+			];
+		}
+
+		if ($shorthand === 'outline') {
+			return [
+				'outline-color' => $cVal,
+				'outline-style' => $sVal,
+				'outline-width' => $wVal,
+			];
+		}
+
+		return [
+			$longhands[0] => $wVal,
+			$longhands[1] => $sVal,
+			$longhands[2] => $cVal,
+		];
+	}
+
+	/**
+	 * @param list<string> $longhands
+	 * @param list<ParsedComponent> $components
+	 * @return ?array<string, string>
+	 */
+	private static function expandBox4(array $longhands, string $source, bool $hasComments, array $components): ?array
+	{
+		$parts = [];
+		foreach ($components as $comp) {
+			$parts[] = ShorthandCodecHelper::componentText($source, $comp, $hasComments);
+		}
+
+		return self::expandBox4Values($longhands, $parts);
 	}
 
 	/**
@@ -451,7 +506,28 @@ final class BoxAndLineShorthandCodec
 		$h = [];
 		$v = [];
 		for ($i = 0; $i < 4; $i++) {
-			$parsed = ShorthandCodecHelper::parseValue($values[$longhands[$i]], $options);
+			$raw = $values[$longhands[$i]];
+			if ($raw !== ''
+				&& strcspn($raw, "()[]{}'\"\\/*\t\r\n\f") === strlen($raw)
+				&& !isset(CSSValueComponentParser::CSS_WIDE_KEYWORDS[strtolower($raw)])
+			) {
+				$parts = ShorthandCodecHelper::splitFlatSpaces($raw);
+				$cnt = count($parts);
+				if ($cnt === 1) {
+					$h[] = $parts[0];
+					$v[] = $parts[0];
+					continue;
+				}
+				if ($cnt === 2) {
+					$h[] = $parts[0];
+					$v[] = $parts[1];
+					continue;
+				}
+
+				return '';
+			}
+
+			$parsed = ShorthandCodecHelper::parseValue($raw, $options);
 			if ($parsed === null) {
 				return '';
 			}
@@ -515,52 +591,7 @@ final class BoxAndLineShorthandCodec
 		$sVal = $style ?? 'none';
 		$cVal = $color ?? ($shorthand === 'outline' ? 'auto' : 'currentcolor');
 
-		if ($shorthand === 'border') {
-			return [
-				'border-top-width' => $wVal,
-				'border-right-width' => $wVal,
-				'border-bottom-width' => $wVal,
-				'border-left-width' => $wVal,
-				'border-top-style' => $sVal,
-				'border-right-style' => $sVal,
-				'border-bottom-style' => $sVal,
-				'border-left-style' => $sVal,
-				'border-top-color' => $cVal,
-				'border-right-color' => $cVal,
-				'border-bottom-color' => $cVal,
-				'border-left-color' => $cVal,
-				'border-image-source' => 'none',
-				'border-image-slice' => '100%',
-				'border-image-width' => '1',
-				'border-image-outset' => '0',
-				'border-image-repeat' => 'stretch',
-			];
-		}
-
-		if ($shorthand === 'border-block' || $shorthand === 'border-inline') {
-			return [
-				$longhands[0] => $wVal,
-				$longhands[1] => $sVal,
-				$longhands[2] => $cVal,
-				$longhands[3] => $wVal,
-				$longhands[4] => $sVal,
-				$longhands[5] => $cVal,
-			];
-		}
-
-		if ($shorthand === 'outline') {
-			return [
-				'outline-color' => $cVal,
-				'outline-style' => $sVal,
-				'outline-width' => $wVal,
-			];
-		}
-
-		return [
-			$longhands[0] => $wVal,
-			$longhands[1] => $sVal,
-			$longhands[2] => $cVal,
-		];
+		return self::buildLineLonghands($shorthand, $longhands, $wVal, $sVal, $cVal);
 	}
 
 	/**
@@ -650,7 +681,7 @@ final class BoxAndLineShorthandCodec
 		}
 
 		if ($slashes === []) {
-			return self::classifyImageBorderUnjoined($shorthand, $result, $source, $hasComments, $components, $options);
+			return self::classifyImageBorder($shorthand, $result, $source, $hasComments, $components, $options, true);
 		}
 
 		if (count($slashes) > 2) {
@@ -719,7 +750,7 @@ final class BoxAndLineShorthandCodec
 		$trailing = array_slice($afterLast, $postSplit);
 		$rest = array_merge($leading, $trailing);
 		if ($rest !== []) {
-			return self::assignImageBorderMisc($shorthand, $result, $source, $hasComments, $rest, $options);
+			return self::classifyImageBorder($shorthand, $result, $source, $hasComments, $rest, $options, false);
 		}
 
 		return $result;
@@ -730,13 +761,14 @@ final class BoxAndLineShorthandCodec
 	 * @param list<ParsedComponent> $components
 	 * @return ?array<string, string>
 	 */
-	private static function classifyImageBorderUnjoined(
+	private static function classifyImageBorder(
 		string $shorthand,
 		array $result,
 		string $source,
 		bool $hasComments,
 		array $components,
 		CSSParserOptions $options,
+		bool $allowSlice,
 	): ?array {
 		$isMask = $shorthand === 'mask-border';
 		$sourceProp = $isMask ? 'mask-border-source' : 'border-image-source';
@@ -779,7 +811,7 @@ final class BoxAndLineShorthandCodec
 				continue;
 			}
 
-			if (!$seenSlice) {
+			if ($allowSlice && !$seenSlice) {
 				$matchedEnd = null;
 				for ($len = min(5, $count - $i); $len >= 1; $len--) {
 					$cand = array_slice($components, $i, $len);
@@ -794,62 +826,6 @@ final class BoxAndLineShorthandCodec
 					$i = $matchedEnd;
 					continue;
 				}
-			}
-
-			return null;
-		}
-
-		return $result;
-	}
-
-	/**
-	 * @param array<string, string> $result
-	 * @param list<ParsedComponent> $components
-	 * @return ?array<string, string>
-	 */
-	private static function assignImageBorderMisc(
-		string $shorthand,
-		array $result,
-		string $source,
-		bool $hasComments,
-		array $components,
-		CSSParserOptions $options,
-	): ?array {
-		$isMask = $shorthand === 'mask-border';
-		$sourceProp = $isMask ? 'mask-border-source' : 'border-image-source';
-		$repeatProp = $isMask ? 'mask-border-repeat' : 'border-image-repeat';
-
-		$seenSource = false;
-		$seenRepeat = false;
-		$seenMode = false;
-		$count = count($components);
-		$i = 0;
-
-		while ($i < $count) {
-			$comp = $components[$i];
-			$lower = ShorthandCodecHelper::identLower($comp);
-
-			if ($isMask && !$seenMode && ($lower === 'luminance' || $lower === 'alpha')) {
-				$result['mask-border-mode'] = $lower;
-				$seenMode = true;
-				$i++;
-				continue;
-			}
-			if (!$seenSource && ShorthandCodecHelper::matchesProperty($sourceProp, $source, $hasComments, [$comp], $options)) {
-				$result[$sourceProp] = ShorthandCodecHelper::componentText($source, $comp, $hasComments);
-				$seenSource = true;
-				$i++;
-				continue;
-			}
-			if (!$seenRepeat && ShorthandCodecHelper::matchesProperty($repeatProp, $source, $hasComments, [$comp], $options)) {
-				$end = $i + 1;
-				if ($end < $count && ShorthandCodecHelper::matchesProperty($repeatProp, $source, $hasComments, [$comp, $components[$end]], $options)) {
-					$end++;
-				}
-				$result[$repeatProp] = ShorthandCodecHelper::joinComponents($source, array_slice($components, $i, $end - $i), $hasComments);
-				$seenRepeat = true;
-				$i = $end;
-				continue;
 			}
 
 			return null;
@@ -989,6 +965,9 @@ final class BoxAndLineShorthandCodec
 		$shrink = $values['flex-shrink'];
 		$basis = $values['flex-basis'];
 
+		if ($basis === '0%') {
+			return $shrink === '1' ? $grow : $grow . ' ' . $shrink;
+		}
 		if ($grow === '0' && $shrink === '0' && $basis === 'auto') {
 			return 'none';
 		}
@@ -999,10 +978,8 @@ final class BoxAndLineShorthandCodec
 			return '0 1 auto';
 		}
 
-		$basisLooksLikeNumber = CSSValueValidator::validateStandardProperty('flex-grow', $basis, $options);
-		if ($basis === '0%') {
-			return $shrink === '1' ? $grow : $grow . ' ' . $shrink;
-		}
+		$basisLooksLikeNumber = (strspn($basis, '0123456789.+-eE') === strlen($basis) || str_contains($basis, '('))
+			&& CSSValueValidator::validateStandardProperty('flex-grow', $basis, $options);
 		if ($grow === '1' && $shrink === '1' && !$basisLooksLikeNumber) {
 			return $basis;
 		}
@@ -1078,26 +1055,6 @@ final class BoxAndLineShorthandCodec
 			'column-width' => $width ?? 'auto',
 			'column-count' => $colCount ?? 'auto',
 		];
-	}
-
-	/**
-	 * @param array<string, string> $values
-	 */
-	private static function serializeColumns(array $values): string
-	{
-		$w = $values['column-width'];
-		$c = $values['column-count'];
-		if ($w === 'auto' && $c === 'auto') {
-			return 'auto';
-		}
-		if ($c === 'auto') {
-			return $w;
-		}
-		if ($w === 'auto') {
-			return $c;
-		}
-
-		return $w . ' ' . $c;
 	}
 
 	/**

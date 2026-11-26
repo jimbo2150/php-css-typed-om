@@ -56,27 +56,62 @@ final class CSSInputPreprocessor
 			if (strcspn($input, self::PREPROCESS_ASCII_TRIGGERS, $baseStart, $remLen) === $remLen) {
 				return $baseStart === 0 ? $input : substr($input, 3);
 			}
-			if (strcspn($input, "\x00", $baseStart, $remLen) === $remLen) {
+			if (strpos($input, "\x00", $baseStart) === false) {
 				$slice = $baseStart === 0 ? $input : substr($input, 3);
-				return str_replace(["\r\n", "\r", "\f"], "\n", $slice);
+				if (str_contains($slice, "\f")) {
+					return str_replace(["\r\n", "\r", "\f"], "\n", $slice);
+				}
+				return str_replace(["\r\n", "\r"], "\n", $slice);
 			}
 
-			return self::preprocessValidUtf8WithNul($input, $baseStart, $length, $maxBytes);
+			return self::preprocessLoop($input, $baseStart, $length, $maxBytes, true);
 		}
 
 		$baseStart = str_starts_with($input, self::UTF8_BOM) ? 3 : 0;
+
+		return self::preprocessLoop($input, $baseStart, $length, $maxBytes, false);
+	}
+
+	/**
+	 * Checks without allocating whether `$input` requires any §3.3 modification.
+	 */
+	public static function needsPreprocessing(string $input): bool
+	{
+		$length = strlen($input);
+		if ($length === 0) {
+			return false;
+		}
+		$span = strcspn($input, self::NON_FAST_ASCII_BYTES);
+		if ($span === $length) {
+			return false;
+		}
+		if (str_starts_with($input, self::UTF8_BOM)) {
+			return true;
+		}
+		$rem = $length - $span;
+		if (strcspn($input, self::PREPROCESS_ASCII_TRIGGERS, $span, $rem) < $rem) {
+			return true;
+		}
+
+		return preg_match('//u', $input) !== 1;
+	}
+
+	/**
+	 * @throws CSSParserLimitException When preprocessed byte size exceeds `$maxBytes`
+	 */
+	private static function preprocessLoop(string $input, int $baseStart, int $length, ?int $maxBytes, bool $validUtf8): string
+	{
 		$pos = $baseStart;
 		$copyStart = $baseStart;
 		$chunks = [];
 		$outBytes = 0;
+		$mask = $validUtf8 ? self::PREPROCESS_ASCII_TRIGGERS : self::NON_FAST_ASCII_BYTES;
 
 		while ($pos < $length) {
-			$span = strcspn($input, self::NON_FAST_ASCII_BYTES, $pos, $length - $pos);
+			$span = strcspn($input, $mask, $pos, $length - $pos);
 			if ($span > 0) {
 				$outBytes += $span;
-				if ($maxBytes !== null && $outBytes > $maxBytes) {
-					throw new CSSParserLimitException(sprintf('Preprocessed CSS input exceeds maximum size of %d bytes.', $maxBytes));
-				}
+				self::assertOutputBytes($maxBytes, $outBytes);
 				$pos += $span;
 				if ($pos >= $length) {
 					break;
@@ -84,30 +119,27 @@ final class CSSInputPreprocessor
 			}
 
 			$byte = $input[$pos];
-			$ord = ord($byte);
-
-			if ($ord >= 0x80) {
-				$validLen = self::validUtf8SequenceLength($input, $pos, $length, $ord);
-				if ($validLen > 0) {
-					$outBytes += $validLen;
-					if ($maxBytes !== null && $outBytes > $maxBytes) {
-						throw new CSSParserLimitException(sprintf('Preprocessed CSS input exceeds maximum size of %d bytes.', $maxBytes));
+			if (!$validUtf8) {
+				$ord = ord($byte);
+				if ($ord >= 0x80) {
+					$seqLen = self::classifyUtf8Sequence($input, $pos, $length, $ord);
+					if ($seqLen > 0) {
+						$outBytes += $seqLen;
+						self::assertOutputBytes($maxBytes, $outBytes);
+						$pos += $seqLen;
+						continue;
 					}
-					$pos += $validLen;
+
+					if ($pos > $copyStart) {
+						$chunks[] = substr($input, $copyStart, $pos - $copyStart);
+					}
+					$outBytes += 3;
+					self::assertOutputBytes($maxBytes, $outBytes);
+					$chunks[] = self::REPLACEMENT_CHAR;
+					$pos -= $seqLen;
+					$copyStart = $pos;
 					continue;
 				}
-
-				if ($pos > $copyStart) {
-					$chunks[] = substr($input, $copyStart, $pos - $copyStart);
-				}
-				$outBytes += 3;
-				if ($maxBytes !== null && $outBytes > $maxBytes) {
-					throw new CSSParserLimitException(sprintf('Preprocessed CSS input exceeds maximum size of %d bytes.', $maxBytes));
-				}
-				$chunks[] = self::REPLACEMENT_CHAR;
-				$pos += self::illFormedUtf8MaximalSubpartLength($input, $pos, $length, $ord);
-				$copyStart = $pos;
-				continue;
 			}
 
 			if ($pos > $copyStart) {
@@ -116,24 +148,18 @@ final class CSSInputPreprocessor
 
 			if ($byte === "\x00") {
 				$outBytes += 3;
-				if ($maxBytes !== null && $outBytes > $maxBytes) {
-					throw new CSSParserLimitException(sprintf('Preprocessed CSS input exceeds maximum size of %d bytes.', $maxBytes));
-				}
+				self::assertOutputBytes($maxBytes, $outBytes);
 				$chunks[] = self::REPLACEMENT_CHAR;
 				$pos++;
 			} elseif ($byte === "\r") {
 				$outBytes++;
-				if ($maxBytes !== null && $outBytes > $maxBytes) {
-					throw new CSSParserLimitException(sprintf('Preprocessed CSS input exceeds maximum size of %d bytes.', $maxBytes));
-				}
+				self::assertOutputBytes($maxBytes, $outBytes);
 				$chunks[] = "\n";
 				$pos += ($pos + 1 < $length && $input[$pos + 1] === "\n") ? 2 : 1;
 			} else {
 				// $byte === "\f"
 				$outBytes++;
-				if ($maxBytes !== null && $outBytes > $maxBytes) {
-					throw new CSSParserLimitException(sprintf('Preprocessed CSS input exceeds maximum size of %d bytes.', $maxBytes));
-				}
+				self::assertOutputBytes($maxBytes, $outBytes);
 				$chunks[] = "\n";
 				$pos++;
 			}
@@ -152,145 +178,29 @@ final class CSSInputPreprocessor
 		return implode('', $chunks);
 	}
 
-	/**
-	 * Checks without allocating whether `$input` requires any §3.3 modification.
-	 */
-	public static function needsPreprocessing(string $input): bool
+	private static function assertOutputBytes(?int $maxBytes, int $outBytes): void
 	{
-		$length = strlen($input);
-		if ($length === 0 || strcspn($input, self::NON_FAST_ASCII_BYTES) === $length) {
-			return false;
+		if ($maxBytes !== null && $outBytes > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('Preprocessed CSS input exceeds maximum size of %d bytes.', $maxBytes));
 		}
-		if (str_starts_with($input, self::UTF8_BOM)) {
-			return true;
-		}
-		if (strcspn($input, self::PREPROCESS_ASCII_TRIGGERS) < $length) {
-			return true;
-		}
-
-		return preg_match('//u', $input) !== 1;
 	}
 
 	/**
-	 * Preprocesses validated UTF-8 bytes containing at least one NUL byte while skipping valid multibyte runs in C.
-	 *
-	 * @throws CSSParserLimitException When preprocessed byte size exceeds `$maxBytes`
+	 * Returns `+2..+4` for a valid UTF-8 sequence starting with `$b0 >= 0x80`, or negative maximal subpart length `-1..-3`.
 	 */
-	private static function preprocessValidUtf8WithNul(string $input, int $baseStart, int $length, ?int $maxBytes): string
-	{
-		$pos = $baseStart;
-		$copyStart = $baseStart;
-		$chunks = [];
-		$outBytes = 0;
-
-		while ($pos < $length) {
-			$span = strcspn($input, self::PREPROCESS_ASCII_TRIGGERS, $pos, $length - $pos);
-			if ($span > 0) {
-				$outBytes += $span;
-				if ($maxBytes !== null && $outBytes > $maxBytes) {
-					throw new CSSParserLimitException(sprintf('Preprocessed CSS input exceeds maximum size of %d bytes.', $maxBytes));
-				}
-				$pos += $span;
-				if ($pos >= $length) {
-					break;
-				}
-			}
-
-			if ($pos > $copyStart) {
-				$chunks[] = substr($input, $copyStart, $pos - $copyStart);
-			}
-
-			$byte = $input[$pos];
-			if ($byte === "\x00") {
-				$outBytes += 3;
-				if ($maxBytes !== null && $outBytes > $maxBytes) {
-					throw new CSSParserLimitException(sprintf('Preprocessed CSS input exceeds maximum size of %d bytes.', $maxBytes));
-				}
-				$chunks[] = self::REPLACEMENT_CHAR;
-				$pos++;
-			} elseif ($byte === "\r") {
-				$outBytes++;
-				if ($maxBytes !== null && $outBytes > $maxBytes) {
-					throw new CSSParserLimitException(sprintf('Preprocessed CSS input exceeds maximum size of %d bytes.', $maxBytes));
-				}
-				$chunks[] = "\n";
-				$pos += ($pos + 1 < $length && $input[$pos + 1] === "\n") ? 2 : 1;
-			} else {
-				// $byte === "\f"
-				$outBytes++;
-				if ($maxBytes !== null && $outBytes > $maxBytes) {
-					throw new CSSParserLimitException(sprintf('Preprocessed CSS input exceeds maximum size of %d bytes.', $maxBytes));
-				}
-				$chunks[] = "\n";
-				$pos++;
-			}
-
-			$copyStart = $pos;
-		}
-
-		if ($copyStart < $length) {
-			$chunks[] = substr($input, $copyStart, $length - $copyStart);
-		}
-
-		return implode('', $chunks);
-	}
-
-	private static function validUtf8SequenceLength(string $input, int $pos, int $length, int $b0): int
+	private static function classifyUtf8Sequence(string $input, int $pos, int $length, int $b0): int
 	{
 		if ($b0 >= 0xC2 && $b0 <= 0xDF) {
 			if ($pos + 1 >= $length) {
-				return 0;
+				return -1;
 			}
 			$b1 = ord($input[$pos + 1]);
-			return ($b1 >= 0x80 && $b1 <= 0xBF) ? 2 : 0;
+			return ($b1 >= 0x80 && $b1 <= 0xBF) ? 2 : -1;
 		}
 
-		if ($b0 >= 0xE0 && $b0 <= 0xEF) {
-			if ($pos + 2 >= $length) {
-				return 0;
-			}
-			$b1 = ord($input[$pos + 1]);
-			$b2 = ord($input[$pos + 2]);
-			if ($b2 < 0x80 || $b2 > 0xBF) {
-				return 0;
-			}
-			if ($b0 === 0xE0) {
-				return ($b1 >= 0xA0 && $b1 <= 0xBF) ? 3 : 0;
-			}
-			if ($b0 === 0xED) {
-				// Reject UTF-8 encoded surrogates U+D800..U+DFFF.
-				return ($b1 >= 0x80 && $b1 <= 0x9F) ? 3 : 0;
-			}
-			return ($b1 >= 0x80 && $b1 <= 0xBF) ? 3 : 0;
-		}
-
-		if ($b0 >= 0xF0 && $b0 <= 0xF4) {
-			if ($pos + 3 >= $length) {
-				return 0;
-			}
-			$b1 = ord($input[$pos + 1]);
-			$b2 = ord($input[$pos + 2]);
-			$b3 = ord($input[$pos + 3]);
-			if ($b2 < 0x80 || $b2 > 0xBF || $b3 < 0x80 || $b3 > 0xBF) {
-				return 0;
-			}
-			if ($b0 === 0xF0) {
-				return ($b1 >= 0x90 && $b1 <= 0xBF) ? 4 : 0;
-			}
-			if ($b0 === 0xF4) {
-				return ($b1 >= 0x80 && $b1 <= 0x8F) ? 4 : 0;
-			}
-			return ($b1 >= 0x80 && $b1 <= 0xBF) ? 4 : 0;
-		}
-
-		return 0;
-	}
-
-	private static function illFormedUtf8MaximalSubpartLength(string $input, int $pos, int $length, int $b0): int
-	{
 		if ($b0 >= 0xE0 && $b0 <= 0xEF) {
 			if ($pos + 1 >= $length) {
-				return 1;
+				return -1;
 			}
 			$b1 = ord($input[$pos + 1]);
 			$validB1 = match ($b0) {
@@ -298,12 +208,19 @@ final class CSSInputPreprocessor
 				0xED => $b1 >= 0x80 && $b1 <= 0x9F,
 				default => $b1 >= 0x80 && $b1 <= 0xBF,
 			};
-			return $validB1 ? 2 : 1;
+			if (!$validB1) {
+				return -1;
+			}
+			if ($pos + 2 >= $length) {
+				return -2;
+			}
+			$b2 = ord($input[$pos + 2]);
+			return ($b2 >= 0x80 && $b2 <= 0xBF) ? 3 : -2;
 		}
 
 		if ($b0 >= 0xF0 && $b0 <= 0xF4) {
 			if ($pos + 1 >= $length) {
-				return 1;
+				return -1;
 			}
 			$b1 = ord($input[$pos + 1]);
 			$validB1 = match ($b0) {
@@ -312,15 +229,22 @@ final class CSSInputPreprocessor
 				default => $b1 >= 0x80 && $b1 <= 0xBF,
 			};
 			if (!$validB1) {
-				return 1;
+				return -1;
 			}
 			if ($pos + 2 >= $length) {
-				return 2;
+				return -2;
 			}
 			$b2 = ord($input[$pos + 2]);
-			return ($b2 >= 0x80 && $b2 <= 0xBF) ? 3 : 2;
+			if ($b2 < 0x80 || $b2 > 0xBF) {
+				return -2;
+			}
+			if ($pos + 3 >= $length) {
+				return -3;
+			}
+			$b3 = ord($input[$pos + 3]);
+			return ($b3 >= 0x80 && $b3 <= 0xBF) ? 4 : -3;
 		}
 
-		return 1;
+		return -1;
 	}
 }

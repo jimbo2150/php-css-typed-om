@@ -19,22 +19,12 @@ final class CSSFontFaceRule extends CSSAtRule
 		if ($style !== null && $maxBytes !== null) {
 			$style->assertContentBytesWithinInternal($maxBytes);
 		}
-		if ($style instanceof CSSFontFaceDescriptors) {
-			$descriptors = $style->getParentRule() !== null ? clone $style : $style;
-		} else {
-			$descriptors = new CSSFontFaceDescriptors();
-			if ($style !== null) {
-				$descriptors->setLimitsInternal(
-					self::minLimitInternal($maxBytes, $style->resolveMaxBytesInternal()),
-					$style->resolveMaxDeclarationsInternal(),
-					$style->resolveMaxDepthInternal(),
-					$style->resolveMaxMathDepthInternal(),
-					true,
-				);
-				$descriptors->copyDeclarationsFromInternal($style);
-			}
-		}
-		parent::__construct('font-face', '', $descriptors, true, $maxBytes);
+		$this->initAtRuleInternal('font-face', '', CSSFontFaceDescriptors::adoptOrConvert($style, $maxBytes), true, $maxBytes);
+	}
+
+	public function validatesDescriptorPropertyValuesInternal(): bool
+	{
+		return false;
 	}
 
 	public function getStyle(): CSSFontFaceDescriptors

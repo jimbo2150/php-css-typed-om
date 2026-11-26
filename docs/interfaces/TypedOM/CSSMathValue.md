@@ -6,11 +6,11 @@
 
 ## Public properties and constants
 
-`public const ?string operator = null` is declared on `CSSMathValue` (overridden on concrete subclasses alongside `sign`). `values` is a public `CSSNumericArray` property with protected write access; `inner_values` is a read-only virtual `array<CSSNumericValue>` property hook from `MultiValueTrait`. `value`, `unit`, and `length` are inherited from `CSSNumericValue` and its traits (see [CSSNumericValue properties](CSSNumericValue.md#public-properties-and-constants)).
+`public const ?string operator = null` is declared on `CSSMathValue` (overridden on concrete subclasses alongside `sign`). `values` is a public `CSSNumericArray` property with protected write access; `inner_values` is a read-only virtual `array<CSSNumericValue>` property hook projecting `$this->values->values`; `length` is a read-only `int` property hook returning `count($this->values->values)`.
 
 ## Public API
 
-The full inherited numeric API is available: `parse`, `from`, `type`, `getType`, `getNumericType`, `getNumericCategory`, `to`, `toSum`, `add`, `sub`, `mul`, `div`, `min`, `max`, `equals`, `mergeAdditiveTypes` (returns an isolated clone so mutations never alter the internal unit-category cache), `unitType`, `__get`, and `__set`, with exact signatures, parameter meanings, errors, and examples in [CSSNumericValue](CSSNumericValue.md#public-api). It also inherits `parseAll` from `CSSStyleValue`. Its numeric `__toString` and `clone` implementations are overridden here.
+The full inherited numeric API is available: `parse`, `from`, `type`, `getType`, `getNumericType`, `getNumericCategory`, `to`, `toSum`, `add`, `sub`, `mul`, `div`, `min`, `max`, `equals`, `mergeAdditiveTypes` (returns an isolated clone so mutations never alter the internal unit-category cache), `__get`, and `__set`, with exact signatures, parameter meanings, errors, and examples in [CSSNumericValue](CSSNumericValue.md#public-api). It also inherits `parseAll` from `CSSStyleValue`. Its numeric `__toString` and `clone` implementations are overridden here.
 
 | Method | Signature and behavior |
 |---|---|

@@ -25,10 +25,10 @@ class CSSTest extends TestCase
 		$px = CSS::px("10");
 		$this->assertInstanceOf(CSSUnitValue::class, $px);
 		$this->assertEquals(new CSSUnitValue(10, CSSUnitEnum::LENGTH_px), $px);
-		$this->assertEquals(null, $px->length);
+		$this->assertFalse(isset($px->length));
 		$num = CSS::number("35.42");
 		$this->assertEquals(new CSSUnitValue(35.42, CSSUnitEnum::NUMBER), $num);
-		$this->assertEquals(null, $num->length);
+		$this->assertFalse(isset($num->length));
 		$this->assertEquals(new CSSUnitValue(10, CSSUnitEnum::LENGTH_px), CSS::px("10"));
 		$this->assertEquals(new CSSUnitValue(1.5, CSSUnitEnum::LENGTH_em), CSS::em("1.5"));
 		$this->assertEquals(new CSSUnitValue(50, CSSUnitEnum::PERCENT), CSS::percent("50"));
@@ -153,8 +153,10 @@ class CSSTest extends TestCase
 		self::assertSame('x', $x->unit);
 		self::assertSame('2x', (string) $x);
 		self::assertEqualsWithDelta(2.0, $x->to('dppx')->value, 1e-9);
-		self::assertEqualsWithDelta(192.0, $x->to('dpi')->value, 1e-9);
-		self::assertSame('x', CSSNumericValue::parse('2x')->unit);
+		self::assertEqualsWithDelta(192.0, $x->to('dppx')->to('dpi')->value, 1e-9);
+		$parsedX = CSSNumericValue::parse('2x');
+		self::assertInstanceOf(CSSUnitValue::class, $parsedX);
+		self::assertSame('x', $parsedX->unit);
 
 		// Invalid CSS dimension syntax like `10number` / `50percent` / `1flex` must be rejected
 		foreach (['10number', '50percent', '1flex'] as $invalid) {

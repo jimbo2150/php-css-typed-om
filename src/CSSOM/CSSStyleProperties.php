@@ -15,23 +15,7 @@ final class CSSStyleProperties extends CSSStyleDeclaration
 {
 	public static function fromDeclaration(?CSSStyleDeclaration $style): self
 	{
-		if ($style instanceof self) {
-			return $style->getParentRule() !== null ? clone $style : $style;
-		}
-
-		$properties = new self();
-		if ($style !== null) {
-			$properties->setLimitsInternal(
-				$style->resolveMaxBytesInternal(),
-				$style->resolveMaxDeclarationsInternal(),
-				$style->resolveMaxDepthInternal(),
-				$style->resolveMaxMathDepthInternal(),
-				true,
-			);
-			$properties->copyDeclarationsFromInternal($style);
-		}
-
-		return $properties;
+		return self::adoptOrConvert($style);
 	}
 
 	public function getCssFloat(): string

@@ -7,7 +7,6 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use LogicException;
-use OutOfBoundsException;
 
 /**
  * Represents a CSS `@keyframes` rule.
@@ -59,27 +58,23 @@ final class CSSKeyframesRule extends CSSGroupingRule
 		$this->insertRule($ruleText, count($this->getCssRules()), $options);
 	}
 
-	public function insertRule(string $ruleText, int $index = 0, ?CSSParserOptions $options = null): int
+	protected function detachedInsertErrorMessage(): string
 	{
-		if ($this->getParentStyleSheet() === null) {
-			throw new LogicException('A detached keyframes rule cannot insert keyframes.');
-		}
-		if ($index < 0 || $index > count($this->getCssRules())) {
-			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
-		}
+		return 'A detached keyframes rule cannot insert keyframes.';
+	}
 
-		$sheet = $this->getParentStyleSheet();
-		$effectiveOptions = $sheet->resolveParserOptionsInternal($options);
-		$keyframe = CSSParser::parseSingleKeyframeRule(
+	protected function parseChildRuleForInsert(
+		string $ruleText,
+		CSSParserOptions $effectiveOptions,
+		CSSStyleSheet $sheet,
+	): CSSRule {
+		return CSSParser::parseSingleKeyframeRule(
 			$ruleText,
 			$effectiveOptions,
 			$this->getNestingDepth(),
 			$sheet->getTotalRuleCount(),
 			$sheet->getTotalDeclarationCount(),
 		);
-		$this->getCssRules()->insertWithOptionsInternal($index, $keyframe, $effectiveOptions);
-
-		return $index;
 	}
 
 	public function deleteRule(int|string $keyText): void
@@ -93,7 +88,7 @@ final class CSSKeyframesRule extends CSSGroupingRule
 		}
 
 		$target = CSSSyntaxScanner::trimCssWhitespace($keyText);
-		foreach ($this->getCssRules() as $index => $rule) {
+		foreach ($this->getCssRules()->getRulesRaw() as $index => $rule) {
 			if ($rule instanceof CSSKeyframeRule && strcasecmp($rule->getKeyText(), $target) === 0) {
 				$this->getCssRules()->remove($index);
 				return;
@@ -104,7 +99,7 @@ final class CSSKeyframesRule extends CSSGroupingRule
 	public function findRule(string $keyText): ?CSSKeyframeRule
 	{
 		$target = CSSSyntaxScanner::trimCssWhitespace($keyText);
-		foreach ($this->getCssRules() as $rule) {
+		foreach ($this->getCssRules()->getRulesRaw() as $rule) {
 			if ($rule instanceof CSSKeyframeRule && strcasecmp($rule->getKeyText(), $target) === 0) {
 				return $rule;
 			}

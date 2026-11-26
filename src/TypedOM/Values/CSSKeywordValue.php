@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
-use Error;
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use ReflectionClass;
 
 /**
  * Represents a CSS keyword identifier value (e.g., `'auto'`, `'none'`, `'inherit'`).
@@ -32,6 +32,21 @@ class CSSKeywordValue extends CSSStyleValue
 	public function __construct(string $keyword)
 	{
 		$this->setValue($keyword);
+	}
+
+	/**
+	 * @internal Fast factory for hardcoded or pre-validated CSS keywords (e.g., `'none'`, `'currentcolor'`).
+	 */
+	public static function fromValidated(string $keyword): self
+	{
+		/** @var ReflectionClass<self>|null $reflection */
+		static $reflection = null;
+		$reflection ??= new ReflectionClass(self::class);
+		/** @var self $instance */
+		$instance = $reflection->newInstanceWithoutConstructor();
+		$instance->keyword = $keyword;
+
+		return $instance;
 	}
 
 	public function getKeyword(): string
@@ -69,20 +84,5 @@ class CSSKeywordValue extends CSSStyleValue
 	public function clone(): static
 	{
 		return clone $this;
-	}
-
-	public function __get(string $name): mixed
-	{
-		throw new Error('Undefined property: ' . static::class . '::$' . $name);
-	}
-
-	public function __isset(string $name): bool
-	{
-		return false;
-	}
-
-	public function __set(string $name, mixed $value): void
-	{
-		throw new Error('Cannot set property ' . static::class . '::$' . $name);
 	}
 }

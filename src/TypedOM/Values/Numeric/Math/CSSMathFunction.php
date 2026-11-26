@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericArray;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericType;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
@@ -62,7 +63,6 @@ final class CSSMathFunction extends CSSMathValue
 		$this->function = $function;
 		$this->strategy = $resolvedStrategy;
 		parent::__construct($values);
-		$this->requireOperandCount($function->minArgs(), $function->maxArgs());
 		$this->cachedNumericType = self::computeAndValidateTypeInternal($function, $this->values->values);
 	}
 
@@ -97,7 +97,7 @@ final class CSSMathFunction extends CSSMathValue
 		$node = $reflection->newInstanceWithoutConstructor();
 		$node->function = $function;
 		$node->strategy = $function === CSSMathFunctionEnum::ROUND ? ($strategy ?? CSSRoundingStrategy::NEAREST) : null;
-		$node->values = new CSSNumericArray($values);
+		$node->values = CSSNumericArray::fromTrustedList($values);
 		$node->cachedNumericType = $type;
 
 		return $node;
@@ -113,6 +113,9 @@ final class CSSMathFunction extends CSSMathValue
 	public static function computeAndValidateTypeInternal(CSSMathFunctionEnum $function, array $args): CSSNumericType
 	{
 		$count = count($args);
+		if ($count > CSSNumericValue::MAX_MATH_NODES) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
+		}
 		$max = $function->maxArgs();
 		if ($count < $function->minArgs() || ($max !== null && $count > $max)) {
 			throw new InvalidArgumentException(sprintf('Invalid number of operands for %s().', $function->value));
@@ -128,18 +131,18 @@ final class CSSMathFunction extends CSSMathValue
 				: CSSNumericValue::mergeAdditiveTypesInternal($args),
 			CSSMathFunctionEnum::MOD, CSSMathFunctionEnum::REM, CSSMathFunctionEnum::HYPOT => CSSNumericValue::mergeAdditiveTypesInternal($args),
 			CSSMathFunctionEnum::ABS => $args[0]->getNumericTypeInternal(),
-			CSSMathFunctionEnum::SIGN => CSSNumericType::fromValidatedDimensions([]),
+			CSSMathFunctionEnum::SIGN => CSSNumericValue::baseTypeForUnitCategoryInternal(null),
 		};
 	}
 
 	private static function isPureNumberType(CSSNumericType $type): bool
 	{
-		return $type->toArray() === [] && $type->percentHint === null;
+		return $type->toArray() === [] && $type->getPercentHintInternal() === null;
 	}
 
 	private static function isPureAngleType(CSSNumericType $type): bool
 	{
-		if ($type->percentHint !== null) {
+		if ($type->getPercentHintInternal() !== null) {
 			return false;
 		}
 		$dims = $type->toArray();
@@ -154,7 +157,7 @@ final class CSSMathFunction extends CSSMathValue
 			throw new InvalidArgumentException(sprintf('CSS %s() requires a <number> or <angle> operand.', $fnName));
 		}
 
-		return CSSNumericType::fromValidatedDimensions([]);
+		return CSSNumericValue::baseTypeForUnitCategoryInternal(null);
 	}
 
 	/**
@@ -168,7 +171,7 @@ final class CSSMathFunction extends CSSMathValue
 			}
 		}
 
-		return CSSNumericType::fromValidatedDimensions($returnDim === null ? [] : [$returnDim => 1]);
+		return CSSNumericValue::baseTypeForUnitCategoryInternal($returnDim);
 	}
 
 	/**
@@ -178,6 +181,6 @@ final class CSSMathFunction extends CSSMathValue
 	{
 		CSSNumericValue::mergeAdditiveTypesInternal($args);
 
-		return CSSNumericType::fromValidatedDimensions(['angle' => 1]);
+		return CSSNumericValue::baseTypeForUnitCategoryInternal('angle');
 	}
 }

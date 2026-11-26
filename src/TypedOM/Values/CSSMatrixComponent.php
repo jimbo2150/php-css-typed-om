@@ -116,14 +116,26 @@ final class CSSMatrixComponent extends CSSTransformComponent
 		return DOMMatrix::fromTrustedElements($this->matrixValue->toFloat64Array(), false);
 	}
 
+	public function applyToMatrixInternal(DOMMatrix $matrix): void
+	{
+		if ($this->twoDimensional) {
+			$matrix->multiplyAffine2DInternal(
+				$this->matrixValue->getA(),
+				$this->matrixValue->getB(),
+				$this->matrixValue->getC(),
+				$this->matrixValue->getD(),
+				$this->matrixValue->getE(),
+				$this->matrixValue->getF(),
+			);
+			return;
+		}
+
+		$matrix->multiplyElementsInternal($this->matrixValue->toFloat64Array(), false);
+	}
+
 	public function __clone(): void
 	{
 		$this->matrixValue = DOMMatrix::fromMatrix($this->matrixValue);
-	}
-
-	public function clone(): static
-	{
-		return clone $this;
 	}
 
 	/** @internal */
@@ -149,7 +161,8 @@ final class CSSMatrixComponent extends CSSTransformComponent
 			return DOMMatrix::fromMatrix($matrix);
 		}
 
-		if (!in_array(count($matrix), [6, 16], true)) {
+		$count = count($matrix);
+		if ($count !== 6 && $count !== 16) {
 			throw new InvalidArgumentException('A matrix requires six or sixteen numeric components.');
 		}
 
@@ -161,7 +174,14 @@ final class CSSMatrixComponent extends CSSTransformComponent
 			$normalized[] = (float) $value;
 		}
 
-		return new DOMMatrix($normalized);
+		if ($count === 6) {
+			return DOMMatrix::fromTrustedElements(
+				self::matrix2d($normalized[0], $normalized[1], $normalized[2], $normalized[3], $normalized[4], $normalized[5]),
+				true,
+			);
+		}
+
+		return DOMMatrix::fromTrustedElements($normalized, false);
 	}
 
 	/** @param array{is2D?: bool}|bool|null $options */

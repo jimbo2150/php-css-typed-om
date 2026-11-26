@@ -177,34 +177,14 @@ final class FontFace
 
 	public function setFamily(string $family): void
 	{
-		if ($this->maxBytes !== null && strlen($family) > $this->maxBytes) {
-			throw new CSSParserLimitException(sprintf('FontFace family exceeds maximum size of %d bytes.', $this->maxBytes));
-		}
-		$trimmed = CSSSyntaxScanner::trimCssWhitespace($family);
-		if ($trimmed === '') {
-			throw new InvalidArgumentException('FontFace family cannot be empty.');
-		}
-		CSSStyleDeclaration::validatePropertyValue($trimmed);
-		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
-			throw new InvalidArgumentException('FontFace family cannot be empty.');
-		}
+		$trimmed = self::validateNonEmptyField($family, $this->maxBytes, 'FontFace family', 'FontFace family');
 		$this->assertWithinLimits($trimmed, $this->sourceValue, $this->descriptors, $this->explicit);
 		$this->familyValue = $trimmed;
 	}
 
 	public function setSource(string $source): void
 	{
-		if ($this->maxBytes !== null && strlen($source) > $this->maxBytes) {
-			throw new CSSParserLimitException(sprintf('FontFace source exceeds maximum size of %d bytes.', $this->maxBytes));
-		}
-		$trimmed = CSSSyntaxScanner::trimCssWhitespace($source);
-		if ($trimmed === '') {
-			throw new InvalidArgumentException('FontFace source cannot be empty.');
-		}
-		CSSStyleDeclaration::validatePropertyValue($trimmed);
-		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
-			throw new InvalidArgumentException('FontFace source cannot be empty.');
-		}
+		$trimmed = self::validateNonEmptyField($source, $this->maxBytes, 'FontFace source', 'FontFace source');
 		$this->assertWithinLimits($this->familyValue, $trimmed, $this->descriptors, $this->explicit);
 		$this->sourceValue = $trimmed;
 	}
@@ -283,17 +263,12 @@ final class FontFace
 
 	private function setDescriptor(string $key, string $value): void
 	{
-		if ($this->maxBytes !== null && strlen($value) > $this->maxBytes) {
-			throw new CSSParserLimitException(sprintf('FontFace descriptor "%s" exceeds maximum size of %d bytes.', $key, $this->maxBytes));
-		}
-		$trimmed = CSSSyntaxScanner::trimCssWhitespace($value);
-		if ($trimmed === '') {
-			throw new InvalidArgumentException(sprintf('FontFace descriptor "%s" cannot be empty.', $key));
-		}
-		CSSStyleDeclaration::validatePropertyValue($trimmed);
-		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
-			throw new InvalidArgumentException(sprintf('FontFace descriptor "%s" cannot be empty.', $key));
-		}
+		$trimmed = self::validateNonEmptyField(
+			$value,
+			$this->maxBytes,
+			sprintf('FontFace descriptor "%s"', $key),
+			sprintf('FontFace descriptor "%s"', $key),
+		);
 		$nextDescriptors = $this->descriptors;
 		$nextDescriptors[$key] = $trimmed;
 		$nextExplicit = $this->explicit;
@@ -301,6 +276,23 @@ final class FontFace
 		$this->assertWithinLimits($this->familyValue, $this->sourceValue, $nextDescriptors, $nextExplicit);
 		$this->descriptors[$key] = $trimmed;
 		$this->explicit[$key] = true;
+	}
+
+	private static function validateNonEmptyField(string $value, ?int $maxBytes, string $bytesLabel, string $emptyLabel): string
+	{
+		if ($maxBytes !== null && strlen($value) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('%s exceeds maximum size of %d bytes.', $bytesLabel, $maxBytes));
+		}
+		$trimmed = CSSSyntaxScanner::trimCssWhitespace($value);
+		if ($trimmed === '') {
+			throw new InvalidArgumentException(sprintf('%s cannot be empty.', $emptyLabel));
+		}
+		CSSStyleDeclaration::validatePropertyValue($trimmed);
+		if (str_contains($trimmed, '/*') && CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
+			throw new InvalidArgumentException(sprintf('%s cannot be empty.', $emptyLabel));
+		}
+
+		return $trimmed;
 	}
 
 	/**

@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
-use Error;
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use ReflectionClass;
+use ReflectionProperty;
 
 /**
  * Represents a CSS image value such as `url(...)` or a CSS gradient function.
@@ -35,7 +36,7 @@ final class CSSImageValue extends CSSStyleValue
 		}
 		$open = strpos($image, '(');
 		$fn = $open !== false ? CSSSyntaxScanner::decodeLeadingFunctionName($image, $open) : null;
-		if ($fn === null || preg_match('/^(?:url|image|image-set|cross-fade|paint|element|(?:repeating-)?(?:linear|radial|conic)-gradient)$/D', $fn) !== 1) {
+		if ($fn === null || !isset(CSSStyleValue::IMAGE_FUNCTIONS[$fn])) {
 			throw new InvalidArgumentException('Invalid CSS image value.');
 		}
 		if ($fn === 'url') {
@@ -53,6 +54,45 @@ final class CSSImageValue extends CSSStyleValue
 		}
 
 		$this->image = $image;
+	}
+
+	/**
+	 * @internal Constructs a CSSImageValue from an already-trimmed, fragment-validated image expression.
+	 * @throws InvalidArgumentException When the expression has trailing tokens or invalid url() syntax
+	 * @throws CSSParserLimitException When embedded math nesting depth exceeds limits
+	 */
+	public static function fromPreValidatedInternal(
+		string $trimmedImage,
+		CSSParserOptions $options,
+		int $open,
+		string $fn,
+	): self {
+		if ($fn === 'url') {
+			if (!CSSSyntaxScanner::isBalanced($trimmedImage)) {
+				throw new InvalidArgumentException('Invalid CSS image value.');
+			}
+			$close = CSSSyntaxScanner::findMatchingUrlEnd($trimmedImage, $open);
+		} else {
+			$close = CSSSyntaxScanner::findMatchingDelimiter($trimmedImage, $open);
+		}
+		if ($close !== strlen($trimmedImage) - 1) {
+			throw new InvalidArgumentException('CSS image value cannot contain trailing tokens.');
+		}
+		if ($fn !== 'url' && $options->maxMathDepth !== null) {
+			self::assertEmbeddedMathDepthWithinInternal($trimmedImage, $options->maxMathDepth, $open + 1, $close);
+		}
+
+		/** @var ReflectionClass<self>|null $ref */
+		static $ref = null;
+		/** @var ReflectionProperty|null $imageProp */
+		static $imageProp = null;
+		$ref ??= new ReflectionClass(self::class);
+		$imageProp ??= new ReflectionProperty(self::class, 'image');
+		/** @var self $instance */
+		$instance = $ref->newInstanceWithoutConstructor();
+		$imageProp->setValue($instance, $trimmedImage);
+
+		return $instance;
 	}
 
 	/**
@@ -90,6 +130,12 @@ final class CSSImageValue extends CSSStyleValue
 		$quote = '';
 
 		for ($i = $start; $i < $end; $i++) {
+			if ($quote === '') {
+				$i += strspn($image, "0123456789 \t\n\r\f,.%#+*!?:;[]{}", $i, $end - $i);
+				if ($i >= $end) {
+					break;
+				}
+			}
 			$ch = $image[$i];
 			if ($quote !== '') {
 				if ($ch === '\\') {
@@ -112,16 +158,7 @@ final class CSSImageValue extends CSSStyleValue
 				continue;
 			}
 			if ($ch === '(') {
-				$top = $parenStack !== [] ? $parenStack[count($parenStack) - 1] : null;
-				if ($top !== null && $top['isMath']) {
-					$nextDepth = $top['depth'] + 1;
-					if ($nextDepth > $maxMathDepth) {
-						throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
-					}
-					$parenStack[] = ['isMath' => true, 'depth' => $nextDepth];
-				} else {
-					$parenStack[] = ['isMath' => false, 'depth' => 0];
-				}
+				self::pushParenDepthFrame($parenStack, $maxMathDepth, false, false);
 				continue;
 			}
 			if ($ch === ')') {
@@ -154,28 +191,44 @@ final class CSSImageValue extends CSSStyleValue
 						}
 					}
 					$isMathFn = CSSCalcParser::isMathFunctionName($lower);
-					$top = $parenStack !== [] ? $parenStack[count($parenStack) - 1] : null;
-					if ($top !== null && $top['isMath']) {
-						$nextDepth = $top['depth'] + 1;
-						if ($nextDepth > $maxMathDepth) {
-							throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
-						}
-						$parenStack[] = ['isMath' => true, 'depth' => $nextDepth];
-					} elseif ($isMathFn) {
-						$fnDepth = $lower === 'calc' ? 0 : 1;
-						if ($fnDepth > $maxMathDepth) {
-							throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
-						}
-						$parenStack[] = ['isMath' => true, 'depth' => $fnDepth];
-					} else {
-						$parenStack[] = ['isMath' => false, 'depth' => 0];
-					}
+					self::pushParenDepthFrame($parenStack, $maxMathDepth, $isMathFn, $lower === 'calc');
 					$i = $identEnd;
 					continue;
 				}
 				$i = $identEnd - 1;
 			}
 		}
+	}
+
+	/**
+	 * @param list<array{isMath: bool, depth: int}> $parenStack
+	 */
+	private static function pushParenDepthFrame(
+		array &$parenStack,
+		int $maxMathDepth,
+		bool $isMathFn,
+		bool $isCalcFn,
+	): void {
+		$top = $parenStack !== [] ? $parenStack[count($parenStack) - 1] : null;
+		if ($top !== null && $top['isMath']) {
+			$nextDepth = $top['depth'] + 1;
+			if ($nextDepth > $maxMathDepth) {
+				throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
+			}
+			$parenStack[] = ['isMath' => true, 'depth' => $nextDepth];
+
+			return;
+		}
+		if ($isMathFn) {
+			$fnDepth = $isCalcFn ? 0 : 1;
+			if ($fnDepth > $maxMathDepth) {
+				throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
+			}
+			$parenStack[] = ['isMath' => true, 'depth' => $fnDepth];
+
+			return;
+		}
+		$parenStack[] = ['isMath' => false, 'depth' => 0];
 	}
 
 	public function getImage(): string
@@ -191,20 +244,5 @@ final class CSSImageValue extends CSSStyleValue
 	public function __toString(): string
 	{
 		return $this->image;
-	}
-
-	public function __get(string $name): mixed
-	{
-		throw new Error('Undefined property: ' . static::class . '::$' . $name);
-	}
-
-	public function __isset(string $name): bool
-	{
-		return false;
-	}
-
-	public function __set(string $name, mixed $value): void
-	{
-		throw new Error('Cannot set property ' . static::class . '::$' . $name);
 	}
 }

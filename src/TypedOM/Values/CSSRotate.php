@@ -174,6 +174,28 @@ final class CSSRotate extends CSSTransformComponent
 		return DOMMatrix::fromTrustedElements($matrix->toFloat64Array(), false);
 	}
 
+	public function applyToMatrixInternal(DOMMatrix $matrix): void
+	{
+		$angleRad = self::scalar($this->angleValue, 'angle');
+		if ($this->twoDimensional) {
+			$cos = cos($angleRad);
+			$sin = sin($angleRad);
+			$cos = $cos === 0.0 ? 0.0 : $cos;
+			$sin = $sin === 0.0 ? 0.0 : $sin;
+			$matrix->multiplyAffine2DInternal($cos, $sin, $sin === 0.0 ? 0.0 : -$sin, $cos, 0.0, 0.0);
+			return;
+		}
+
+		$x = self::scalar($this->xValue, 'number');
+		$y = self::scalar($this->yValue, 'number');
+		$z = self::scalar($this->zValue, 'number');
+		$maxAxis = max(abs($x), abs($y), abs($z));
+		if ($maxAxis === 0.0) {
+			throw new InvalidArgumentException('A rotation axis must be finite and non-zero.');
+		}
+		$matrix->rotateAxisAngleSelf($x / $maxAxis, $y / $maxAxis, $z / $maxAxis, rad2deg($angleRad));
+	}
+
 	public function __clone(): void
 	{
 		$this->xValue = $this->xValue->clone();
@@ -181,11 +203,6 @@ final class CSSRotate extends CSSTransformComponent
 		$this->zValue = $this->zValue->clone();
 		$this->angleValue = $this->angleValue->clone();
 		$this->syncSerializedValues();
-	}
-
-	public function clone(): static
-	{
-		return clone $this;
 	}
 
 	public function getFunctionName(): string

@@ -8,7 +8,6 @@ use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSS;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
-use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStandardProperties;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSTokenType;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
@@ -18,26 +17,18 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
  * `CSS::supports()`, `CSSStyleDeclaration`, `CSSStyleValue`, `StylePropertyMap`,
  * and `CSS::registerProperty()`.
  *
+ * @phpstan-import-type ParsedResult from CSSValueComponentParser
  * @internal
  */
 final class CSSValueValidator
 {
 	private const int MAX_CACHE_ENTRIES = 2_048;
 	private const int MAX_CACHED_VALUE_BYTES = 160;
-	private const int MAX_CUSTOM_SYNTAX_CACHE = 256;
 	private const int MAX_CACHED_SYNTAX_BYTES = 512;
 	private const string ASCII_KEYWORD_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-';
 
-	/** @var array<string, bool> `true` = pure `<color>`, `false` = color plus additional keywords */
-	private const array FAST_COLOR_PROPERTIES = [
-		'color' => true,
-		'background-color' => true,
-		'border-top-color' => true,
-		'border-right-color' => true,
-		'border-bottom-color' => true,
-		'border-left-color' => true,
-		'text-decoration-color' => true,
-		'column-rule-color' => true,
+	/** @var array<string, bool> `false` = color plus additional keywords (`outline-color`, `fill`, ...) */
+	private const array EXTRA_COLOR_PROPERTIES = [
 		'outline-color' => false,
 		'caret-color' => false,
 		'accent-color' => false,
@@ -86,17 +77,22 @@ final class CSSValueValidator
 		'flex-basis' => false,
 	];
 
-	/** @var array<string, bool> */
+	/** @var array<string, array<string, bool>> 2-level cache `[property][value] = bool` */
 	private static array $validationCache = [];
 
-	/** @var array<string, CSSGrammarNode> */
-	private static array $compiledCustomSyntaxes = [];
+	private static int $validationCacheCount = 0;
 
+	/**
+	 * @param ?ParsedResult $parsedOut
+	 * @param-out ?ParsedResult $parsedOut
+	 */
 	public static function validateStandardProperty(
 		string $normalizedProperty,
 		string $trimmedValue,
 		?CSSParserOptions $options = null,
+		?array &$parsedOut = null,
 	): bool {
+		$parsedOut = null;
 		if ($trimmedValue === '' || !CSSPropertyGrammarRegistry::isKnown($normalizedProperty)) {
 			return false;
 		}
@@ -107,11 +103,15 @@ final class CSSValueValidator
 			throw new CSSParserLimitException(sprintf('CSS property value exceeds maximum size of %d bytes.', $options->maxBytes));
 		}
 
-		// O(1) fast path for simple single ASCII keyword values (including CSS-wide keywords)
+		// O(1) fast path for simple single ASCII keyword values (including CSS-wide & exhaustive pure-keyword sets)
 		if (strspn($trimmedValue, self::ASCII_KEYWORD_CHARS) === $valLen) {
 			$lower = strtolower($trimmedValue);
 			if (isset(CSSValueComponentParser::CSS_WIDE_KEYWORDS[$lower])) {
 				return true;
+			}
+			$pureKeywords = CSSPropertyGrammarRegistry::getPureKeywordSet($normalizedProperty);
+			if ($pureKeywords !== null) {
+				return isset($pureKeywords[$lower]);
 			}
 			if (CSSPropertyGrammarRegistry::matchesFastKeyword($normalizedProperty, $lower)) {
 				return true;
@@ -124,47 +124,57 @@ final class CSSValueValidator
 			return $fastResult;
 		}
 
-		// Allow caching flat values (no nested blocks/functions) even under non-default depth options
-		$isFlat = !str_contains($trimmedValue, '(') && !str_contains($trimmedValue, '[') && !str_contains($trimmedValue, '{');
-		$canCache = ($isFlat
-				|| ($options->maxDepth === CSSParserOptions::DEFAULT_MAX_DEPTH && $options->maxMathDepth === CSSParserOptions::DEFAULT_MAX_MATH_DEPTH))
-			&& $valLen <= self::MAX_CACHED_VALUE_BYTES
+		// Check 2-level cache BEFORE strcspn/str_contains on cache hits (Guard B1: only flat values hit cache under non-default depth).
+		$isDefaultDepth = $options->maxDepth === CSSParserOptions::DEFAULT_MAX_DEPTH
+			&& $options->maxMathDepth === CSSParserOptions::DEFAULT_MAX_MATH_DEPTH;
+		if (isset(self::$validationCache[$normalizedProperty][$trimmedValue])
+			&& ($isDefaultDepth || strcspn($trimmedValue, '([{') === $valLen)
+		) {
+			return self::$validationCache[$normalizedProperty][$trimmedValue];
+		}
+
+		$canCache = $valLen <= self::MAX_CACHED_VALUE_BYTES
+			&& ($isDefaultDepth || strcspn($trimmedValue, '([{') === $valLen)
 			&& !str_contains($trimmedValue, '/*')
 			&& !str_contains($trimmedValue, '\\');
 
-		$cacheKey = null;
-		if ($canCache) {
-			$cacheKey = $normalizedProperty . "\0" . $trimmedValue;
-			if (isset(self::$validationCache[$cacheKey])) {
-				return self::$validationCache[$cacheKey];
-			}
-		}
-
 		$parsed = CSSValueComponentParser::parse($trimmedValue, $options);
 		if ($parsed === null) {
-			self::storeCache($cacheKey, false);
+			if ($canCache) {
+				self::storeCache($normalizedProperty, $trimmedValue, false);
+			}
 			return false;
 		}
 
+		$parsedOut = $parsed;
+
 		if ($parsed['isCssWideKeyword'] || $parsed['hasSubstitution']) {
-			self::storeCache($cacheKey, true);
+			if ($canCache) {
+				self::storeCache($normalizedProperty, $trimmedValue, true);
+			}
 			return true;
 		}
 
 		$grammar = CSSPropertyGrammarRegistry::getPropertyGrammar($normalizedProperty);
+		$evalCache = [];
+		$mathBudget = 0;
 		$valid = $grammar !== null && CSSGrammarMatcher::matches(
 			$grammar,
 			$parsed['source'],
 			$parsed['hasComments'],
 			$parsed['components'],
 			$options,
+			evalCacheOut: $evalCache,
+			mathBudgetOut: $mathBudget,
 		);
 
 		if ($valid && ($normalizedProperty === 'transition' || $normalizedProperty === 'animation')) {
-			$valid = self::validateTimeOrdering($normalizedProperty, $parsed['source'], $parsed['components'], $options);
+			$valid = self::validateTimeOrdering($normalizedProperty, $parsed['source'], $parsed['components'], $options, $evalCache, $mathBudget);
 		}
 
-		self::storeCache($cacheKey, $valid);
+		if ($canCache) {
+			self::storeCache($normalizedProperty, $trimmedValue, $valid);
+		}
 
 		return $valid;
 	}
@@ -186,24 +196,18 @@ final class CSSValueValidator
 				throw new CSSParserLimitException(sprintf('CSS property value exceeds maximum size of %d bytes.', $options->maxBytes));
 			}
 			if (!$validateRegisteredCustom) {
-				if ($trimmedValue === '') {
-					return true;
-				}
-				return CSSValueComponentParser::parse($trimmedValue, $options, true) !== null;
+				return $trimmedValue === '' || CSSValueComponentParser::parse($trimmedValue, $options, true) !== null;
 			}
 
-			$rule = CSS::getRegisteredProperty($normalizedProperty);
-			if ($rule === null) {
-				if ($trimmedValue === '') {
-					return true;
-				}
-				return CSSValueComponentParser::parse($trimmedValue, $options, true) !== null;
+			$syntax = CSS::getRegisteredPropertySyntaxInternal($normalizedProperty);
+			if ($syntax === null) {
+				return $trimmedValue === '' || CSSValueComponentParser::parse($trimmedValue, $options, true) !== null;
 			}
 
-			return self::validateRegisteredCustomProperty($rule->getSyntax(), $trimmedValue, false, $options);
+			return self::validateRegisteredCustomProperty($syntax, $trimmedValue, false, $options);
 		}
 
-		if (CSSStandardProperties::isKnown($normalizedProperty)) {
+		if (CSSPropertyGrammarRegistry::isKnown($normalizedProperty)) {
 			return self::validateStandardProperty($normalizedProperty, $trimmedValue, $options);
 		}
 
@@ -258,7 +262,7 @@ final class CSSValueValidator
 			if ($parsed['isCssWideKeyword'] || $parsed['hasSubstitution']) {
 				return false;
 			}
-			if (self::hasComputationallyDependentConstruct($parsed['source'], $parsed['components'])) {
+			if (self::hasComputationallyDependentConstruct($parsed['components'])) {
 				return false;
 			}
 		} else {
@@ -267,21 +271,14 @@ final class CSSValueValidator
 			}
 		}
 
-		$dedupSyntax = self::deduplicateCustomSyntaxAlternates($syntax);
-
 		try {
-			if (!$isInitialValue && strlen($dedupSyntax) <= self::MAX_CACHED_SYNTAX_BYTES) {
-				if (isset(self::$compiledCustomSyntaxes[$dedupSyntax])) {
-					$grammar = self::$compiledCustomSyntaxes[$dedupSyntax];
-				} else {
-					$grammar = CSSGrammarParser::parse($dedupSyntax, true);
-					if (count(self::$compiledCustomSyntaxes) >= self::MAX_CUSTOM_SYNTAX_CACHE) {
-						self::$compiledCustomSyntaxes = array_slice(self::$compiledCustomSyntaxes, (int) (self::MAX_CUSTOM_SYNTAX_CACHE / 2), null, true);
-					}
-					self::$compiledCustomSyntaxes[$dedupSyntax] = $grammar;
-				}
+			if (!$isInitialValue && CSSPropertyGrammarRegistry::hasCachedGrammar($syntax, true)) {
+				$grammar = CSSPropertyGrammarRegistry::getGrammar($syntax, true);
 			} else {
-				$grammar = CSSGrammarParser::parse($dedupSyntax, true);
+				$dedupSyntax = self::deduplicateCustomSyntaxAlternates($syntax);
+				$grammar = (!$isInitialValue && strlen($dedupSyntax) <= self::MAX_CACHED_SYNTAX_BYTES)
+					? CSSPropertyGrammarRegistry::getGrammar($dedupSyntax, true)
+					: CSSGrammarParser::parse($dedupSyntax, true);
 			}
 		} catch (InvalidArgumentException) {
 			return false;
@@ -305,24 +302,20 @@ final class CSSValueValidator
 	public static function clearCacheInternal(): void
 	{
 		self::$validationCache = [];
-		self::$compiledCustomSyntaxes = [];
+		self::$validationCacheCount = 0;
+		CSSPropertyGrammarRegistry::clearCustomGrammarCacheInternal();
 	}
 
 	/** @internal */
 	public static function clearCustomSyntaxCacheInternal(): void
 	{
-		self::$compiledCustomSyntaxes = [];
+		CSSPropertyGrammarRegistry::clearCustomGrammarCacheInternal();
 	}
 
 	private static function tryFastSingleTokenMatch(string $normalizedProperty, string $value, int $valLen): ?bool
 	{
-		// Only consider simple flat single-token candidates (no whitespace, comments, parens, quotes, commas, escapes)
-		if (strcspn($value, " \t\n\r\f/*\\()[]{}\"',;") !== $valLen) {
-			return null;
-		}
-
-		if (isset(self::FAST_COLOR_PROPERTIES[$normalizedProperty])) {
-			$pureColor = self::FAST_COLOR_PROPERTIES[$normalizedProperty];
+		$isPureColor = CSSPropertyGrammarRegistry::isPureColorProperty($normalizedProperty);
+		if ($isPureColor || isset(self::EXTRA_COLOR_PROPERTIES[$normalizedProperty])) {
 			if ($value[0] === '#') {
 				return CSSColorValue::isValidHexInternal(substr($value, 1));
 			}
@@ -334,8 +327,13 @@ final class CSSValueValidator
 				) {
 					return true;
 				}
-				return $pureColor ? false : null;
+				return $isPureColor ? false : null;
 			}
+			return null;
+		}
+
+		// Only consider simple flat single-token candidates (no whitespace, comments, parens, quotes, commas, escapes)
+		if (strcspn($value, " \t\n\r\f/*\\()[]{}\"',;") !== $valLen) {
 			return null;
 		}
 
@@ -430,12 +428,15 @@ final class CSSValueValidator
 	 * Negative simplified `calc()` results remain parse-valid per CSS Values 4 §10.9.
 	 *
 	 * @param list<mixed> $components
+	 * @param array<string, mixed> $evalCache
 	 */
 	private static function validateTimeOrdering(
 		string $normalizedProperty,
 		string $source,
 		array $components,
 		CSSParserOptions $options,
+		array &$evalCache,
+		int &$mathBudget,
 	): bool {
 		$checkingFirstTime = true;
 		$allowAutoDuration = $normalizedProperty === 'animation';
@@ -453,15 +454,14 @@ final class CSSValueValidator
 				if (!$checkingFirstTime) {
 					continue;
 				}
-				if ($allowAutoDuration && $tokType === CSSTokenType::Ident && strcasecmp((string) ($comp['name'] ?? ''), 'auto') === 0) {
+				if ($allowAutoDuration && $tokType === CSSTokenType::Ident && ($comp['lower'] ?? '') === 'auto') {
 					$checkingFirstTime = false;
 					continue;
 				}
 				if ($tokType === CSSTokenType::Dimension) {
-					$info = CSSValueComponentParser::decodeNumericToken($source, $comp);
-					$u = strtolower($info['unit']);
+					$u = $comp['unitLower'] ?? '';
 					if ($u === 's' || $u === 'ms') {
-						if ($info['value'] < 0.0) {
+						if (($comp['numValue'] ?? 0.0) < 0.0) {
 							return false;
 						}
 						$checkingFirstTime = false;
@@ -473,19 +473,9 @@ final class CSSValueValidator
 				continue;
 			}
 			if ($kind === 'function' && CSSCalcParser::isMathFunctionName((string) ($comp['name'] ?? ''))) {
-				$slice = substr($source, (int) ($comp['start'] ?? 0), ((int) ($comp['end'] ?? 0)) - ((int) ($comp['start'] ?? 0)));
-				try {
-					$mathVal = CSSCalcParser::parseUnitOrMathSlice($slice, 0, strlen($slice), $options, 0, true);
-					if ($mathVal !== null) {
-						$dims = $mathVal->getNumericTypeInternal()->toArray();
-						if ((int) ($dims['time'] ?? 0) === 1 && ($mathVal->getNumericTypeInternal()->percentHint === null)) {
-							$checkingFirstTime = false;
-						}
-					}
-				} catch (CSSParserLimitException $e) {
-					throw $e;
-				} catch (InvalidArgumentException) {
-					// Already validated by grammar matcher
+				$evaluated = CSSDataTypeMatcher::evaluateMathComponentInternal($source, $comp, $options, $evalCache, $mathBudget);
+				if ($evaluated !== null && $evaluated[0] === 'time' && $evaluated[3] === null) {
+					$checkingFirstTime = false;
 				}
 			}
 		}
@@ -518,15 +508,16 @@ final class CSSValueValidator
 		return $unique === [] ? $syntax : implode(' | ', $unique);
 	}
 
-	private static function storeCache(?string $key, bool $valid): void
+	private static function storeCache(string $property, string $value, bool $valid): void
 	{
-		if ($key === null) {
-			return;
+		if (self::$validationCacheCount >= self::MAX_CACHE_ENTRIES) {
+			self::$validationCache = [];
+			self::$validationCacheCount = 0;
 		}
-		if (count(self::$validationCache) >= self::MAX_CACHE_ENTRIES) {
-			self::$validationCache = array_slice(self::$validationCache, (int) (self::MAX_CACHE_ENTRIES / 2), null, true);
+		if (!isset(self::$validationCache[$property][$value])) {
+			self::$validationCacheCount++;
 		}
-		self::$validationCache[$key] = $valid;
+		self::$validationCache[$property][$value] = $valid;
 	}
 
 	/**
@@ -535,7 +526,7 @@ final class CSSValueValidator
 	 *
 	 * @param list<mixed> $components
 	 */
-	private static function hasComputationallyDependentConstruct(string $source, array $components): bool
+	private static function hasComputationallyDependentConstruct(array $components): bool
 	{
 		$stack = $components;
 		while ($stack !== []) {
@@ -545,11 +536,8 @@ final class CSSValueValidator
 			}
 			$kind = $comp['kind'] ?? '';
 			if ($kind === 'token') {
-				if (($comp['tokenType'] ?? null) === CSSTokenType::Dimension) {
-					$info = CSSValueComponentParser::decodeNumericToken($source, $comp);
-					if (CSSDataTypeMatcher::isRelativeLengthUnit(strtolower($info['unit']))) {
-						return true;
-					}
+				if (($comp['tokenType'] ?? null) === CSSTokenType::Dimension && CSSDataTypeMatcher::isRelativeLengthUnit((string) ($comp['unitLower'] ?? ''))) {
+					return true;
 				}
 				continue;
 			}

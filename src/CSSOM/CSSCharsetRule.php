@@ -33,21 +33,9 @@ final class CSSCharsetRule extends CSSAtRule
 
 	public function getEncoding(): string
 	{
-		$encoding = $this->prelude;
-		if (str_contains($encoding, '/*')) {
-			$encoding = CSSSyntaxScanner::removeComments($encoding);
-		}
-		$encoding = CSSSyntaxScanner::trimCssWhitespace($encoding);
-		$len = strlen($encoding);
-		if ($len >= 2 && ($encoding[0] === '"' || $encoding[0] === "'")) {
-			$valid = false;
-			$end = CSSSyntaxScanner::scanQuotedStringEnd($encoding, 0, $len, $valid);
-			if ($valid && $end === $len - 1) {
-				return substr($encoding, 1, -1);
-			}
-		}
+		$encoding = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::stripCommentsIfPresent($this->prelude));
 
-		return $encoding;
+		return CSSSyntaxScanner::unwrapQuotedString($encoding);
 	}
 
 	public function getType(): int

@@ -57,4 +57,20 @@ enum CSSMathFunctionEnum: string
 	{
 		return $this === self::HYPOT;
 	}
+
+	public function returnsNumber(): bool
+	{
+		return match ($this) {
+			self::SIN, self::COS, self::TAN, self::POW, self::SQRT, self::LOG, self::EXP, self::SIGN => true,
+			default => false,
+		};
+	}
+
+	public function returnsAngle(): bool
+	{
+		return match ($this) {
+			self::ASIN, self::ACOS, self::ATAN, self::ATAN2 => true,
+			default => false,
+		};
+	}
 }

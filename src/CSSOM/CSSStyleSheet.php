@@ -35,6 +35,8 @@ final class CSSStyleSheet extends StyleSheet
 
 	private int $totalDeclarationCount = 0;
 
+	private int $strictPreludeCount = 0;
+
 	private ?int $maxRules = CSSParserOptions::DEFAULT_MAX_RULES;
 
 	private ?int $maxDepth = CSSParserOptions::DEFAULT_MAX_DEPTH;
@@ -212,6 +214,32 @@ final class CSSStyleSheet extends StyleSheet
 	/**
 	 * @internal
 	 */
+	public function isStrictPreludeRuleInternal(CSSRule $rule): bool
+	{
+		return $rule instanceof CSSCharsetRule
+			|| $rule instanceof CSSImportRule
+			|| $rule instanceof CSSNamespaceRule;
+	}
+
+	/**
+	 * @internal
+	 */
+	public function adjustStrictPreludeCountInternal(int $delta): void
+	{
+		$this->strictPreludeCount = max(0, $this->strictPreludeCount + $delta);
+	}
+
+	/**
+	 * @internal
+	 */
+	public function setStrictPreludeCountInternal(int $count): void
+	{
+		$this->strictPreludeCount = max(0, $count);
+	}
+
+	/**
+	 * @internal
+	 */
 	public function getTotalDeclarationCount(): int
 	{
 		return $this->totalDeclarationCount;
@@ -270,7 +298,6 @@ final class CSSStyleSheet extends StyleSheet
 			$this->totalRuleCount,
 			$this->totalDeclarationCount,
 		);
-		$this->assertValidInsertHierarchyInternal($rule, $index);
 		$this->cssRulesList->insertWithOptionsInternal($index, $rule, $effectiveOptions);
 
 		return $index;
@@ -288,6 +315,12 @@ final class CSSStyleSheet extends StyleSheet
 		}
 		if ($rule instanceof CSSStyleRule && $rule->hasLeadingCombinatorInternal()) {
 			throw new InvalidArgumentException('Top-level style rules cannot start with a relative combinator.');
+		}
+		if ($this->strictPreludeCount === 0
+			&& !$rule instanceof CSSImportRule
+			&& !$rule instanceof CSSNamespaceRule
+		) {
+			return;
 		}
 
 		$rules = $this->cssRulesList->getRulesRaw();
@@ -384,7 +417,6 @@ final class CSSStyleSheet extends StyleSheet
 	 */
 	public function deleteRule(int $index = 0): void
 	{
-		$this->assertValidDeleteHierarchyInternal($index);
 		$this->cssRulesList->remove($index);
 	}
 
@@ -453,6 +485,7 @@ final class CSSStyleSheet extends StyleSheet
 		$this->cssRulesList = new CSSRuleList($this);
 		$this->totalRuleCount = 0;
 		$this->totalDeclarationCount = 0;
+		$this->strictPreludeCount = 0;
 		if ($origRules !== []) {
 			CSSGroupingRule::cloneRulesIntoList($origRules, $this->cssRulesList, $this, null);
 		}

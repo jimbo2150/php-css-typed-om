@@ -85,8 +85,29 @@ final class CSSPerspective extends CSSTransformComponent
 	public function toMatrix(): DOMMatrix
 	{
 		$matrix = self::IDENTITY_MATRIX;
+		$m34 = $this->computeM34();
+		if ($m34 !== null) {
+			$matrix[11] = $m34;
+		}
+
+		return DOMMatrix::fromTrustedElements($matrix, false);
+	}
+
+	public function applyToMatrixInternal(DOMMatrix $matrix): void
+	{
+		$m34 = $this->computeM34();
+		if ($m34 === null) {
+			return;
+		}
+		$elements = self::IDENTITY_MATRIX;
+		$elements[11] = $m34;
+		$matrix->multiplyElementsInternal($elements, false);
+	}
+
+	private function computeM34(): ?float
+	{
 		if ($this->lengthValue instanceof CSSKeywordValue) {
-			return DOMMatrix::fromTrustedElements($matrix, false);
+			return null;
 		}
 		$perspective = self::scalar($this->lengthValue, 'length');
 		if (!is_finite($perspective) || $perspective <= 0.0) {
@@ -96,20 +117,14 @@ final class CSSPerspective extends CSSTransformComponent
 		if (!is_finite($m34)) {
 			throw new InvalidArgumentException('Perspective length produces a non-finite matrix entry.');
 		}
-		$matrix[11] = $m34;
 
-		return DOMMatrix::fromTrustedElements($matrix, false);
+		return $m34;
 	}
 
 	public function __clone(): void
 	{
 		$this->lengthValue = $this->lengthValue->clone();
 		$this->values = [$this->lengthValue];
-	}
-
-	public function clone(): static
-	{
-		return clone $this;
 	}
 
 	private static function normalizeLength(mixed $value): CSSNumericValue|CSSKeywordValue

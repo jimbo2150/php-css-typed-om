@@ -40,21 +40,9 @@ final class CSSKeyframeRule extends CSSRule
 		$this->styleProperties->setParentRule($this);
 	}
 
-	protected function syncChildLimitsInternal(
-		?int $maxBytes,
-		?int $maxDeclarations,
-		bool $syncDeclarations = false,
-		?int $maxDepth = CSSParserOptions::DEFAULT_MAX_DEPTH,
-		?int $maxMathDepth = CSSParserOptions::DEFAULT_MAX_MATH_DEPTH,
-		bool $syncDepths = false,
-	): void {
-		$this->styleProperties->clampLimitsInternal(
-			$maxBytes,
-			$syncDeclarations ? $maxDeclarations : null,
-			$maxDepth,
-			$maxMathDepth,
-			$syncDepths,
-		);
+	public function getOwnedStyleInternal(): CSSStyleProperties
+	{
+		return $this->styleProperties;
 	}
 
 	public function getKeyText(): string

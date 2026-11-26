@@ -93,21 +93,23 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 				}
 			}
 
+			$ownedStyle = $current->getOwnedStyleInternal();
+			if ($ownedStyle !== null) {
+				$declarations += count($ownedStyle->getDeclarationsRaw());
+				if ($maxBytes !== null) {
+					$bytes += $ownedStyle->getContentBytesInternal();
+					if ($bytes > $maxBytes) {
+						throw new CSSParserLimitException(sprintf('CSS rule exceeds maximum size of %d bytes.', $maxBytes));
+					}
+				}
+			}
+
 			if ($current instanceof CSSGroupingRule) {
 				$blockDepth = $relDepth + 1;
 				if ($blockDepth > $height) {
 					$height = $blockDepth;
 				}
-				if ($current instanceof CSSStyleRule || $current instanceof CSSPageRule) {
-					$style = $current->getStyle();
-					$declarations += count($style->getDeclarationsRaw());
-					if ($maxBytes !== null) {
-						$bytes += $style->getContentBytesInternal();
-						if ($bytes > $maxBytes) {
-							throw new CSSParserLimitException(sprintf('CSS rule exceeds maximum size of %d bytes.', $maxBytes));
-						}
-					}
-				} elseif ($current instanceof CSSFontFeatureValuesRule) {
+				if ($current instanceof CSSFontFeatureValuesRule) {
 					foreach ($current->getFeatureMaps() as $map) {
 						$declarations += count($map);
 						if ($maxBytes !== null) {
@@ -123,28 +125,10 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 				if ($blockDepth > $height) {
 					$height = $blockDepth;
 				}
-				$style = $current->getStyle();
-				if ($style !== null) {
-					$declarations += count($style->getDeclarationsRaw());
-					if ($maxBytes !== null) {
-						$bytes += $style->getContentBytesInternal();
-						if ($bytes > $maxBytes) {
-							throw new CSSParserLimitException(sprintf('CSS rule exceeds maximum size of %d bytes.', $maxBytes));
-						}
-					}
-				}
-			} elseif ($current instanceof CSSKeyframeRule || $current instanceof CSSNestedDeclarations || $current instanceof CSSFunctionDeclarations) {
-				$blockDepth = $current instanceof CSSKeyframeRule ? $relDepth + 1 : $relDepth;
+			} elseif ($current instanceof CSSKeyframeRule) {
+				$blockDepth = $relDepth + 1;
 				if ($blockDepth > $height) {
 					$height = $blockDepth;
-				}
-				$style = $current->getStyle();
-				$declarations += count($style->getDeclarationsRaw());
-				if ($maxBytes !== null) {
-					$bytes += $style->getContentBytesInternal();
-					if ($bytes > $maxBytes) {
-						throw new CSSParserLimitException(sprintf('CSS rule exceeds maximum size of %d bytes.', $maxBytes));
-					}
 				}
 			} elseif ($relDepth > $height) {
 				$height = $relDepth;
@@ -227,6 +211,9 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 		}
 		$this->sheet->adjustTotalRuleCount($stats['rules']);
 		$this->sheet->adjustTotalDeclarationCount($stats['declarations']);
+		if ($this->owner === null && $this->sheet->isStrictPreludeRuleInternal($rule)) {
+			$this->sheet->adjustStrictPreludeCountInternal(1);
+		}
 	}
 
 	/**
@@ -235,22 +222,7 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 	 */
 	public function append(CSSRule $rule): void
 	{
-		if ($this->sheet === null) {
-			throw new LogicException('A detached CSSRuleList cannot be modified.');
-		}
-		if ($rule->getParentStyleSheet() !== null || $rule->getParentRule() !== null) {
-			throw new InvalidArgumentException('Cannot append a CSSRule that already belongs to a parent.');
-		}
-		$this->assertNoCycle($rule);
-		$this->assertHierarchyForInsertion($rule, count($this->rules));
-
-		$stats = self::inspectSubtree($rule, $this->sheet->getMaxBytesInternal());
-		$this->assertLimitsForAddition($stats['rules'], $stats['height'], $stats['declarations'], null);
-
-		$rule->attach($this->sheet, $this->owner);
-		$this->rules[] = $rule;
-		$this->sheet->adjustTotalRuleCount($stats['rules']);
-		$this->sheet->adjustTotalDeclarationCount($stats['declarations']);
+		$this->insertWithOptionsInternal(count($this->rules), $rule, null);
 	}
 
 	private function assertHierarchyForInsertion(CSSRule $rule, int $index): void
@@ -303,6 +275,9 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 		$this->rules[] = $rule;
 		$this->sheet->adjustTotalRuleCount($stats['rules']);
 		$this->sheet->adjustTotalDeclarationCount($stats['declarations']);
+		if ($this->owner === null && $this->sheet->isStrictPreludeRuleInternal($rule)) {
+			$this->sheet->adjustStrictPreludeCountInternal(1);
+		}
 	}
 
 	/** @internal */
@@ -371,6 +346,9 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 		$rule->attach(null, null);
 		$this->sheet->adjustTotalRuleCount(-$stats['rules']);
 		$this->sheet->adjustTotalDeclarationCount(-$stats['declarations']);
+		if ($this->owner === null && $this->sheet->isStrictPreludeRuleInternal($rule)) {
+			$this->sheet->adjustStrictPreludeCountInternal(-1);
+		}
 
 		return $rule;
 	}
@@ -402,9 +380,11 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 		$addedDecls = 0;
 		$addedBytes = 0;
 		$maxAddedHeight = 0;
+		$nextStrictPreludeCount = 0;
 		$seenAny = false;
 		$seenNonImportPrelude = false;
 		$seenRegular = false;
+		$allowLeadingCombinator = $this->owner !== null && $this->hasScopeOrStyleAncestor();
 		$next = [];
 		foreach ($replacement->rules as $rule) {
 			if ($rule->getParentStyleSheet() === $this->sheet || $rule->getParentRule() !== null) {
@@ -413,7 +393,7 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 			$this->assertNoCycle($rule);
 			if ($this->owner !== null) {
 				CSSGroupingRule::assertValidChildRuleInternal($rule);
-				if ($rule instanceof CSSStyleRule && $rule->hasLeadingCombinatorInternal() && !$this->hasScopeOrStyleAncestor()) {
+				if ($rule instanceof CSSStyleRule && $rule->hasLeadingCombinatorInternal() && !$allowLeadingCombinator) {
 					throw new InvalidArgumentException('Relative selectors starting with a combinator are only allowed inside style rules or @scope rules.');
 				}
 			} else {
@@ -428,6 +408,9 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 				}
 				if ($rule instanceof CSSNamespaceRule && $seenRegular) {
 					throw new InvalidArgumentException('@namespace rules must precede all regular rules.');
+				}
+				if ($this->sheet->isStrictPreludeRuleInternal($rule)) {
+					$nextStrictPreludeCount++;
 				}
 				$seenAny = true;
 				if (!$rule instanceof CSSCharsetRule && !$rule instanceof CSSImportRule && !$rule instanceof CSSLayerStatementRule) {
@@ -452,12 +435,17 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 			$next[] = $rule;
 		}
 
-		$removedCount = 0;
-		$removedDecls = 0;
-		foreach ($this->rules as $existing) {
-			$stats = self::inspectSubtree($existing);
-			$removedCount += $stats['rules'];
-			$removedDecls += $stats['declarations'];
+		if ($this->owner === null) {
+			$removedCount = $this->sheet->getTotalRuleCount();
+			$removedDecls = $this->sheet->getTotalDeclarationCount();
+		} else {
+			$removedCount = 0;
+			$removedDecls = 0;
+			foreach ($this->rules as $existing) {
+				$stats = self::inspectSubtree($existing);
+				$removedCount += $stats['rules'];
+				$removedDecls += $stats['declarations'];
+			}
 		}
 
 		$this->assertLimitsForAddition(
@@ -480,9 +468,15 @@ final class CSSRuleList implements ArrayAccess, Countable, IteratorAggregate
 		$replacement->rules = [];
 		$replacement->sheet?->adjustTotalRuleCount(-$addedCount);
 		$replacement->sheet?->adjustTotalDeclarationCount(-$addedDecls);
+		if ($replacement->owner === null) {
+			$replacement->sheet?->setStrictPreludeCountInternal(0);
+		}
 		$this->rules = $next;
 		$this->sheet->adjustTotalRuleCount($addedCount - $removedCount);
 		$this->sheet->adjustTotalDeclarationCount($addedDecls - $removedDecls);
+		if ($this->owner === null) {
+			$this->sheet->setStrictPreludeCountInternal($nextStrictPreludeCount);
+		}
 	}
 
 	public function reparent(?CSSStyleSheet $sheet): void

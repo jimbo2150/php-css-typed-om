@@ -6,8 +6,8 @@
 
 ## Public API
 
-Constants: `operator = 'invert'`, `sign = '/'`. Inherits properties and methods from [CSSMathValue](CSSMathValue.md#public-properties-and-constants) and [CSSNumericValue](CSSNumericValue.md#public-api): `values`, `inner_values`, `value`, `unit`, `length`; `getOperator`, `__toString`, `clone`, `parse`, `parseAll`, `from`, `type`, `getType`, `getNumericType`, `getNumericCategory`, `to`, `toSum`, `add`, `sub`, `mul`, `div`, `min`, `max`, `equals`, `mergeAdditiveTypes`, `unitType`, `__get`, and `__set`. Full signatures, meanings, errors, and examples are documented in those base pages.
+Constants: `operator = 'invert'`, `sign = '/'`. Declares `public protected(set) ?CSSNumericValue $value = null` and inherits properties and methods from [CSSMathValue](CSSMathValue.md#public-properties-and-constants) and [CSSNumericValue](CSSNumericValue.md#public-api): `values`, `inner_values`, `length`; `getOperator`, `__toString`, `clone`, `parse`, `parseAll`, `from`, `type`, `getType`, `getNumericType`, `getNumericCategory`, `to`, `toSum`, `add`, `sub`, `mul`, `div`, `min`, `max`, `equals`, `mergeAdditiveTypes`, `__get`, and `__set`. Full signatures, meanings, errors, and examples are documented in those base pages.
 
 | Method | Signature and behavior |
 |---|---|
-| `__construct` | `public function __construct(CSSNumericValue|CSSNumericArray|array $values)`; requires exactly one operand and stores it in the inherited `public protected(set) mixed $value` property; invalid count throws `InvalidArgumentException`. Example: `$operand = $reciprocal->value;`. |
+| `__construct` | `public function __construct(CSSNumericValue|CSSNumericArray|array $values)`; requires exactly one operand and stores it in `public protected(set) ?CSSNumericValue $value`; invalid count throws `InvalidArgumentException`. Example: `$operand = $reciprocal->value;`. |

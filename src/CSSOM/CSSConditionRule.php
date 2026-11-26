@@ -16,6 +16,26 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
  */
 class CSSConditionRule extends CSSGroupingRule
 {
+	protected function initConditionRuleInternal(
+		string $ruleName,
+		string $conditionText,
+		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+		bool $requireNonEmpty = false,
+	): void {
+		self::assertValidMaxBytesInternal($maxBytes);
+		if ($maxBytes !== null && strlen($conditionText) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS grouping rule exceeds maximum size of %d bytes.', $maxBytes));
+		}
+		$trimmed = CSSSyntaxScanner::trimCssWhitespace($conditionText);
+		if ($trimmed !== '') {
+			CSSSyntaxScanner::assertValidFragment($trimmed, 'CSS rule prelude', [';', '{', '}']);
+		}
+		$this->initGroupingRuleInternal($ruleName, $trimmed, $maxBytes);
+		if ($requireNonEmpty) {
+			$this->assertConditionNotEmpty($this->prelude);
+		}
+	}
+
 	public function getConditionText(): string
 	{
 		return $this->prelude;

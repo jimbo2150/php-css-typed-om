@@ -6,7 +6,7 @@
 
 ## Public API
 
-Constants: `operator = 'sum'`, `sign = '+'`. Properties `values`, `inner_values`, and inherited `value`, `unit`, `length` are described in [CSSMathValue](CSSMathValue.md#public-properties-and-constants). This type inherits all public APIs from CSSMathValue and CSSNumericValue: `__construct(CSSNumericValue|CSSNumericArray|array $values)`, `getOperator(): ?string`, `__get(string $name): mixed`, `__toString(): string`, `clone(): static`, `parse`, `parseAll`, `from`, `type`, `getType`, `getNumericType`, `getNumericCategory`, `to`, `toSum`, `add`, `sub`, `mul`, `div`, `min`, `max`, `equals`, `mergeAdditiveTypes`, `unitType`, and `__set`. Signatures/parameter descriptions and examples for the inherited numeric methods are in [CSSNumericValue](CSSNumericValue.md#public-api); math-base details are in [CSSMathValue](CSSMathValue.md#public-api).
+Constants: `operator = 'sum'`, `sign = '+'`. Properties `values`, `inner_values`, and `length` are described in [CSSMathValue](CSSMathValue.md#public-properties-and-constants). This type inherits all public APIs from CSSMathValue and CSSNumericValue: `__construct(CSSNumericValue|CSSNumericArray|array $values)`, `getOperator(): ?string`, `__get(string $name): mixed`, `__toString(): string`, `clone(): static`, `parse`, `parseAll`, `from`, `type`, `getType`, `getNumericType`, `getNumericCategory`, `to`, `toSum`, `add`, `sub`, `mul`, `div`, `min`, `max`, `equals`, `mergeAdditiveTypes`, and `__set`. Signatures/parameter descriptions and examples for the inherited numeric methods are in [CSSNumericValue](CSSNumericValue.md#public-api); math-base details are in [CSSMathValue](CSSMathValue.md#public-api).
 
 | Method | Signature and behavior |
 |---|---|

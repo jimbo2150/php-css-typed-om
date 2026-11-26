@@ -7,13 +7,13 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 use ArrayAccess;
 use ArrayIterator;
 use Countable;
-use Error;
 use InvalidArgumentException;
 use IteratorAggregate;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Traversable;
 
 /**
@@ -83,9 +83,23 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 				break;
 			}
 
-			if (preg_match('/\G([a-zA-Z][a-zA-Z0-9-]*)\(/', $cssText, $match, 0, $offset)) {
-				$name = strtolower($match[1]);
-				$open = $offset + strlen($match[0]) - 1;
+			$ch0 = $cssText[$offset];
+			if (($ch0 >= 'a' && $ch0 <= 'z') || ($ch0 >= 'A' && $ch0 <= 'Z')) {
+				$identLen = strspn($cssText, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-', $offset);
+				$nextOffset = $offset + $identLen;
+				if ($nextOffset < $length && $cssText[$nextOffset] === '(') {
+					$name = strtolower(substr($cssText, $offset, $identLen));
+					$open = $nextOffset;
+				} elseif ($nextOffset < $length && $cssText[$nextOffset] === '\\') {
+					$ident = CSSSyntaxScanner::decodeIdentAt($cssText, $offset, $length);
+					if ($ident === null || $ident['end'] >= $length || $cssText[$ident['end']] !== '(') {
+						throw new InvalidArgumentException('Invalid transform function at offset ' . $offset . '.');
+					}
+					$name = strtolower($ident['ident']);
+					$open = $ident['end'];
+				} else {
+					throw new InvalidArgumentException('Invalid transform function at offset ' . $offset . '.');
+				}
 			} else {
 				$ident = CSSSyntaxScanner::decodeIdentAt($cssText, $offset, $length);
 				if ($ident === null || $ident['end'] >= $length || $cssText[$ident['end']] !== '(') {
@@ -224,16 +238,14 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 	public function toMatrix(): DOMMatrix
 	{
 		$matrix = new DOMMatrix();
-		$is2D = true;
 		foreach ($this->components as $component) {
-			$componentMatrix = $component->toMatrix();
-			$matrix->multiplySelf($componentMatrix);
-			if (!$component->is2D() || !$componentMatrix->is2D()) {
-				$is2D = false;
+			$component->applyToMatrixInternal($matrix);
+			if (!$component->is2D()) {
+				$matrix->mark3DInternal();
 			}
 		}
 
-		return DOMMatrix::fromTrustedElements($matrix->toFloat64Array(), $is2D);
+		return $matrix;
 	}
 
 	public function __clone(): void
@@ -276,21 +288,6 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 		return $this->toBoundedCssTextInternal(CSSParserOptions::DEFAULT_MAX_BYTES);
 	}
 
-	public function __get(string $name): mixed
-	{
-		throw new Error('Undefined property: ' . static::class . '::$' . $name);
-	}
-
-	public function __isset(string $name): bool
-	{
-		return false;
-	}
-
-	public function __set(string $name, mixed $value): void
-	{
-		throw new Error('Cannot set property ' . static::class . '::$' . $name);
-	}
-
 	/** @return list<CSSStyleValue|string> */
 	private static function parseArguments(string $arguments, CSSParserOptions $options): array
 	{
@@ -316,13 +313,14 @@ final class CSSTransformValue extends CSSStyleValue implements ArrayAccess, Coun
 				$parsed[] = new CSSKeywordValue('none');
 				continue;
 			}
-			try {
-				$parsed[] = CSSStyleValue::parse($part, null, $options);
-			} catch (CSSParserLimitException $e) {
-				throw $e;
-			} catch (InvalidArgumentException) {
-				$parsed[] = $part;
+			if ($part !== '') {
+				$numeric = CSSNumericValue::tryParseValidated($part, $options);
+				if ($numeric !== null) {
+					$parsed[] = $numeric;
+					continue;
+				}
 			}
+			$parsed[] = $part;
 		}
 
 		return $parsed;

@@ -20,7 +20,7 @@ final class CSSMediaRule extends CSSConditionRule
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 		bool $browserErrorRecovery = false,
 	) {
-		parent::__construct('media', $browserErrorRecovery ? '' : $conditionText, $maxBytes);
+		$this->initGroupingRuleInternal('media', '', $maxBytes);
 		$this->mediaList = new MediaList($conditionText, function (string $text): void {
 			$this->prelude = $text;
 		}, $maxBytes, $browserErrorRecovery);

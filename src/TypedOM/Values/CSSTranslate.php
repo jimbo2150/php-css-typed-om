@@ -101,12 +101,7 @@ final class CSSTranslate extends CSSTransformComponent
 	public function setX(CSSNumericValue|int|float $x): void
 	{
 		$this->xValue = self::numericValue($x, 'px', ['length', 'percent']);
-		if ($this->functionName === 'translatey') {
-			$this->functionName = 'translate';
-		} elseif ($this->functionName === 'translatez') {
-			$this->functionName = 'translate3d';
-			$this->twoDimensional = false;
-		}
+		$this->promoteFromSingleAxis('translatey', 'translatez', 'translate', 'translate3d');
 		$this->syncSerializedValues();
 	}
 
@@ -118,12 +113,7 @@ final class CSSTranslate extends CSSTransformComponent
 	public function setY(CSSNumericValue|int|float $y): void
 	{
 		$this->yValue = self::numericValue($y, 'px', ['length', 'percent']);
-		if ($this->functionName === 'translatex') {
-			$this->functionName = 'translate';
-		} elseif ($this->functionName === 'translatez') {
-			$this->functionName = 'translate3d';
-			$this->twoDimensional = false;
-		}
+		$this->promoteFromSingleAxis('translatex', 'translatez', 'translate', 'translate3d');
 		$this->syncSerializedValues();
 	}
 
@@ -146,14 +136,7 @@ final class CSSTranslate extends CSSTransformComponent
 
 	public function setIs2D(bool $is2D): void
 	{
-		parent::setIs2D($is2D);
-		if ($is2D) {
-			if ($this->functionName === 'translate3d' || $this->functionName === 'translatez') {
-				$this->functionName = 'translate';
-			}
-		} elseif ($this->functionName !== 'translatez') {
-			$this->functionName = 'translate3d';
-		}
+		$this->applyAxisIs2D($is2D, 'translatez', 'translate', 'translate3d');
 		$this->syncSerializedValues();
 	}
 
@@ -168,6 +151,15 @@ final class CSSTranslate extends CSSTransformComponent
 		return DOMMatrix::fromTrustedElements($matrix, $this->twoDimensional && $z === 0.0);
 	}
 
+	public function applyToMatrixInternal(DOMMatrix $matrix): void
+	{
+		$matrix->translateSelf(
+			self::scalar($this->xValue, 'length'),
+			self::scalar($this->yValue, 'length'),
+			$this->twoDimensional ? 0.0 : self::scalar($this->zValue, 'length'),
+		);
+	}
+
 	public function __clone(): void
 	{
 		$preserveSingleTranslate = $this->functionName === 'translate' && count($this->values) === 1;
@@ -179,11 +171,6 @@ final class CSSTranslate extends CSSTransformComponent
 			return;
 		}
 		$this->syncSerializedValues();
-	}
-
-	public function clone(): static
-	{
-		return clone $this;
 	}
 
 	public function getFunctionName(): string

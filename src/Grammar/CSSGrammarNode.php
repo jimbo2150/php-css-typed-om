@@ -13,7 +13,10 @@ final readonly class CSSGrammarNode
 {
 	/**
 	 * @param list<self> $children
-	 * @param list<string> $excludedKeywords
+	 * @param array<string, true> $excludedKeywords
+	 * @param array<string, true> $keywordMap
+	 * @param array<string, list<self>> $functionMap
+	 * @param list<self> $fallbackChildren
 	 */
 	public function __construct(
 		public int $id,
@@ -27,6 +30,10 @@ final readonly class CSSGrammarNode
 		public ?float $rangeMax = null,
 		public array $excludedKeywords = [],
 		public bool $caseSensitive = false,
+		public array $keywordMap = [],
+		public bool $keywordMapCaseSensitive = false,
+		public array $functionMap = [],
+		public array $fallbackChildren = [],
 	) {
 	}
 }

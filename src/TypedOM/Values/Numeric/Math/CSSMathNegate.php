@@ -17,6 +17,8 @@ class CSSMathNegate extends CSSMathValue
 	public const ?string operator = 'negate';
 	public const ?string sign = '-';
 
+	public protected(set) ?CSSNumericValue $value = null;
+
 	/** @param CSSNumericValue|CSSNumericArray|list<CSSNumericValue> $values */
 	public function __construct(CSSNumericValue|CSSNumericArray|array $values)
 	{

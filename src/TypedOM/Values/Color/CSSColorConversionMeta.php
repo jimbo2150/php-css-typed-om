@@ -6,6 +6,8 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color;
 
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 
 /**
  * Internal helper implementing CSS Color 4 §4.4.1 powerless component detection
@@ -15,107 +17,111 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
  */
 final class CSSColorConversionMeta
 {
+	public const int BIT_RED = 1;
+	public const int BIT_GREEN = 2;
+	public const int BIT_BLUE = 4;
+	public const int BIT_HUE = 8;
+	public const int BIT_COLORFULNESS = 16;
+	public const int BIT_LIGHTNESS = 32;
+	public const int BIT_OPPONENT_A = 64;
+	public const int BIT_OPPONENT_B = 128;
+
 	private const float POWERLESS_HSL_EPSILON = 1e-7;
 	private const float POWERLESS_HWB_EPSILON = 1e-7;
 	private const float POWERLESS_LCH_EPSILON = 1e-6;
 
 	/**
-	 * Map of canonical space name -> list of 3 analogous category names (null = no analogous category).
-	 *
-	 * @var array<string, array{0: ?string, 1: ?string, 2: ?string}>
+	 * Collects the bitmask of CSS Color 4 §12.2 analogous missing-component categories present on a color.
 	 */
-	private const array ANALOGOUS_CATEGORIES = [
-		'rgb' => ['red', 'green', 'blue'],
-		'srgb' => ['red', 'green', 'blue'],
-		'srgb-linear' => ['red', 'green', 'blue'],
-		'display-p3' => ['red', 'green', 'blue'],
-		'a98-rgb' => ['red', 'green', 'blue'],
-		'prophoto-rgb' => ['red', 'green', 'blue'],
-		'rec2020' => ['red', 'green', 'blue'],
-		'hsl' => ['hue', 'colorfulness', 'lightness'],
-		'hwb' => ['hue', null, null],
-		'lab' => ['lightness', 'opponent-a', 'opponent-b'],
-		'lch' => ['lightness', 'colorfulness', 'hue'],
-		'oklab' => ['lightness', 'opponent-a', 'opponent-b'],
-		'oklch' => ['lightness', 'colorfulness', 'hue'],
-		'xyz' => [null, null, null],
-		'xyz-d50' => [null, null, null],
-		'xyz-d65' => [null, null, null],
-	];
-
-	/**
-	 * Collects the set of CSS Color 4 §12.2 analogous missing-component categories present on a color.
-	 *
-	 * @return array<string, true>
-	 */
-	public static function extractMissingCategories(CSSColorValue $color): array
+	public static function extractMissingMask(CSSColorValue $color): int
 	{
 		$space = $color->getSpaceNameInternal();
-		$categories = self::ANALOGOUS_CATEGORIES[$space] ?? null;
-		if ($categories === null) {
-			return [];
+		$bits = CSSColorSpaceRegistry::ANALOGOUS_BITS[$space] ?? null;
+		if ($bits === null) {
+			return 0;
 		}
 
 		$components = $color->getComponentValuesInternal();
-		$missing = [];
-		for ($i = 0; $i < 3; $i++) {
-			$cat = $categories[$i];
-			if ($cat !== null && isset($components[$i]) && $components[$i] instanceof CSSKeywordValue) {
-				$missing[$cat] = true;
-			}
+		$mask = 0;
+		if ($bits[0] !== 0 && isset($components[0]) && $components[0] instanceof CSSKeywordValue) {
+			$mask |= $bits[0];
+		}
+		if ($bits[1] !== 0 && isset($components[1]) && $components[1] instanceof CSSKeywordValue) {
+			$mask |= $bits[1];
+		}
+		if ($bits[2] !== 0 && isset($components[2]) && $components[2] instanceof CSSKeywordValue) {
+			$mask |= $bits[2];
 		}
 
-		return $missing;
+		return $mask;
 	}
 
-	/**
-	 * Returns which channel indices (0..2) are powerless in $targetSpace for the given numeric channels.
-	 *
-	 * Per CSS Color 4 §4.4.1 & §7.1:
-	 * - HSL: only hue (0) is powerless when saturation `s` (normalized 0..1) is ~0 (`abs(s) <= 1e-7`).
-	 *        Saturation `s` is NOT powerless at `l = 0%` or `l = 100%`.
-	 * - HWB: hue (0) is powerless when `w + b >= 1 - 1e-7` (normalized 0..1).
-	 * - LCH / OKLCH: hue (2) is powerless when `c <= 1e-6`.
-	 *
-	 * @param array{0: float, 1: float, 2: float} $normalizedChannels Channels in standard float scale
-	 * @return array<int, true>
-	 */
-	public static function detectPowerlessIndices(string $targetSpace, array $normalizedChannels): array
+	public static function detectPowerlessMask(string $targetSpace, float $c0, float $c1, float $c2): int
 	{
 		return match ($targetSpace) {
-			'hsl' => abs($normalizedChannels[1]) <= self::POWERLESS_HSL_EPSILON ? [0 => true] : [],
-			'hwb' => ($normalizedChannels[1] + $normalizedChannels[2]) >= (1.0 - self::POWERLESS_HWB_EPSILON) ? [0 => true] : [],
-			'lch', 'oklch' => $normalizedChannels[1] <= self::POWERLESS_LCH_EPSILON ? [2 => true] : [],
-			default => [],
+			'hsl' => abs($c1) <= self::POWERLESS_HSL_EPSILON ? 1 : 0,
+			'hwb' => ($c1 + $c2) >= (1.0 - self::POWERLESS_HWB_EPSILON) ? 1 : 0,
+			'lch', 'oklch' => $c1 <= self::POWERLESS_LCH_EPSILON ? 4 : 0,
+			default => 0,
 		};
 	}
 
 	/**
-	 * Computes final channel components (CSSNumericValue or `CSSKeywordValue('none')`)
-	 * by applying §4.4.1 powerless detection and §12.2 missing-component carry-forward.
+	 * Builds channel objects (CSSUnitValue or `CSSKeywordValue('none')`) without allocating units for powerless/carried-missing slots.
 	 *
-	 * @param array{0: CSSNumericValue|CSSKeywordValue, 1: CSSNumericValue|CSSKeywordValue, 2: CSSNumericValue|CSSKeywordValue} $components
-	 * @param array{0: float, 1: float, 2: float} $powerlessCheckValues Normalized numeric values for powerless detection
-	 * @param array<string, true> $sourceMissingCategories Missing categories from the source color
 	 * @return array{0: CSSNumericValue|CSSKeywordValue, 1: CSSNumericValue|CSSKeywordValue, 2: CSSNumericValue|CSSKeywordValue}
 	 */
-	public static function applyMissingAndPowerless(
+	public static function applyMissingAndPowerlessFloats(
 		string $targetSpace,
-		array $components,
-		array $powerlessCheckValues,
-		array $sourceMissingCategories,
+		float $v0,
+		CSSUnitEnum $u0,
+		float $v1,
+		CSSUnitEnum $u1,
+		float $v2,
+		CSSUnitEnum $u2,
+		float $p0,
+		float $p1,
+		float $p2,
+		int $sourceMissingMask,
 	): array {
-		$powerless = self::detectPowerlessIndices($targetSpace, $powerlessCheckValues);
-		$targetCategories = self::ANALOGOUS_CATEGORIES[$targetSpace] ?? [null, null, null];
+		$powerlessMask = self::detectPowerlessMask($targetSpace, $p0, $p1, $p2);
+		$bits = CSSColorSpaceRegistry::ANALOGOUS_BITS[$targetSpace] ?? [0, 0, 0];
 
-		for ($i = 0; $i < 3; $i++) {
-			$cat = $targetCategories[$i];
-			$isCarriedMissing = $cat !== null && isset($sourceMissingCategories[$cat]);
-			if (isset($powerless[$i]) || $isCarriedMissing) {
-				$components[$i] = new CSSKeywordValue('none');
-			}
-		}
+		return [
+			(($powerlessMask & 1) !== 0 || ($sourceMissingMask & $bits[0]) !== 0)
+				? CSSKeywordValue::fromValidated('none')
+				: new CSSUnitValue($v0, $u0),
+			(($powerlessMask & 2) !== 0 || ($sourceMissingMask & $bits[1]) !== 0)
+				? CSSKeywordValue::fromValidated('none')
+				: new CSSUnitValue($v1, $u1),
+			(($powerlessMask & 4) !== 0 || ($sourceMissingMask & $bits[2]) !== 0)
+				? CSSKeywordValue::fromValidated('none')
+				: new CSSUnitValue($v2, $u2),
+		];
+	}
 
-		return $components;
+	/**
+	 * Returns `[?float, ?float, ?float]` with `null` in any slot that is powerless or carried missing.
+	 *
+	 * @return array{0: ?float, 1: ?float, 2: ?float}
+	 */
+	public static function maskFloats(
+		string $targetSpace,
+		float $v0,
+		float $v1,
+		float $v2,
+		float $p0,
+		float $p1,
+		float $p2,
+		int $sourceMissingMask,
+	): array {
+		$powerlessMask = self::detectPowerlessMask($targetSpace, $p0, $p1, $p2);
+		$bits = CSSColorSpaceRegistry::ANALOGOUS_BITS[$targetSpace] ?? [0, 0, 0];
+
+		return [
+			(($powerlessMask & 1) !== 0 || ($sourceMissingMask & $bits[0]) !== 0) ? null : $v0,
+			(($powerlessMask & 2) !== 0 || ($sourceMissingMask & $bits[1]) !== 0) ? null : $v1,
+			(($powerlessMask & 4) !== 0 || ($sourceMissingMask & $bits[2]) !== 0) ? null : $v2,
+		];
 	}
 }

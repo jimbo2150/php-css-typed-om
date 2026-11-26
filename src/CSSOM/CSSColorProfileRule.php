@@ -36,7 +36,12 @@ final class CSSColorProfileRule extends CSSAtRule
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 	) {
 		$validatedName = self::validateProfileName($name, $maxBytes);
-		parent::__construct('color-profile', $validatedName, $descriptors, true, $maxBytes);
+		$this->initAtRuleInternal('color-profile', $validatedName, $descriptors, true, $maxBytes);
+	}
+
+	public function validatesDescriptorPropertyValuesInternal(): bool
+	{
+		return false;
 	}
 
 	public function getNameText(): string
@@ -46,12 +51,12 @@ final class CSSColorProfileRule extends CSSAtRule
 
 	public function getSrc(): string
 	{
-		return $this->readDescriptor('src');
+		return $this->readCleanDescriptor('src');
 	}
 
 	public function getRenderingIntent(): string
 	{
-		$raw = $this->readDescriptor('rendering-intent');
+		$raw = $this->readCleanDescriptor('rendering-intent');
 		if ($raw === '') {
 			return '';
 		}
@@ -65,7 +70,7 @@ final class CSSColorProfileRule extends CSSAtRule
 
 	public function getComponents(): string
 	{
-		return $this->readDescriptor('components');
+		return $this->readCleanDescriptor('components');
 	}
 
 	public function getType(): int
@@ -90,16 +95,6 @@ final class CSSColorProfileRule extends CSSAtRule
 			'name', 'src', 'renderingIntent', 'components' => true,
 			default => parent::__isset($name),
 		};
-	}
-
-	private function readDescriptor(string $descriptor): string
-	{
-		$raw = CSSSyntaxScanner::trimCssWhitespace($this->styleDeclaration?->getPropertyValue($descriptor) ?? '');
-		if ($raw !== '' && str_contains($raw, '/*')) {
-			$raw = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($raw));
-		}
-
-		return $raw;
 	}
 
 	private static function validateProfileName(string $name, ?int $maxBytes): string

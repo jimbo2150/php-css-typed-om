@@ -34,7 +34,9 @@ final class CSSGrammarMatcher
 	 * Evaluates `$rootNode` over the entire component list starting at position 0.
 	 *
 	 * @param list<ParsedComponent> $components
+	 * @param array<string, mixed> $evalCacheOut
 	 * @param-out int $stepsOut
+	 * @param-out array<string, mixed> $evalCacheOut
 	 */
 	public static function matches(
 		CSSGrammarNode $rootNode,
@@ -43,6 +45,8 @@ final class CSSGrammarMatcher
 		array $components,
 		CSSParserOptions $options,
 		?int &$stepsOut = null,
+		array &$evalCacheOut = [],
+		int &$mathBudgetOut = 0,
 	): bool {
 		$rootCount = count($components);
 		if ($rootCount === 0) {
@@ -50,110 +54,77 @@ final class CSSGrammarMatcher
 			return false;
 		}
 
+		// Single-node root fast path: skip context/memo/stack allocations on flat leaf grammars.
+		$rootEnds = self::evalLeafEnds($rootNode, $source, $hasComments, $components, $rootCount, 0, $options, $evalCacheOut, $mathBudgetOut);
+		if ($rootEnds !== null) {
+			$stepsOut = 1;
+			return in_array($rootCount, $rootEnds, true);
+		}
+
 		$nextCtxId = 1;
 		$contexts = [
-			0 => [
-				'components' => $components,
-				'count' => $rootCount,
-			],
+			0 => [$components, $rootCount],
 		];
 
 		/** @var array<int, array<int, array<int, list<int>>>> $memo [$ctxId][$nodeId][$pos] = list<int> */
 		$memo = [];
-		/** @var array<string, mixed> $evalCache */
-		$evalCache = [];
-		$mathBudget = 0;
 		$steps = 0;
 
-		// Root frame awaits eval(ctxId=0, rootNode, pos=0)
+		// Packed frame tuples:
+		// [0=EVAL, ctxId, node, pos]
+		// [1=SEQ,  ctxId, node, pos, children, childIdx, frontier, fIdx, nextFrontier]
+		// [2=ALT,  ctxId, node, pos, targets, idx, acc]
+		// [3=REQ,  ctxId, node, pos, innerCtxId, innerChild, innerCount, isInnerBlock]
+		// [4=REPEAT, ctxId, node, pos, child, repCount, frontier, fIdx, nextFrontier, accepted, awaitingStart]
+		// [5=ORDER, ctxId, node, pos, children, n, requireAll, queue, visited, qIdx, accepted, awaiting]
+		/** @var list<non-empty-array<int, mixed>> $stack */
 		$stack = [
-			['phase' => self::PHASE_EVAL, 'ctxId' => 0, 'node' => $rootNode, 'pos' => 0],
+			[self::PHASE_EVAL, 0, $rootNode, 0],
 		];
 
 		while ($stack !== []) {
-			if (++$steps > self::MAX_MATCH_STEPS) {
-				$stepsOut = $steps;
-				return false;
-			}
-			if (count($stack) > self::MAX_MATCH_DEPTH) {
+			if (++$steps > self::MAX_MATCH_STEPS || count($stack) > self::MAX_MATCH_DEPTH) {
 				$stepsOut = $steps;
 				return false;
 			}
 
 			$frame = array_pop($stack);
-			$phase = $frame['phase'];
+			$phase = $frame[0];
 
 			if ($phase === self::PHASE_EVAL) {
-				/** @var int $ctxId */
-				$ctxId = $frame['ctxId'];
-				/** @var CSSGrammarNode $node */
-				$node = $frame['node'];
-				/** @var int $pos */
-				$pos = $frame['pos'];
-
+				/** @var array{0: 0, 1: int, 2: CSSGrammarNode, 3: int} $frame */
+				[, $ctxId, $node, $pos] = $frame;
 				if (isset($memo[$ctxId][$node->id][$pos])) {
 					continue;
 				}
 
-				$ctxComps = $contexts[$ctxId]['components'];
-				$ctxCount = $contexts[$ctxId]['count'];
+				[$ctxComps, $ctxCount] = $contexts[$ctxId];
+				$inlineEnds = self::evalLeafEnds($node, $source, $hasComments, $ctxComps, $ctxCount, $pos, $options, $evalCacheOut, $mathBudgetOut);
+				if ($inlineEnds !== null) {
+					$memo[$ctxId][$node->id][$pos] = $inlineEnds;
+					continue;
+				}
 
 				switch ($node->type) {
-					case CSSGrammarNodeType::Keyword:
-						$ends = [];
-						if ($pos < $ctxCount
-							&& $ctxComps[$pos]['kind'] === 'token'
-							&& ($ctxComps[$pos]['tokenType'] ?? null) === CSSTokenType::Ident
-						) {
-							$tokIdent = (string) ($ctxComps[$pos]['name'] ?? '');
-							$matched = $node->caseSensitive
-								? ($tokIdent === $node->value)
-								: (strtolower($tokIdent) === $node->value);
-							if ($matched) {
-								$ends = [$pos + 1];
-							}
-						}
-						$memo[$ctxId][$node->id][$pos] = $ends;
-						break;
-
-					case CSSGrammarNodeType::Delim:
-						$ends = [];
-						if ($pos < $ctxCount && $ctxComps[$pos]['kind'] === 'token') {
-							$tokType = $ctxComps[$pos]['tokenType'] ?? null;
-							if (($node->value === ',' && $tokType === CSSTokenType::Comma)
-								|| ($tokType === CSSTokenType::Delim && substr($source, $ctxComps[$pos]['start'], $ctxComps[$pos]['end'] - $ctxComps[$pos]['start']) === $node->value)
-							) {
-								$ends = [$pos + 1];
-							}
-						}
-						$memo[$ctxId][$node->id][$pos] = $ends;
-						break;
-
-					case CSSGrammarNodeType::DataType:
-						$memo[$ctxId][$node->id][$pos] = CSSDataTypeMatcher::matchEnds($node, $source, $hasComments, $ctxComps, $pos, $options, $evalCache, $mathBudget);
-						break;
-
 					case CSSGrammarNodeType::NonTerminal:
 						$target = CSSPropertyGrammarRegistry::resolveNonTerminal((string) $node->value);
 						if ($target === null) {
 							$memo[$ctxId][$node->id][$pos] = [];
 							break;
 						}
-						if (isset($memo[$ctxId][$target->id][$pos])) {
-							$memo[$ctxId][$node->id][$pos] = $memo[$ctxId][$target->id][$pos];
+						$targetEnds = $memo[$ctxId][$target->id][$pos] ?? null;
+						if ($targetEnds !== null) {
+							$memo[$ctxId][$node->id][$pos] = $targetEnds;
 							break;
 						}
-						// Resolve target lazily, then store result under $node->id via single-item sequence frame
-						$stack[] = [
-							'phase' => self::PHASE_ALT,
-							'ctxId' => $ctxId,
-							'node' => $node,
-							'pos' => $pos,
-							'targets' => [$target],
-							'idx' => 0,
-							'acc' => [],
-						];
-						$stack[] = ['phase' => self::PHASE_EVAL, 'ctxId' => $ctxId, 'node' => $target, 'pos' => $pos];
+						$inlineTarget = self::evalLeafEnds($target, $source, $hasComments, $ctxComps, $ctxCount, $pos, $options, $evalCacheOut, $mathBudgetOut);
+						if ($inlineTarget !== null) {
+							$memo[$ctxId][$target->id][$pos] = $inlineTarget;
+							$memo[$ctxId][$node->id][$pos] = $inlineTarget;
+							break;
+						}
+						$stack[] = [self::PHASE_ALT, $ctxId, $node, $pos, [$target], 0, []];
+						$stack[] = [self::PHASE_EVAL, $ctxId, $target, $pos];
 						break;
 
 					case CSSGrammarNodeType::FunctionCall:
@@ -175,41 +146,75 @@ final class CSSGrammarMatcher
 							break;
 						}
 						$innerCount = count($innerComps);
+						$innerInline = self::evalLeafEnds($innerChild, $source, $hasComments, $innerComps, $innerCount, 0, $options, $evalCacheOut, $mathBudgetOut);
+						if ($innerInline !== null) {
+							$memo[$ctxId][$node->id][$pos] = in_array($innerCount, $innerInline, true) ? [$pos + 1] : [];
+							break;
+						}
 						$innerCtxId = $nextCtxId++;
-						$contexts[$innerCtxId] = [
-							'components' => $innerComps,
-							'count' => $innerCount,
-						];
-						// Reuse PHASE_REQ check: inner match succeeds iff innerCount is reachable from inner pos 0
-						$stack[] = [
-							'phase' => self::PHASE_REQ,
-							'ctxId' => $ctxId,
-							'node' => $node,
-							'pos' => $pos,
-							'innerCtxId' => $innerCtxId,
-							'innerChild' => $innerChild,
-							'innerCount' => $innerCount,
-							'isInnerBlock' => true,
-						];
-						$stack[] = ['phase' => self::PHASE_EVAL, 'ctxId' => $innerCtxId, 'node' => $innerChild, 'pos' => 0];
+						$contexts[$innerCtxId] = [$innerComps, $innerCount];
+						$stack[] = [self::PHASE_REQ, $ctxId, $node, $pos, $innerCtxId, $innerChild, $innerCount, true];
+						$stack[] = [self::PHASE_EVAL, $innerCtxId, $innerChild, 0];
 						break;
 
 					case CSSGrammarNodeType::Alternative:
-						$targets = $node->children;
-						if ($targets === []) {
-							$memo[$ctxId][$node->id][$pos] = [];
-							break;
+						$acc = [];
+						if ($node->keywordMap !== []
+							&& $pos < $ctxCount
+							&& $ctxComps[$pos]['kind'] === 'token'
+							&& ($ctxComps[$pos]['tokenType'] ?? null) === CSSTokenType::Ident
+						) {
+							$kwKey = $node->keywordMapCaseSensitive
+								? (string) ($ctxComps[$pos]['name'] ?? '')
+								: (string) ($ctxComps[$pos]['lower'] ?? '');
+							if (isset($node->keywordMap[$kwKey])) {
+								$acc[$pos + 1] = true;
+							}
 						}
-						$stack[] = [
-							'phase' => self::PHASE_ALT,
-							'ctxId' => $ctxId,
-							'node' => $node,
-							'pos' => $pos,
-							'targets' => $targets,
-							'idx' => 0,
-							'acc' => [],
-						];
-						$stack[] = ['phase' => self::PHASE_EVAL, 'ctxId' => $ctxId, 'node' => $targets[0], 'pos' => $pos];
+						$targets = [];
+						if ($node->functionMap !== [] && $pos < $ctxCount && $ctxComps[$pos]['kind'] === 'function') {
+							$fnName = (string) ($ctxComps[$pos]['name'] ?? '');
+							foreach ($node->functionMap[$fnName] ?? [] as $fnChild) {
+								$targets[] = $fnChild;
+							}
+						}
+						foreach ($node->fallbackChildren as $fbChild) {
+							$targets[] = $fbChild;
+						}
+
+						$tCount = count($targets);
+						$tIdx = 0;
+						$pushed = false;
+						while ($tIdx < $tCount) {
+							$childNode = $targets[$tIdx];
+							$cEnds = $memo[$ctxId][$childNode->id][$pos] ?? null;
+							if ($cEnds === null) {
+								$inline = self::evalLeafEnds($childNode, $source, $hasComments, $ctxComps, $ctxCount, $pos, $options, $evalCacheOut, $mathBudgetOut);
+								if ($inline === null) {
+									$stack[] = [self::PHASE_ALT, $ctxId, $node, $pos, $targets, $tIdx, $acc];
+									$stack[] = [self::PHASE_EVAL, $ctxId, $childNode, $pos];
+									$pushed = true;
+									break;
+								}
+								$cEnds = $memo[$ctxId][$childNode->id][$pos] = $inline;
+							}
+							if ($steps >= self::MAX_MATCH_STEPS) {
+								$stepsOut = $steps + 1;
+								return false;
+							}
+							$steps++;
+							foreach ($cEnds as $end) {
+								$acc[$end] = true;
+							}
+							$tIdx++;
+						}
+						if (!$pushed) {
+							$ends = array_keys($acc);
+							if (count($ends) > 1) {
+								sort($ends);
+							}
+							$memo[$ctxId][$node->id][$pos] = $ends;
+						}
 						break;
 
 					case CSSGrammarNodeType::Sequence:
@@ -218,33 +223,55 @@ final class CSSGrammarMatcher
 							$memo[$ctxId][$node->id][$pos] = [$pos];
 							break;
 						}
-						$stack[] = [
-							'phase' => self::PHASE_SEQ,
-							'ctxId' => $ctxId,
-							'node' => $node,
-							'pos' => $pos,
-							'children' => $children,
-							'childIdx' => 0,
-							'frontier' => [$pos],
-							'fIdx' => 0,
-							'nextFrontier' => [],
-						];
-						$stack[] = ['phase' => self::PHASE_EVAL, 'ctxId' => $ctxId, 'node' => $children[0], 'pos' => $pos];
+						$childIdx = 0;
+						$frontier = [$pos];
+						$fIdx = 0;
+						$nextFrontier = [];
+						$cCount = count($children);
+						while (true) {
+							$childNode = $children[$childIdx];
+							$curP = $frontier[$fIdx];
+							$cEnds = $memo[$ctxId][$childNode->id][$curP] ?? null;
+							if ($cEnds === null) {
+								$inline = self::evalLeafEnds($childNode, $source, $hasComments, $ctxComps, $ctxCount, $curP, $options, $evalCacheOut, $mathBudgetOut);
+								if ($inline === null) {
+									$stack[] = [self::PHASE_SEQ, $ctxId, $node, $pos, $children, $childIdx, $frontier, $fIdx, $nextFrontier];
+									$stack[] = [self::PHASE_EVAL, $ctxId, $childNode, $curP];
+									break;
+								}
+								$cEnds = $memo[$ctxId][$childNode->id][$curP] = $inline;
+							}
+							if ($steps >= self::MAX_MATCH_STEPS) {
+								$stepsOut = $steps + 1;
+								return false;
+							}
+							$steps++;
+							foreach ($cEnds as $end) {
+								$nextFrontier[$end] = true;
+							}
+							$fIdx++;
+							if ($fIdx < count($frontier)) {
+								continue;
+							}
+							$newFrontier = array_keys($nextFrontier);
+							if (count($newFrontier) > 1) {
+								sort($newFrontier);
+							}
+							$childIdx++;
+							if ($newFrontier === [] || $childIdx >= $cCount) {
+								$memo[$ctxId][$node->id][$pos] = $childIdx >= $cCount ? $newFrontier : [];
+								break;
+							}
+							$frontier = $newFrontier;
+							$fIdx = 0;
+							$nextFrontier = [];
+						}
 						break;
 
 					case CSSGrammarNodeType::RequiredGroup:
 						$child = $node->children[0];
-						$stack[] = [
-							'phase' => self::PHASE_REQ,
-							'ctxId' => $ctxId,
-							'node' => $node,
-							'pos' => $pos,
-							'innerCtxId' => $ctxId,
-							'innerChild' => $child,
-							'innerCount' => 0,
-							'isInnerBlock' => false,
-						];
-						$stack[] = ['phase' => self::PHASE_EVAL, 'ctxId' => $ctxId, 'node' => $child, 'pos' => $pos];
+						$stack[] = [self::PHASE_REQ, $ctxId, $node, $pos, $ctxId, $child, 0, false];
+						$stack[] = [self::PHASE_EVAL, $ctxId, $child, $pos];
 						break;
 
 					case CSSGrammarNodeType::Repeat:
@@ -254,20 +281,8 @@ final class CSSGrammarMatcher
 							$memo[$ctxId][$node->id][$pos] = [$pos];
 							break;
 						}
-						$stack[] = [
-							'phase' => self::PHASE_REPEAT,
-							'ctxId' => $ctxId,
-							'node' => $node,
-							'pos' => $pos,
-							'child' => $child,
-							'repCount' => 0,
-							'frontier' => [$pos],
-							'fIdx' => 0,
-							'nextFrontier' => [],
-							'accepted' => $accepted,
-							'awaitingStart' => $pos,
-						];
-						$stack[] = ['phase' => self::PHASE_EVAL, 'ctxId' => $ctxId, 'node' => $child, 'pos' => $pos];
+						$stack[] = [self::PHASE_REPEAT, $ctxId, $node, $pos, $child, 0, [$pos], 0, [], $accepted, $pos];
+						$stack[] = [self::PHASE_EVAL, $ctxId, $child, $pos];
 						break;
 
 					case CSSGrammarNodeType::AllOrder:
@@ -279,48 +294,61 @@ final class CSSGrammarMatcher
 							break;
 						}
 						$stack[] = [
-							'phase' => self::PHASE_ORDER,
-							'ctxId' => $ctxId,
-							'node' => $node,
-							'pos' => $pos,
-							'children' => $children,
-							'n' => $n,
-							'requireAll' => $node->type === CSSGrammarNodeType::AllOrder,
-							'queue' => [[0, $pos]],
-							'visited' => [($pos << 31) => true],
-							'qIdx' => 0,
-							'branchIdx' => 0,
-							'accepted' => [],
-							'awaiting' => null,
+							self::PHASE_ORDER,
+							$ctxId,
+							$node,
+							$pos,
+							$children,
+							$n,
+							$node->type === CSSGrammarNodeType::AllOrder,
+							[[0, $pos]],
+							[($pos << 31) => true],
+							0,
+							[],
+							[0, $pos, 0],
 						];
-						// Trigger child 0 from (mask=0, curPos=$pos)
-						$stack[count($stack) - 1]['awaiting'] = [0, $pos, 0];
-						$stack[] = ['phase' => self::PHASE_EVAL, 'ctxId' => $ctxId, 'node' => $children[0], 'pos' => $pos];
+						$stack[] = [self::PHASE_EVAL, $ctxId, $children[0], $pos];
 						break;
 				}
 				continue;
 			}
 
 			if ($phase === self::PHASE_ALT) {
-				$ctxId = $frame['ctxId'];
-				$node = $frame['node'];
-				$pos = $frame['pos'];
-				$targets = $frame['targets'];
-				$idx = $frame['idx'];
-				$acc = $frame['acc'];
+				/** @var array{0: 2, 1: int, 2: CSSGrammarNode, 3: int, 4: list<CSSGrammarNode>, 5: int, 6: array<int, true>} $frame */
+				[, $ctxId, $node, $pos, $targets, $idx, $acc] = $frame;
+				[$ctxComps, $ctxCount] = $contexts[$ctxId];
 
 				$res = $memo[$ctxId][$targets[$idx]->id][$pos] ?? [];
 				foreach ($res as $end) {
 					$acc[$end] = true;
 				}
-
 				$idx++;
-				if ($idx < count($targets)) {
-					$frame['idx'] = $idx;
-					$frame['acc'] = $acc;
-					$stack[] = $frame;
-					$stack[] = ['phase' => self::PHASE_EVAL, 'ctxId' => $ctxId, 'node' => $targets[$idx], 'pos' => $pos];
-				} else {
+				$tCount = count($targets);
+				$pushed = false;
+				while ($idx < $tCount) {
+					$childNode = $targets[$idx];
+					$cEnds = $memo[$ctxId][$childNode->id][$pos] ?? null;
+					if ($cEnds === null) {
+						$inline = self::evalLeafEnds($childNode, $source, $hasComments, $ctxComps, $ctxCount, $pos, $options, $evalCacheOut, $mathBudgetOut);
+						if ($inline === null) {
+							$stack[] = [self::PHASE_ALT, $ctxId, $node, $pos, $targets, $idx, $acc];
+							$stack[] = [self::PHASE_EVAL, $ctxId, $childNode, $pos];
+							$pushed = true;
+							break;
+						}
+						$cEnds = $memo[$ctxId][$childNode->id][$pos] = $inline;
+					}
+					if ($steps >= self::MAX_MATCH_STEPS) {
+						$stepsOut = $steps + 1;
+						return false;
+					}
+					$steps++;
+					foreach ($cEnds as $end) {
+						$acc[$end] = true;
+					}
+					$idx++;
+				}
+				if (!$pushed) {
 					$ends = array_keys($acc);
 					if (count($ends) > 1) {
 						sort($ends);
@@ -331,17 +359,13 @@ final class CSSGrammarMatcher
 			}
 
 			if ($phase === self::PHASE_REQ) {
-				$ctxId = $frame['ctxId'];
-				$node = $frame['node'];
-				$pos = $frame['pos'];
-				$innerCtxId = $frame['innerCtxId'];
-				$innerChild = $frame['innerChild'];
-				$lookupPos = $frame['isInnerBlock'] ? 0 : $pos;
+				/** @var array{0: 3, 1: int, 2: CSSGrammarNode, 3: int, 4: int, 5: CSSGrammarNode, 6: int, 7: bool} $frame */
+				[, $ctxId, $node, $pos, $innerCtxId, $innerChild, $innerCount, $isInnerBlock] = $frame;
+				$lookupPos = $isInnerBlock ? 0 : $pos;
 				$res = $memo[$innerCtxId][$innerChild->id][$lookupPos] ?? [];
 
-				if ($frame['isInnerBlock']) {
-					$targetEnd = $frame['innerCount'];
-					$matched = in_array($targetEnd, $res, true);
+				if ($isInnerBlock) {
+					$matched = in_array($innerCount, $res, true);
 					$memo[$ctxId][$node->id][$pos] = $matched ? [$pos + 1] : [];
 				} else {
 					$filtered = [];
@@ -356,207 +380,204 @@ final class CSSGrammarMatcher
 			}
 
 			if ($phase === self::PHASE_SEQ) {
-				$ctxId = $frame['ctxId'];
-				$node = $frame['node'];
-				$pos = $frame['pos'];
-				$children = $frame['children'];
-				$childIdx = $frame['childIdx'];
-				$frontier = $frame['frontier'];
-				$fIdx = $frame['fIdx'];
-				$nextFrontier = $frame['nextFrontier'];
+				/** @var array{0: 1, 1: int, 2: CSSGrammarNode, 3: int, 4: list<CSSGrammarNode>, 5: int, 6: list<int>, 7: int, 8: array<int, true>} $frame */
+				[, $ctxId, $node, $pos, $children, $childIdx, $frontier, $fIdx, $nextFrontier] = $frame;
+				[$ctxComps, $ctxCount] = $contexts[$ctxId];
+				$cCount = count($children);
 
-				$curP = $frontier[$fIdx];
-				$childId = $children[$childIdx]->id;
-				foreach ($memo[$ctxId][$childId][$curP] ?? [] as $end) {
+				foreach ($memo[$ctxId][$children[$childIdx]->id][$frontier[$fIdx]] ?? [] as $end) {
 					$nextFrontier[$end] = true;
 				}
-
 				$fIdx++;
-				if ($fIdx < count($frontier)) {
-					$frame['fIdx'] = $fIdx;
-					$frame['nextFrontier'] = $nextFrontier;
-					$stack[] = $frame;
-					$stack[] = ['phase' => self::PHASE_EVAL, 'ctxId' => $ctxId, 'node' => $children[$childIdx], 'pos' => $frontier[$fIdx]];
-					continue;
-				}
 
-				// Advance to next child in sequence
-				$newFrontier = array_keys($nextFrontier);
-				sort($newFrontier);
-				$childIdx++;
-				if ($newFrontier === [] || $childIdx >= count($children)) {
-					$memo[$ctxId][$node->id][$pos] = $childIdx >= count($children) ? $newFrontier : [];
-					continue;
-				}
+				while (true) {
+					if ($fIdx < count($frontier)) {
+						$childNode = $children[$childIdx];
+						$curP = $frontier[$fIdx];
+						$cEnds = $memo[$ctxId][$childNode->id][$curP] ?? null;
+						if ($cEnds === null) {
+							$inline = self::evalLeafEnds($childNode, $source, $hasComments, $ctxComps, $ctxCount, $curP, $options, $evalCacheOut, $mathBudgetOut);
+							if ($inline === null) {
+								$stack[] = [self::PHASE_SEQ, $ctxId, $node, $pos, $children, $childIdx, $frontier, $fIdx, $nextFrontier];
+								$stack[] = [self::PHASE_EVAL, $ctxId, $childNode, $curP];
+								break;
+							}
+							$cEnds = $memo[$ctxId][$childNode->id][$curP] = $inline;
+						}
+						if ($steps >= self::MAX_MATCH_STEPS) {
+							$stepsOut = $steps + 1;
+							return false;
+						}
+						$steps++;
+						foreach ($cEnds as $end) {
+							$nextFrontier[$end] = true;
+						}
+						$fIdx++;
+						continue;
+					}
 
-				$frame['childIdx'] = $childIdx;
-				$frame['frontier'] = $newFrontier;
-				$frame['fIdx'] = 0;
-				$frame['nextFrontier'] = [];
-				$stack[] = $frame;
-				$stack[] = ['phase' => self::PHASE_EVAL, 'ctxId' => $ctxId, 'node' => $children[$childIdx], 'pos' => $newFrontier[0]];
+					$newFrontier = array_keys($nextFrontier);
+					if (count($newFrontier) > 1) {
+						sort($newFrontier);
+					}
+					$childIdx++;
+					if ($newFrontier === [] || $childIdx >= $cCount) {
+						$memo[$ctxId][$node->id][$pos] = $childIdx >= $cCount ? $newFrontier : [];
+						break;
+					}
+
+					$frontier = $newFrontier;
+					$fIdx = 0;
+					$nextFrontier = [];
+				}
 				continue;
 			}
 
 			if ($phase === self::PHASE_REPEAT) {
-				$ctxId = $frame['ctxId'];
-				$node = $frame['node'];
-				$pos = $frame['pos'];
-				$child = $frame['child'];
-				$repCount = $frame['repCount'];
-				$frontier = $frame['frontier'];
-				$fIdx = $frame['fIdx'];
-				$nextFrontier = $frame['nextFrontier'];
-				$accepted = $frame['accepted'];
-				$awaitingStart = $frame['awaitingStart'];
-				$ctxComps = $contexts[$ctxId]['components'];
-				$ctxCount = $contexts[$ctxId]['count'];
+				[, $ctxId, $node, $pos, $child, $repCount, $frontier, $fIdx, $nextFrontier, $accepted, $awaitingStart] = $frame;
+				[$ctxComps, $ctxCount] = $contexts[$ctxId];
 
-				$res = $memo[$ctxId][$child->id][$awaitingStart] ?? [];
-				foreach ($res as $end) {
+				foreach ($memo[$ctxId][$child->id][$awaitingStart] ?? [] as $end) {
 					// Zero-width repetition guard: an iteration must make positive progress
 					if ($end > $awaitingStart) {
 						$nextFrontier[$end] = true;
 					}
 				}
-
 				$fIdx++;
-				$scheduledNext = false;
-				while ($fIdx < count($frontier)) {
-					$nextStart = $frontier[$fIdx];
-					if ($repCount > 0 && $node->commaSeparated) {
-						if ($nextStart >= $ctxCount
-							|| $ctxComps[$nextStart]['kind'] !== 'token'
-							|| ($ctxComps[$nextStart]['tokenType'] ?? null) !== CSSTokenType::Comma
-						) {
-							$fIdx++;
-							continue;
+
+				while (true) {
+					$scheduledNext = false;
+					while ($fIdx < count($frontier)) {
+						$nextStart = $frontier[$fIdx];
+						if ($repCount > 0 && $node->commaSeparated) {
+							if ($nextStart >= $ctxCount
+								|| $ctxComps[$nextStart]['kind'] !== 'token'
+								|| ($ctxComps[$nextStart]['tokenType'] ?? null) !== CSSTokenType::Comma
+							) {
+								$fIdx++;
+								continue;
+							}
+							$nextStart++;
 						}
-						$nextStart++;
+						$cEnds = $memo[$ctxId][$child->id][$nextStart] ?? null;
+						if ($cEnds === null) {
+							$inline = self::evalLeafEnds($child, $source, $hasComments, $ctxComps, $ctxCount, $nextStart, $options, $evalCacheOut, $mathBudgetOut);
+							if ($inline === null) {
+								$stack[] = [self::PHASE_REPEAT, $ctxId, $node, $pos, $child, $repCount, $frontier, $fIdx, $nextFrontier, $accepted, $nextStart];
+								$stack[] = [self::PHASE_EVAL, $ctxId, $child, $nextStart];
+								$scheduledNext = true;
+								break;
+							}
+							$cEnds = $memo[$ctxId][$child->id][$nextStart] = $inline;
+						}
+						if ($steps >= self::MAX_MATCH_STEPS) {
+							$stepsOut = $steps + 1;
+							return false;
+						}
+						$steps++;
+						foreach ($cEnds as $end) {
+							if ($end > $nextStart) {
+								$nextFrontier[$end] = true;
+							}
+						}
+						$fIdx++;
 					}
-					$frame['fIdx'] = $fIdx;
-					$frame['nextFrontier'] = $nextFrontier;
-					$frame['awaitingStart'] = $nextStart;
-					$stack[] = $frame;
-					$stack[] = ['phase' => self::PHASE_EVAL, 'ctxId' => $ctxId, 'node' => $child, 'pos' => $nextStart];
-					$scheduledNext = true;
-					break;
-				}
-				if ($scheduledNext) {
-					continue;
-				}
-
-				// Completed repetition round $repCount + 1
-				$repCount++;
-				$newFrontier = array_keys($nextFrontier);
-				if (count($newFrontier) > 1) {
-					sort($newFrontier);
-				}
-
-				$madeNewAccepted = false;
-				if ($repCount >= $node->min) {
-					foreach ($newFrontier as $endPos) {
-						if (!isset($accepted[$endPos])) {
-							$accepted[$endPos] = true;
-							$madeNewAccepted = true;
-						}
-					}
-				}
-
-				$reachedMax = $node->max !== null && $repCount >= $node->max;
-				// If unbounded and we already covered >= min without discovering any new end positions, we can still continue only if positions remain strictly < ctxCount and we guard against stalled fixpoints
-				if ($newFrontier === [] || $reachedMax || ($node->max === null && $repCount >= $node->min && !$madeNewAccepted && !$node->commaSeparated)) {
-					$ends = array_keys($accepted);
-					sort($ends);
-					$memo[$ctxId][$node->id][$pos] = $ends;
-					continue;
-				}
-
-				// Prepare next round starting from $newFrontier[0]
-				$nextStart = null;
-				$startIdx = 0;
-				while ($startIdx < count($newFrontier)) {
-					$cand = $newFrontier[$startIdx];
-					if ($node->commaSeparated) {
-						if ($cand >= $ctxCount
-							|| $ctxComps[$cand]['kind'] !== 'token'
-							|| ($ctxComps[$cand]['tokenType'] ?? null) !== CSSTokenType::Comma
-						) {
-							$startIdx++;
-							continue;
-						}
-						$nextStart = $cand + 1;
+					if ($scheduledNext) {
 						break;
 					}
-					$nextStart = $cand;
-					break;
-				}
 
-				if ($nextStart === null) {
-					$ends = array_keys($accepted);
-					sort($ends);
-					$memo[$ctxId][$node->id][$pos] = $ends;
-					continue;
-				}
+					// Completed repetition round $repCount + 1
+					$repCount++;
+					$newFrontier = array_keys($nextFrontier);
+					if (count($newFrontier) > 1) {
+						sort($newFrontier);
+					}
 
-				$frame['repCount'] = $repCount;
-				$frame['frontier'] = $newFrontier;
-				$frame['fIdx'] = $startIdx;
-				$frame['nextFrontier'] = [];
-				$frame['accepted'] = $accepted;
-				$frame['awaitingStart'] = $nextStart;
-				$stack[] = $frame;
-				$stack[] = ['phase' => self::PHASE_EVAL, 'ctxId' => $ctxId, 'node' => $child, 'pos' => $nextStart];
+					$madeNewAccepted = false;
+					if ($repCount >= $node->min) {
+						foreach ($newFrontier as $endPos) {
+							if (!isset($accepted[$endPos])) {
+								$accepted[$endPos] = true;
+								$madeNewAccepted = true;
+							}
+						}
+					}
+
+					$reachedMax = $node->max !== null && $repCount >= $node->max;
+					if ($newFrontier === [] || $reachedMax || ($node->max === null && $repCount >= $node->min && !$madeNewAccepted && !$node->commaSeparated)) {
+						$ends = array_keys($accepted);
+						if (count($ends) > 1) {
+							sort($ends);
+						}
+						$memo[$ctxId][$node->id][$pos] = $ends;
+						break;
+					}
+
+					$frontier = $newFrontier;
+					$fIdx = 0;
+					$nextFrontier = [];
+				}
 				continue;
 			}
 
 			if ($phase === self::PHASE_ORDER) {
-				$ctxId = $frame['ctxId'];
-				$node = $frame['node'];
-				$pos = $frame['pos'];
-				$children = $frame['children'];
-				$n = $frame['n'];
-				$requireAll = $frame['requireAll'];
-				$queue = $frame['queue'];
-				$visited = $frame['visited'];
-				$qIdx = $frame['qIdx'];
-				$branchIdx = $frame['branchIdx'];
-				$accepted = $frame['accepted'];
-				[$mask, $curPos, $b] = $frame['awaiting'];
+				/** @var array{0: 5, 1: int, 2: CSSGrammarNode, 3: int, 4: list<CSSGrammarNode>, 5: int, 6: bool, 7: list<array{int, int}>, 8: array<int, true>, 9: int, 10: array<int, true>, 11: array{int, int, int}} $frame */
+				[, $ctxId, $node, $pos, $children, $n, $requireAll, $queue, $visited, $qIdx, $accepted, $awaiting] = $frame;
+				[$ctxComps, $ctxCount] = $contexts[$ctxId];
+				$fullMask = (1 << $n) - 1;
+				[$mask, $curPos, $b] = $awaiting;
 
 				$res = $memo[$ctxId][$children[$b]->id][$curPos] ?? [];
-				$fullMask = (1 << $n) - 1;
+				$nextMaskBase = $mask | (1 << $b);
 				foreach ($res as $nextPos) {
-					$nextMask = $mask | (1 << $b);
-					if ($requireAll ? $nextMask === $fullMask : $nextMask !== 0) {
+					if ($requireAll ? $nextMaskBase === $fullMask : $nextMaskBase !== 0) {
 						$accepted[$nextPos] = true;
 					}
-					if ($nextMask !== $fullMask) {
-						$key = ($nextPos << 31) | $nextMask;
+					if ($nextMaskBase !== $fullMask) {
+						$key = ($nextPos << 31) | $nextMaskBase;
 						if (!isset($visited[$key])) {
 							$visited[$key] = true;
-							$queue[] = [$nextMask, $nextPos];
+							$queue[] = [$nextMaskBase, $nextPos];
 						}
 					}
 				}
 
-				// Advance to next unused branch in current (qIdx) or next queue item
 				$branchIdx = $b + 1;
 				$scheduled = false;
 				while ($qIdx < count($queue)) {
 					[$qMask, $qPos] = $queue[$qIdx];
 					while ($branchIdx < $n) {
 						if (($qMask & (1 << $branchIdx)) === 0) {
-							$frame['queue'] = $queue;
-							$frame['visited'] = $visited;
-							$frame['qIdx'] = $qIdx;
-							$frame['branchIdx'] = $branchIdx;
-							$frame['accepted'] = $accepted;
-							$frame['awaiting'] = [$qMask, $qPos, $branchIdx];
-							$stack[] = $frame;
-							$stack[] = ['phase' => self::PHASE_EVAL, 'ctxId' => $ctxId, 'node' => $children[$branchIdx], 'pos' => $qPos];
-							$scheduled = true;
-							break 2;
+							$childNode = $children[$branchIdx];
+							$cEnds = $memo[$ctxId][$childNode->id][$qPos] ?? null;
+							if ($cEnds === null) {
+								$inline = self::evalLeafEnds($childNode, $source, $hasComments, $ctxComps, $ctxCount, $qPos, $options, $evalCacheOut, $mathBudgetOut);
+								if ($inline === null) {
+									$stack[] = [self::PHASE_ORDER, $ctxId, $node, $pos, $children, $n, $requireAll, $queue, $visited, $qIdx, $accepted, [$qMask, $qPos, $branchIdx]];
+									$stack[] = [self::PHASE_EVAL, $ctxId, $childNode, $qPos];
+									$scheduled = true;
+									break 2;
+								}
+								$cEnds = $memo[$ctxId][$childNode->id][$qPos] = $inline;
+							}
+							if ($steps >= self::MAX_MATCH_STEPS) {
+								$stepsOut = $steps + 1;
+								return false;
+							}
+							$steps++;
+							$newMask = $qMask | (1 << $branchIdx);
+							foreach ($cEnds as $nextPos) {
+								if ($requireAll ? $newMask === $fullMask : $newMask !== 0) {
+									$accepted[$nextPos] = true;
+								}
+								if ($newMask !== $fullMask) {
+									$key = ($nextPos << 31) | $newMask;
+									if (!isset($visited[$key])) {
+										$visited[$key] = true;
+										$queue[] = [$newMask, $nextPos];
+									}
+								}
+							}
 						}
 						$branchIdx++;
 					}
@@ -578,5 +599,51 @@ final class CSSGrammarMatcher
 		$rootEnds = $memo[0][$rootNode->id][0] ?? [];
 
 		return in_array($rootCount, $rootEnds, true);
+	}
+
+	/**
+	 * Evaluates leaf nodes and pure-keyword `Alternative` nodes directly without stack frames,
+	 * returning `null` when composite AST traversal is required.
+	 *
+	 * @param list<ParsedComponent> $ctxComps
+	 * @param array<string, mixed> $evalCache
+	 * @return ?list<int>
+	 */
+	private static function evalLeafEnds(
+		CSSGrammarNode $node,
+		string $source,
+		bool $hasComments,
+		array $ctxComps,
+		int $ctxCount,
+		int $pos,
+		CSSParserOptions $options,
+		array &$evalCache,
+		int &$mathBudget,
+	): ?array {
+		return match ($node->type) {
+			CSSGrammarNodeType::Keyword => ($pos < $ctxCount
+				&& $ctxComps[$pos]['kind'] === 'token'
+				&& ($ctxComps[$pos]['tokenType'] ?? null) === CSSTokenType::Ident
+				&& ($node->caseSensitive ? ($ctxComps[$pos]['name'] ?? '') === $node->value : ($ctxComps[$pos]['lower'] ?? '') === $node->value))
+				? [$pos + 1]
+				: [],
+			CSSGrammarNodeType::Delim => ($pos < $ctxCount
+				&& $ctxComps[$pos]['kind'] === 'token'
+				&& (($node->value === ',' && ($ctxComps[$pos]['tokenType'] ?? null) === CSSTokenType::Comma)
+					|| (($ctxComps[$pos]['tokenType'] ?? null) === CSSTokenType::Delim
+						&& substr($source, $ctxComps[$pos]['start'], $ctxComps[$pos]['end'] - $ctxComps[$pos]['start']) === $node->value)))
+				? [$pos + 1]
+				: [],
+			CSSGrammarNodeType::DataType => CSSDataTypeMatcher::matchEnds($node, $source, $hasComments, $ctxComps, $pos, $options, $evalCache, $mathBudget),
+			CSSGrammarNodeType::Alternative => ($node->functionMap === [] && $node->fallbackChildren === [])
+				? (($pos < $ctxCount
+					&& $ctxComps[$pos]['kind'] === 'token'
+					&& ($ctxComps[$pos]['tokenType'] ?? null) === CSSTokenType::Ident
+					&& isset($node->keywordMap[$node->keywordMapCaseSensitive ? (string) ($ctxComps[$pos]['name'] ?? '') : (string) ($ctxComps[$pos]['lower'] ?? '')]))
+					? [$pos + 1]
+					: [])
+				: null,
+			default => null,
+		};
 	}
 }

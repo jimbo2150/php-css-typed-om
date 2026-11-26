@@ -19,7 +19,7 @@ use OutOfBoundsException;
  */
 class CSSGroupingRule extends CSSRule
 {
-	protected readonly string $ruleName;
+	protected string $ruleName;
 	protected string $prelude;
 	private CSSRuleList $cssRulesList;
 	private static bool $inIterativeClone = false;
@@ -48,6 +48,22 @@ class CSSGroupingRule extends CSSRule
 			CSSSyntaxScanner::assertValidFragment($this->prelude, 'CSS rule prelude', [';', '{', '}']);
 		}
 
+		$this->cssRulesList = new CSSRuleList(null, $this);
+	}
+
+	/** @internal Initializes already-validated rule names and preludes without regex or fragment rescanning. */
+	protected function initGroupingRuleInternal(
+		string $ruleName,
+		string $prelude = '',
+		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+	): void {
+		self::assertValidMaxBytesInternal($maxBytes);
+		if ($maxBytes !== null && (strlen($ruleName) > $maxBytes || strlen($prelude) > $maxBytes)) {
+			throw new CSSParserLimitException(sprintf('CSS grouping rule exceeds maximum size of %d bytes.', $maxBytes));
+		}
+		$this->maxBytes = $maxBytes;
+		$this->ruleName = $ruleName;
+		$this->prelude = $prelude;
 		$this->cssRulesList = new CSSRuleList(null, $this);
 	}
 
@@ -82,15 +98,32 @@ class CSSGroupingRule extends CSSRule
 	{
 		$sheet = $this->getParentStyleSheet();
 		if ($sheet === null) {
-			throw new LogicException('A detached grouping rule cannot insert rules.');
+			throw new LogicException($this->detachedInsertErrorMessage());
 		}
 		if ($index < 0 || $index > count($this->cssRulesList)) {
 			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
 		}
 
 		$effectiveOptions = $sheet->resolveParserOptionsInternal($options);
+		$rule = $this->parseChildRuleForInsert($ruleText, $effectiveOptions, $sheet);
+		$this->cssRulesList->insertWithOptionsInternal($index, $rule, $effectiveOptions);
+
+		return $index;
+	}
+
+	protected function detachedInsertErrorMessage(): string
+	{
+		return 'A detached grouping rule cannot insert rules.';
+	}
+
+	protected function parseChildRuleForInsert(
+		string $ruleText,
+		CSSParserOptions $effectiveOptions,
+		CSSStyleSheet $sheet,
+	): CSSRule {
 		[$useNested, $functionMode] = $this->resolveNestedInsertMode();
-		$rule = $useNested
+
+		return $useNested
 			? CSSParser::parseSingleNestedRule(
 				$ruleText,
 				$effectiveOptions,
@@ -106,10 +139,6 @@ class CSSGroupingRule extends CSSRule
 				$sheet->getTotalRuleCount(),
 				$sheet->getTotalDeclarationCount(),
 			);
-		self::assertValidChildRuleInternal($rule);
-		$this->cssRulesList->insertWithOptionsInternal($index, $rule, $effectiveOptions);
-
-		return $index;
 	}
 
 	/**
@@ -181,28 +210,7 @@ class CSSGroupingRule extends CSSRule
 				$children = $node->getCssRules()->getRulesRaw();
 				$childCount = count($children);
 				if ($childCount === 0) {
-					if ($node instanceof CSSStyleRule) {
-						$resultsStack[] = $node->getSelectorText() . ' { ' . $node->getStyle()->getCssText() . ' }';
-					} elseif ($node instanceof CSSPageRule) {
-						$prelude = $node->getPrelude() === '' ? '' : ' ' . $node->getPrelude();
-						$resultsStack[] = '@page' . $prelude . ' { ' . $node->getStyle()->getCssText() . ' }';
-					} elseif ($node instanceof CSSFontFeatureValuesRule) {
-						$blocks = [];
-						foreach ($node->getFeatureMaps() as $category => $map) {
-							if (count($map) === 0) {
-								continue;
-							}
-							$declarations = [];
-							foreach ($map->getEntriesRaw() as $name => $values) {
-								$declarations[] = $name . ': ' . implode(' ', $values) . ';';
-							}
-							$blocks[] = '@' . $category . ' { ' . implode(' ', $declarations) . ' }';
-						}
-						$resultsStack[] = '@font-feature-values ' . $node->getFontFamily() . ' { ' . implode(' ', $blocks) . ' }';
-					} else {
-						$prelude = $node->getPrelude() === '' ? '' : ' ' . $node->getPrelude();
-						$resultsStack[] = '@' . $node->getName() . $prelude . ' {  }';
-					}
+					$resultsStack[] = self::formatGroupingNode($node, null, []);
 					continue;
 				}
 				$workStack[] = [1, $node, $childCount];
@@ -231,50 +239,73 @@ class CSSGroupingRule extends CSSRule
 
 			$childCount = $depth;
 			$childTexts = $childCount === 1 ? [array_pop($resultsStack)] : array_splice($resultsStack, -$childCount);
-			if ($node instanceof CSSStyleRule) {
-				$parts = [];
-				$decls = $node->getStyle()->getCssText();
-				if ($decls !== '') {
-					$parts[] = $decls;
-				}
-				foreach ($childTexts as $text) {
-					$parts[] = $text;
-				}
-				$resultsStack[] = $node->getSelectorText() . ' { ' . implode(' ', $parts) . ' }';
-			} elseif ($node instanceof CSSPageRule) {
-				$parts = [];
-				$decls = $node->getStyle()->getCssText();
-				if ($decls !== '') {
-					$parts[] = $decls;
-				}
-				foreach ($childTexts as $text) {
-					$parts[] = $text;
-				}
-				$prelude = $node->getPrelude() === '' ? '' : ' ' . $node->getPrelude();
-				$resultsStack[] = '@page' . $prelude . ' { ' . implode(' ', $parts) . ' }';
-			} elseif ($node instanceof CSSFontFeatureValuesRule) {
-				$blocks = [];
-				foreach ($node->getFeatureMaps() as $category => $map) {
-					if (count($map) === 0) {
-						continue;
-					}
-					$declarations = [];
-					foreach ($map->getEntriesRaw() as $name => $values) {
-						$declarations[] = $name . ': ' . implode(' ', $values) . ';';
-					}
-					$blocks[] = '@' . $category . ' { ' . implode(' ', $declarations) . ' }';
-				}
-				foreach ($childTexts as $text) {
-					$blocks[] = $text;
-				}
-				$resultsStack[] = '@font-feature-values ' . $node->getFontFamily() . ' { ' . implode(' ', $blocks) . ' }';
-			} else {
-				$prelude = $node->getPrelude() === '' ? '' : ' ' . $node->getPrelude();
-				$resultsStack[] = '@' . $node->getName() . $prelude . ' { ' . implode("\n", $childTexts) . ' }';
-			}
+			$resultsStack[] = self::formatGroupingNode($node, $childTexts, $childTexts);
 		}
 
 		return $resultsStack[0] ?? '';
+	}
+
+	/**
+	 * @param ?list<string> $childTexts
+	 * @param list<string> $childBlocks
+	 */
+	private static function formatGroupingNode(self $node, ?array $childTexts, array $childBlocks): string
+	{
+		if ($node instanceof CSSStyleRule) {
+			if ($childTexts === null) {
+				return $node->getSelectorText() . ' { ' . $node->getStyle()->getCssText() . ' }';
+			}
+			$parts = [];
+			$decls = $node->getStyle()->getCssText();
+			if ($decls !== '') {
+				$parts[] = $decls;
+			}
+			foreach ($childTexts as $text) {
+				$parts[] = $text;
+			}
+			return $node->getSelectorText() . ' { ' . implode(' ', $parts) . ' }';
+		}
+
+		if ($node instanceof CSSPageRule) {
+			$prelude = $node->getPrelude() === '' ? '' : ' ' . $node->getPrelude();
+			if ($childTexts === null) {
+				return '@page' . $prelude . ' { ' . $node->getStyle()->getCssText() . ' }';
+			}
+			$parts = [];
+			$decls = $node->getStyle()->getCssText();
+			if ($decls !== '') {
+				$parts[] = $decls;
+			}
+			foreach ($childTexts as $text) {
+				$parts[] = $text;
+			}
+			return '@page' . $prelude . ' { ' . implode(' ', $parts) . ' }';
+		}
+
+		if ($node instanceof CSSFontFeatureValuesRule) {
+			$blocks = [];
+			foreach ($node->getFeatureMaps() as $category => $map) {
+				if (count($map) === 0) {
+					continue;
+				}
+				$declarations = [];
+				foreach ($map->getEntriesRaw() as $name => $values) {
+					$declarations[] = $name . ': ' . implode(' ', $values) . ';';
+				}
+				$blocks[] = '@' . $category . ' { ' . implode(' ', $declarations) . ' }';
+			}
+			foreach ($childBlocks as $text) {
+				$blocks[] = $text;
+			}
+			return '@font-feature-values ' . $node->getFontFamily() . ' { ' . implode(' ', $blocks) . ' }';
+		}
+
+		$prelude = $node->getPrelude() === '' ? '' : ' ' . $node->getPrelude();
+		if ($childTexts === null) {
+			return '@' . $node->getName() . $prelude . ' {  }';
+		}
+
+		return '@' . $node->getName() . $prelude . ' { ' . implode("\n", $childTexts) . ' }';
 	}
 
 	/** @internal */
@@ -342,6 +373,7 @@ class CSSGroupingRule extends CSSRule
 		self::$inIterativeClone = true;
 		$totalAdded = 0;
 		$totalDeclsAdded = 0;
+		$strictPreludeAdded = 0;
 		$visited = [];
 		try {
 			/** @var list<array{CSSRule, CSSRuleList, ?self}> $stack */
@@ -363,16 +395,15 @@ class CSSGroupingRule extends CSSRule
 				$cloned->setParentLinks($targetSheet, $destOwner);
 				$destList->appendClonedInternal($cloned);
 				$totalAdded++;
-				if ($cloned instanceof CSSStyleRule || $cloned instanceof CSSPageRule || $cloned instanceof CSSKeyframeRule || $cloned instanceof CSSNestedDeclarations || $cloned instanceof CSSFunctionDeclarations) {
-					$totalDeclsAdded += count($cloned->getStyle()->getDeclarationsRaw());
+				if ($destOwner === null && $targetSheet !== null && $targetSheet->isStrictPreludeRuleInternal($cloned)) {
+					$strictPreludeAdded++;
+				}
+				$ownedStyle = $cloned->getOwnedStyleInternal();
+				if ($ownedStyle !== null) {
+					$totalDeclsAdded += count($ownedStyle->getDeclarationsRaw());
 				} elseif ($cloned instanceof CSSFontFeatureValuesRule) {
 					foreach ($cloned->getFeatureMaps() as $map) {
 						$totalDeclsAdded += count($map);
-					}
-				} elseif ($cloned instanceof CSSAtRule) {
-					$style = $cloned->getStyle();
-					if ($style !== null) {
-						$totalDeclsAdded += count($style->getDeclarationsRaw());
 					}
 				}
 
@@ -391,6 +422,9 @@ class CSSGroupingRule extends CSSRule
 		}
 		$targetSheet?->adjustTotalRuleCount($totalAdded);
 		$targetSheet?->adjustTotalDeclarationCount($totalDeclsAdded);
+		if ($strictPreludeAdded > 0) {
+			$targetSheet?->adjustStrictPreludeCountInternal($strictPreludeAdded);
+		}
 	}
 
 	/** @internal */

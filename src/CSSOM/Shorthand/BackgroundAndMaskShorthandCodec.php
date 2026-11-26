@@ -80,11 +80,6 @@ final class BackgroundAndMaskShorthandCodec
 		'y-end' => true,
 	];
 
-	public static function supports(string $shorthand): bool
-	{
-		return $shorthand === 'background' || $shorthand === 'background-position' || $shorthand === 'mask';
-	}
-
 	/**
 	 * @param list<ParsedComponent> $components
 	 * @return ?array<string, string>
@@ -112,7 +107,7 @@ final class BackgroundAndMaskShorthandCodec
 		return match ($shorthand) {
 			'background-position' => self::serializeBackgroundPosition($values, $options),
 			'background' => self::serializeBackground($values, $options),
-			'mask' => self::serializeMask($values),
+			'mask' => self::serializeMask($values, $options),
 			default => '',
 		};
 	}
@@ -355,65 +350,12 @@ final class BackgroundAndMaskShorthandCodec
 		bool $allowColor,
 		CSSParserOptions $options,
 	): ?array {
-		$slashIdx = null;
-		$count = count($layer);
-		for ($i = 0; $i < $count; $i++) {
-			if (ShorthandCodecHelper::isDelim($layer[$i], $source, '/')) {
-				if ($slashIdx !== null) {
-					return null;
-				}
-				$slashIdx = $i;
-			}
+		$slashSplit = self::extractPositionSlashSize($layer, $source, $hasComments, 'bg-position', true, $options);
+		if ($slashSplit === false) {
+			return null;
 		}
-
-		$posX = null;
-		$posY = null;
-		$size = null;
-		$remaining = $layer;
-
-		if ($slashIdx !== null) {
-			$before = array_slice($layer, 0, $slashIdx);
-			$after = array_slice($layer, $slashIdx + 1);
-			if ($before === [] || $after === []) {
-				return null;
-			}
-			// Find longest valid bg-position suffix before '/'
-			$posStart = null;
-			$bCount = count($before);
-			for ($len = min(4, $bCount); $len >= 1; $len--) {
-				$cand = array_slice($before, $bCount - $len);
-				if (ShorthandCodecHelper::matchesNonTerminal('bg-position', $source, $hasComments, $cand, $options)) {
-					$posStart = $bCount - $len;
-					$xy = self::splitBgPositionToXY($cand, $source, $hasComments);
-					if ($xy !== null) {
-						[$posX, $posY] = $xy;
-						break;
-					}
-				}
-			}
-			if ($posStart === null || $posX === null || $posY === null) {
-				return null;
-			}
-			// Find longest valid bg-size prefix after '/'
-			$sizeEnd = null;
-			$aCount = count($after);
-			for ($len = min(2, $aCount); $len >= 1; $len--) {
-				$cand = array_slice($after, 0, $len);
-				if (ShorthandCodecHelper::matchesNonTerminal('bg-size', $source, $hasComments, $cand, $options)) {
-					$sizeEnd = $len;
-					$size = ShorthandCodecHelper::joinComponents($source, $cand, $hasComments);
-					break;
-				}
-			}
-			if ($sizeEnd === null || $size === null) {
-				return null;
-			}
-
-			$remaining = array_merge(
-				array_slice($before, 0, $posStart),
-				array_slice($after, $sizeEnd),
-			);
-		}
+		[$posX, $posY, $size, $remaining] = $slashSplit;
+		$hasPos = $posX !== null;
 
 		$image = null;
 		$repeat = null;
@@ -438,19 +380,7 @@ final class BackgroundAndMaskShorthandCodec
 				continue;
 			}
 			if ($repeat === null && $lower !== null && isset(self::REPEAT_KEYWORDS[$lower])) {
-				if ($lower === 'repeat-x' || $lower === 'repeat-y') {
-					$repeat = $lower;
-					$i++;
-				} else {
-					$nextLower = ($i + 1 < $rCount) ? ShorthandCodecHelper::identLower($remaining[$i + 1]) : null;
-					if ($nextLower !== null && isset(self::REPEAT_KEYWORDS[$nextLower]) && $nextLower !== 'repeat-x' && $nextLower !== 'repeat-y') {
-						$repeat = $lower . ' ' . $nextLower;
-						$i += 2;
-					} else {
-						$repeat = $lower;
-						$i++;
-					}
-				}
+				[$repeat, $i] = self::consumeRepeatTokens($remaining, $i, $rCount, $lower);
 				continue;
 			}
 			if ($lower !== null && (isset(self::VISUAL_BOX_KEYWORDS[$lower]) || isset(self::BG_CLIP_ONLY_KEYWORDS[$lower]))) {
@@ -466,7 +396,7 @@ final class BackgroundAndMaskShorthandCodec
 				$i++;
 				continue;
 			}
-			if ($posX === null) {
+			if (!$hasPos) {
 				$matchedPos = false;
 				for ($len = min(4, $rCount - $i); $len >= 1; $len--) {
 					$cand = array_slice($remaining, $i, $len);
@@ -474,6 +404,7 @@ final class BackgroundAndMaskShorthandCodec
 						$xy = self::splitBgPositionToXY($cand, $source, $hasComments);
 						if ($xy !== null) {
 							[$posX, $posY] = $xy;
+							$hasPos = true;
 							$i += $len;
 							$matchedPos = true;
 							break;
@@ -488,22 +419,11 @@ final class BackgroundAndMaskShorthandCodec
 			return null;
 		}
 
-		// Validate origin / clip boxes: 1 box requires <visual-box>; 2 boxes requires first to be <visual-box>.
-		$origin = 'padding-box';
-		$clip = 'border-box';
-		if (count($boxes) === 1) {
-			if (!isset(self::VISUAL_BOX_KEYWORDS[$boxes[0]])) {
-				return null;
-			}
-			$origin = $boxes[0];
-			$clip = $boxes[0];
-		} elseif (count($boxes) === 2) {
-			if (!isset(self::VISUAL_BOX_KEYWORDS[$boxes[0]])) {
-				return null;
-			}
-			$origin = $boxes[0];
-			$clip = $boxes[1];
+		$resolvedBoxes = self::resolveOriginAndClipBoxes($boxes, self::VISUAL_BOX_KEYWORDS, 'padding-box', 'border-box');
+		if ($resolvedBoxes === null) {
+			return null;
 		}
+		[$origin, $clip] = $resolvedBoxes;
 
 		return [
 			'image' => $image ?? 'none',
@@ -523,7 +443,8 @@ final class BackgroundAndMaskShorthandCodec
 	 */
 	private static function serializeBackground(array $values, CSSParserOptions $options): string
 	{
-		$split = self::splitLayerProps([
+		$hasPos = $values['background-position-x'] !== '0%' || $values['background-position-y'] !== '0%';
+		$split = ShorthandCodecHelper::splitCommaLayers([
 			'image' => $values['background-image'],
 			'posX' => $values['background-position-x'],
 			'posY' => $values['background-position-y'],
@@ -532,7 +453,7 @@ final class BackgroundAndMaskShorthandCodec
 			'attachment' => $values['background-attachment'],
 			'origin' => $values['background-origin'],
 			'clip' => $values['background-clip'],
-		], $options);
+		], $options, $hasPos);
 		if ($split === null) {
 			return '';
 		}
@@ -541,8 +462,6 @@ final class BackgroundAndMaskShorthandCodec
 		$layersOut = [];
 		for ($i = 0; $i < $layerCount; $i++) {
 			$image = $split['text']['image'][$i];
-			$posXComp = $split['comps']['posX'][$i];
-			$posYComp = $split['comps']['posY'][$i];
 			$posXStr = $split['text']['posX'][$i];
 			$posYStr = $split['text']['posY'][$i];
 			$size = $split['text']['size'][$i];
@@ -560,10 +479,10 @@ final class BackgroundAndMaskShorthandCodec
 			if ($size !== 'auto') {
 				$posStr = $hasNonInitialPos
 					? self::combineBgPositionFromXY(
-						$posXComp,
+						$split['comps']['posX'][$i],
 						$split['parsed']['posX']['source'],
 						$split['parsed']['posX']['hasComments'],
-						$posYComp,
+						$split['comps']['posY'][$i],
 						$split['parsed']['posY']['source'],
 						$split['parsed']['posY']['hasComments'],
 						$options,
@@ -575,10 +494,10 @@ final class BackgroundAndMaskShorthandCodec
 				$parts[] = $posStr . ' / ' . $size;
 			} elseif ($hasNonInitialPos) {
 				$posStr = self::combineBgPositionFromXY(
-					$posXComp,
+					$split['comps']['posX'][$i],
 					$split['parsed']['posX']['source'],
 					$split['parsed']['posX']['hasComments'],
-					$posYComp,
+					$split['comps']['posY'][$i],
 					$split['parsed']['posY']['source'],
 					$split['parsed']['posY']['hasComments'],
 					$options,
@@ -668,59 +587,11 @@ final class BackgroundAndMaskShorthandCodec
 		bool $hasComments,
 		CSSParserOptions $options,
 	): ?array {
-		$slashIdx = null;
-		$count = count($layer);
-		for ($i = 0; $i < $count; $i++) {
-			if (ShorthandCodecHelper::isDelim($layer[$i], $source, '/')) {
-				if ($slashIdx !== null) {
-					return null;
-				}
-				$slashIdx = $i;
-			}
+		$slashSplit = self::extractPositionSlashSize($layer, $source, $hasComments, 'position', false, $options);
+		if ($slashSplit === false) {
+			return null;
 		}
-
-		$position = null;
-		$size = null;
-		$remaining = $layer;
-
-		if ($slashIdx !== null) {
-			$before = array_slice($layer, 0, $slashIdx);
-			$after = array_slice($layer, $slashIdx + 1);
-			if ($before === [] || $after === []) {
-				return null;
-			}
-			$posStart = null;
-			$bCount = count($before);
-			for ($len = min(4, $bCount); $len >= 1; $len--) {
-				$cand = array_slice($before, $bCount - $len);
-				if (ShorthandCodecHelper::matchesNonTerminal('position', $source, $hasComments, $cand, $options)) {
-					$posStart = $bCount - $len;
-					$position = ShorthandCodecHelper::joinComponents($source, $cand, $hasComments);
-					break;
-				}
-			}
-			if ($posStart === null || $position === null) {
-				return null;
-			}
-			$sizeEnd = null;
-			$aCount = count($after);
-			for ($len = min(2, $aCount); $len >= 1; $len--) {
-				$cand = array_slice($after, 0, $len);
-				if (ShorthandCodecHelper::matchesNonTerminal('bg-size', $source, $hasComments, $cand, $options)) {
-					$sizeEnd = $len;
-					$size = ShorthandCodecHelper::joinComponents($source, $cand, $hasComments);
-					break;
-				}
-			}
-			if ($sizeEnd === null || $size === null) {
-				return null;
-			}
-
-			$remaining = array_merge(
-				array_slice($before, 0, $posStart),
-				array_slice($after, $sizeEnd),
-			);
-		}
+		[$position, , $size, $remaining] = $slashSplit;
 
 		$image = null;
 		$repeat = null;
@@ -750,19 +621,7 @@ final class BackgroundAndMaskShorthandCodec
 				continue;
 			}
 			if ($repeat === null && $lower !== null && isset(self::REPEAT_KEYWORDS[$lower])) {
-				if ($lower === 'repeat-x' || $lower === 'repeat-y') {
-					$repeat = $lower;
-					$i++;
-				} else {
-					$nextLower = ($i + 1 < $rCount) ? ShorthandCodecHelper::identLower($remaining[$i + 1]) : null;
-					if ($nextLower !== null && isset(self::REPEAT_KEYWORDS[$nextLower]) && $nextLower !== 'repeat-x' && $nextLower !== 'repeat-y') {
-						$repeat = $lower . ' ' . $nextLower;
-						$i += 2;
-					} else {
-						$repeat = $lower;
-						$i++;
-					}
-				}
+				[$repeat, $i] = self::consumeRepeatTokens($remaining, $i, $rCount, $lower);
 				continue;
 			}
 			if ($lower !== null && (isset(self::GEOMETRY_BOX_KEYWORDS[$lower]) || $lower === 'no-clip')) {
@@ -792,21 +651,11 @@ final class BackgroundAndMaskShorthandCodec
 			return null;
 		}
 
-		$origin = 'border-box';
-		$clip = 'border-box';
-		if (count($boxes) === 1) {
-			if (!isset(self::GEOMETRY_BOX_KEYWORDS[$boxes[0]])) {
-				return null;
-			}
-			$origin = $boxes[0];
-			$clip = $boxes[0];
-		} elseif (count($boxes) === 2) {
-			if (!isset(self::GEOMETRY_BOX_KEYWORDS[$boxes[0]])) {
-				return null;
-			}
-			$origin = $boxes[0];
-			$clip = $boxes[1];
+		$resolvedBoxes = self::resolveOriginAndClipBoxes($boxes, self::GEOMETRY_BOX_KEYWORDS, 'border-box', 'border-box');
+		if ($resolvedBoxes === null) {
+			return null;
 		}
+		[$origin, $clip] = $resolvedBoxes;
 
 		return [
 			'image' => $image ?? 'none',
@@ -821,12 +670,125 @@ final class BackgroundAndMaskShorthandCodec
 	}
 
 	/**
+	 * @param list<ParsedComponent> $layer
+	 * @return false|array{0: ?string, 1: ?string, 2: ?string, 3: list<ParsedComponent>}
+	 */
+	private static function extractPositionSlashSize(
+		array $layer,
+		string $source,
+		bool $hasComments,
+		string $positionNonTerminal,
+		bool $splitBgXY,
+		CSSParserOptions $options,
+	): false|array {
+		$slashIdx = null;
+		$count = count($layer);
+		for ($i = 0; $i < $count; $i++) {
+			if (ShorthandCodecHelper::isDelim($layer[$i], $source, '/')) {
+				if ($slashIdx !== null) {
+					return false;
+				}
+				$slashIdx = $i;
+			}
+		}
+		if ($slashIdx === null) {
+			return [null, null, null, $layer];
+		}
+
+		$before = array_slice($layer, 0, $slashIdx);
+		$after = array_slice($layer, $slashIdx + 1);
+		if ($before === [] || $after === []) {
+			return false;
+		}
+
+		$posStart = null;
+		$posA = null;
+		$posB = null;
+		$bCount = count($before);
+		for ($len = min(4, $bCount); $len >= 1; $len--) {
+			$cand = array_slice($before, $bCount - $len);
+			if (ShorthandCodecHelper::matchesNonTerminal($positionNonTerminal, $source, $hasComments, $cand, $options)) {
+				if ($splitBgXY) {
+					$xy = self::splitBgPositionToXY($cand, $source, $hasComments);
+					if ($xy !== null) {
+						$posStart = $bCount - $len;
+						[$posA, $posB] = $xy;
+						break;
+					}
+				} else {
+					$posStart = $bCount - $len;
+					$posA = ShorthandCodecHelper::joinComponents($source, $cand, $hasComments);
+					break;
+				}
+			}
+		}
+		if ($posStart === null || $posA === null) {
+			return false;
+		}
+
+		$sizeEnd = null;
+		$size = null;
+		$aCount = count($after);
+		for ($len = min(2, $aCount); $len >= 1; $len--) {
+			$cand = array_slice($after, 0, $len);
+			if (ShorthandCodecHelper::matchesNonTerminal('bg-size', $source, $hasComments, $cand, $options)) {
+				$sizeEnd = $len;
+				$size = ShorthandCodecHelper::joinComponents($source, $cand, $hasComments);
+				break;
+			}
+		}
+		if ($sizeEnd === null || $size === null) {
+			return false;
+		}
+
+		$remaining = array_merge(
+			array_slice($before, 0, $posStart),
+			array_slice($after, $sizeEnd),
+		);
+
+		return [$posA, $posB, $size, $remaining];
+	}
+
+	/**
+	 * @param list<ParsedComponent> $remaining
+	 * @return array{0: string, 1: int}
+	 */
+	private static function consumeRepeatTokens(array $remaining, int $idx, int $count, string $lower): array
+	{
+		if ($lower === 'repeat-x' || $lower === 'repeat-y') {
+			return [$lower, $idx + 1];
+		}
+		$nextLower = ($idx + 1 < $count) ? ShorthandCodecHelper::identLower($remaining[$idx + 1]) : null;
+		if ($nextLower !== null && isset(self::REPEAT_KEYWORDS[$nextLower]) && $nextLower !== 'repeat-x' && $nextLower !== 'repeat-y') {
+			return [$lower . ' ' . $nextLower, $idx + 2];
+		}
+
+		return [$lower, $idx + 1];
+	}
+
+	/**
+	 * @param list<string> $boxes
+	 * @param array<string, true> $primaryBoxes
+	 * @return ?array{0: string, 1: string}
+	 */
+	private static function resolveOriginAndClipBoxes(array $boxes, array $primaryBoxes, string $defaultOrigin, string $defaultClip): ?array
+	{
+		if ($boxes === []) {
+			return [$defaultOrigin, $defaultClip];
+		}
+		if (!isset($primaryBoxes[$boxes[0]])) {
+			return null;
+		}
+
+		return count($boxes) === 1 ? [$boxes[0], $boxes[0]] : [$boxes[0], $boxes[1]];
+	}
+
+	/**
 	 * @param array<string, string> $values
 	 */
-	private static function serializeMask(array $values): string
+	private static function serializeMask(array $values, CSSParserOptions $options): string
 	{
-		$options = CSSParserOptions::default();
-		$split = self::splitLayerProps([
+		$split = ShorthandCodecHelper::splitCommaLayers([
 			'image' => $values['mask-image'],
 			'position' => $values['mask-position'],
 			'size' => $values['mask-size'],
@@ -835,7 +797,7 @@ final class BackgroundAndMaskShorthandCodec
 			'clip' => $values['mask-clip'],
 			'composite' => $values['mask-composite'],
 			'mode' => $values['mask-mode'],
-		], $options);
+		], $options, false);
 		if ($split === null) {
 			return '';
 		}
@@ -878,42 +840,5 @@ final class BackgroundAndMaskShorthandCodec
 		}
 
 		return implode(', ', $layersOut);
-	}
-
-	/**
-	 * @param array<string, string> $propValues
-	 * @return ?array{count: int, text: array<string, list<string>>, comps: array<string, list<list<ParsedComponent>>>, parsed: array<string, array{source: string, hasComments: bool}>}
-	 */
-	private static function splitLayerProps(array $propValues, CSSParserOptions $options): ?array
-	{
-		$count = null;
-		$text = [];
-		$comps = [];
-		$parsedMap = [];
-
-		foreach ($propValues as $key => $raw) {
-			$parsed = ShorthandCodecHelper::parseValue($raw, $options);
-			if ($parsed === null) {
-				return null;
-			}
-			$segments = ShorthandCodecHelper::splitByDelimiter($parsed['components'], $parsed['source'], CSSTokenType::Comma);
-			if ($segments === null) {
-				return null;
-			}
-			if ($count === null) {
-				$count = count($segments);
-			} elseif (count($segments) !== $count) {
-				return null;
-			}
-			$parsedMap[$key] = ['source' => $parsed['source'], 'hasComments' => $parsed['hasComments']];
-			$comps[$key] = $segments;
-			$textList = [];
-			foreach ($segments as $seg) {
-				$textList[] = ShorthandCodecHelper::joinComponents($parsed['source'], $seg, $parsed['hasComments']);
-			}
-			$text[$key] = $textList;
-		}
-
-		return ['count' => $count ?? 0, 'text' => $text, 'comps' => $comps, 'parsed' => $parsedMap];
 	}
 }

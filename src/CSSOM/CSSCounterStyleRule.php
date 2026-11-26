@@ -26,10 +26,18 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
  */
 final class CSSCounterStyleRule extends CSSAtRule
 {
-	/** @var list<string> */
-	private const array DESCRIPTORS = [
-		'system', 'symbols', 'additive-symbols', 'negative', 'prefix',
-		'suffix', 'range', 'pad', 'speak-as', 'fallback',
+	/** @var array<string, string> */
+	private const array ACCESSOR_TO_DESCRIPTOR = [
+		'system' => 'system',
+		'symbols' => 'symbols',
+		'additiveSymbols' => 'additive-symbols',
+		'negative' => 'negative',
+		'prefix' => 'prefix',
+		'suffix' => 'suffix',
+		'range' => 'range',
+		'pad' => 'pad',
+		'speakAs' => 'speak-as',
+		'fallback' => 'fallback',
 	];
 
 	/** @var array<string, true> Names disallowed by CSS Counter Styles Level 3 */
@@ -57,7 +65,12 @@ final class CSSCounterStyleRule extends CSSAtRule
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 	) {
 		$validated = self::validateName($name, $maxBytes);
-		parent::__construct('counter-style', $validated, $descriptors, true, $maxBytes);
+		$this->initAtRuleInternal('counter-style', $validated, $descriptors, true, $maxBytes);
+	}
+
+	public function validatesDescriptorPropertyValuesInternal(): bool
+	{
+		return false;
 	}
 
 	public function getNameText(): string
@@ -85,8 +98,8 @@ final class CSSCounterStyleRule extends CSSAtRule
 		if ($name === 'name') {
 			return $this->getNameText();
 		}
-		$descriptor = self::camelToKebab($name);
-		if (in_array($descriptor, self::DESCRIPTORS, true)) {
+		$descriptor = self::ACCESSOR_TO_DESCRIPTOR[$name] ?? null;
+		if ($descriptor !== null) {
 			return $this->getDescriptor($descriptor);
 		}
 
@@ -95,15 +108,9 @@ final class CSSCounterStyleRule extends CSSAtRule
 
 	public function __isset(string $name): bool
 	{
-		if ($name === 'name') {
-			return true;
-		}
-		$descriptor = self::camelToKebab($name);
-		if (in_array($descriptor, self::DESCRIPTORS, true)) {
-			return true;
-		}
-
-		return parent::__isset($name);
+		return $name === 'name'
+			|| isset(self::ACCESSOR_TO_DESCRIPTOR[$name])
+			|| parent::__isset($name);
 	}
 
 	public function __set(string $name, mixed $value): void
@@ -112,8 +119,8 @@ final class CSSCounterStyleRule extends CSSAtRule
 			$this->setNameText($value);
 			return;
 		}
-		$descriptor = self::camelToKebab($name);
-		if (in_array($descriptor, self::DESCRIPTORS, true) && is_string($value)) {
+		$descriptor = self::ACCESSOR_TO_DESCRIPTOR[$name] ?? null;
+		if ($descriptor !== null && is_string($value)) {
 			$this->setDescriptor($descriptor, $value);
 			return;
 		}
@@ -142,10 +149,5 @@ final class CSSCounterStyleRule extends CSSAtRule
 		}
 
 		return $name;
-	}
-
-	private static function camelToKebab(string $name): string
-	{
-		return strtolower(preg_replace('/[A-Z]/', '-$0', $name) ?? $name);
 	}
 }

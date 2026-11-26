@@ -35,8 +35,7 @@ final class CSSContainerRule extends CSSConditionRule
 
 	public function __construct(string $conditionText, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
-		parent::__construct('container', $conditionText, $maxBytes);
-		$this->assertConditionNotEmpty($this->prelude);
+		$this->initConditionRuleInternal('container', $conditionText, $maxBytes, true);
 	}
 
 	protected function requiresNonEmptyCondition(): bool

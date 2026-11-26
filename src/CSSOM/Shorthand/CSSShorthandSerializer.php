@@ -34,78 +34,32 @@ final class CSSShorthandSerializer
 			return '';
 		}
 
-		$firstLh = $longhands[0];
-		if (!isset($declarations[$firstLh])) {
+		$extracted = self::extractShorthandValues($shorthand, $longhands, $declarations, $pendingShorthands);
+		if ($extracted === null) {
 			return '';
 		}
-		$expectedPriority = $declarations[$firstLh]['priority'];
-		$firstPending = $pendingShorthands[$firstLh] ?? null;
-
-		if ($firstPending !== null) {
-			if ($firstPending['shorthand'] !== $shorthand) {
-				return '';
-			}
-			$pendingId = $firstPending['id'];
-			foreach ($longhands as $lh) {
-				if (!isset($declarations[$lh], $pendingShorthands[$lh])) {
-					return '';
-				}
-				if ($declarations[$lh]['priority'] !== $expectedPriority || $pendingShorthands[$lh]['id'] !== $pendingId) {
-					return '';
-				}
-			}
-
-			return $firstPending['value'];
+		if (is_string($extracted)) {
+			return $extracted;
 		}
 
-		$values = [];
-		$firstLower = strtolower($declarations[$firstLh]['value']);
-		$isCssWide = isset(CSSValueComponentParser::CSS_WIDE_KEYWORDS[$firstLower]);
+		return self::serializeExtractedValues($shorthand, $extracted, $options);
+	}
 
-		foreach ($longhands as $lh) {
-			if (!isset($declarations[$lh]) || isset($pendingShorthands[$lh])) {
-				return '';
-			}
-			$entry = $declarations[$lh];
-			if ($entry['priority'] !== $expectedPriority) {
-				return '';
-			}
-			if ($isCssWide) {
-				if (strtolower($entry['value']) !== $firstLower) {
-					return '';
-				}
-			} elseif (isset(CSSValueComponentParser::CSS_WIDE_KEYWORDS[strtolower($entry['value'])])) {
-				return '';
-			}
-			$values[$lh] = $entry['value'];
-		}
-
-		if ($isCssWide) {
-			return $firstLower;
-		}
-		if ($shorthand === 'all') {
-			return '';
-		}
-
+	/**
+	 * @param array<string, string> $values
+	 */
+	private static function serializeExtractedValues(string $shorthand, array $values, ?CSSParserOptions $options): string
+	{
 		$options ??= CSSParserOptions::default();
 
-		if (BoxAndLineShorthandCodec::supports($shorthand)) {
-			return BoxAndLineShorthandCodec::serialize($shorthand, $values, $options);
-		}
-		if (BackgroundAndMaskShorthandCodec::supports($shorthand)) {
-			return BackgroundAndMaskShorthandCodec::serialize($shorthand, $values, $options);
-		}
-		if (FontShorthandCodec::supports($shorthand)) {
-			return FontShorthandCodec::serialize($shorthand, $values, $options);
-		}
-		if (GridShorthandCodec::supports($shorthand)) {
-			return GridShorthandCodec::serialize($shorthand, $values, $options);
-		}
-		if (LayeredTimingShorthandCodec::supports($shorthand)) {
-			return LayeredTimingShorthandCodec::serialize($shorthand, $values, $options);
-		}
-
-		return '';
+		return match (CSSShorthandRegistry::getCodecInternal($shorthand)) {
+			'box' => BoxAndLineShorthandCodec::serialize($shorthand, $values, $options),
+			'bg' => BackgroundAndMaskShorthandCodec::serialize($shorthand, $values, $options),
+			'font' => FontShorthandCodec::serialize($shorthand, $values, $options),
+			'grid' => GridShorthandCodec::serialize($shorthand, $values, $options),
+			'timing' => LayeredTimingShorthandCodec::serialize($shorthand, $values, $options),
+			default => '',
+		};
 	}
 
 	/**
@@ -188,7 +142,16 @@ final class CSSShorthandSerializer
 				$sh = $pInfo['shorthand'];
 				$shLonghands = CSSShorthandRegistry::getLonghands($sh);
 				if ($shLonghands !== null
-					&& self::canCollapsePending($sh, $shLonghands, $pInfo['id'], $declarations, $pendingShorthands, $positionMap, $orderedProps, $consumed)
+					&& self::extractShorthandValues(
+						$sh,
+						$shLonghands,
+						$declarations,
+						$pendingShorthands,
+						$positionMap,
+						$orderedProps,
+						$consumed,
+						$pInfo['id'],
+					) !== null
 				) {
 					$result[] = [
 						'property' => $sh,
@@ -207,12 +170,24 @@ final class CSSShorthandSerializer
 				$collapsed = false;
 				foreach (CSSShorthandRegistry::getShorthandsForLonghand($prop) as $sh) {
 					$shLonghands = CSSShorthandRegistry::getLonghands($sh);
-					if ($shLonghands === null
-						|| !self::canAttemptShorthand($sh, $shLonghands, $declarations, $pendingShorthands, $positionMap, $orderedProps, $consumed)
-					) {
+					if ($shLonghands === null) {
 						continue;
 					}
-					$serialized = self::serializeShorthand($sh, $declarations, $pendingShorthands, $options);
+					$extracted = self::extractShorthandValues(
+						$sh,
+						$shLonghands,
+						$declarations,
+						$pendingShorthands,
+						$positionMap,
+						$orderedProps,
+						$consumed,
+					);
+					if ($extracted === null) {
+						continue;
+					}
+					$serialized = is_string($extracted)
+						? $extracted
+						: self::serializeExtractedValues($sh, $extracted, $options);
 					if ($serialized !== '') {
 						$result[] = [
 							'property' => $sh,
@@ -243,107 +218,130 @@ final class CSSShorthandSerializer
 	}
 
 	/**
+	 * Extracts values (or returns a pending/CSS-wide string) while optionally verifying
+	 * unconsumed status, uniform `!important`, and logical cascade barriers in a single pass.
+	 *
 	 * @param list<string> $longhands
 	 * @param array<string, array{value: string, priority: string}> $declarations
 	 * @param array<string, array{shorthand: string, value: string, id: int, kind: 'substitution'|'system-font'}> $pendingShorthands
-	 * @param array<string, int> $positionMap
-	 * @param list<string> $orderedProps
-	 * @param array<string, true> $consumed
+	 * @param ?array<string, int> $positionMap
+	 * @param ?list<string> $orderedProps
+	 * @param ?array<string, true> $consumed
+	 * @return string|array<string, string>|null
 	 */
-	private static function canCollapsePending(
-		string $shorthand,
-		array $longhands,
-		int $pendingId,
-		array $declarations,
-		array $pendingShorthands,
-		array $positionMap,
-		array $orderedProps,
-		array $consumed,
-	): bool {
-		$firstLh = $longhands[0];
-		if (!isset($declarations[$firstLh])) {
-			return false;
-		}
-		$priority = $declarations[$firstLh]['priority'];
-		$minPos = PHP_INT_MAX;
-		$maxPos = -1;
-
-		foreach ($longhands as $lh) {
-			if (isset($consumed[$lh])
-				|| !isset($declarations[$lh], $pendingShorthands[$lh])
-				|| $pendingShorthands[$lh]['id'] !== $pendingId
-				|| $declarations[$lh]['priority'] !== $priority
-			) {
-				return false;
-			}
-			$p = $positionMap[$lh];
-			if ($p < $minPos) {
-				$minPos = $p;
-			}
-			if ($p > $maxPos) {
-				$maxPos = $p;
-			}
-		}
-
-		return self::passesLogicalBarrierCheck($shorthand, $longhands, $minPos, $maxPos, $orderedProps, $consumed);
-	}
-
-	/**
-	 * @param list<string> $longhands
-	 * @param array<string, array{value: string, priority: string}> $declarations
-	 * @param array<string, array{shorthand: string, value: string, id: int, kind: 'substitution'|'system-font'}> $pendingShorthands
-	 * @param array<string, int> $positionMap
-	 * @param list<string> $orderedProps
-	 * @param array<string, true> $consumed
-	 */
-	private static function canAttemptShorthand(
+	private static function extractShorthandValues(
 		string $shorthand,
 		array $longhands,
 		array $declarations,
 		array $pendingShorthands,
-		array $positionMap,
-		array $orderedProps,
-		array $consumed,
-	): bool {
+		?array $positionMap = null,
+		?array $orderedProps = null,
+		?array $consumed = null,
+		?int $requiredPendingId = null,
+	): string|array|null {
 		$firstLh = $longhands[0];
 		if (!isset($declarations[$firstLh])) {
-			return false;
+			return null;
 		}
-		$priority = $declarations[$firstLh]['priority'];
+
+		$expectedPriority = $declarations[$firstLh]['priority'];
+		$firstPending = $pendingShorthands[$firstLh] ?? null;
+
+		if ($requiredPendingId !== null || $firstPending !== null) {
+			if ($firstPending === null) {
+				return null;
+			}
+			$pendingId = $requiredPendingId ?? $firstPending['id'];
+			if ($firstPending['id'] !== $pendingId || $firstPending['shorthand'] !== $shorthand) {
+				return null;
+			}
+			$minPos = PHP_INT_MAX;
+			$maxPos = -1;
+			foreach ($longhands as $lh) {
+				if (($consumed !== null && isset($consumed[$lh]))
+					|| !isset($declarations[$lh], $pendingShorthands[$lh])
+					|| $pendingShorthands[$lh]['id'] !== $pendingId
+					|| $declarations[$lh]['priority'] !== $expectedPriority
+				) {
+					return null;
+				}
+				if ($positionMap !== null) {
+					$p = $positionMap[$lh];
+					if ($p < $minPos) {
+						$minPos = $p;
+					}
+					if ($p > $maxPos) {
+						$maxPos = $p;
+					}
+				}
+			}
+			if ($orderedProps !== null && $consumed !== null && !self::passesLogicalBarrierCheck($shorthand, $minPos, $maxPos, $orderedProps, $consumed)) {
+				return null;
+			}
+
+			return $firstPending['value'];
+		}
+
+		$firstLower = strtolower($declarations[$firstLh]['value']);
+		$isCssWide = isset(CSSValueComponentParser::CSS_WIDE_KEYWORDS[$firstLower]);
+		$values = [];
 		$minPos = PHP_INT_MAX;
 		$maxPos = -1;
 
 		foreach ($longhands as $lh) {
-			if (isset($consumed[$lh])
+			if (($consumed !== null && isset($consumed[$lh]))
 				|| isset($pendingShorthands[$lh])
 				|| !isset($declarations[$lh])
-				|| $declarations[$lh]['priority'] !== $priority
 			) {
-				return false;
+				return null;
 			}
-			$p = $positionMap[$lh];
-			if ($p < $minPos) {
-				$minPos = $p;
+			$entry = $declarations[$lh];
+			if ($entry['priority'] !== $expectedPriority) {
+				return null;
 			}
-			if ($p > $maxPos) {
-				$maxPos = $p;
+			if ($isCssWide) {
+				if (strtolower($entry['value']) !== $firstLower) {
+					return null;
+				}
+			} else {
+				if (isset(CSSValueComponentParser::CSS_WIDE_KEYWORDS[strtolower($entry['value'])])) {
+					return null;
+				}
+				$values[$lh] = $entry['value'];
+			}
+			if ($positionMap !== null) {
+				$p = $positionMap[$lh];
+				if ($p < $minPos) {
+					$minPos = $p;
+				}
+				if ($p > $maxPos) {
+					$maxPos = $p;
+				}
 			}
 		}
 
-		return self::passesLogicalBarrierCheck($shorthand, $longhands, $minPos, $maxPos, $orderedProps, $consumed);
+		if ($orderedProps !== null && $consumed !== null && !self::passesLogicalBarrierCheck($shorthand, $minPos, $maxPos, $orderedProps, $consumed)) {
+			return null;
+		}
+		if ($isCssWide) {
+			return $firstLower;
+		}
+		if ($shorthand === 'all') {
+			return null;
+		}
+
+		return $values;
 	}
 
 	/**
 	 * Ensures no unconsumed property from an opposite physical/logical side of the same logical group
 	 * appears between `$minPos` and `$maxPos` of the candidate shorthand's longhands.
 	 *
-	 * @param list<string> $longhands
 	 * @param list<string> $orderedProps
 	 * @param array<string, true> $consumed
 	 */
 	private static function passesLogicalBarrierCheck(
 		string $shorthand,
-		array $longhands,
 		int $minPos,
 		int $maxPos,
 		array $orderedProps,
@@ -352,16 +350,12 @@ final class CSSShorthandSerializer
 		if ($maxPos - $minPos <= 1) {
 			return true;
 		}
-		$groups = CSSShorthandRegistry::getLogicalGroupsForShorthand($shorthand);
-		if ($groups === []) {
+		$groupLogical = CSSShorthandRegistry::getShorthandLogicalGroupMapInternal($shorthand);
+		if ($groupLogical === []) {
 			return true;
 		}
 
-		$groupLogical = [];
-		foreach ($groups as $g) {
-			$groupLogical[$g['group']] = $g['logical'];
-		}
-		$lhSet = array_flip($longhands);
+		$lhSet = CSSShorthandRegistry::getShorthandLonghandSetInternal($shorthand);
 
 		for ($k = $minPos + 1; $k < $maxPos; $k++) {
 			$mid = $orderedProps[$k];

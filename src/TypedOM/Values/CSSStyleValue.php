@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
+use Error;
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSS;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
+use Jimbo2150\PhpCssTypedOm\Grammar\CSSValueComponentParser;
 use Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext;
@@ -27,12 +29,35 @@ abstract class CSSStyleValue implements Stringable
 	public const int MAX_LIST_ITEMS = 4_096;
 
 	/** @var array<string, true> */
-	private const array GLOBAL_KEYWORDS = [
-		'inherit' => true,
-		'initial' => true,
-		'unset' => true,
-		'revert' => true,
-		'revert-layer' => true,
+	public const array IMAGE_FUNCTIONS = [
+		'url' => true,
+		'image' => true,
+		'image-set' => true,
+		'cross-fade' => true,
+		'paint' => true,
+		'element' => true,
+		'linear-gradient' => true,
+		'radial-gradient' => true,
+		'conic-gradient' => true,
+		'repeating-linear-gradient' => true,
+		'repeating-radial-gradient' => true,
+		'repeating-conic-gradient' => true,
+	];
+
+	/** @var array<string, true> */
+	private const array COLOR_FUNCTIONS = [
+		'rgb' => true,
+		'rgba' => true,
+		'hsl' => true,
+		'hsla' => true,
+		'hwb' => true,
+		'lab' => true,
+		'lch' => true,
+		'oklab' => true,
+		'oklch' => true,
+		'color' => true,
+		'color-mix' => true,
+		'light-dark' => true,
 	];
 
 	/** @var array<string, array<string, true>> */
@@ -112,31 +137,24 @@ abstract class CSSStyleValue implements Stringable
 		?CSSParserOptions $options = null,
 		?CSSContext $context = null,
 	): CSSStyleValue {
-		$options ??= CSSParserOptions::default();
 		if ($cssText !== null) {
-			if ($options->maxBytes !== null && strlen($propertyOrCssText) > $options->maxBytes) {
-				throw new CSSParserLimitException(sprintf('CSS property name exceeds maximum size of %d bytes.', $options->maxBytes));
-			}
-			$property = CSSStyleDeclaration::normalizePropertyName($propertyOrCssText);
-			$raw = $cssText;
-		} else {
-			$property = '';
-			$raw = $propertyOrCssText;
+			return self::parseWithMathDepthInternal($propertyOrCssText, $cssText, $options, 0, $context);
 		}
-		if ($options->maxBytes !== null && strlen($raw) > $options->maxBytes) {
+		$options ??= CSSParserOptions::default();
+		if ($options->maxBytes !== null && strlen($propertyOrCssText) > $options->maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS value exceeds maximum size of %d bytes.', $options->maxBytes));
 		}
 
-		$trimmed = CSSSyntaxScanner::trimCssWhitespace($raw);
+		$trimmed = CSSSyntaxScanner::trimCssWhitespace($propertyOrCssText);
 		if ($trimmed === '') {
 			throw new InvalidArgumentException('CSS value cannot be empty.');
 		}
 		CSSSyntaxScanner::assertValidFragment($trimmed, 'CSS value', [';', '{', '}']);
-		if (!str_starts_with($property, '--') && str_contains($trimmed, '/*') && CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
+		if (str_contains($trimmed, '/*') && CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
 			throw new InvalidArgumentException('CSS value cannot be empty.');
 		}
 
-		return self::parseValidated($property, $trimmed, $options, 0, $context);
+		return self::parseValidated('', $trimmed, $options, 0, $context);
 	}
 
 	/**
@@ -264,8 +282,8 @@ abstract class CSSStyleValue implements Stringable
 		?CSSContext $context = null,
 		bool $validateGrammar = true,
 	): CSSStyleValue {
-		$lower = strtolower($trimmedValue);
-		if (isset(self::GLOBAL_KEYWORDS[$lower])) {
+		$lower = strlen($trimmedValue) <= 16 ? strtolower($trimmedValue) : null;
+		if ($lower !== null && isset(CSSValueComponentParser::CSS_WIDE_KEYWORDS[$lower])) {
 			return new CSSKeywordValue($lower);
 		}
 		if ($validateGrammar && $normalizedProperty !== '') {
@@ -276,7 +294,7 @@ abstract class CSSStyleValue implements Stringable
 		if (str_starts_with($normalizedProperty, '--')) {
 			return CSSUnparsedValue::fromCssText($trimmedValue, $options);
 		}
-		if (isset(self::PROPERTY_KEYWORDS[$normalizedProperty][$lower])) {
+		if ($lower !== null && isset(self::PROPERTY_KEYWORDS[$normalizedProperty][$lower])) {
 			return new CSSKeywordValue($trimmedValue);
 		}
 
@@ -293,11 +311,11 @@ abstract class CSSStyleValue implements Stringable
 		$open = strpos($trimmedValue, '(');
 		$fn = $open !== false ? CSSSyntaxScanner::decodeLeadingFunctionName($trimmedValue, $open) : null;
 		if ($fn !== null
-			&& preg_match('/^(?:url|image|image-set|cross-fade|paint|element|(?:repeating-)?(?:linear|radial|conic)-gradient)$/D', $fn) === 1
+			&& isset(self::IMAGE_FUNCTIONS[$fn])
 			&& ($fn === 'url' || !CSS::hasVarReference($trimmedValue))
 		) {
 			try {
-				return new CSSImageValue($trimmedValue, $options);
+				return CSSImageValue::fromPreValidatedInternal($trimmedValue, $options, $open, $fn);
 			} catch (CSSParserLimitException $e) {
 				throw $e;
 			} catch (InvalidArgumentException) {
@@ -316,7 +334,7 @@ abstract class CSSStyleValue implements Stringable
 		}
 
 		$c0 = $trimmedValue[0];
-		$isColorFunction = $fn !== null && preg_match('/^(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark)$/D', $fn) === 1;
+		$isColorFunction = $fn !== null && isset(self::COLOR_FUNCTIONS[$fn]);
 		if ($c0 === '#' || $isColorFunction) {
 			$color = null;
 			$isDeferredColor = false;
@@ -361,4 +379,19 @@ abstract class CSSStyleValue implements Stringable
 	abstract public function __toString(): string;
 
 	abstract public function clone(): static;
+
+	public function __get(string $name): mixed
+	{
+		throw new Error('Undefined property: ' . static::class . '::$' . $name);
+	}
+
+	public function __isset(string $name): bool
+	{
+		return false;
+	}
+
+	public function __set(string $name, mixed $value): void
+	{
+		throw new Error('Cannot set property ' . static::class . '::$' . $name);
+	}
 }

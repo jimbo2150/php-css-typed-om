@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\CSS;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext;
+use LogicException;
 use Stringable;
 
 /**
@@ -18,6 +21,12 @@ use Stringable;
  */
 class CSSUnitValue extends CSSNumericValue implements Stringable
 {
+	protected ?CSSUnitEnum $unitObj = null;
+
+	public string $unit {
+		get => $this->unitObj ? $this->unitObj->toUnitName() : '';
+	}
+
 	public mixed $value = null {
 		set (mixed $newValue) {
 			if (is_string($newValue) && CSSSyntaxScanner::hasControlCharacters($newValue)) {
@@ -46,46 +55,53 @@ class CSSUnitValue extends CSSNumericValue implements Stringable
 		$this->setUnit($unit);
 	}
 
+	/** @internal */
+	public function getUnitObjInternal(): ?CSSUnitEnum
+	{
+		return $this->unitObj;
+	}
+
+	protected function setUnit(string|CSSUnitEnum $unit): void
+	{
+		if (is_string($unit)) {
+			$resolved = CSSUnitEnum::tryFromUnitName($unit);
+			if ($resolved === null) {
+				$symbol = CSS::translateUnit(strtolower($unit));
+				throw new InvalidArgumentException('Unsupported CSS unit: ' . $symbol);
+			}
+			$unit = $resolved;
+		}
+		$this->unitObj = $unit;
+	}
+
+	/**
+	 * Get the category name of the unit.
+	 *
+	 * @throws LogicException If no unit is set
+	 */
+	public function unitType(): ?string
+	{
+		if (!$this->unitObj) {
+			throw new LogicException('No unit set.');
+		}
+
+		return $this->unitObj->type()?->value;
+	}
+
 	public function add(CSSNumericValue|int|float ...$values): CSSNumericValue
 	{
-		if ($values === []) {
-			return parent::add(...$values);
-		}
-		if (count($values) >= self::MAX_MATH_NODES) {
-			throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
-		}
-
-		$allSameUnit = true;
-		$sum = $this->value;
-		$normalized = [];
-		$thisUnit = $this->unitObj;
-
-		foreach ($values as $v) {
-			$nv = self::toNumericValue($v);
-			$normalized[] = $nv;
-			if ($allSameUnit) {
-				if ($nv instanceof self && $nv->unitObj === $thisUnit) {
-					$sum += $nv->value;
-				} else {
-					$allSameUnit = false;
-				}
-			}
-		}
-
-		if ($allSameUnit) {
-			if (!is_finite($sum)) {
-				throw new InvalidArgumentException('CSS numeric addition overflowed to a non-finite value.');
-			}
-			return new self($sum, $thisUnit ?? $this->unit);
-		}
-
-		return parent::add(...$normalized);
+		return $this->addOrSub(1, ...$values);
 	}
 
 	public function sub(CSSNumericValue|int|float ...$values): CSSNumericValue
 	{
+		return $this->addOrSub(-1, ...$values);
+	}
+
+	private function addOrSub(int $sign, CSSNumericValue|int|float ...$values): CSSNumericValue
+	{
 		if ($values === []) {
-			return parent::sub(...$values);
+			return $sign > 0 ? parent::add(...$values) : parent::sub(...$values);
 		}
 		if (count($values) >= self::MAX_MATH_NODES) {
 			throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
@@ -93,29 +109,43 @@ class CSSUnitValue extends CSSNumericValue implements Stringable
 
 		$allSameUnit = true;
 		$sum = $this->value;
-		$normalized = [];
 		$thisUnit = $this->unitObj;
 
 		foreach ($values as $v) {
-			$nv = self::toNumericValue($v);
-			$normalized[] = $nv;
-			if ($allSameUnit) {
-				if ($nv instanceof self && $nv->unitObj === $thisUnit) {
-					$sum -= $nv->value;
-				} else {
-					$allSameUnit = false;
-				}
+			if ($v instanceof self && $v->unitObj === $thisUnit) {
+				$sum += $sign * $v->value;
+				continue;
 			}
+			if (!$v instanceof self && $thisUnit === CSSUnitEnum::NUMBER) {
+				$float = (float) $v;
+				if (!is_finite($float)) {
+					throw new InvalidArgumentException('CSS numeric operand must be finite.');
+				}
+				$sum += $sign * $float;
+				continue;
+			}
+			$allSameUnit = false;
+			break;
 		}
 
 		if ($allSameUnit) {
 			if (!is_finite($sum)) {
-				throw new InvalidArgumentException('CSS numeric subtraction overflowed to a non-finite value.');
+				throw new InvalidArgumentException(
+					$sign > 0
+						? 'CSS numeric addition overflowed to a non-finite value.'
+						: 'CSS numeric subtraction overflowed to a non-finite value.',
+				);
 			}
+
 			return new self($sum, $thisUnit ?? $this->unit);
 		}
 
-		return parent::sub(...$normalized);
+		$normalized = [];
+		foreach ($values as $v) {
+			$normalized[] = self::toNumericValue($v);
+		}
+
+		return $sign > 0 ? parent::add(...$normalized) : parent::sub(...$normalized);
 	}
 
 	public function mul(CSSNumericValue|int|float ...$values): CSSNumericValue
@@ -200,6 +230,19 @@ class CSSUnitValue extends CSSNumericValue implements Stringable
 		}
 
 		return parent::div(...$normalized);
+	}
+
+	public function getNumericCategory(): string
+	{
+		return $this->unitObj?->type()->value ?? 'number';
+	}
+
+	public function to(string $unit, ?CSSContext $context = null): self
+	{
+		/** @var self $converted */
+		$converted = parent::to($unit, $context);
+
+		return $converted;
 	}
 
 	public function __toString(): string

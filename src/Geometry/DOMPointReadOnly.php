@@ -7,6 +7,7 @@ namespace Jimbo2150\PhpCssTypedOm\Geometry;
 use ArrayAccess;
 use Error;
 use InvalidArgumentException;
+use ReflectionClass;
 
 /**
  * Read-only 3D homogeneous point (W3C Geometry Interfaces Level 1).
@@ -37,10 +38,10 @@ class DOMPointReadOnly implements ArrayAccess
 		float $z = 0.0,
 		float $w = 1.0,
 	) {
-		$this->xValue = DOMMatrixReadOnly::assertFiniteInternal($x, 'point.x');
-		$this->yValue = DOMMatrixReadOnly::assertFiniteInternal($y, 'point.y');
-		$this->zValue = DOMMatrixReadOnly::assertFiniteInternal($z, 'point.z');
-		$this->wValue = DOMMatrixReadOnly::assertFiniteInternal($w, 'point.w');
+		$this->xValue = DOMMatrixReadOnly::assertFiniteFloat($x, 'point.x');
+		$this->yValue = DOMMatrixReadOnly::assertFiniteFloat($y, 'point.y');
+		$this->zValue = DOMMatrixReadOnly::assertFiniteFloat($z, 'point.z');
+		$this->wValue = DOMMatrixReadOnly::assertFiniteFloat($w, 'point.w');
 	}
 
 	/**
@@ -49,7 +50,17 @@ class DOMPointReadOnly implements ArrayAccess
 	public static function fromPoint(self|array $other = []): static
 	{
 		if ($other instanceof self) {
-			return new static($other->xValue, $other->yValue, $other->zValue, $other->wValue);
+			static $reflections = [];
+			$cls = static::class;
+			$refl = $reflections[$cls] ??= new ReflectionClass($cls);
+			/** @var static $copy */
+			$copy = $refl->newInstanceWithoutConstructor();
+			$copy->xValue = $other->xValue;
+			$copy->yValue = $other->yValue;
+			$copy->zValue = $other->zValue;
+			$copy->wValue = $other->wValue;
+
+			return $copy;
 		}
 
 		$x = DOMMatrixReadOnly::assertFiniteInternal($other['x'] ?? 0.0, 'point.x');

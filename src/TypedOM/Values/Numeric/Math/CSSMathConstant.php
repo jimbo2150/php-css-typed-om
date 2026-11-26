@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math;
 
 use InvalidArgumentException;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericType;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericArray;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 
 /**
  * Represents a CSS Values Level 4 `<calc-keyword>` math constant (`e`, `pi`, `infinity`, `-infinity`, `NaN`).
@@ -34,8 +35,8 @@ final class CSSMathConstant extends CSSMathValue
 			$constant = $resolved;
 		}
 		$this->constant = $constant;
-		parent::__construct([]);
-		$this->cachedNumericType = CSSNumericType::fromValidatedDimensions([]);
+		$this->values = CSSNumericArray::empty();
+		$this->cachedNumericType = CSSNumericValue::baseTypeForUnitCategoryInternal(null);
 	}
 
 	public static function e(): self

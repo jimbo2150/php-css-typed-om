@@ -6,6 +6,7 @@ namespace Jimbo2150\PhpCssTypedOm\Geometry;
 
 use Error;
 use InvalidArgumentException;
+use ReflectionClass;
 
 /**
  * Read-only rectangle with computed edge coordinates (W3C Geometry Interfaces Level 1).
@@ -37,10 +38,10 @@ class DOMRectReadOnly
 		float $width = 0.0,
 		float $height = 0.0,
 	) {
-		$this->xValue = DOMMatrixReadOnly::assertFiniteInternal($x, 'rect.x');
-		$this->yValue = DOMMatrixReadOnly::assertFiniteInternal($y, 'rect.y');
-		$this->widthValue = DOMMatrixReadOnly::assertFiniteInternal($width, 'rect.width');
-		$this->heightValue = DOMMatrixReadOnly::assertFiniteInternal($height, 'rect.height');
+		$this->xValue = DOMMatrixReadOnly::assertFiniteFloat($x, 'rect.x');
+		$this->yValue = DOMMatrixReadOnly::assertFiniteFloat($y, 'rect.y');
+		$this->widthValue = DOMMatrixReadOnly::assertFiniteFloat($width, 'rect.width');
+		$this->heightValue = DOMMatrixReadOnly::assertFiniteFloat($height, 'rect.height');
 	}
 
 	/**
@@ -49,7 +50,17 @@ class DOMRectReadOnly
 	public static function fromRect(self|array $other = []): static
 	{
 		if ($other instanceof self) {
-			return new static($other->xValue, $other->yValue, $other->widthValue, $other->heightValue);
+			static $reflections = [];
+			$cls = static::class;
+			$refl = $reflections[$cls] ??= new ReflectionClass($cls);
+			/** @var static $copy */
+			$copy = $refl->newInstanceWithoutConstructor();
+			$copy->xValue = $other->xValue;
+			$copy->yValue = $other->yValue;
+			$copy->widthValue = $other->widthValue;
+			$copy->heightValue = $other->heightValue;
+
+			return $copy;
 		}
 
 		$x = DOMMatrixReadOnly::assertFiniteInternal($other['x'] ?? 0.0, 'rect.x');
@@ -82,40 +93,43 @@ class DOMRectReadOnly
 
 	public function getTop(): float
 	{
-		$opposite = DOMMatrixReadOnly::assertFiniteInternal($this->yValue + $this->heightValue, 'rect.top');
+		$opposite = DOMMatrixReadOnly::assertFiniteFloat($this->yValue + $this->heightValue, 'rect.top');
 		return min($this->yValue, $opposite);
 	}
 
 	public function getRight(): float
 	{
-		$opposite = DOMMatrixReadOnly::assertFiniteInternal($this->xValue + $this->widthValue, 'rect.right');
+		$opposite = DOMMatrixReadOnly::assertFiniteFloat($this->xValue + $this->widthValue, 'rect.right');
 		return max($this->xValue, $opposite);
 	}
 
 	public function getBottom(): float
 	{
-		$opposite = DOMMatrixReadOnly::assertFiniteInternal($this->yValue + $this->heightValue, 'rect.bottom');
+		$opposite = DOMMatrixReadOnly::assertFiniteFloat($this->yValue + $this->heightValue, 'rect.bottom');
 		return max($this->yValue, $opposite);
 	}
 
 	public function getLeft(): float
 	{
-		$opposite = DOMMatrixReadOnly::assertFiniteInternal($this->xValue + $this->widthValue, 'rect.left');
+		$opposite = DOMMatrixReadOnly::assertFiniteFloat($this->xValue + $this->widthValue, 'rect.left');
 		return min($this->xValue, $opposite);
 	}
 
 	/** @return array{x: float, y: float, width: float, height: float, top: float, right: float, bottom: float, left: float} */
 	public function toJSON(): array
 	{
+		$xOpposite = DOMMatrixReadOnly::assertFiniteFloat($this->xValue + $this->widthValue, 'rect.right');
+		$yOpposite = DOMMatrixReadOnly::assertFiniteFloat($this->yValue + $this->heightValue, 'rect.bottom');
+
 		return [
 			'x' => $this->xValue,
 			'y' => $this->yValue,
 			'width' => $this->widthValue,
 			'height' => $this->heightValue,
-			'top' => $this->getTop(),
-			'right' => $this->getRight(),
-			'bottom' => $this->getBottom(),
-			'left' => $this->getLeft(),
+			'top' => min($this->yValue, $yOpposite),
+			'right' => max($this->xValue, $xOpposite),
+			'bottom' => max($this->yValue, $yOpposite),
+			'left' => min($this->xValue, $xOpposite),
 		];
 	}
 

@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
-use InvalidArgumentException;
-
 /**
  * Represents a CSS `@position-try` fallback rule for anchor positioning.
  *
@@ -21,33 +19,21 @@ final class CSSPositionTryRule extends CSSAtRule
 		?CSSStyleDeclaration $style = null,
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 	) {
-		self::assertValidMaxBytesInternal($maxBytes);
-		if ($maxBytes !== null && strlen($name) > $maxBytes) {
-			throw new CSSParserLimitException(sprintf('CSS @position-try name exceeds maximum size of %d bytes.', $maxBytes));
-		}
+		$normalized = self::validateDashedIdentInternal(
+			$name,
+			$maxBytes,
+			'CSS @position-try name',
+			'@position-try requires a dashed identifier starting with "--".',
+		);
 		if ($style !== null && $maxBytes !== null) {
 			$style->assertContentBytesWithinInternal($maxBytes);
 		}
-		$normalized = CSSStyleDeclaration::normalizePropertyName($name);
-		if (!str_starts_with($normalized, '--')) {
-			throw new InvalidArgumentException('@position-try requires a dashed identifier starting with "--".');
-		}
-		if ($style instanceof CSSPositionTryDescriptors) {
-			$descriptors = $style->getParentRule() !== null ? clone $style : $style;
-		} else {
-			$descriptors = new CSSPositionTryDescriptors();
-			if ($style !== null) {
-				$descriptors->setLimitsInternal(
-					self::minLimitInternal($maxBytes, $style->resolveMaxBytesInternal()),
-					$style->resolveMaxDeclarationsInternal(),
-					$style->resolveMaxDepthInternal(),
-					$style->resolveMaxMathDepthInternal(),
-					true,
-				);
-				$descriptors->copyDeclarationsFromInternal($style);
-			}
-		}
-		parent::__construct('position-try', $normalized, $descriptors, true, $maxBytes);
+		$this->initAtRuleInternal('position-try', $normalized, CSSPositionTryDescriptors::adoptOrConvert($style, $maxBytes), true, $maxBytes);
+	}
+
+	public function validatesDescriptorPropertyValuesInternal(): bool
+	{
+		return false;
 	}
 
 	public function getNameText(): string

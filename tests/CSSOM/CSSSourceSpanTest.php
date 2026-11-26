@@ -232,4 +232,36 @@ CSS;
 		self::assertSame('1:1-1:21', (string) $inserted->sourceSpan);
 		self::assertSame('1:10-1:18', (string) $inserted->style->getPropertySourceSpan('gap'));
 	}
+
+	public function testMinifiedAsciiAndNonAsciiSourceLocationIndexSpans(): void
+	{
+		// Single-line minified ASCII CSS exercises the ASCII fast path in CSSSourceLocationIndex.
+		$asciiCss = str_repeat('.a{color:red;margin:4px;}', 50);
+		$asciiSheet = CSSStyleSheet::parse($asciiCss, new CSSParserOptions(trackSpans: true));
+		self::assertCount(50, $asciiSheet->cssRules);
+		/** @var CSSStyleRule $lastAscii */
+		$lastAscii = $asciiSheet->cssRules[49];
+		$unitLen = strlen('.a{color:red;margin:4px;}');
+		self::assertSame(
+			sprintf('1:%d-1:%d', 49 * $unitLen + 1, 50 * $unitLen + 1),
+			(string) $lastAscii->sourceSpan,
+		);
+		self::assertSame(
+			sprintf('1:%d-1:%d', 49 * $unitLen + 14, 49 * $unitLen + 24),
+			(string) $lastAscii->style->getPropertySourceSpan('margin'),
+		);
+
+		// Single-line minified multi-byte UTF-8 CSS exercises the monotonic delta cursor + reverse lookup fallback.
+		$utf8Css = '.カード{content:"こんにちは";}.αβ{color:blue;}';
+		$utf8Sheet = CSSStyleSheet::parse($utf8Css, new CSSParserOptions(trackSpans: true));
+		self::assertCount(2, $utf8Sheet->cssRules);
+		/** @var CSSStyleRule $firstUtf8 */
+		$firstUtf8 = $utf8Sheet->cssRules[0];
+		/** @var CSSStyleRule $secondUtf8 */
+		$secondUtf8 = $utf8Sheet->cssRules[1];
+		self::assertSame('1:1-1:23', (string) $firstUtf8->sourceSpan);
+		self::assertSame('1:6-1:21', (string) $firstUtf8->style->getPropertySourceSpan('content'));
+		self::assertSame('1:23-1:39', (string) $secondUtf8->sourceSpan);
+		self::assertSame('1:27-1:37', (string) $secondUtf8->style->getPropertySourceSpan('color'));
+	}
 }

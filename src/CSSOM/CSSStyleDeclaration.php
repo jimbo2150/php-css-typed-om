@@ -14,6 +14,7 @@ use Jimbo2150\PhpCssTypedOm\CSS;
 use Jimbo2150\PhpCssTypedOm\CSSOM\Shorthand\CSSShorthandExpander;
 use Jimbo2150\PhpCssTypedOm\CSSOM\Shorthand\CSSShorthandRegistry;
 use Jimbo2150\PhpCssTypedOm\CSSOM\Shorthand\CSSShorthandSerializer;
+use Jimbo2150\PhpCssTypedOm\Grammar\CSSPropertyGrammarRegistry;
 use Jimbo2150\PhpCssTypedOm\Grammar\CSSValueComponentParser;
 use Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSInputPreprocessor;
@@ -42,8 +43,7 @@ use Traversable;
 class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 {
 	private const string LOWER_ASCII_NAME_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789_-';
-	private const string CSS_WHITESPACE = " \t\n\r\f";
-	private const string FAST_PATH_UNSAFE_BYTES = "\\\"'[]{}<;\r\f\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0B\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x7F";
+	private const string FAST_PATH_UNSAFE_BYTES = "\\\"'[]{}<;\r\f" . CSSSyntaxScanner::CONTROL_BYTES;
 
 	/** @var array<string, array{value: string, priority: string}> */
 	private array $declarations = [];
@@ -61,17 +61,27 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 
 	private int $nextPendingId = 1;
 	private bool $hasShorthandLonghand = false;
+	private int $physicalGroupMask = 0;
+	private int $logicalGroupMask = 0;
 
 	/** @var ?list<string> */
 	private ?array $cachedKeys = null;
 
 	private ?CSSRule $ownerRule = null;
 	private bool $exemptFromPropertyGrammar = false;
+	private bool $ownerExemptFromPropertyGrammar = false;
 	private ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES;
 	private ?int $maxDeclarations = CSSParserOptions::DEFAULT_MAX_DECLARATIONS;
 	private ?int $maxDepth = CSSParserOptions::DEFAULT_MAX_DEPTH;
 	private ?int $maxMathDepth = CSSParserOptions::DEFAULT_MAX_MATH_DEPTH;
 	private int $contentBytes = 0;
+	private bool $hasCachedValidationOptions = false;
+	private ?CSSParserOptions $cachedValidationOptions = null;
+
+	private const int MAX_ACCESSOR_CACHE = 512;
+
+	/** @var array<string, string> */
+	private static array $accessorCache = ['cssFloat' => 'float'];
 
 	/**
 	 * @throws InvalidArgumentException When $cssText contains invalid declarations or exceeds options limits
@@ -114,8 +124,37 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			}
 		}
 		$this->exemptFromPropertyGrammar = !$this->shouldValidatePropertyValuesInternal();
+		$this->ownerExemptFromPropertyGrammar = false;
 		$this->ownerRule = null;
 		$this->cachedKeys = null;
+		$this->hasCachedValidationOptions = false;
+		$this->cachedValidationOptions = null;
+	}
+
+	/** @internal Adopts a matching-subclass declaration block (cloning if owned) or converts a generic block with limit clamping. */
+	public static function adoptOrConvert(?self $style, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES): static
+	{
+		if ($style instanceof static) {
+			$adopted = $style->getParentRule() !== null ? clone $style : $style;
+			$adopted->clampLimitsInternal($maxBytes, null, null, null, false);
+			return $adopted;
+		}
+
+		$target = new static();
+		if ($style !== null) {
+			$target->setLimitsInternal(
+				CSSRule::minLimitInternal($maxBytes, $style->resolveMaxBytesInternal()),
+				$style->resolveMaxDeclarationsInternal(),
+				$style->resolveMaxDepthInternal(),
+				$style->resolveMaxMathDepthInternal(),
+				true,
+			);
+			$target->copyDeclarationsFromInternal($style);
+		} else {
+			$target->setMaxBytesInternal($maxBytes);
+		}
+
+		return $target;
 	}
 
 	/** @internal */
@@ -170,6 +209,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			$this->maxDepth = $maxDepth;
 			$this->maxMathDepth = $maxMathDepth;
 		}
+		$this->hasCachedValidationOptions = false;
+		$this->cachedValidationOptions = null;
 	}
 
 	/** @internal */
@@ -182,16 +223,24 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	): void {
 		if ($maxBytes !== null && ($this->maxBytes === null || $maxBytes < $this->maxBytes)) {
 			$this->maxBytes = $maxBytes;
+			$this->hasCachedValidationOptions = false;
+			$this->cachedValidationOptions = null;
 		}
 		if ($maxDeclarations !== null && ($this->maxDeclarations === null || $maxDeclarations < $this->maxDeclarations)) {
 			$this->maxDeclarations = $maxDeclarations;
+			$this->hasCachedValidationOptions = false;
+			$this->cachedValidationOptions = null;
 		}
 		if ($syncDepths) {
 			if ($maxDepth !== null && ($this->maxDepth === null || $maxDepth < $this->maxDepth)) {
 				$this->maxDepth = $maxDepth;
+				$this->hasCachedValidationOptions = false;
+				$this->cachedValidationOptions = null;
 			}
 			if ($maxMathDepth !== null && ($this->maxMathDepth === null || $maxMathDepth < $this->maxMathDepth)) {
 				$this->maxMathDepth = $maxMathDepth;
+				$this->hasCachedValidationOptions = false;
+				$this->cachedValidationOptions = null;
 			}
 		}
 	}
@@ -200,6 +249,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	public function setMaxBytesInternal(?int $maxBytes): void
 	{
 		$this->maxBytes = $maxBytes;
+		$this->hasCachedValidationOptions = false;
+		$this->cachedValidationOptions = null;
 	}
 
 	/** @internal */
@@ -228,18 +279,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		?array &$diagnostics = null,
 		?CSSParserOptions $options = null,
 	): static {
-		$style = new static();
-		if ($options !== null) {
-			$style->setLimitsInternal(
-				$options->maxBytes,
-				$options->maxDeclarations,
-				$options->maxDepth,
-				$options->maxMathDepth,
-				true,
-			);
-		}
 		$detailed = [];
-		$style->parseInto($cssText, $strict, $detailed, 0, $options);
+		$style = static::parseWithOffsets($cssText, $strict, $detailed, 0, $options);
 		$diagnostics ??= [];
 		foreach ($detailed as $entry) {
 			$diagnostics[] = $entry['message'];
@@ -315,21 +356,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	/** @internal */
 	public function shouldValidatePropertyValuesInternal(): bool
 	{
-		if ($this->exemptFromPropertyGrammar || !static::validatesPropertyValues()) {
-			return false;
-		}
-		$owner = $this->ownerRule;
-		if ($owner instanceof CSSPropertyRule
-			|| $owner instanceof CSSCounterStyleRule
-			|| $owner instanceof CSSFontPaletteValuesRule
-			|| $owner instanceof CSSViewTransitionRule
-			|| $owner instanceof CSSFontFaceRule
-			|| $owner instanceof CSSColorProfileRule
-		) {
-			return false;
-		}
-
-		return true;
+		return !$this->exemptFromPropertyGrammar
+			&& !$this->ownerExemptFromPropertyGrammar
+			&& static::validatesPropertyValues();
 	}
 
 	/** @internal */
@@ -519,22 +548,71 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 
 	private function resolveValidationOptionsInternal(): ?CSSParserOptions
 	{
+		if ($this->hasCachedValidationOptions) {
+			return $this->cachedValidationOptions;
+		}
+
 		$maxBytes = $this->resolveMaxBytesInternal();
 		$maxDepth = $this->resolveMaxDepthInternal();
 		$maxMathDepth = $this->resolveMaxMathDepthInternal();
+		$this->hasCachedValidationOptions = true;
 		if ($maxDepth === CSSParserOptions::DEFAULT_MAX_DEPTH
 			&& $maxMathDepth === CSSParserOptions::DEFAULT_MAX_MATH_DEPTH
 			&& $maxBytes === CSSParserOptions::DEFAULT_MAX_BYTES
 		) {
-			return null;
+			return $this->cachedValidationOptions = null;
 		}
 
-		return new CSSParserOptions(
+		return $this->cachedValidationOptions = new CSSParserOptions(
 			maxBytes: $maxBytes,
 			maxDepth: $maxDepth,
 			maxMathDepth: $maxMathDepth,
 			maxDeclarations: $this->resolveMaxDeclarationsInternal(),
 		);
+	}
+
+	/**
+	 * @internal Resolves effective parser options from this declaration (and optionally its owning stylesheet).
+	 */
+	public function resolveParserOptionsInternal(bool $includeSheetLimits = false): CSSParserOptions
+	{
+		$resolvedMaxBytes = $this->resolveMaxBytesInternal();
+		$resolvedMaxDecls = $this->resolveMaxDeclarationsInternal();
+		$resolvedMaxDepth = $this->resolveMaxDepthInternal();
+		$resolvedMaxMathDepth = $this->resolveMaxMathDepthInternal();
+		$sheet = $includeSheetLimits ? $this->ownerRule?->getParentStyleSheet() : null;
+		if ($sheet !== null) {
+			if ($resolvedMaxBytes === $sheet->getMaxBytesInternal()
+				&& $resolvedMaxDecls === $sheet->getMaxDeclarationsInternal()
+				&& $resolvedMaxDepth === $sheet->getMaxDepthInternal()
+				&& $resolvedMaxMathDepth === $sheet->getMaxMathDepthInternal()
+			) {
+				return $sheet->resolveParserOptionsInternal(null);
+			}
+
+			return new CSSParserOptions(
+				maxBytes: $resolvedMaxBytes,
+				maxDepth: $resolvedMaxDepth,
+				maxMathDepth: $resolvedMaxMathDepth,
+				maxRules: $sheet->getMaxRulesInternal(),
+				maxDeclarations: $resolvedMaxDecls,
+				maxErrors: $sheet->getMaxErrorsInternal(),
+			);
+		}
+		if ($resolvedMaxBytes !== CSSParserOptions::DEFAULT_MAX_BYTES
+			|| $resolvedMaxDecls !== CSSParserOptions::DEFAULT_MAX_DECLARATIONS
+			|| $resolvedMaxDepth !== CSSParserOptions::DEFAULT_MAX_DEPTH
+			|| $resolvedMaxMathDepth !== CSSParserOptions::DEFAULT_MAX_MATH_DEPTH
+		) {
+			return new CSSParserOptions(
+				maxBytes: $resolvedMaxBytes,
+				maxDepth: $resolvedMaxDepth,
+				maxMathDepth: $resolvedMaxMathDepth,
+				maxDeclarations: $resolvedMaxDecls,
+			);
+		}
+
+		return CSSParserOptions::default();
 	}
 
 	/**
@@ -564,6 +642,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	public function setParentRule(?CSSRule $parentRule): void
 	{
 		$this->ownerRule = $parentRule;
+		$this->ownerExemptFromPropertyGrammar = $parentRule !== null && !$parentRule->validatesDescriptorPropertyValuesInternal();
+		$this->hasCachedValidationOptions = false;
+		$this->cachedValidationOptions = null;
 	}
 
 	public function getLength(): int
@@ -642,7 +723,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 
 		$name = self::normalizePropertyName($property);
 		static::assertAllowedDescriptor($name);
-		$priority = strtolower(trim($priority, self::CSS_WHITESPACE));
+		$priority = strtolower(trim($priority, CSSSyntaxScanner::CSS_WHITESPACE));
 		if ($priority !== '' && $priority !== 'important') {
 			throw new InvalidArgumentException('Priority must be empty or "important".');
 		}
@@ -652,7 +733,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 
 		$value = str_contains($value, '\\')
 			? CSSSyntaxScanner::trimCssWhitespace($value)
-			: trim($value, self::CSS_WHITESPACE);
+			: trim($value, CSSSyntaxScanner::CSS_WHITESPACE);
 		$expandShorthand = $this->shouldExpandShorthandsInternal() && CSSShorthandRegistry::isShorthand($name);
 		if ($value === '') {
 			if ($expandShorthand) {
@@ -667,23 +748,21 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		if (!str_starts_with($name, '--') && str_contains($value, '/*') && CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($value)) === '') {
 			throw new InvalidArgumentException('CSS property value cannot be empty.');
 		}
+		$parsed = null;
+		$validationOptions = null;
 		if ($this->shouldValidatePropertyValuesInternal()) {
 			$validationOptions = $this->resolveValidationOptionsInternal();
-			if (CSSStandardProperties::isKnown($name)) {
-				if (!CSSValueValidator::validateStandardProperty($name, $value, $validationOptions)) {
+			if (CSSPropertyGrammarRegistry::isKnown($name)) {
+				if (!CSSValueValidator::validateStandardProperty($name, $value, $validationOptions, $parsed)) {
 					throw new InvalidArgumentException(sprintf('Invalid value "%s" for CSS property "%s".', $value, $name));
 				}
-			} elseif (str_starts_with($name, '--')) {
-				if (CSSValueComponentParser::parse($value, $validationOptions, true) === null) {
-					throw new InvalidArgumentException(sprintf('Invalid value "%s" for CSS property "%s".', $value, $name));
-				}
-			} elseif (CSSValueComponentParser::parse($value, $validationOptions, false) === null) {
+			} elseif (!CSSValueValidator::validatePropertyValue($name, $value, $validationOptions)) {
 				throw new InvalidArgumentException(sprintf('Invalid value "%s" for CSS property "%s".', $value, $name));
 			}
 		}
 
 		if ($expandShorthand) {
-			$expanded = CSSShorthandExpander::expand($name, $value, $this->resolveValidationOptionsInternal());
+			$expanded = CSSShorthandExpander::expand($name, $value, $validationOptions ?? $this->resolveValidationOptionsInternal(), $parsed);
 			if ($expanded === null) {
 				throw new InvalidArgumentException(sprintf('Invalid value "%s" for CSS property "%s".', $value, $name));
 			}
@@ -707,9 +786,10 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		}
 		unset($this->sourceSpans[$name]);
 		$this->declarations[$name] = ['value' => $value, 'priority' => $priority];
-		if (CSSShorthandRegistry::isShorthandLonghand($name)) {
+		if (!$this->hasShorthandLonghand && CSSShorthandRegistry::isShorthandLonghand($name)) {
 			$this->hasShorthandLonghand = true;
 		}
+		$this->recordLogicalGroupMask($name);
 		$this->contentBytes = $nextContentBytes;
 		$this->cachedKeys = null;
 		$this->notifySheetMutation($delta, $name === 'initial-value');
@@ -770,9 +850,10 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		}
 		unset($this->sourceSpans[$normalizedName]);
 		$this->declarations[$normalizedName] = ['value' => $trimmedValue, 'priority' => $priority];
-		if (CSSShorthandRegistry::isShorthandLonghand($normalizedName)) {
+		if (!$this->hasShorthandLonghand && CSSShorthandRegistry::isShorthandLonghand($normalizedName)) {
 			$this->hasShorthandLonghand = true;
 		}
+		$this->recordLogicalGroupMask($normalizedName);
 		$this->contentBytes = $nextContentBytes;
 		$this->cachedKeys = null;
 		$this->notifySheetMutation($delta, $normalizedName === 'initial-value');
@@ -796,15 +877,23 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	public function clear(): void
 	{
 		$delta = -count($this->declarations);
+		$this->resetState();
+		$this->notifySheetMutation($delta, true);
+	}
+
+	private function resetState(): void
+	{
 		$this->declarations = [];
 		$this->sourceSpans = [];
 		$this->parsedBlockSpan = null;
 		$this->pendingShorthands = [];
 		$this->pendingPayloadAccounting = [];
 		$this->hasShorthandLonghand = false;
+		$this->physicalGroupMask = 0;
+		$this->logicalGroupMask = 0;
+		$this->nextPendingId = 1;
 		$this->contentBytes = 0;
 		$this->cachedKeys = null;
-		$this->notifySheetMutation($delta, true);
 	}
 
 	public function getCssText(): string
@@ -835,49 +924,23 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	 */
 	public function setCssText(string $cssText, ?CSSParserOptions $options = null): void
 	{
-		$sheet = $this->ownerRule?->getParentStyleSheet();
 		if ($options !== null) {
 			$effectiveOptions = $options;
 		} else {
-			$resolvedMaxBytes = $this->resolveMaxBytesInternal();
-			$resolvedMaxDecls = $this->resolveMaxDeclarationsInternal();
-			$resolvedMaxDepth = $this->resolveMaxDepthInternal();
-			$resolvedMaxMathDepth = $this->resolveMaxMathDepthInternal();
-			if ($sheet !== null
-				&& $resolvedMaxBytes === $sheet->getMaxBytesInternal()
-				&& $resolvedMaxDecls === $sheet->getMaxDeclarationsInternal()
-				&& $resolvedMaxDepth === $sheet->getMaxDepthInternal()
-				&& $resolvedMaxMathDepth === $sheet->getMaxMathDepthInternal()
-			) {
-				$resolved = $sheet->resolveParserOptionsInternal(null);
-				$effectiveOptions = $resolved->trackSpans
-					? new CSSParserOptions(
-						maxBytes: $resolved->maxBytes,
-						maxDepth: $resolved->maxDepth,
-						maxRules: $resolved->maxRules,
-						maxMathDepth: $resolved->maxMathDepth,
-						maxErrors: $resolved->maxErrors,
-						maxDeclarations: $resolved->maxDeclarations,
-						browserErrorRecovery: $resolved->browserErrorRecovery,
-						trackSpans: false,
-					)
-					: $resolved;
-			} elseif ($sheet !== null
-				|| $resolvedMaxBytes !== CSSParserOptions::DEFAULT_MAX_BYTES
-				|| $resolvedMaxDecls !== CSSParserOptions::DEFAULT_MAX_DECLARATIONS
-				|| $resolvedMaxDepth !== CSSParserOptions::DEFAULT_MAX_DEPTH
-				|| $resolvedMaxMathDepth !== CSSParserOptions::DEFAULT_MAX_MATH_DEPTH
-			) {
+			$resolved = $this->resolveParserOptionsInternal(true);
+			if ($resolved->trackSpans) {
 				$effectiveOptions = new CSSParserOptions(
-					maxBytes: $resolvedMaxBytes,
-					maxDepth: $resolvedMaxDepth,
-					maxMathDepth: $resolvedMaxMathDepth,
-					maxRules: $sheet?->getMaxRulesInternal() ?? CSSParserOptions::DEFAULT_MAX_RULES,
-					maxDeclarations: $resolvedMaxDecls,
-					maxErrors: $sheet?->getMaxErrorsInternal() ?? CSSParserOptions::DEFAULT_MAX_ERRORS,
+					maxBytes: $resolved->maxBytes,
+					maxDepth: $resolved->maxDepth,
+					maxRules: $resolved->maxRules,
+					maxMathDepth: $resolved->maxMathDepth,
+					maxErrors: $resolved->maxErrors,
+					maxDeclarations: $resolved->maxDeclarations,
+					browserErrorRecovery: $resolved->browserErrorRecovery,
+					trackSpans: false,
 				);
 			} else {
-				$effectiveOptions = null;
+				$effectiveOptions = $resolved === CSSParserOptions::default() ? null : $resolved;
 			}
 		}
 		$allowEmptyInitialValue = $this->ownerRule instanceof CSSPropertyRule;
@@ -894,6 +957,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		$this->pendingShorthands = $replacement->pendingShorthands;
 		$this->pendingPayloadAccounting = $replacement->pendingPayloadAccounting;
 		$this->hasShorthandLonghand = $replacement->hasShorthandLonghand;
+		$this->physicalGroupMask = $replacement->physicalGroupMask;
+		$this->logicalGroupMask = $replacement->logicalGroupMask;
 		$this->nextPendingId = $replacement->nextPendingId;
 		$this->contentBytes = $replacement->contentBytes;
 		$this->cachedKeys = null;
@@ -1055,7 +1120,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		$hasBackslash = str_contains($property, '\\');
 		$property = $hasBackslash
 			? CSSSyntaxScanner::trimCssWhitespace($property)
-			: trim($property, self::CSS_WHITESPACE);
+			: trim($property, CSSSyntaxScanner::CSS_WHITESPACE);
 		if (CSSSyntaxScanner::hasControlCharacters($property)) {
 			throw new InvalidArgumentException('Invalid CSS property name.');
 		}
@@ -1414,7 +1479,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				: substr($source, $valSliceStart, $valueSliceEnd - $valSliceStart);
 			$value = str_contains($rawSlice, '\\')
 				? CSSSyntaxScanner::trimCssWhitespace($rawSlice)
-				: trim($rawSlice, self::CSS_WHITESPACE);
+				: trim($rawSlice, CSSSyntaxScanner::CSS_WHITESPACE);
 
 			if ($browserMode && $priority === '') {
 				$lastValTok = $tokens[$valEndIdx];
@@ -1582,9 +1647,10 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			return true;
 		}
 
-		if ($validatePropertyGrammar && CSSStandardProperties::isKnown($name)) {
+		$parsed = null;
+		if ($validatePropertyGrammar && CSSPropertyGrammarRegistry::isKnown($name)) {
 			try {
-				$validGrammar = CSSValueValidator::validateStandardProperty($name, $value, $options);
+				$validGrammar = CSSValueValidator::validateStandardProperty($name, $value, $options, $parsed);
 			} catch (CSSParserLimitException $exception) {
 				if ($strict || $throwOnLimit) {
 					throw $exception;
@@ -1605,7 +1671,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			}
 		} elseif ($validatePropertyGrammar && $options !== null && $options->maxMathDepth !== null && str_contains($value, '(')) {
 			try {
-				CSSValueComponentParser::parse($value, $options, str_starts_with($name, '--'));
+				$parsed = CSSValueComponentParser::parse($value, $options, str_starts_with($name, '--'));
 			} catch (CSSParserLimitException $exception) {
 				if ($strict || $throwOnLimit) {
 					throw $exception;
@@ -1616,7 +1682,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		}
 
 		if ($validatePropertyGrammar && CSSShorthandRegistry::isShorthand($name)) {
-			$expanded = CSSShorthandExpander::expand($name, $value, $options);
+			$expanded = CSSShorthandExpander::expand($name, $value, $options, $parsed);
 			if ($expanded === null) {
 				self::handleInvalidDeclaration(
 					sprintf('Invalid value "%s" for CSS property "%s".', $value, $name),
@@ -1682,9 +1748,10 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		} else {
 			unset($this->sourceSpans[$name]);
 		}
-		if (CSSShorthandRegistry::isShorthandLonghand($name)) {
+		if (!$this->hasShorthandLonghand && CSSShorthandRegistry::isShorthandLonghand($name)) {
 			$this->hasShorthandLonghand = true;
 		}
+		$this->recordLogicalGroupMask($name);
 		$this->cachedKeys = null;
 
 		return true;
@@ -1881,6 +1948,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			}
 		}
 
+		if ($isPending && $toCommit !== []) {
+			$this->hasShorthandLonghand = true;
+		}
 		foreach ($toCommit as $lh => $val) {
 			if (!$reappendAll) {
 				$this->clearPendingEntryInternal($lh);
@@ -1899,9 +1969,10 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 					'kind' => $expanded['pendingKind'],
 				];
 			}
-			if (CSSShorthandRegistry::isShorthandLonghand($lh)) {
+			if (!$this->hasShorthandLonghand && CSSShorthandRegistry::isShorthandLonghand($lh)) {
 				$this->hasShorthandLonghand = true;
 			}
+			$this->recordLogicalGroupMask($lh);
 		}
 
 		$this->contentBytes = $nextContentBytes;
@@ -1983,10 +2054,28 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		}
 	}
 
+	private function recordLogicalGroupMask(string $name): void
+	{
+		$info = CSSShorthandRegistry::getLogicalGroup($name);
+		if ($info !== null) {
+			$bit = 1 << ($info['group'] - 1);
+			if ($info['logical']) {
+				$this->logicalGroupMask |= $bit;
+			} else {
+				$this->physicalGroupMask |= $bit;
+			}
+		}
+	}
+
 	private function shouldReappendSingleLonghand(string $name): bool
 	{
 		$groupInfo = CSSShorthandRegistry::getLogicalGroup($name);
 		if ($groupInfo === null) {
+			return false;
+		}
+		$bit = 1 << ($groupInfo['group'] - 1);
+		$oppositeMask = $groupInfo['logical'] ? $this->physicalGroupMask : $this->logicalGroupMask;
+		if (($oppositeMask & $bit) === 0) {
 			return false;
 		}
 
@@ -2016,14 +2105,29 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	 */
 	private function shouldReappendTargetLonghands(array $targetLonghands): bool
 	{
+		if ($this->physicalGroupMask === 0 && $this->logicalGroupMask === 0) {
+			return false;
+		}
+
+		$needOppositeFromPhysical = 0;
+		$needOppositeFromLogical = 0;
 		$targetGroups = [];
 		foreach ($targetLonghands as $lh => $_val) {
 			$info = CSSShorthandRegistry::getLogicalGroup($lh);
 			if ($info !== null) {
+				$bit = 1 << ($info['group'] - 1);
+				if ($info['logical']) {
+					$needOppositeFromPhysical |= $bit;
+				} else {
+					$needOppositeFromLogical |= $bit;
+				}
 				$targetGroups[$info['group']] = $info['logical'];
 			}
 		}
-		if ($targetGroups === []) {
+		if ($targetGroups === []
+			|| (($needOppositeFromPhysical & $this->physicalGroupMask) === 0
+				&& ($needOppositeFromLogical & $this->logicalGroupMask) === 0)
+		) {
 			return false;
 		}
 
@@ -2050,14 +2154,23 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 
 	private static function propertyNameFromAccessor(string $name): string
 	{
-		if ($name === 'cssFloat') {
-			return 'float';
+		if (isset(self::$accessorCache[$name])) {
+			return self::$accessorCache[$name];
 		}
-		$name = preg_replace_callback('/[A-Z]/', static fn (array $match): string => '-' . strtolower($match[0]), $name) ?? $name;
-		if (str_starts_with($name, 'webkit-') || str_starts_with($name, 'moz-') || str_starts_with($name, 'ms-') || str_starts_with($name, 'o-')) {
-			$name = '-' . $name;
+
+		$converted = strtolower((string) preg_replace('/[A-Z]/', '-$0', $name));
+		if (str_starts_with($converted, 'webkit-')
+			|| str_starts_with($converted, 'moz-')
+			|| str_starts_with($converted, 'ms-')
+			|| str_starts_with($converted, 'o-')
+		) {
+			$converted = '-' . $converted;
 		}
-		return $name;
+		if (count(self::$accessorCache) >= self::MAX_ACCESSOR_CACHE) {
+			self::$accessorCache = ['cssFloat' => 'float'];
+		}
+
+		return self::$accessorCache[$name] = $converted;
 	}
 
 	/** @param list<array{message: string, offset: int}> $diagnostics */
@@ -2101,15 +2214,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			$checkControlBytes = true;
 		}
 
-		$this->declarations = [];
-		$this->sourceSpans = [];
-		$this->parsedBlockSpan = null;
-		$this->pendingShorthands = [];
-		$this->pendingPayloadAccounting = [];
-		$this->hasShorthandLonghand = false;
-		$this->nextPendingId = 1;
-		$this->contentBytes = 0;
-		$this->cachedKeys = null;
+		$this->resetState();
 		$length = strlen($source);
 		$declarationCount = 0;
 		$initialDiagCount = count($diagnostics);
@@ -2202,31 +2307,19 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 					$badTokenMessage ??= $tokenizer->tokenParseErrorMessage;
 				}
 
+				$openedCloser = null;
 				if ($type === CSSTokenType::LeftParenthesis || $type === CSSTokenType::Function) {
-					$blockStack[] = ')';
-					if ($maxDepth !== null && count($blockStack) > $maxDepth) {
-						$limitMsg = sprintf('Maximum CSS nesting depth of %d exceeded.', $maxDepth);
-						if ($strict) {
-							throw new CSSParserLimitException($limitMsg);
-						}
-						$limitErrorOffset ??= $tokenizer->tokenStart;
-						$limitErrorMessage ??= $limitMsg;
-					}
+					$openedCloser = ')';
 				} elseif ($type === CSSTokenType::LeftSquareBracket) {
-					$blockStack[] = ']';
-					if ($maxDepth !== null && count($blockStack) > $maxDepth) {
-						$limitMsg = sprintf('Maximum CSS nesting depth of %d exceeded.', $maxDepth);
-						if ($strict) {
-							throw new CSSParserLimitException($limitMsg);
-						}
-						$limitErrorOffset ??= $tokenizer->tokenStart;
-						$limitErrorMessage ??= $limitMsg;
-					}
+					$openedCloser = ']';
 				} elseif ($type === CSSTokenType::LeftCurlyBracket) {
 					if ($blockStack === []) {
 						$hasTopLevelBraces = true;
 					}
-					$blockStack[] = '}';
+					$openedCloser = '}';
+				}
+				if ($openedCloser !== null) {
+					$blockStack[] = $openedCloser;
 					if ($maxDepth !== null && count($blockStack) > $maxDepth) {
 						$limitMsg = sprintf('Maximum CSS nesting depth of %d exceeded.', $maxDepth);
 						if ($strict) {

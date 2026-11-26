@@ -29,21 +29,9 @@ final class CSSFunctionDeclarations extends CSSRule
 		$this->styleDescriptors->setParentRule($this);
 	}
 
-	protected function syncChildLimitsInternal(
-		?int $maxBytes,
-		?int $maxDeclarations,
-		bool $syncDeclarations = false,
-		?int $maxDepth = CSSParserOptions::DEFAULT_MAX_DEPTH,
-		?int $maxMathDepth = CSSParserOptions::DEFAULT_MAX_MATH_DEPTH,
-		bool $syncDepths = false,
-	): void {
-		$this->styleDescriptors->clampLimitsInternal(
-			$maxBytes,
-			$syncDeclarations ? $maxDeclarations : null,
-			$maxDepth,
-			$maxMathDepth,
-			$syncDepths,
-		);
+	public function getOwnedStyleInternal(): CSSFunctionDescriptors
+	{
+		return $this->styleDescriptors;
 	}
 
 	public function getType(): int

@@ -49,30 +49,23 @@ final class CSSSkewY extends CSSTransformComponent
 
 	public function setIs2D(bool $is2D): void
 	{
-		if (!$is2D) {
-			throw new InvalidArgumentException('CSSSkewY cannot be 3D.');
-		}
+		self::assertStrict2D($is2D, 'CSSSkewY');
 		parent::setIs2D(true);
 	}
 
 	public function toMatrix(): DOMMatrix
 	{
-		$tanY = tan(self::scalar($this->ayValue, 'angle'));
-		if (!is_finite($tanY)) {
-			throw new InvalidArgumentException('Skew angle produces a non-finite tangent.');
-		}
+		return DOMMatrix::fromTrustedElements(self::matrix2d(1.0, self::finiteTan($this->ayValue), 0.0, 1.0, 0.0, 0.0), $this->twoDimensional);
+	}
 
-		return DOMMatrix::fromTrustedElements(self::matrix2d(1.0, $tanY, 0.0, 1.0, 0.0, 0.0), $this->twoDimensional);
+	public function applyToMatrixInternal(DOMMatrix $matrix): void
+	{
+		$matrix->multiplyAffine2DInternal(1.0, self::finiteTan($this->ayValue), 0.0, 1.0, 0.0, 0.0);
 	}
 
 	public function __clone(): void
 	{
 		$this->ayValue = $this->ayValue->clone();
 		$this->values = [$this->ayValue];
-	}
-
-	public function clone(): static
-	{
-		return clone $this;
 	}
 }

@@ -71,7 +71,10 @@ final class CSSOpaqueRule extends CSSRule
 	private static function assertSingleAtRule(string $source): void
 	{
 		$length = strlen($source);
-		$pos = self::skipWhitespaceAndComments($source, 0, $length);
+		$pos = CSSSyntaxScanner::skipWhitespaceAndComments($source, 0, $length);
+		if ($pos === null) {
+			throw new InvalidArgumentException('CSS opaque rule has unbalanced syntax or unclosed comments/strings.');
+		}
 		if ($pos + 1 >= $length || $source[$pos] !== '@') {
 			throw new InvalidArgumentException('CSS opaque rule must be a single @at-rule.');
 		}
@@ -101,28 +104,13 @@ final class CSSOpaqueRule extends CSSRule
 			$afterEnd = $close + 1;
 		}
 
-		$trailing = self::skipWhitespaceAndComments($source, $afterEnd, $length);
+		$trailing = CSSSyntaxScanner::skipWhitespaceAndComments($source, $afterEnd, $length);
+		if ($trailing === null) {
+			throw new InvalidArgumentException('CSS opaque rule has unbalanced syntax or unclosed comments/strings.');
+		}
 		if ($trailing < $length) {
 			throw new InvalidArgumentException('CSS opaque rule must contain exactly one rule.');
 		}
-	}
-
-	private static function skipWhitespaceAndComments(string $source, int $pos, int $length): int
-	{
-		while ($pos < $length) {
-			$pos += strspn($source, CSSSyntaxScanner::CSS_WHITESPACE, $pos, $length - $pos);
-			if ($pos + 1 < $length && $source[$pos] === '/' && $source[$pos + 1] === '*') {
-				$commentEnd = strpos($source, '*/', $pos + 2);
-				if ($commentEnd === false) {
-					throw new InvalidArgumentException('CSS opaque rule has unbalanced syntax or unclosed comments/strings.');
-				}
-				$pos = $commentEnd + 2;
-				continue;
-			}
-			break;
-		}
-
-		return $pos;
 	}
 
 	public function getType(): int

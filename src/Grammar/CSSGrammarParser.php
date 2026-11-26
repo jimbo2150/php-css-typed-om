@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\Grammar;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitTypeEnum;
 
 /**
  * Iterative (non-recursive) parser for the W3C CSS Values & Units Level 4
@@ -83,7 +85,7 @@ final class CSSGrammarParser
 				$seqNode = self::reduceSequence($stack[$topIdx]['seq'], $nodeCount, $grammar);
 				$stack[$topIdx]['seq'] = [];
 				$stack[$topIdx]['all'][] = $seqNode;
-				$allNode = self::reduceAllOrder($stack[$topIdx]['all'], $nodeCount);
+				$allNode = self::reduceNAry($stack[$topIdx]['all'], CSSGrammarNodeType::AllOrder, $nodeCount);
 				$stack[$topIdx]['all'] = [];
 				$stack[$topIdx]['any'][] = $allNode;
 				$i++;
@@ -94,55 +96,27 @@ final class CSSGrammarParser
 				$seqNode = self::reduceSequence($stack[$topIdx]['seq'], $nodeCount, $grammar);
 				$stack[$topIdx]['seq'] = [];
 				$stack[$topIdx]['all'][] = $seqNode;
-				$allNode = self::reduceAllOrder($stack[$topIdx]['all'], $nodeCount);
+				$allNode = self::reduceNAry($stack[$topIdx]['all'], CSSGrammarNodeType::AllOrder, $nodeCount);
 				$stack[$topIdx]['all'] = [];
 				$stack[$topIdx]['any'][] = $allNode;
-				$anyNode = self::reduceAnyOrder($stack[$topIdx]['any'], $nodeCount);
+				$anyNode = self::reduceNAry($stack[$topIdx]['any'], CSSGrammarNodeType::AnyOrder, $nodeCount);
 				$stack[$topIdx]['any'] = [];
 				$stack[$topIdx]['alts'][] = $anyNode;
 				$i++;
 				continue;
 			}
 
-			if ($kind === self::TOK_LBRACKET) {
+			if ($kind === self::TOK_LBRACKET || $kind === self::TOK_SQ_LBRACKET || $kind === self::TOK_FUNCTION_OPEN) {
 				if (count($stack) >= self::MAX_GRAMMAR_DEPTH) {
 					throw new InvalidArgumentException('CSS grammar exceeds maximum nesting depth.');
 				}
 				$stack[] = [
-					'kind' => 'group',
-					'fnName' => null,
-					'alts' => [],
-					'any' => [],
-					'all' => [],
-					'seq' => [],
-				];
-				$i++;
-				continue;
-			}
-
-			if ($kind === self::TOK_SQ_LBRACKET) {
-				if (count($stack) >= self::MAX_GRAMMAR_DEPTH) {
-					throw new InvalidArgumentException('CSS grammar exceeds maximum nesting depth.');
-				}
-				$stack[] = [
-					'kind' => 'square',
-					'fnName' => null,
-					'alts' => [],
-					'any' => [],
-					'all' => [],
-					'seq' => [],
-				];
-				$i++;
-				continue;
-			}
-
-			if ($kind === self::TOK_FUNCTION_OPEN) {
-				if (count($stack) >= self::MAX_GRAMMAR_DEPTH) {
-					throw new InvalidArgumentException('CSS grammar exceeds maximum nesting depth.');
-				}
-				$stack[] = [
-					'kind' => 'function',
-					'fnName' => (string) $tok['value'],
+					'kind' => match ($kind) {
+						self::TOK_LBRACKET => 'group',
+						self::TOK_SQ_LBRACKET => 'square',
+						self::TOK_FUNCTION_OPEN => 'function',
+					},
+					'fnName' => $kind === self::TOK_FUNCTION_OPEN ? (string) $tok['value'] : null,
 					'alts' => [],
 					'any' => [],
 					'all' => [],
@@ -231,11 +205,11 @@ final class CSSGrammarParser
 		$seqNode = self::reduceSequence($frame['seq'], $nodeCount, $grammar);
 		$all = $frame['all'];
 		$all[] = $seqNode;
-		$allNode = self::reduceAllOrder($all, $nodeCount);
+		$allNode = self::reduceNAry($all, CSSGrammarNodeType::AllOrder, $nodeCount);
 
 		$any = $frame['any'];
 		$any[] = $allNode;
-		$anyNode = self::reduceAnyOrder($any, $nodeCount);
+		$anyNode = self::reduceNAry($any, CSSGrammarNodeType::AnyOrder, $nodeCount);
 
 		$alts = $frame['alts'];
 		$alts[] = $anyNode;
@@ -257,23 +231,13 @@ final class CSSGrammarParser
 	}
 
 	/** @param list<CSSGrammarNode> $nodes */
-	private static function reduceAllOrder(array $nodes, int &$nodeCount): CSSGrammarNode
+	private static function reduceNAry(array $nodes, CSSGrammarNodeType $type, int &$nodeCount): CSSGrammarNode
 	{
 		if (count($nodes) === 1) {
 			return $nodes[0];
 		}
 
-		return self::allocNode($nodeCount, CSSGrammarNodeType::AllOrder, null, $nodes);
-	}
-
-	/** @param list<CSSGrammarNode> $nodes */
-	private static function reduceAnyOrder(array $nodes, int &$nodeCount): CSSGrammarNode
-	{
-		if (count($nodes) === 1) {
-			return $nodes[0];
-		}
-
-		return self::allocNode($nodeCount, CSSGrammarNodeType::AnyOrder, null, $nodes);
+		return self::allocNode($nodeCount, $type, null, $nodes);
 	}
 
 	/** @param list<CSSGrammarNode> $nodes */
@@ -283,11 +247,50 @@ final class CSSGrammarParser
 			return $nodes[0];
 		}
 
-		return self::allocNode($nodeCount, CSSGrammarNodeType::Alternative, null, $nodes);
+		$keywordMap = [];
+		$keywordMapCaseSensitive = false;
+		$kwCsInitialized = false;
+		$functionMap = [];
+		$fallback = [];
+
+		foreach ($nodes as $child) {
+			if ($child->type === CSSGrammarNodeType::Keyword) {
+				if (!$kwCsInitialized) {
+					$keywordMapCaseSensitive = $child->caseSensitive;
+					$kwCsInitialized = true;
+				}
+				if ($child->caseSensitive === $keywordMapCaseSensitive) {
+					$keywordMap[(string) $child->value] = true;
+					continue;
+				}
+			} elseif ($child->type === CSSGrammarNodeType::FunctionCall) {
+				$functionMap[(string) $child->value][] = $child;
+				continue;
+			}
+			$fallback[] = $child;
+		}
+
+		return self::allocNode(
+			$nodeCount,
+			CSSGrammarNodeType::Alternative,
+			null,
+			$nodes,
+			1,
+			1,
+			false,
+			null,
+			null,
+			[],
+			false,
+			$keywordMap,
+			$keywordMapCaseSensitive,
+			$functionMap,
+			$fallback,
+		);
 	}
 
 	/**
-	 * @param array{type: int, value?: string, min?: int, max?: ?int, comma?: bool, rangeMin?: ?float, rangeMax?: ?float, excluded?: list<string>} $tok
+	 * @param array{type: int, value?: string, min?: int, max?: ?int, comma?: bool, rangeMin?: ?float, rangeMax?: ?float, excluded?: array<string, true>} $tok
 	 */
 	private static function wrapMultiplier(CSSGrammarNode $child, array $tok, int &$nodeCount): CSSGrammarNode
 	{
@@ -303,7 +306,7 @@ final class CSSGrammarParser
 	}
 
 	/**
-	 * @param array{type: int, value?: string, rangeMin?: ?float, rangeMax?: ?float, excluded?: list<string>} $tok
+	 * @param array{type: int, value?: string, rangeMin?: ?float, rangeMax?: ?float, excluded?: array<string, true>} $tok
 	 */
 	private static function buildAngleBracketNode(array $tok, int &$nodeCount): CSSGrammarNode
 	{
@@ -343,7 +346,10 @@ final class CSSGrammarParser
 
 	/**
 	 * @param list<CSSGrammarNode> $children
-	 * @param list<string> $excludedKeywords
+	 * @param array<string, true> $excludedKeywords
+	 * @param array<string, true> $keywordMap
+	 * @param array<string, list<CSSGrammarNode>> $functionMap
+	 * @param list<CSSGrammarNode> $fallbackChildren
 	 */
 	private static function allocNode(
 		int &$nodeCount,
@@ -357,6 +363,10 @@ final class CSSGrammarParser
 		?float $rangeMax = null,
 		array $excludedKeywords = [],
 		bool $caseSensitive = false,
+		array $keywordMap = [],
+		bool $keywordMapCaseSensitive = false,
+		array $functionMap = [],
+		array $fallbackChildren = [],
 	): CSSGrammarNode {
 		if (++$nodeCount > self::MAX_GRAMMAR_NODES) {
 			throw new InvalidArgumentException('CSS grammar exceeds maximum AST node count.');
@@ -374,13 +384,17 @@ final class CSSGrammarParser
 			$rangeMax,
 			$excludedKeywords,
 			$caseSensitive,
+			$keywordMap,
+			$keywordMapCaseSensitive,
+			$functionMap,
+			$fallbackChildren,
 		);
 	}
 
 	/**
 	 * Tokenizes a W3C VDS grammar string.
 	 *
-	 * @return list<array{type: int, value?: string, min?: int, max?: ?int, comma?: bool, rangeMin?: ?float, rangeMax?: ?float, excluded?: list<string>}>
+	 * @return list<array{type: int, value?: string, min?: int, max?: ?int, comma?: bool, rangeMin?: ?float, rangeMax?: ?float, excluded?: array<string, true>}>
 	 */
 	private static function tokenizeVds(string $grammar, bool $caseSensitiveKeywords = false): array
 	{
@@ -497,7 +511,7 @@ final class CSSGrammarParser
 	}
 
 	/**
-	 * @param list<array{type: int, value?: string, min?: int, max?: ?int, comma?: bool, rangeMin?: ?float, rangeMax?: ?float, excluded?: list<string>}> $tokens
+	 * @param list<array{type: int, value?: string, min?: int, max?: ?int, comma?: bool, rangeMin?: ?float, rangeMax?: ?float, excluded?: array<string, true>}> $tokens
 	 */
 	private static function consumeOptionalPostfixModifiers(
 		string $grammar,
@@ -581,7 +595,7 @@ final class CSSGrammarParser
 	}
 
 	/**
-	 * @return array{type: int, value: string, rangeMin?: ?float, rangeMax?: ?float, excluded?: list<string>}
+	 * @return array{type: int, value: string, rangeMin?: ?float, rangeMax?: ?float, excluded?: array<string, true>}
 	 */
 	private static function parseAngleToken(string $grammar, int &$pos, int $len): array
 	{
@@ -627,7 +641,7 @@ final class CSSGrammarParser
 			foreach (explode(',', $exclStr) as $ex) {
 				$exLower = strtolower(trim($ex));
 				if ($exLower !== '') {
-					$excluded[] = $exLower;
+					$excluded[$exLower] = true;
 				}
 			}
 		}
@@ -716,36 +730,22 @@ final class CSSGrammarParser
 			return 0.0;
 		}
 
-		return match (true) {
-			str_contains($typeName, 'angle') || $typeName === 'hue' => match ($unitLower) {
-				'deg' => $value,
-				'rad' => $value * (180.0 / M_PI),
-				'grad' => $value * 0.9,
-				'turn' => $value * 360.0,
-				default => null,
-			},
-			str_contains($typeName, 'time') => match ($unitLower) {
-				's' => $value,
-				'ms' => $value * 0.001,
-				default => null,
-			},
-			$typeName === 'resolution' => match ($unitLower) {
-				'dppx', 'x' => $value,
-				'dpi' => $value / 96.0,
-				'dpcm' => ($value * 2.54) / 96.0,
-				default => null,
-			},
-			str_contains($typeName, 'length') => match ($unitLower) {
-				'px' => $value,
-				'cm' => $value * (96.0 / 2.54),
-				'mm' => $value * (96.0 / 25.4),
-				'q' => $value * (96.0 / 101.6),
-				'in' => $value * 96.0,
-				'pc' => $value * 16.0,
-				'pt' => $value * (96.0 / 72.0),
-				default => null,
-			},
+		$unitEnum = CSSUnitEnum::tryFromSymbol($unitLower);
+		if ($unitEnum === null) {
+			return null;
+		}
+		$expectedType = match (true) {
+			str_contains($typeName, 'angle') || $typeName === 'hue' => CSSUnitTypeEnum::ANGLE,
+			str_contains($typeName, 'time') => CSSUnitTypeEnum::TIME,
+			$typeName === 'resolution' => CSSUnitTypeEnum::RES,
+			str_contains($typeName, 'length') => CSSUnitTypeEnum::LENGTH,
 			default => null,
 		};
+		if ($expectedType === null || $unitEnum->type() !== $expectedType) {
+			return null;
+		}
+		$factor = CSSUnitEnum::canonicalFactorBySymbol($unitLower);
+
+		return $factor !== null ? $value * $factor : null;
 	}
 }

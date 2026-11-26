@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
-use Error;
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
@@ -81,8 +80,8 @@ final class CSSPositionValue extends CSSStyleValue
 
 		$x = self::parseCoordinate($parts[0], $options);
 		$y = self::parseCoordinate($parts[1], $options);
-		$xWord = strtolower((string) $x);
-		$yWord = strtolower((string) $y);
+		$xWord = $x instanceof CSSKeywordValue ? strtolower($x->getValue()) : '';
+		$yWord = $y instanceof CSSKeywordValue ? strtolower($y->getValue()) : '';
 		if (
 			(($xWord === 'top' || $xWord === 'bottom') && ($yWord === 'left' || $yWord === 'right' || $yWord === 'center'))
 			|| ($xWord === 'center' && ($yWord === 'left' || $yWord === 'right'))
@@ -154,21 +153,6 @@ final class CSSPositionValue extends CSSStyleValue
 		return $this->toBoundedCssTextInternal(CSSParserOptions::DEFAULT_MAX_BYTES);
 	}
 
-	public function __get(string $name): mixed
-	{
-		throw new Error('Undefined property: ' . static::class . '::$' . $name);
-	}
-
-	public function __isset(string $name): bool
-	{
-		return false;
-	}
-
-	public function __set(string $name, mixed $value): void
-	{
-		throw new Error('Cannot set property ' . static::class . '::$' . $name);
-	}
-
 	private static function exposeCoordinate(CSSStyleValue $coordinate): CSSStyleValue
 	{
 		return $coordinate instanceof CSSKeywordValue ? $coordinate->clone() : $coordinate;
@@ -191,11 +175,20 @@ final class CSSPositionValue extends CSSStyleValue
 			throw new InvalidArgumentException('Position coordinate must be a CSSNumericValue or CSSKeywordValue.');
 		}
 
+		if ($coordinate instanceof CSSUnitValue) {
+			$unitType = $coordinate->getUnitObjInternal()?->type()?->value;
+			if ($unitType !== 'length' && $unitType !== 'percent') {
+				throw new InvalidArgumentException('Position coordinate must be a length or percentage.');
+			}
+
+			return $coordinate;
+		}
+
 		$type = $coordinate->getNumericTypeInternal();
 		$dims = $type->toArray();
 		$lengthExp = (int) ($dims['length'] ?? 0);
 		$percentExp = (int) ($dims['percent'] ?? 0);
-		$hint = $type->percentHint;
+		$hint = $type->getPercentHintInternal();
 		$hasOther = false;
 		foreach ($dims as $dim => $exp) {
 			if ($dim !== 'length' && $dim !== 'percent' && $dim !== 'percentHint' && (int) $exp !== 0) {

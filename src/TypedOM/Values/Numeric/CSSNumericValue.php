@@ -11,15 +11,11 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\LengthTrait;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\SimpleValueTrait;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\TypeableUnitTrait;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathClamp;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathConstant;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathConstantEnum;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunctionEnum;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathInvert;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMax;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMin;
@@ -28,7 +24,6 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSimplifier;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathValue;
-use ReflectionClass;
 
 /**
  * Base class for CSS Typed OM numeric values (`CSSUnitValue` and `CSSMathValue`).
@@ -39,20 +34,6 @@ use ReflectionClass;
  */
 abstract class CSSNumericValue extends CSSStyleValue
 {
-	use SimpleValueTrait, LengthTrait;
-	use TypeableUnitTrait {
-		TypeableUnitTrait::type as public unitType;
-	}
-
-	/** @var array<string, array<string, float>> */
-	private const array DIMENSION_FACTORS = [
-		'angle' => ['deg' => 1.0, 'rad' => 180.0 / M_PI, 'grad' => 0.9, 'turn' => 360.0],
-		'time' => ['s' => 1.0, 'ms' => 0.001],
-		'frequency' => ['hz' => 1.0, 'khz' => 1000.0],
-		'resolution' => ['dpi' => 1.0, 'dpcm' => 2.54, 'dppx' => 96.0, 'x' => 96.0],
-		'flex' => ['fr' => 1.0],
-	];
-
 	public const int MAX_MATH_NODES = 100_000;
 	protected const int MAX_MATH_TREE_DEPTH = 512;
 
@@ -172,10 +153,10 @@ abstract class CSSNumericValue extends CSSStyleValue
 	public function getNumericTypeInternal(): CSSNumericType
 	{
 		if ($this instanceof CSSUnitValue) {
-			return self::baseTypeForUnitCategory($this->unitObj?->type()?->value);
+			return self::baseTypeForUnitCategoryInternal($this->unitObj?->type()?->value);
 		}
 		if (!$this instanceof CSSMathValue) {
-			return self::baseTypeForUnitCategory(null);
+			return self::baseTypeForUnitCategoryInternal(null);
 		}
 		if ($this->cachedNumericType !== null) {
 			return $this->cachedNumericType;
@@ -220,7 +201,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 
 			$children = $node->values->values;
 			if ($node instanceof CSSMathConstant) {
-				$node->cachedNumericType = self::baseTypeForUnitCategory(null);
+				$node->cachedNumericType = self::baseTypeForUnitCategoryInternal(null);
 			} elseif ($node instanceof CSSMathFunction) {
 				$node->cachedNumericType = CSSMathFunction::computeAndValidateTypeInternal($node->function, $children);
 			} elseif ($node instanceof CSSMathNegate) {
@@ -228,9 +209,9 @@ abstract class CSSNumericValue extends CSSStyleValue
 			} elseif ($node instanceof CSSMathInvert) {
 				$node->cachedNumericType = $children[0]->getNumericTypeInternal()->invert();
 			} elseif ($node instanceof CSSMathProduct) {
-				$type = self::baseTypeForUnitCategory(null);
+				$type = self::baseTypeForUnitCategoryInternal(null);
 				foreach ($children as $child) {
-					$type = $type->multiply($child->getNumericTypeInternal());
+					$type = $type->multiplyInternal($child->getNumericTypeInternal());
 				}
 				$node->cachedNumericType = $type;
 			} else {
@@ -238,7 +219,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 			}
 		}
 
-		return $this->cachedNumericType ?? self::baseTypeForUnitCategory(null);
+		return $this->cachedNumericType ?? self::baseTypeForUnitCategoryInternal(null);
 	}
 
 	public function getNumericCategory(): string
@@ -313,17 +294,20 @@ abstract class CSSNumericValue extends CSSStyleValue
 		}
 
 		$buckets = [];
-		$seenUnits = [];
+		$bucketsByUnit = [];
+		$bucketsByCategory = [];
 		foreach ($units as $unit) {
 			$resolved = self::resolveUnit($unit);
-			if (isset($seenUnits[$resolved->value])) {
+			if (isset($bucketsByUnit[$resolved->value])) {
 				continue;
 			}
-			$seenUnits[$resolved->value] = true;
+			$idx = count($buckets);
 			$resolvedType = $resolved->type();
+			$category = $resolvedType !== null ? $resolvedType->value : 'number';
+			$bucketsByUnit[$resolved->value] = $idx;
+			$bucketsByCategory[$category] ??= $idx;
 			$buckets[] = [
 				'unit' => $resolved,
-				'category' => $resolvedType !== null ? $resolvedType->value : 'number',
 				'value' => 0.0,
 			];
 		}
@@ -337,22 +321,14 @@ abstract class CSSNumericValue extends CSSStyleValue
 		foreach ($terms as [$sign, $term]) {
 			$targetIdx = null;
 			if ($term instanceof CSSUnitValue) {
-				foreach ($buckets as $idx => $bucket) {
-					if ($bucket['unit'] === $term->unitObj) {
-						$targetIdx = $idx;
-						break;
-					}
+				$unitObj = $term->getUnitObjInternal();
+				if ($unitObj !== null) {
+					$targetIdx = $bucketsByUnit[$unitObj->value] ?? null;
 				}
 			}
 
 			if ($targetIdx === null) {
-				$termCategory = $term->getNumericCategory();
-				foreach ($buckets as $idx => $bucket) {
-					if ($bucket['category'] === $termCategory) {
-						$targetIdx = $idx;
-						break;
-					}
-				}
+				$targetIdx = $bucketsByCategory[$term->getNumericCategory()] ?? null;
 			}
 
 			if ($targetIdx === null) {
@@ -463,7 +439,6 @@ abstract class CSSNumericValue extends CSSStyleValue
 			return clone $root;
 		}
 
-		static $reflections = [];
 		$slots = [];
 		$nextSlot = 1;
 		$stack = [[0, $root, $baseDepth, 0]];
@@ -481,23 +456,13 @@ abstract class CSSNumericValue extends CSSStyleValue
 					$slots[$targetSlot] = CSSMathFunction::fromValidatedInternal(
 						$orig->function,
 						$newChildren,
-						$orig->cachedNumericType !== null ? clone $orig->cachedNumericType : null,
+						$orig->cachedNumericType,
 						$orig->strategy,
 					);
 					continue;
 				}
 				$cls = $orig::class;
-				$refl = $reflections[$cls] ??= new ReflectionClass($cls);
-				/** @var CSSMathValue $copy */
-				$copy = $refl->newInstanceWithoutConstructor();
-				$copy->values = new CSSNumericArray($newChildren);
-				$copy->cachedNumericType = $orig->cachedNumericType !== null ? clone $orig->cachedNumericType : null;
-				if ($copy instanceof CSSMathNegate || $copy instanceof CSSMathInvert) {
-					$copy->value = $newChildren[0] ?? null;
-				} elseif ($copy instanceof CSSMathClamp) {
-					$copy->value = $newChildren[1] ?? null;
-				}
-				$slots[$targetSlot] = $copy;
+				$slots[$targetSlot] = $cls::fromValidated($newChildren, $orig->cachedNumericType);
 				continue;
 			}
 
@@ -609,7 +574,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 	public static function mergeAdditiveTypesInternal(array $values): CSSNumericType
 	{
 		if ($values === []) {
-			return self::baseTypeForUnitCategory(null);
+			return self::baseTypeForUnitCategoryInternal(null);
 		}
 
 		$merged = $values[0]->getNumericTypeInternal();
@@ -631,8 +596,8 @@ abstract class CSSNumericValue extends CSSStyleValue
 			return $left;
 		}
 
-		$leftHint = $left->percentHint;
-		$rightHint = $right->percentHint;
+		$leftHint = $left->getPercentHintInternal();
+		$rightHint = $right->getPercentHintInternal();
 
 		if ($leftHint !== null && $rightHint !== null) {
 			throw new InvalidArgumentException('CSS math operands have incompatible numeric types.');
@@ -729,24 +694,57 @@ abstract class CSSNumericValue extends CSSStyleValue
 				&& !str_contains($cssText, '(')
 			) {
 				$len = strlen($cssText);
-				if (preg_match('/\G([+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?)([a-zA-Z%]*)/', $cssText, $matches) === 1
-					&& strlen($matches[0]) === $len
-				) {
-					$value = (float) $matches[1];
-					if (!is_finite($value)) {
-						if ($throwOnInvalid) {
-							throw new InvalidArgumentException('CSS numeric value must be finite: ' . $cssText);
+				$pos = ($c0 === '+' || $c0 === '-') ? 1 : 0;
+				$intLen = strspn($cssText, '0123456789', $pos);
+				$pos += $intLen;
+				$validMantissa = $intLen > 0;
+				if ($pos < $len && $cssText[$pos] === '.') {
+					$pos++;
+					$fracLen = strspn($cssText, '0123456789', $pos);
+					$pos += $fracLen;
+					$validMantissa = $fracLen > 0;
+				}
+				if ($validMantissa) {
+					if ($pos === $len) {
+						$value = (float) $cssText;
+						if (!is_finite($value)) {
+							if ($throwOnInvalid) {
+								throw new InvalidArgumentException('CSS numeric value must be finite: ' . $cssText);
+							}
+							return null;
 						}
-						return null;
+						return new CSSUnitValue($value, CSSUnitEnum::NUMBER);
 					}
-					$unit = CSSUnitEnum::tryFromSymbol($matches[2]);
-					if ($unit === null) {
-						if ($throwOnInvalid) {
-							throw new InvalidArgumentException('Unsupported CSS unit: ' . $matches[2]);
+					$expChar = $cssText[$pos];
+					if ($expChar === 'e' || $expChar === 'E') {
+						$ePos = $pos + 1;
+						if ($ePos < $len && ($cssText[$ePos] === '+' || $cssText[$ePos] === '-')) {
+							$ePos++;
 						}
-						return null;
+						$expDigits = strspn($cssText, '0123456789', $ePos);
+						if ($expDigits > 0) {
+							$pos = $ePos + $expDigits;
+						}
 					}
-					return new CSSUnitValue($value, $unit);
+					$unitLen = strspn($cssText, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ%', $pos);
+					if ($pos + $unitLen === $len) {
+						$value = (float) ($pos === $len ? $cssText : substr($cssText, 0, $pos));
+						if (!is_finite($value)) {
+							if ($throwOnInvalid) {
+								throw new InvalidArgumentException('CSS numeric value must be finite: ' . $cssText);
+							}
+							return null;
+						}
+						$unitSymbol = $pos === $len ? '' : substr($cssText, $pos);
+						$unit = CSSUnitEnum::tryFromSymbol($unitSymbol);
+						if ($unit === null) {
+							if ($throwOnInvalid) {
+								throw new InvalidArgumentException('Unsupported CSS unit: ' . $unitSymbol);
+							}
+							return null;
+						}
+						return new CSSUnitValue($value, $unit);
+					}
 				}
 				if ($throwOnInvalid) {
 					throw new InvalidArgumentException('Invalid CSS numeric value: ' . $cssText);
@@ -758,7 +756,8 @@ abstract class CSSNumericValue extends CSSStyleValue
 		return CSSCalcParser::parseUnitOrMathSlice($cssText, 0, strlen($cssText), $options, $depth, $throwOnInvalid, null, $sharedNodeBudget);
 	}
 
-	private static function baseTypeForUnitCategory(?string $category): CSSNumericType
+	/** @internal */
+	public static function baseTypeForUnitCategoryInternal(?string $category): CSSNumericType
 	{
 		static $cache = [];
 		$key = $category ?? '';
@@ -950,9 +949,9 @@ abstract class CSSNumericValue extends CSSStyleValue
 	{
 		$currentType = $term->getNumericTypeInternal();
 		$targetDimension = $targetUnit->type()?->value;
-		$expectedType = self::baseTypeForUnitCategory($targetDimension);
+		$expectedType = self::baseTypeForUnitCategoryInternal($targetDimension);
 
-		if ($currentType->percentHint !== null) {
+		if ($currentType->getPercentHintInternal() !== null) {
 			throw new InvalidArgumentException('Cannot convert a mixed percentage expression directly to a single unit.');
 		}
 		if (!$currentType->equals($expectedType)) {
@@ -986,12 +985,12 @@ abstract class CSSNumericValue extends CSSStyleValue
 					unset($slots[$cs]);
 				}
 				$slots[$targetSlot] = match (true) {
-					$orig instanceof CSSMathNegate => new CSSMathNegate([$converted[0]]),
-					$orig instanceof CSSMathSum => new CSSMathSum($converted),
-					$orig instanceof CSSMathMin => new CSSMathMin($converted),
-					$orig instanceof CSSMathMax => new CSSMathMax($converted),
-					$orig instanceof CSSMathClamp => new CSSMathClamp($converted[0], $converted[1], $converted[2]),
-					$orig instanceof CSSMathFunction => new CSSMathFunction($orig->function, $converted, $orig->strategy),
+					$orig instanceof CSSMathNegate => CSSMathNegate::fromValidated([$converted[0]], $orig->cachedNumericType),
+					$orig instanceof CSSMathSum => CSSMathSum::fromValidated($converted, $orig->cachedNumericType),
+					$orig instanceof CSSMathMin => CSSMathMin::fromValidated($converted, $orig->cachedNumericType),
+					$orig instanceof CSSMathMax => CSSMathMax::fromValidated($converted, $orig->cachedNumericType),
+					$orig instanceof CSSMathClamp => CSSMathClamp::fromValidated($converted, $orig->cachedNumericType),
+					$orig instanceof CSSMathFunction => CSSMathFunction::fromValidatedInternal($orig->function, $converted, $orig->cachedNumericType, $orig->strategy),
 					default => throw new InvalidArgumentException('Unsupported numeric expression conversion.'),
 				};
 				continue;
@@ -1021,7 +1020,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 						throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
 					}
 				}
-				$slots[$targetSlot] = new CSSMathProduct($newValues);
+				$slots[$targetSlot] = CSSMathProduct::fromValidated($newValues, $origProduct->cachedNumericType);
 				continue;
 			}
 
@@ -1055,9 +1054,11 @@ abstract class CSSNumericValue extends CSSStyleValue
 					continue;
 				}
 
-				$categoryFactors = self::DIMENSION_FACTORS[$category ?? ''] ?? [];
-				$from = $categoryFactors[strtolower($sourceUnit->toString())] ?? null;
-				$to = $categoryFactors[strtolower($targetUnit->toString())] ?? null;
+				if ($sourceUnit->type() !== $targetUnit->type()) {
+					throw new InvalidArgumentException('Unit conversion is not supported for these units.');
+				}
+				$from = $sourceUnit->dimensionFactorDpiBase();
+				$to = $targetUnit->dimensionFactorDpiBase();
 				if ($from === null || $to === null) {
 					throw new InvalidArgumentException('Unit conversion is not supported for these units.');
 				}
@@ -1072,23 +1073,11 @@ abstract class CSSNumericValue extends CSSStyleValue
 
 			if ($value instanceof CSSMathFunction) {
 				$fn = $value->function;
-				if ($fn === CSSMathFunctionEnum::SIN
-					|| $fn === CSSMathFunctionEnum::COS
-					|| $fn === CSSMathFunctionEnum::TAN
-					|| $fn === CSSMathFunctionEnum::POW
-					|| $fn === CSSMathFunctionEnum::SQRT
-					|| $fn === CSSMathFunctionEnum::LOG
-					|| $fn === CSSMathFunctionEnum::EXP
-					|| $fn === CSSMathFunctionEnum::SIGN
-				) {
+				if ($fn->returnsNumber()) {
 					$slots[$targetSlot] = self::cloneTreeIteratively($value, $visits, $depth + 1);
 					continue;
 				}
-				if ($fn === CSSMathFunctionEnum::ASIN
-					|| $fn === CSSMathFunctionEnum::ACOS
-					|| $fn === CSSMathFunctionEnum::ATAN
-					|| $fn === CSSMathFunctionEnum::ATAN2
-				) {
+				if ($fn->returnsAngle()) {
 					$simplified = CSSMathSimplifier::simplifyWithBudget($value, $context ?? new CSSContext(), $visits, $allocated);
 					if (!$simplified instanceof CSSUnitValue) {
 						throw new InvalidArgumentException('Cannot convert unresolved angle math function.');

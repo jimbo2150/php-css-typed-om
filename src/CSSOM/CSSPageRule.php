@@ -6,8 +6,6 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
-use LogicException;
-use OutOfBoundsException;
 
 /**
  * Represents a CSS `@page` rule, including its page descriptors and nested `@margin` rules.
@@ -57,24 +55,8 @@ final class CSSPageRule extends CSSGroupingRule
 			}
 		}
 
-		parent::__construct('page', $selector, $maxBytes);
-
-		if ($style instanceof CSSPageDescriptors) {
-			$descriptors = $style->getParentRule() !== null ? clone $style : $style;
-		} else {
-			$descriptors = new CSSPageDescriptors();
-			if ($style !== null) {
-				$descriptors->setLimitsInternal(
-					self::minLimitInternal($maxBytes, $style->resolveMaxBytesInternal()),
-					$style->resolveMaxDeclarationsInternal(),
-					$style->resolveMaxDepthInternal(),
-					$style->resolveMaxMathDepthInternal(),
-					true,
-				);
-				$descriptors->copyDeclarationsFromInternal($style);
-			}
-		}
-		$descriptors->clampLimitsInternal($maxBytes, null, null, null, false);
+		$this->initGroupingRuleInternal('page', $selector, $maxBytes);
+		$descriptors = CSSPageDescriptors::adoptOrConvert($style, $maxBytes);
 		$descriptors->setParentRule($this);
 		$this->styleDescriptors = $descriptors;
 
@@ -86,21 +68,10 @@ final class CSSPageRule extends CSSGroupingRule
 		}
 	}
 
-	protected function syncChildLimitsInternal(
-		?int $maxBytes,
-		?int $maxDeclarations,
-		bool $syncDeclarations = false,
-		?int $maxDepth = CSSParserOptions::DEFAULT_MAX_DEPTH,
-		?int $maxMathDepth = CSSParserOptions::DEFAULT_MAX_MATH_DEPTH,
-		bool $syncDepths = false,
-	): void {
-		$this->styleDescriptors->clampLimitsInternal(
-			$maxBytes,
-			$syncDeclarations ? $maxDeclarations : null,
-			$maxDepth,
-			$maxMathDepth,
-			$syncDepths,
-		);
+	/** @internal */
+	public function getOwnedStyleInternal(): CSSPageDescriptors
+	{
+		return $this->styleDescriptors;
 	}
 
 	public function getType(): int
@@ -147,34 +118,23 @@ final class CSSPageRule extends CSSGroupingRule
 		$this->prelude = $selector;
 	}
 
-	/**
-	 * Validates and inserts a page margin rule into this `@page` rule.
-	 *
-	 * @throws LogicException When the `@page` rule is detached from a stylesheet
-	 * @throws OutOfBoundsException When $index is outside [0, count]
-	 * @throws InvalidArgumentException When $ruleText is not a valid `@margin` rule or exceeds parser limits
-	 */
-	public function insertRule(string $ruleText, int $index = 0, ?CSSParserOptions $options = null): int
+	protected function detachedInsertErrorMessage(): string
 	{
-		$sheet = $this->getParentStyleSheet();
-		if ($sheet === null) {
-			throw new LogicException('A detached @page rule cannot insert margin rules.');
-		}
-		if ($index < 0 || $index > count($this->getCssRules())) {
-			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
-		}
+		return 'A detached @page rule cannot insert margin rules.';
+	}
 
-		$effectiveOptions = $sheet->resolveParserOptionsInternal($options);
-		$marginRule = CSSParser::parseSingleMarginRule(
+	protected function parseChildRuleForInsert(
+		string $ruleText,
+		CSSParserOptions $effectiveOptions,
+		CSSStyleSheet $sheet,
+	): CSSRule {
+		return CSSParser::parseSingleMarginRule(
 			$ruleText,
 			$effectiveOptions,
 			$this->getNestingDepth(),
 			$sheet->getTotalRuleCount(),
 			$sheet->getTotalDeclarationCount(),
 		);
-		$this->getCssRules()->insertWithOptionsInternal($index, $marginRule, $effectiveOptions);
-
-		return $index;
 	}
 
 	public function getCssText(): string

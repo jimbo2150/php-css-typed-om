@@ -36,29 +36,93 @@ use InvalidArgumentException;
  */
 class DOMMatrix extends DOMMatrixReadOnly
 {
-	public function setA(float $value): void { $this->setElement('a', $value); }
-	public function setB(float $value): void { $this->setElement('b', $value); }
-	public function setC(float $value): void { $this->setElement('c', $value); }
-	public function setD(float $value): void { $this->setElement('d', $value); }
-	public function setE(float $value): void { $this->setElement('e', $value); }
-	public function setF(float $value): void { $this->setElement('f', $value); }
+	public function setA(float $value): void { $this->setElementAt(0, $value, 'a', true); }
+	public function setB(float $value): void { $this->setElementAt(1, $value, 'b', true); }
+	public function setC(float $value): void { $this->setElementAt(4, $value, 'c', true); }
+	public function setD(float $value): void { $this->setElementAt(5, $value, 'd', true); }
+	public function setE(float $value): void { $this->setElementAt(12, $value, 'e', true); }
+	public function setF(float $value): void { $this->setElementAt(13, $value, 'f', true); }
 
-	public function setM11(float $value): void { $this->setElement('m11', $value); }
-	public function setM12(float $value): void { $this->setElement('m12', $value); }
-	public function setM13(float $value): void { $this->setElement('m13', $value); }
-	public function setM14(float $value): void { $this->setElement('m14', $value); }
-	public function setM21(float $value): void { $this->setElement('m21', $value); }
-	public function setM22(float $value): void { $this->setElement('m22', $value); }
-	public function setM23(float $value): void { $this->setElement('m23', $value); }
-	public function setM24(float $value): void { $this->setElement('m24', $value); }
-	public function setM31(float $value): void { $this->setElement('m31', $value); }
-	public function setM32(float $value): void { $this->setElement('m32', $value); }
-	public function setM33(float $value): void { $this->setElement('m33', $value); }
-	public function setM34(float $value): void { $this->setElement('m34', $value); }
-	public function setM41(float $value): void { $this->setElement('m41', $value); }
-	public function setM42(float $value): void { $this->setElement('m42', $value); }
-	public function setM43(float $value): void { $this->setElement('m43', $value); }
-	public function setM44(float $value): void { $this->setElement('m44', $value); }
+	public function setM11(float $value): void { $this->setElementAt(0, $value, 'm11', true); }
+	public function setM12(float $value): void { $this->setElementAt(1, $value, 'm12', true); }
+	public function setM13(float $value): void { $this->setElementAt(2, $value, 'm13', false); }
+	public function setM14(float $value): void { $this->setElementAt(3, $value, 'm14', false); }
+	public function setM21(float $value): void { $this->setElementAt(4, $value, 'm21', true); }
+	public function setM22(float $value): void { $this->setElementAt(5, $value, 'm22', true); }
+	public function setM23(float $value): void { $this->setElementAt(6, $value, 'm23', false); }
+	public function setM24(float $value): void { $this->setElementAt(7, $value, 'm24', false); }
+	public function setM31(float $value): void { $this->setElementAt(8, $value, 'm31', false); }
+	public function setM32(float $value): void { $this->setElementAt(9, $value, 'm32', false); }
+	public function setM33(float $value): void { $this->setElementAt(10, $value, 'm33', false); }
+	public function setM34(float $value): void { $this->setElementAt(11, $value, 'm34', false); }
+	public function setM41(float $value): void { $this->setElementAt(12, $value, 'm41', true); }
+	public function setM42(float $value): void { $this->setElementAt(13, $value, 'm42', true); }
+	public function setM43(float $value): void { $this->setElementAt(14, $value, 'm43', false); }
+	public function setM44(float $value): void { $this->setElementAt(15, $value, 'm44', false); }
+
+	/** @internal */
+	public function mark3DInternal(): void
+	{
+		$this->is2D = false;
+	}
+
+	/**
+	 * @internal Multiplies by trusted precomputed 16-element matrix arrays in place.
+	 * @param list<float> $rhsElements
+	 */
+	public function multiplyElementsInternal(array $rhsElements, bool $rhsIs2D): void
+	{
+		$this->elements = self::multiplyElements($this->elements, $rhsElements, $this->is2D, $rhsIs2D);
+		if (!$rhsIs2D) {
+			$this->is2D = false;
+		}
+	}
+
+	/**
+	 * @internal Applies a 2D affine matrix `[a, b, c, d, e, f]` directly without intermediate matrix allocation.
+	 */
+	public function multiplyAffine2DInternal(float $a, float $b, float $c, float $d, float $e, float $f): void
+	{
+		$l = $this->elements;
+		if ($this->is2D) {
+			$m11 = $l[0] * $a + $l[4] * $b;
+			$m12 = $l[1] * $a + $l[5] * $b;
+			$m21 = $l[0] * $c + $l[4] * $d;
+			$m22 = $l[1] * $c + $l[5] * $d;
+			$m41 = $l[0] * $e + $l[4] * $f + $l[12];
+			$m42 = $l[1] * $e + $l[5] * $f + $l[13];
+			if (!is_finite($m11) || !is_finite($m12) || !is_finite($m21) || !is_finite($m22) || !is_finite($m41) || !is_finite($m42)) {
+				throw new InvalidArgumentException('Matrix matrix product must be finite.');
+			}
+			$this->elements = [
+				$m11 === 0.0 ? 0.0 : $m11,
+				$m12 === 0.0 ? 0.0 : $m12,
+				0.0,
+				0.0,
+				$m21 === 0.0 ? 0.0 : $m21,
+				$m22 === 0.0 ? 0.0 : $m22,
+				0.0,
+				0.0,
+				0.0,
+				0.0,
+				1.0,
+				0.0,
+				$m41 === 0.0 ? 0.0 : $m41,
+				$m42 === 0.0 ? 0.0 : $m42,
+				0.0,
+				1.0,
+			];
+			return;
+		}
+
+		for ($r = 0; $r < 4; $r++) {
+			$l0 = $l[$r];
+			$l1 = $l[4 + $r];
+			$this->elements[$r] = self::assertFiniteFloat($l0 * $a + $l1 * $b, 'matrix product');
+			$this->elements[4 + $r] = self::assertFiniteFloat($l0 * $c + $l1 * $d, 'matrix product');
+			$this->elements[12 + $r] = self::assertFiniteFloat($l0 * $e + $l1 * $f + $l[12 + $r], 'matrix product');
+		}
+	}
 
 	/** @param DOMMatrixReadOnly|list<int|float>|array<string, mixed> $other */
 	public function multiplySelf(DOMMatrixReadOnly|array $other): self
@@ -86,9 +150,9 @@ class DOMMatrix extends DOMMatrixReadOnly
 
 	public function translateSelf(float $tx = 0.0, float $ty = 0.0, float $tz = 0.0): self
 	{
-		$tx = self::assertFinite($tx, 'tx');
-		$ty = self::assertFinite($ty, 'ty');
-		$tz = self::assertFinite($tz, 'tz');
+		$tx = self::assertFiniteFloat($tx, 'tx');
+		$ty = self::assertFiniteFloat($ty, 'ty');
+		$tz = self::assertFiniteFloat($tz, 'tz');
 		$next = $this->elements;
 		$nextIs2D = $this->is2D;
 		self::applyTranslateElements($next, $nextIs2D, $tx, $ty, $tz);
@@ -106,12 +170,12 @@ class DOMMatrix extends DOMMatrixReadOnly
 		float $originY = 0.0,
 		float $originZ = 0.0,
 	): self {
-		$scaleX = self::assertFinite($scaleX, 'scaleX');
-		$scaleY = self::assertFinite($scaleY ?? $scaleX, 'scaleY');
-		$scaleZ = self::assertFinite($scaleZ, 'scaleZ');
-		$originX = self::assertFinite($originX, 'originX');
-		$originY = self::assertFinite($originY, 'originY');
-		$originZ = self::assertFinite($originZ, 'originZ');
+		$scaleX = self::assertFiniteFloat($scaleX, 'scaleX');
+		$scaleY = self::assertFiniteFloat($scaleY ?? $scaleX, 'scaleY');
+		$scaleZ = self::assertFiniteFloat($scaleZ, 'scaleZ');
+		$originX = self::assertFiniteFloat($originX, 'originX');
+		$originY = self::assertFiniteFloat($originY, 'originY');
+		$originZ = self::assertFiniteFloat($originZ, 'originZ');
 
 		$next = $this->elements;
 		$nextIs2D = $this->is2D;
@@ -121,15 +185,15 @@ class DOMMatrix extends DOMMatrixReadOnly
 		}
 
 		if ($nextIs2D && $scaleZ === 1.0) {
-			$next[0] = self::assertFinite($next[0] * $scaleX, 'm11');
-			$next[1] = self::assertFinite($next[1] * $scaleX, 'm12');
-			$next[4] = self::assertFinite($next[4] * $scaleY, 'm21');
-			$next[5] = self::assertFinite($next[5] * $scaleY, 'm22');
+			$next[0] = self::assertFiniteFloat($next[0] * $scaleX, 'm11');
+			$next[1] = self::assertFiniteFloat($next[1] * $scaleX, 'm12');
+			$next[4] = self::assertFiniteFloat($next[4] * $scaleY, 'm21');
+			$next[5] = self::assertFiniteFloat($next[5] * $scaleY, 'm22');
 		} else {
 			for ($r = 0; $r < 4; $r++) {
-				$next[$r] = self::assertFinite($next[$r] * $scaleX, 'scale');
-				$next[4 + $r] = self::assertFinite($next[4 + $r] * $scaleY, 'scale');
-				$next[8 + $r] = self::assertFinite($next[8 + $r] * $scaleZ, 'scale');
+				$next[$r] = self::assertFiniteFloat($next[$r] * $scaleX, 'scale');
+				$next[4 + $r] = self::assertFiniteFloat($next[4 + $r] * $scaleY, 'scale');
+				$next[8 + $r] = self::assertFiniteFloat($next[8 + $r] * $scaleZ, 'scale');
 			}
 		}
 
@@ -152,10 +216,10 @@ class DOMMatrix extends DOMMatrixReadOnly
 		float $originY = 0.0,
 		float $originZ = 0.0,
 	): self {
-		$scale = self::assertFinite($scale, 'scale');
-		$originX = self::assertFinite($originX, 'originX');
-		$originY = self::assertFinite($originY, 'originY');
-		$originZ = self::assertFinite($originZ, 'originZ');
+		$scale = self::assertFiniteFloat($scale, 'scale');
+		$originX = self::assertFiniteFloat($originX, 'originX');
+		$originY = self::assertFiniteFloat($originY, 'originY');
+		$originZ = self::assertFiniteFloat($originZ, 'originZ');
 
 		$this->scaleSelf($scale, $scale, $scale, $originX, $originY, $originZ);
 		if ($scale !== 1.0) {
@@ -167,7 +231,7 @@ class DOMMatrix extends DOMMatrixReadOnly
 
 	public function rotateSelf(float $rotX = 0.0, ?float $rotY = null, ?float $rotZ = null): self
 	{
-		$rotX = self::assertFinite($rotX, 'rotX');
+		$rotX = self::assertFiniteFloat($rotX, 'rotX');
 		if ($rotY === null && $rotZ === null) {
 			// Per Geometry Interfaces Level 1, 1-arg rotate(angle) rotates around the Z-axis and keeps is2D.
 			$rad = deg2rad($rotX);
@@ -178,15 +242,15 @@ class DOMMatrix extends DOMMatrixReadOnly
 			for ($r = 0; $r < $rows; $r++) {
 				$c0 = $next[$r];
 				$c1 = $next[4 + $r];
-				$next[$r] = self::assertFinite($c0 * $cos + $c1 * $sin, 'rotate');
-				$next[4 + $r] = self::assertFinite(-$c0 * $sin + $c1 * $cos, 'rotate');
+				$next[$r] = self::assertFiniteFloat($c0 * $cos + $c1 * $sin, 'rotate');
+				$next[4 + $r] = self::assertFiniteFloat(-$c0 * $sin + $c1 * $cos, 'rotate');
 			}
 			$this->elements = $next;
 			return $this;
 		}
 
-		$rotY = self::assertFinite($rotY ?? 0.0, 'rotY');
-		$rotZ = self::assertFinite($rotZ ?? 0.0, 'rotZ');
+		$rotY = self::assertFiniteFloat($rotY ?? 0.0, 'rotY');
+		$rotZ = self::assertFiniteFloat($rotZ ?? 0.0, 'rotZ');
 
 		$next = $this->elements;
 		$nextIs2D = $this->is2D;
@@ -208,8 +272,8 @@ class DOMMatrix extends DOMMatrixReadOnly
 
 	public function rotateFromVectorSelf(float $x = 0.0, float $y = 0.0): self
 	{
-		$x = self::assertFinite($x, 'x');
-		$y = self::assertFinite($y, 'y');
+		$x = self::assertFiniteFloat($x, 'x');
+		$y = self::assertFiniteFloat($y, 'y');
 		if ($x === 0.0 && $y === 0.0) {
 			return $this;
 		}
@@ -230,11 +294,11 @@ class DOMMatrix extends DOMMatrixReadOnly
 
 	public function skewXSelf(float $sx = 0.0): self
 	{
-		$tan = self::assertFinite(tan(deg2rad(self::assertFinite($sx, 'sx'))), 'tan(sx)');
+		$tan = self::assertFiniteFloat(tan(deg2rad(self::assertFiniteFloat($sx, 'sx'))), 'tan(sx)');
 		$next = $this->elements;
 		$rows = $this->is2D ? 2 : 4;
 		for ($r = 0; $r < $rows; $r++) {
-			$next[4 + $r] = self::assertFinite($next[4 + $r] + $next[$r] * $tan, 'skewX');
+			$next[4 + $r] = self::assertFiniteFloat($next[4 + $r] + $next[$r] * $tan, 'skewX');
 		}
 		$this->elements = $next;
 
@@ -243,11 +307,11 @@ class DOMMatrix extends DOMMatrixReadOnly
 
 	public function skewYSelf(float $sy = 0.0): self
 	{
-		$tan = self::assertFinite(tan(deg2rad(self::assertFinite($sy, 'sy'))), 'tan(sy)');
+		$tan = self::assertFiniteFloat(tan(deg2rad(self::assertFiniteFloat($sy, 'sy'))), 'tan(sy)');
 		$next = $this->elements;
 		$rows = $this->is2D ? 2 : 4;
 		for ($r = 0; $r < $rows; $r++) {
-			$next[$r] = self::assertFinite($next[$r] + $next[4 + $r] * $tan, 'skewY');
+			$next[$r] = self::assertFiniteFloat($next[$r] + $next[4 + $r] * $tan, 'skewY');
 		}
 		$this->elements = $next;
 
@@ -258,15 +322,15 @@ class DOMMatrix extends DOMMatrixReadOnly
 	private static function applyTranslateElements(array &$elements, bool &$is2D, float $tx, float $ty, float $tz): void
 	{
 		if ($is2D && $tz === 0.0) {
-			$elements[12] = self::assertFinite($elements[0] * $tx + $elements[4] * $ty + $elements[12], 'm41');
-			$elements[13] = self::assertFinite($elements[1] * $tx + $elements[5] * $ty + $elements[13], 'm42');
+			$elements[12] = self::assertFiniteFloat($elements[0] * $tx + $elements[4] * $ty + $elements[12], 'm41');
+			$elements[13] = self::assertFiniteFloat($elements[1] * $tx + $elements[5] * $ty + $elements[13], 'm42');
 			return;
 		}
 
-		$elements[12] = self::assertFinite($elements[0] * $tx + $elements[4] * $ty + $elements[8] * $tz + $elements[12], 'm41');
-		$elements[13] = self::assertFinite($elements[1] * $tx + $elements[5] * $ty + $elements[9] * $tz + $elements[13], 'm42');
-		$elements[14] = self::assertFinite($elements[2] * $tx + $elements[6] * $ty + $elements[10] * $tz + $elements[14], 'm43');
-		$elements[15] = self::assertFinite($elements[3] * $tx + $elements[7] * $ty + $elements[11] * $tz + $elements[15], 'm44');
+		$elements[12] = self::assertFiniteFloat($elements[0] * $tx + $elements[4] * $ty + $elements[8] * $tz + $elements[12], 'm41');
+		$elements[13] = self::assertFiniteFloat($elements[1] * $tx + $elements[5] * $ty + $elements[9] * $tz + $elements[13], 'm42');
+		$elements[14] = self::assertFiniteFloat($elements[2] * $tx + $elements[6] * $ty + $elements[10] * $tz + $elements[14], 'm43');
+		$elements[15] = self::assertFiniteFloat($elements[3] * $tx + $elements[7] * $ty + $elements[11] * $tz + $elements[15], 'm44');
 		if ($tz !== 0.0) {
 			$is2D = false;
 		}
@@ -281,10 +345,10 @@ class DOMMatrix extends DOMMatrixReadOnly
 		float $z,
 		float $angle,
 	): void {
-		$x = self::assertFinite($x, 'x');
-		$y = self::assertFinite($y, 'y');
-		$z = self::assertFinite($z, 'z');
-		$angle = self::assertFinite($angle, 'angle');
+		$x = self::assertFiniteFloat($x, 'x');
+		$y = self::assertFiniteFloat($y, 'y');
+		$z = self::assertFiniteFloat($z, 'z');
+		$angle = self::assertFiniteFloat($angle, 'angle');
 
 		$maxAxis = max(abs($x), abs($y), abs($z));
 		if ($maxAxis === 0.0) {
@@ -342,76 +406,72 @@ class DOMMatrix extends DOMMatrixReadOnly
 			}
 
 			$invDet = 1.0 / $det;
-			$next = self::identityElements();
-			$candidates = [
-				0 => $d * $invDet,
-				1 => -$b * $invDet,
-				4 => -$c * $invDet,
-				5 => $a * $invDet,
-				12 => ($c * $f - $d * $e) * $invDet,
-				13 => ($b * $e - $a * $f) * $invDet,
-			];
-			foreach ($candidates as $idx => $val) {
-				if (!is_finite($val)) {
-					$this->elements = array_fill(0, 16, NAN);
-					$this->is2D = false;
-					return $this;
-				}
-				$next[$idx] = $val === 0.0 ? 0.0 : $val;
+			$m11 = $d * $invDet;
+			$m12 = -$b * $invDet;
+			$m21 = -$c * $invDet;
+			$m22 = $a * $invDet;
+			$m41 = ($c * $f - $d * $e) * $invDet;
+			$m42 = ($b * $e - $a * $f) * $invDet;
+			if (!is_finite($m11) || !is_finite($m12) || !is_finite($m21) || !is_finite($m22) || !is_finite($m41) || !is_finite($m42)) {
+				$this->elements = array_fill(0, 16, NAN);
+				$this->is2D = false;
+				return $this;
 			}
 
+			$next = self::identityElements();
+			$next[0] = $m11 === 0.0 ? 0.0 : $m11;
+			$next[1] = $m12 === 0.0 ? 0.0 : $m12;
+			$next[4] = $m21 === 0.0 ? 0.0 : $m21;
+			$next[5] = $m22 === 0.0 ? 0.0 : $m22;
+			$next[12] = $m41 === 0.0 ? 0.0 : $m41;
+			$next[13] = $m42 === 0.0 ? 0.0 : $m42;
 			$this->elements = $next;
 			return $this;
 		}
 
 		$m = $this->elements;
-		$inv = array_fill(0, 16, 0.0);
+		// 12 reusable 2x2 sub-determinants across row pairs (0,1) and (2,3)
+		$s0 = $m[0] * $m[5] - $m[1] * $m[4];
+		$s1 = $m[0] * $m[9] - $m[1] * $m[8];
+		$s2 = $m[0] * $m[13] - $m[1] * $m[12];
+		$s3 = $m[4] * $m[9] - $m[5] * $m[8];
+		$s4 = $m[4] * $m[13] - $m[5] * $m[12];
+		$s5 = $m[8] * $m[13] - $m[9] * $m[12];
 
-		$inv[0] = $m[5] * $m[10] * $m[15] - $m[5] * $m[11] * $m[14] - $m[9] * $m[6] * $m[15]
-			+ $m[9] * $m[7] * $m[14] + $m[13] * $m[6] * $m[11] - $m[13] * $m[7] * $m[10];
-		$inv[4] = -$m[4] * $m[10] * $m[15] + $m[4] * $m[11] * $m[14] + $m[8] * $m[6] * $m[15]
-			- $m[8] * $m[7] * $m[14] - $m[12] * $m[6] * $m[11] + $m[12] * $m[7] * $m[10];
-		$inv[8] = $m[4] * $m[9] * $m[15] - $m[4] * $m[11] * $m[13] - $m[8] * $m[5] * $m[15]
-			+ $m[8] * $m[7] * $m[13] + $m[12] * $m[5] * $m[11] - $m[12] * $m[7] * $m[9];
-		$inv[12] = -$m[4] * $m[9] * $m[14] + $m[4] * $m[10] * $m[13] + $m[8] * $m[5] * $m[14]
-			- $m[8] * $m[6] * $m[13] - $m[12] * $m[5] * $m[10] + $m[12] * $m[6] * $m[9];
+		$c5 = $m[10] * $m[15] - $m[11] * $m[14];
+		$c4 = $m[6] * $m[15] - $m[7] * $m[14];
+		$c3 = $m[6] * $m[11] - $m[7] * $m[10];
+		$c2 = $m[2] * $m[15] - $m[3] * $m[14];
+		$c1 = $m[2] * $m[11] - $m[3] * $m[10];
+		$c0 = $m[2] * $m[7] - $m[3] * $m[6];
 
-		$inv[1] = -$m[1] * $m[10] * $m[15] + $m[1] * $m[11] * $m[14] + $m[9] * $m[2] * $m[15]
-			- $m[9] * $m[3] * $m[14] - $m[13] * $m[2] * $m[11] + $m[13] * $m[3] * $m[10];
-		$inv[5] = $m[0] * $m[10] * $m[15] - $m[0] * $m[11] * $m[14] - $m[8] * $m[2] * $m[15]
-			+ $m[8] * $m[3] * $m[14] + $m[12] * $m[2] * $m[11] - $m[12] * $m[3] * $m[10];
-		$inv[9] = -$m[0] * $m[9] * $m[15] + $m[0] * $m[11] * $m[13] + $m[8] * $m[1] * $m[15]
-			- $m[8] * $m[3] * $m[13] - $m[12] * $m[1] * $m[11] + $m[12] * $m[3] * $m[9];
-		$inv[13] = $m[0] * $m[9] * $m[14] - $m[0] * $m[10] * $m[13] - $m[8] * $m[1] * $m[14]
-			+ $m[8] * $m[2] * $m[13] + $m[12] * $m[1] * $m[10] - $m[12] * $m[2] * $m[9];
-
-		$inv[2] = $m[1] * $m[6] * $m[15] - $m[1] * $m[7] * $m[14] - $m[5] * $m[2] * $m[15]
-			+ $m[5] * $m[3] * $m[14] + $m[13] * $m[2] * $m[7] - $m[13] * $m[3] * $m[6];
-		$inv[6] = -$m[0] * $m[6] * $m[15] + $m[0] * $m[7] * $m[14] + $m[4] * $m[2] * $m[15]
-			- $m[4] * $m[3] * $m[14] - $m[12] * $m[2] * $m[7] + $m[12] * $m[3] * $m[6];
-		$inv[10] = $m[0] * $m[5] * $m[15] - $m[0] * $m[7] * $m[13] - $m[4] * $m[1] * $m[15]
-			+ $m[4] * $m[3] * $m[13] + $m[12] * $m[1] * $m[7] - $m[12] * $m[3] * $m[5];
-		$inv[14] = -$m[0] * $m[5] * $m[14] + $m[0] * $m[6] * $m[13] + $m[4] * $m[1] * $m[14]
-			- $m[4] * $m[2] * $m[13] - $m[12] * $m[1] * $m[6] + $m[12] * $m[2] * $m[5];
-
-		$inv[3] = -$m[1] * $m[6] * $m[11] + $m[1] * $m[7] * $m[10] + $m[5] * $m[2] * $m[11]
-			- $m[5] * $m[3] * $m[10] - $m[9] * $m[2] * $m[7] + $m[9] * $m[3] * $m[6];
-		$inv[7] = $m[0] * $m[6] * $m[11] - $m[0] * $m[7] * $m[10] - $m[4] * $m[2] * $m[11]
-			+ $m[4] * $m[3] * $m[10] + $m[8] * $m[2] * $m[7] - $m[8] * $m[3] * $m[6];
-		$inv[11] = -$m[0] * $m[5] * $m[11] + $m[0] * $m[7] * $m[9] + $m[4] * $m[1] * $m[11]
-			- $m[4] * $m[3] * $m[9] - $m[8] * $m[1] * $m[7] + $m[8] * $m[3] * $m[5];
-		$inv[15] = $m[0] * $m[5] * $m[10] - $m[0] * $m[6] * $m[9] - $m[4] * $m[1] * $m[10]
-			+ $m[4] * $m[2] * $m[9] + $m[8] * $m[1] * $m[6] - $m[8] * $m[2] * $m[5];
-
-		$det = $m[0] * $inv[0] + $m[1] * $inv[4] + $m[2] * $inv[8] + $m[3] * $inv[12];
+		$det = $s0 * $c5 - $s1 * $c4 + $s2 * $c3 + $s3 * $c2 - $s4 * $c1 + $s5 * $c0;
 		if (!is_finite($det) || $det === 0.0) {
 			$this->elements = array_fill(0, 16, NAN);
 			$this->is2D = false;
 			return $this;
 		}
 
+		$inv = [
+			$m[5] * $c5 - $m[9] * $c4 + $m[13] * $c3,
+			-$m[1] * $c5 + $m[9] * $c2 - $m[13] * $c1,
+			$m[1] * $c4 - $m[5] * $c2 + $m[13] * $c0,
+			-$m[1] * $c3 + $m[5] * $c1 - $m[9] * $c0,
+			-$m[4] * $c5 + $m[8] * $c4 - $m[12] * $c3,
+			$m[0] * $c5 - $m[8] * $c2 + $m[12] * $c1,
+			-$m[0] * $c4 + $m[4] * $c2 - $m[12] * $c0,
+			$m[0] * $c3 - $m[4] * $c1 + $m[8] * $c0,
+			$m[15] * $s3 - $m[11] * $s4 + $m[7] * $s5,
+			-$m[15] * $s1 + $m[11] * $s2 - $m[3] * $s5,
+			$m[15] * $s0 - $m[7] * $s2 + $m[3] * $s4,
+			-$m[11] * $s0 + $m[7] * $s1 - $m[3] * $s3,
+			-$m[14] * $s3 + $m[10] * $s4 - $m[6] * $s5,
+			$m[14] * $s1 - $m[10] * $s2 + $m[2] * $s5,
+			-$m[14] * $s0 + $m[6] * $s2 - $m[2] * $s4,
+			$m[10] * $s0 - $m[6] * $s1 + $m[2] * $s3,
+		];
+
 		$invDet = 1.0 / $det;
-		$next = [];
 		for ($i = 0; $i < 16; $i++) {
 			$val = $inv[$i] * $invDet;
 			if (!is_finite($val)) {
@@ -419,10 +479,10 @@ class DOMMatrix extends DOMMatrixReadOnly
 				$this->is2D = false;
 				return $this;
 			}
-			$next[] = $val === 0.0 ? 0.0 : $val;
+			$inv[$i] = $val === 0.0 ? 0.0 : $val;
 		}
 
-		$this->elements = $next;
+		$this->elements = $inv;
 		return $this;
 	}
 
@@ -442,7 +502,7 @@ class DOMMatrix extends DOMMatrixReadOnly
 		}
 		$float = self::assertFinite($value, 'element[' . $offset . ']');
 		$this->elements[$offset] = $float;
-		if (!self::elementsAre2D($this->elements)) {
+		if ($this->is2D && !self::elementsAre2D($this->elements)) {
 			$this->is2D = false;
 		}
 	}
@@ -455,20 +515,24 @@ class DOMMatrix extends DOMMatrixReadOnly
 	public function __set(string $name, mixed $value): void
 	{
 		if (isset(self::ELEMENT_INDEX[$name]) && (is_int($value) || is_float($value))) {
-			$this->setElement($name, (float) $value);
+			$index = self::ELEMENT_INDEX[$name];
+			$is2DSlot = $index === 0 || $index === 1 || $index === 4 || $index === 5 || $index === 12 || $index === 13;
+			$this->setElementAt($index, (float) $value, $name, $is2DSlot);
 			return;
 		}
 
 		throw new Error('Cannot set property ' . static::class . '::$' . $name);
 	}
 
-	private function setElement(string $name, float $value): void
+	private function setElementAt(int $index, float $value, string $label, bool $is2DSlot): void
 	{
-		$float = self::assertFinite($value, $name);
-		$index = self::ELEMENT_INDEX[$name];
+		$float = self::assertFiniteFloat($value, $label);
 		$this->elements[$index] = $float;
-		if (!self::elementsAre2D($this->elements)) {
-			$this->is2D = false;
+		if (!$is2DSlot && $this->is2D) {
+			$expected = ($index === 10 || $index === 15) ? 1.0 : 0.0;
+			if ($float !== $expected) {
+				$this->is2D = false;
+			}
 		}
 	}
 }

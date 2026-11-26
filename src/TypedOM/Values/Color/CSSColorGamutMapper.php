@@ -8,7 +8,6 @@ use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 
 /**
  * Internal implementation of CSS Color 4 §13.2 OKLCH binary-search gamut mapping.
@@ -23,35 +22,10 @@ final class CSSColorGamutMapper
 	private const float IN_GAMUT_EPSILON = 1e-7;
 	private const float MAX_SEARCH_CHROMA = 10.0;
 
-	/** @var array<string, string> Map of bounded CSS color space name to canonical RGB gamut space */
-	private const array BOUNDED_TO_GAMUT_SPACE = [
-		'rgb' => 'srgb',
-		'rgba' => 'srgb',
-		'hsl' => 'srgb',
-		'hsla' => 'srgb',
-		'hwb' => 'srgb',
-		'srgb' => 'srgb',
-		'srgb-linear' => 'srgb-linear',
-		'display-p3' => 'display-p3',
-		'a98-rgb' => 'a98-rgb',
-		'prophoto-rgb' => 'prophoto-rgb',
-		'rec2020' => 'rec2020',
-	];
-
-	/** @var array<string, true> */
-	private const array UNBOUNDED_SPACES = [
-		'lab' => true,
-		'lch' => true,
-		'oklab' => true,
-		'oklch' => true,
-		'xyz' => true,
-		'xyz-d50' => true,
-		'xyz-d65' => true,
-	];
-
 	public static function isSupportedTargetSpace(string $space): bool
 	{
-		return isset(self::BOUNDED_TO_GAMUT_SPACE[$space]) || isset(self::UNBOUNDED_SPACES[$space]);
+		return isset(CSSColorSpaceRegistry::BOUNDED_TO_GAMUT_SPACE[$space])
+			|| isset(CSSColorSpaceRegistry::UNBOUNDED_SPACES[$space]);
 	}
 
 	public static function inGamut(CSSColorValue $color, ?string $colorSpace = null): bool
@@ -64,12 +38,12 @@ final class CSSColorGamutMapper
 			throw new InvalidArgumentException('Unsupported or custom color space for gamut check: ' . $space);
 		}
 
-		if (isset(self::UNBOUNDED_SPACES[$space])) {
+		if (isset(CSSColorSpaceRegistry::UNBOUNDED_SPACES[$space])) {
 			$color->assertConvertibleInternal();
 			return true;
 		}
 
-		$gamutSpace = self::BOUNDED_TO_GAMUT_SPACE[$space];
+		$gamutSpace = CSSColorSpaceRegistry::BOUNDED_TO_GAMUT_SPACE[$space];
 		$rgb = $color->toRgbSpaceFloatsInternal($gamutSpace);
 
 		return self::rgbInGamut($rgb);
@@ -85,35 +59,51 @@ final class CSSColorGamutMapper
 			throw new InvalidArgumentException('Unsupported or custom color space for gamut mapping: ' . $space);
 		}
 
-		if (isset(self::UNBOUNDED_SPACES[$space])) {
+		if (isset(CSSColorSpaceRegistry::UNBOUNDED_SPACES[$space])) {
 			return $origin->to($space);
 		}
 
-		$gamutSpace = self::BOUNDED_TO_GAMUT_SPACE[$space];
+		$gamutSpace = CSSColorSpaceRegistry::BOUNDED_TO_GAMUT_SPACE[$space];
 		$originSpace = $origin->getSpaceNameInternal();
+		$isIdentitySpace = $space === $originSpace
+			|| ($space === 'rgba' && $originSpace === 'rgb')
+			|| ($space === 'hsla' && $originSpace === 'hsl');
 
-		if (self::inGamut($origin, $gamutSpace)) {
-			if ($space === $originSpace
-				|| ($space === 'rgba' && $originSpace === 'rgb')
-				|| ($space === 'hsla' && $originSpace === 'hsl')
-			) {
-				return $origin->clone();
+		$oklchFloats = null;
+		if ($origin instanceof CSSOKLCH) {
+			$oklchFloats = $origin->toOklchFloatsInternal();
+			$rgb = CSSColorValue::oklchToRgbSpaceFloatsInternal($gamutSpace, $oklchFloats[0], $oklchFloats[1], $oklchFloats[2]);
+			if (self::rgbInGamut($rgb)) {
+				return $isIdentitySpace ? $origin->clone() : $origin->to($space);
 			}
-
-			return $origin->to($space);
+		} elseif ($gamutSpace === 'srgb' && ($origin instanceof CSSRGB || $origin instanceof CSSHSL || $origin instanceof CSSHWB)) {
+			if (self::rgbInGamut($origin->toRgbSpaceFloatsInternal('srgb'))) {
+				return $isIdentitySpace ? $origin->clone() : $origin->to($space);
+			}
+		} else {
+			[$x, $y, $z] = $origin->toXyzD65Internal();
+			$rgb = CSSColorValue::xyzD65ToRgbSpaceFloatsInternal($gamutSpace, $x, $y, $z);
+			if (self::rgbInGamut($rgb)) {
+				return $isIdentitySpace ? $origin->clone() : $origin->to($space);
+			}
+			[$okL, $okA, $okB] = CSSColorValue::xyzD65ToOklabInternal($x, $y, $z);
+			$okC = hypot($okA, $okB);
+			$okH = $okC < 1e-12 ? 0.0 : fmod(rad2deg(atan2($okB, $okA)) + 360.0, 360.0);
+			$oklchFloats = [$okL, $okC, $okH];
 		}
 
-		$missingCategories = CSSColorConversionMeta::extractMissingCategories($origin);
-		[$l, $c, $h, $alpha] = $origin->toOklchFloatsInternal();
+		$missingMask = CSSColorConversionMeta::extractMissingMask($origin);
+		[$l, $c, $h] = $oklchFloats ?? $origin->toOklchFloatsInternal();
 		if (!is_finite($l) || !is_finite($c) || !is_finite($h)) {
 			throw new InvalidArgumentException('Cannot gamut-map non-finite color channels.');
 		}
+		$alpha = $origin->cloneAlphaInternal();
 
 		if ($l >= 1.0) {
-			return self::encodeMappedRgb($space, [1.0, 1.0, 1.0], $alpha, $missingCategories);
+			return self::encodeMappedRgb($space, [1.0, 1.0, 1.0], $alpha, $missingMask);
 		}
 		if ($l <= 0.0) {
-			return self::encodeMappedRgb($space, [0.0, 0.0, 0.0], $alpha, $missingCategories);
+			return self::encodeMappedRgb($space, [0.0, 0.0, 0.0], $alpha, $missingMask);
 		}
 
 		$low = 0.0;
@@ -121,10 +111,16 @@ final class CSSColorGamutMapper
 		$minInGamut = true;
 		/** @var ?array{0: float, 1: float, 2: float} $bestClipped */
 		$bestClipped = null;
+		$hRad = deg2rad($h);
+		$cosH = cos($hRad);
+		$sinH = sin($hRad);
+		$jndSq = self::JND * self::JND;
 
 		for ($iter = 0; ($high - $low) > self::EPSILON && $iter < self::MAX_ITERATIONS; $iter++) {
 			$chroma = $low + ($high - $low) / 2.0;
-			$currentRgb = CSSColorValue::oklchToRgbSpaceFloatsInternal($gamutSpace, $l, $chroma, $h);
+			$refA = $chroma * $cosH;
+			$refB = $chroma * $sinH;
+			$currentRgb = CSSColorValue::oklabToRgbSpaceFloatsInternal($gamutSpace, $l, $refA, $refB);
 			if (!is_finite($currentRgb[0]) || !is_finite($currentRgb[1]) || !is_finite($currentRgb[2])) {
 				$high = $chroma;
 				continue;
@@ -135,26 +131,30 @@ final class CSSColorGamutMapper
 			}
 
 			$clipped = self::clamp01($currentRgb);
-			[$refL, $refA, $refB] = CSSColorValue::oklchToOklabFloatsInternal($l, $chroma, $h);
 			[$clipL, $clipA, $clipB] = CSSColorValue::rgbSpaceToOklabFloatsInternal($gamutSpace, $clipped[0], $clipped[1], $clipped[2]);
-			$deltaE = sqrt(($refL - $clipL) ** 2 + ($refA - $clipA) ** 2 + ($refB - $clipB) ** 2);
+			$dl = $l - $clipL;
+			$da = $refA - $clipA;
+			$db = $refB - $clipB;
+			$deltaESq = $dl * $dl + $da * $da + $db * $db;
 
-			if (is_finite($deltaE) && $deltaE < self::JND) {
-				$bestClipped = $clipped;
-				if ((self::JND - $deltaE) < self::EPSILON) {
-					return self::encodeMappedRgb($space, $clipped, $alpha, $missingCategories);
-				}
-				$minInGamut = false;
-				$low = $chroma;
-			} else {
+			if (!is_finite($deltaESq) || $deltaESq >= $jndSq) {
 				$high = $chroma;
+				continue;
 			}
+
+			$deltaE = sqrt($deltaESq);
+			$bestClipped = $clipped;
+			if ((self::JND - $deltaE) < self::EPSILON) {
+				return self::encodeMappedRgb($space, $clipped, $alpha, $missingMask);
+			}
+			$minInGamut = false;
+			$low = $chroma;
 		}
 
-		$finalRgb = $bestClipped ?? self::clamp01(CSSColorValue::oklchToRgbSpaceFloatsInternal($gamutSpace, $l, $low, $h));
+		$finalRgb = $bestClipped ?? self::clamp01(CSSColorValue::oklabToRgbSpaceFloatsInternal($gamutSpace, $l, $low * $cosH, $low * $sinH));
 		$finalRgb = self::normalizeSignedZeros($finalRgb);
 
-		return self::encodeMappedRgb($space, $finalRgb, $alpha, $missingCategories);
+		return self::encodeMappedRgb($space, $finalRgb, $alpha, $missingMask);
 	}
 
 	/**
@@ -211,78 +211,26 @@ final class CSSColorGamutMapper
 
 	/**
 	 * @param array{0: float, 1: float, 2: float} $rgb
-	 * @param array<string, true> $missingCategories
 	 */
 	private static function encodeMappedRgb(
 		string $targetSpace,
 		array $rgb,
 		CSSNumericValue|CSSKeywordValue $alpha,
-		array $missingCategories,
+		int $missingMask,
 	): CSSColorValue {
 		$rgb = self::normalizeSignedZeros($rgb);
 
-		if ($targetSpace === 'rgb' || $targetSpace === 'rgba') {
-			$components = CSSColorConversionMeta::applyMissingAndPowerless(
-				'rgb',
-				[
-					new CSSUnitValue($rgb[0] * 100.0, 'percent'),
-					new CSSUnitValue($rgb[1] * 100.0, 'percent'),
-					new CSSUnitValue($rgb[2] * 100.0, 'percent'),
-				],
-				$rgb,
-				$missingCategories,
-			);
-
-			return CSSRGB::fromValidated($components[0], $components[1], $components[2], $alpha->clone());
-		}
-
 		if ($targetSpace === 'hsl' || $targetSpace === 'hsla') {
 			[$h, $s, $l] = CSSColorValue::srgbFloatsToHslInternal($rgb[0], $rgb[1], $rgb[2]);
-			$components = CSSColorConversionMeta::applyMissingAndPowerless(
-				'hsl',
-				[
-					new CSSUnitValue($h, 'deg'),
-					new CSSUnitValue($s * 100.0, 'percent'),
-					new CSSUnitValue($l * 100.0, 'percent'),
-				],
-				[$h, $s, $l],
-				$missingCategories,
-			);
 
-			return CSSHSL::fromValidated($components[0], $components[1], $components[2], $alpha->clone());
+			return CSSColorValue::buildFromFloatsInternal('hsl', $h, $s, $l, $alpha->clone(), $missingMask);
 		}
-
 		if ($targetSpace === 'hwb') {
 			[$h, $w, $b] = CSSColorValue::srgbFloatsToHwbInternal($rgb[0], $rgb[1], $rgb[2]);
-			$components = CSSColorConversionMeta::applyMissingAndPowerless(
-				'hwb',
-				[
-					new CSSUnitValue($h, 'deg'),
-					new CSSUnitValue($w * 100.0, 'percent'),
-					new CSSUnitValue($b * 100.0, 'percent'),
-				],
-				[$h, $w, $b],
-				$missingCategories,
-			);
 
-			return CSSHWB::fromValidated($components[0], $components[1], $components[2], $alpha->clone());
+			return CSSColorValue::buildFromFloatsInternal('hwb', $h, $w, $b, $alpha->clone(), $missingMask);
 		}
 
-		$components = CSSColorConversionMeta::applyMissingAndPowerless(
-			$targetSpace,
-			[
-				new CSSUnitValue($rgb[0], 'number'),
-				new CSSUnitValue($rgb[1], 'number'),
-				new CSSUnitValue($rgb[2], 'number'),
-			],
-			$rgb,
-			$missingCategories,
-		);
-
-		return CSSColor::fromValidated(
-			new CSSKeywordValue($targetSpace),
-			[$components[0], $components[1], $components[2]],
-			$alpha->clone(),
-		);
+		return CSSColorValue::buildFromFloatsInternal($targetSpace, $rgb[0], $rgb[1], $rgb[2], $alpha->clone(), $missingMask);
 	}
 }

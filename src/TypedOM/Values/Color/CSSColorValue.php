@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color;
 
-use Error;
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
@@ -14,6 +13,7 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathValue;
 
@@ -266,7 +266,7 @@ abstract class CSSColorValue extends CSSStyleValue
 
 		if ($function === 'color-mix'
 			|| $function === 'light-dark'
-			|| self::hasLeadingFromKeyword($source, $open + 1, $close)
+			|| self::hasLeadingFromKeywordInternal($source, $open + 1, $close)
 		) {
 			return CSSColor5Evaluator::evaluate($source, $options, $context, $deferLightDark);
 		}
@@ -289,12 +289,14 @@ abstract class CSSColorValue extends CSSStyleValue
 		string $source,
 		CSSParserOptions $options,
 		int &$mathBudget,
+		?int $open = null,
+		?int $close = null,
 	): self {
-		$open = strpos($source, '(');
+		$open ??= strpos($source, '(');
 		if ($open === false) {
 			throw new InvalidArgumentException('Unsupported CSS color function: ' . $function);
 		}
-		$close = strlen($source) - 1;
+		$close ??= strlen($source) - 1;
 		$body = CSSSyntaxScanner::trimCssWhitespace(self::stripTopLevelComments(substr($source, $open + 1, $close - $open - 1)));
 		if ($body === '') {
 			throw new InvalidArgumentException('Empty CSS color function body.');
@@ -312,17 +314,14 @@ abstract class CSSColorValue extends CSSStyleValue
 		return match ($function) {
 			'rgb', 'rgba' => self::parseRgbFunction($body, $options, $mathBudget),
 			'hsl', 'hsla' => self::parseHslFunction($body, $options, $mathBudget),
-			'hwb' => self::parseHwbFunction($body, $options, $mathBudget),
-			'lab' => self::parseLabFunction($body, $options, $mathBudget),
-			'lch' => self::parseLchFunction($body, $options, $mathBudget),
-			'oklab' => self::parseOklabFunction($body, $options, $mathBudget),
-			'oklch' => self::parseOklchFunction($body, $options, $mathBudget),
+			'hwb', 'lab', 'lch', 'oklab', 'oklch' => self::parseStandardThreeChannelFunction($function, $body, $options, $mathBudget),
 			'color' => self::parseColorFunction($body, $options, $mathBudget),
 			default => throw new InvalidArgumentException('Unsupported CSS color function: ' . $function),
 		};
 	}
 
-	private static function hasLeadingFromKeyword(string $source, int $start, int $end): bool
+	/** @internal */
+	public static function hasLeadingFromKeywordInternal(string $source, int $start, int $end): bool
 	{
 		while ($start < $end) {
 			$start += strspn($source, CSSSyntaxScanner::CSS_WHITESPACE, $start, $end - $start);
@@ -380,20 +379,10 @@ abstract class CSSColorValue extends CSSStyleValue
 			return CSSColorGamutMapper::map($this, 'rgb');
 		}
 
-		$missing = CSSColorConversionMeta::extractMissingCategories($this);
-		[$r, $g, $b, $alpha] = $this->toSrgbChannels();
-		$components = CSSColorConversionMeta::applyMissingAndPowerless(
-			'rgb',
-			[
-				new CSSUnitValue($r * 100.0, 'percent'),
-				new CSSUnitValue($g * 100.0, 'percent'),
-				new CSSUnitValue($b * 100.0, 'percent'),
-			],
-			[$r, $g, $b],
-			$missing,
-		);
+		[$r, $g, $b] = $this->toSrgbChannels();
 
-		return CSSRGB::fromValidated($components[0], $components[1], $components[2], $alpha);
+		/** @var CSSRGB */
+		return self::buildFromFloatsInternal('rgb', $r, $g, $b, $this->alphaValue->clone(), CSSColorConversionMeta::extractMissingMask($this));
 	}
 
 	/**
@@ -410,21 +399,11 @@ abstract class CSSColorValue extends CSSStyleValue
 			return CSSColorGamutMapper::map($this, 'hsl');
 		}
 
-		$missing = CSSColorConversionMeta::extractMissingCategories($this);
-		[$r, $g, $b, $alpha] = $this->toSrgbChannels();
+		[$r, $g, $b] = $this->toSrgbChannels();
 		[$h, $s, $l] = self::srgbFloatsToHslInternal($r, $g, $b);
-		$components = CSSColorConversionMeta::applyMissingAndPowerless(
-			'hsl',
-			[
-				new CSSUnitValue($h, 'deg'),
-				new CSSUnitValue($s * 100.0, 'percent'),
-				new CSSUnitValue($l * 100.0, 'percent'),
-			],
-			[$h, $s, $l],
-			$missing,
-		);
 
-		return CSSHSL::fromValidated($components[0], $components[1], $components[2], $alpha);
+		/** @var CSSHSL */
+		return self::buildFromFloatsInternal('hsl', $h, $s, $l, $this->alphaValue->clone(), CSSColorConversionMeta::extractMissingMask($this));
 	}
 
 	public function toHWB(bool $gamutMap = false): CSSHWB
@@ -434,103 +413,53 @@ abstract class CSSColorValue extends CSSStyleValue
 			return CSSColorGamutMapper::map($this, 'hwb');
 		}
 
-		$missing = CSSColorConversionMeta::extractMissingCategories($this);
-		[$r, $g, $b, $alpha] = $this->toSrgbChannels();
+		[$r, $g, $b] = $this->toSrgbChannels();
 		[$h, $w, $bVal] = self::srgbFloatsToHwbInternal($r, $g, $b);
-		$components = CSSColorConversionMeta::applyMissingAndPowerless(
-			'hwb',
-			[
-				new CSSUnitValue($h, 'deg'),
-				new CSSUnitValue($w * 100.0, 'percent'),
-				new CSSUnitValue($bVal * 100.0, 'percent'),
-			],
-			[$h, $w, $bVal],
-			$missing,
-		);
 
-		return CSSHWB::fromValidated($components[0], $components[1], $components[2], $alpha);
+		/** @var CSSHWB */
+		return self::buildFromFloatsInternal('hwb', $h, $w, $bVal, $this->alphaValue->clone(), CSSColorConversionMeta::extractMissingMask($this));
 	}
 
 	public function toLab(): CSSLab
 	{
-		$missing = CSSColorConversionMeta::extractMissingCategories($this);
-		[$x, $y, $z, $alpha] = $this->toXyzD65();
+		[$x, $y, $z] = $this->toXyzD65();
 		[$x50, $y50, $z50] = self::xyzD65ToD50($x, $y, $z);
 		[$l, $a, $b] = self::xyzD50ToLab($x50, $y50, $z50);
-		$components = CSSColorConversionMeta::applyMissingAndPowerless(
-			'lab',
-			[
-				new CSSUnitValue($l, 'percent'),
-				new CSSUnitValue($a, 'number'),
-				new CSSUnitValue($b, 'number'),
-			],
-			[$l, $a, $b],
-			$missing,
-		);
 
-		return CSSLab::fromValidated($components[0], $components[1], $components[2], $alpha);
+		/** @var CSSLab */
+		return self::buildFromFloatsInternal('lab', $l, $a, $b, $this->alphaValue->clone(), CSSColorConversionMeta::extractMissingMask($this));
 	}
 
 	public function toLCH(): CSSLCH
 	{
-		$missing = CSSColorConversionMeta::extractMissingCategories($this);
-		[$x, $y, $z, $alpha] = $this->toXyzD65();
+		[$x, $y, $z] = $this->toXyzD65();
 		[$x50, $y50, $z50] = self::xyzD65ToD50($x, $y, $z);
 		[$l, $a, $b] = self::xyzD50ToLab($x50, $y50, $z50);
 		$c = hypot($a, $b);
 		$h = $c < 1e-12 ? 0.0 : fmod(rad2deg(atan2($b, $a)) + 360.0, 360.0);
-		$components = CSSColorConversionMeta::applyMissingAndPowerless(
-			'lch',
-			[
-				new CSSUnitValue($l, 'percent'),
-				new CSSUnitValue($c, 'number'),
-				new CSSUnitValue($h, 'deg'),
-			],
-			[$l, $c, $h],
-			$missing,
-		);
 
-		return CSSLCH::fromValidated($components[0], $components[1], $components[2], $alpha);
+		/** @var CSSLCH */
+		return self::buildFromFloatsInternal('lch', $l, $c, $h, $this->alphaValue->clone(), CSSColorConversionMeta::extractMissingMask($this));
 	}
 
 	public function toOKLab(): CSSOKLab
 	{
-		$missing = CSSColorConversionMeta::extractMissingCategories($this);
-		[$x, $y, $z, $alpha] = $this->toXyzD65();
+		[$x, $y, $z] = $this->toXyzD65();
 		[$l, $a, $b] = self::xyzD65ToOklab($x, $y, $z);
-		$components = CSSColorConversionMeta::applyMissingAndPowerless(
-			'oklab',
-			[
-				new CSSUnitValue($l * 100.0, 'percent'),
-				new CSSUnitValue($a, 'number'),
-				new CSSUnitValue($b, 'number'),
-			],
-			[$l, $a, $b],
-			$missing,
-		);
 
-		return CSSOKLab::fromValidated($components[0], $components[1], $components[2], $alpha);
+		/** @var CSSOKLab */
+		return self::buildFromFloatsInternal('oklab', $l, $a, $b, $this->alphaValue->clone(), CSSColorConversionMeta::extractMissingMask($this));
 	}
 
 	public function toOKLCH(): CSSOKLCH
 	{
-		$missing = CSSColorConversionMeta::extractMissingCategories($this);
-		[$x, $y, $z, $alpha] = $this->toXyzD65();
+		[$x, $y, $z] = $this->toXyzD65();
 		[$l, $a, $b] = self::xyzD65ToOklab($x, $y, $z);
 		$c = hypot($a, $b);
 		$h = $c < 1e-12 ? 0.0 : fmod(rad2deg(atan2($b, $a)) + 360.0, 360.0);
-		$components = CSSColorConversionMeta::applyMissingAndPowerless(
-			'oklch',
-			[
-				new CSSUnitValue($l * 100.0, 'percent'),
-				new CSSUnitValue($c, 'number'),
-				new CSSUnitValue($h, 'deg'),
-			],
-			[$l, $c, $h],
-			$missing,
-		);
 
-		return CSSOKLCH::fromValidated($components[0], $components[1], $components[2], $alpha);
+		/** @var CSSOKLCH */
+		return self::buildFromFloatsInternal('oklch', $l, $c, $h, $this->alphaValue->clone(), CSSColorConversionMeta::extractMissingMask($this));
 	}
 
 	public function to(string $colorSpace, bool $gamutMap = false): self
@@ -553,42 +482,227 @@ abstract class CSSColorValue extends CSSStyleValue
 		};
 	}
 
-	public function __get(string $name): mixed
+	public function clone(): static
 	{
-		throw new Error('Undefined property: ' . static::class . '::$' . $name);
-	}
-
-	public function __isset(string $name): bool
-	{
-		return false;
-	}
-
-	public function __set(string $name, mixed $value): void
-	{
-		throw new Error('Cannot set property ' . static::class . '::$' . $name);
+		return clone $this;
 	}
 
 	/**
-	 * Converts this color to CIE XYZ (D65) plus cloned alpha component.
+	 * @internal Constructs a CSSColorValue in $targetSpace from canonical float values with §4.4.1/§12.2 handling.
+	 */
+	public static function buildFromFloatsInternal(
+		string $targetSpace,
+		float $c0,
+		float $c1,
+		float $c2,
+		CSSNumericValue|CSSKeywordValue $alpha,
+		int $missingMask = 0,
+	): self {
+		if ($targetSpace === 'rgb' || $targetSpace === 'rgba') {
+			$comps = CSSColorConversionMeta::applyMissingAndPowerlessFloats(
+				'rgb',
+				$c0 * 100.0,
+				CSSUnitEnum::PERCENT,
+				$c1 * 100.0,
+				CSSUnitEnum::PERCENT,
+				$c2 * 100.0,
+				CSSUnitEnum::PERCENT,
+				$c0,
+				$c1,
+				$c2,
+				$missingMask,
+			);
+
+			return CSSRGB::fromValidated($comps[0], $comps[1], $comps[2], $alpha);
+		}
+		if ($targetSpace === 'hsl' || $targetSpace === 'hsla') {
+			$comps = CSSColorConversionMeta::applyMissingAndPowerlessFloats(
+				'hsl',
+				$c0,
+				CSSUnitEnum::ANGLE_deg,
+				$c1 * 100.0,
+				CSSUnitEnum::PERCENT,
+				$c2 * 100.0,
+				CSSUnitEnum::PERCENT,
+				$c0,
+				$c1,
+				$c2,
+				$missingMask,
+			);
+
+			return CSSHSL::fromValidated($comps[0], $comps[1], $comps[2], $alpha);
+		}
+		if ($targetSpace === 'hwb') {
+			$comps = CSSColorConversionMeta::applyMissingAndPowerlessFloats(
+				'hwb',
+				$c0,
+				CSSUnitEnum::ANGLE_deg,
+				$c1 * 100.0,
+				CSSUnitEnum::PERCENT,
+				$c2 * 100.0,
+				CSSUnitEnum::PERCENT,
+				$c0,
+				$c1,
+				$c2,
+				$missingMask,
+			);
+
+			return CSSHWB::fromValidated($comps[0], $comps[1], $comps[2], $alpha);
+		}
+		if ($targetSpace === 'lab') {
+			$comps = CSSColorConversionMeta::applyMissingAndPowerlessFloats(
+				'lab',
+				$c0,
+				CSSUnitEnum::PERCENT,
+				$c1,
+				CSSUnitEnum::NUMBER,
+				$c2,
+				CSSUnitEnum::NUMBER,
+				$c0,
+				$c1,
+				$c2,
+				$missingMask,
+			);
+
+			return CSSLab::fromValidated($comps[0], $comps[1], $comps[2], $alpha);
+		}
+		if ($targetSpace === 'lch') {
+			$comps = CSSColorConversionMeta::applyMissingAndPowerlessFloats(
+				'lch',
+				$c0,
+				CSSUnitEnum::PERCENT,
+				$c1,
+				CSSUnitEnum::NUMBER,
+				$c2,
+				CSSUnitEnum::ANGLE_deg,
+				$c0,
+				$c1,
+				$c2,
+				$missingMask,
+			);
+
+			return CSSLCH::fromValidated($comps[0], $comps[1], $comps[2], $alpha);
+		}
+		if ($targetSpace === 'oklab') {
+			$comps = CSSColorConversionMeta::applyMissingAndPowerlessFloats(
+				'oklab',
+				$c0 * 100.0,
+				CSSUnitEnum::PERCENT,
+				$c1,
+				CSSUnitEnum::NUMBER,
+				$c2,
+				CSSUnitEnum::NUMBER,
+				$c0,
+				$c1,
+				$c2,
+				$missingMask,
+			);
+
+			return CSSOKLab::fromValidated($comps[0], $comps[1], $comps[2], $alpha);
+		}
+		if ($targetSpace === 'oklch') {
+			$comps = CSSColorConversionMeta::applyMissingAndPowerlessFloats(
+				'oklch',
+				$c0 * 100.0,
+				CSSUnitEnum::PERCENT,
+				$c1,
+				CSSUnitEnum::NUMBER,
+				$c2,
+				CSSUnitEnum::ANGLE_deg,
+				$c0,
+				$c1,
+				$c2,
+				$missingMask,
+			);
+
+			return CSSOKLCH::fromValidated($comps[0], $comps[1], $comps[2], $alpha);
+		}
+
+		$comps = CSSColorConversionMeta::applyMissingAndPowerlessFloats(
+			$targetSpace,
+			$c0,
+			CSSUnitEnum::NUMBER,
+			$c1,
+			CSSUnitEnum::NUMBER,
+			$c2,
+			CSSUnitEnum::NUMBER,
+			$c0,
+			$c1,
+			$c2,
+			$missingMask,
+		);
+
+		return CSSColor::fromValidated(
+			CSSKeywordValue::fromValidated($targetSpace),
+			[$comps[0], $comps[1], $comps[2]],
+			$alpha,
+		);
+	}
+
+	/**
+	 * Converts this color to CIE XYZ (D65).
 	 *
-	 * @return array{float, float, float, CSSNumericValue|CSSKeywordValue}
+	 * @return array{0: float, 1: float, 2: float}
 	 */
 	abstract protected function toXyzD65(): array;
 
 	/**
-	 * @return array{float, float, float, CSSNumericValue|CSSKeywordValue}
+	 * @return array{0: float, 1: float, 2: float}
 	 */
 	protected function toSrgbChannels(): array
 	{
-		[$x, $y, $z, $alpha] = $this->toXyzD65();
+		[$x, $y, $z] = $this->toXyzD65();
 		[$lr, $lg, $lb] = self::xyzD65ToLinearSrgb($x, $y, $z);
 
 		return [
 			self::linearToSrgb($lr),
 			self::linearToSrgb($lg),
 			self::linearToSrgb($lb),
-			$alpha,
 		];
+	}
+
+	/** @internal */
+	public function cloneAlphaInternal(): CSSNumericValue|CSSKeywordValue
+	{
+		return $this->alphaValue->clone();
+	}
+
+	/**
+	 * @internal
+	 * @return array{0: float, 1: float, 2: float}
+	 */
+	public static function xyzD65ToSpaceFloatsInternal(string $space, float $x, float $y, float $z): array
+	{
+		return match ($space) {
+			'xyz', 'xyz-d65' => [$x, $y, $z],
+			'xyz-d50' => self::xyzD65ToD50($x, $y, $z),
+			'srgb-linear' => self::xyzD65ToLinearSrgb($x, $y, $z),
+			'srgb' => self::applySrgbTransfer(self::xyzD65ToLinearSrgb($x, $y, $z)),
+			'display-p3' => self::applySrgbTransfer(self::xyzD65ToLinearDisplayP3($x, $y, $z)),
+			'a98-rgb' => self::applyA98Transfer(self::xyzD65ToLinearA98($x, $y, $z)),
+			'prophoto-rgb' => self::applyProphotoTransfer(self::xyzD50ToLinearProphoto(...self::xyzD65ToD50($x, $y, $z))),
+			'rec2020' => self::applyRec2020Transfer(self::xyzD65ToLinearRec2020($x, $y, $z)),
+			default => throw new InvalidArgumentException('Unsupported predefined color space: ' . $space),
+		};
+	}
+
+	/**
+	 * @internal
+	 * @return array{0: float, 1: float, 2: float}
+	 */
+	public static function spaceFloatsToXyzD65Internal(string $space, float $c0, float $c1, float $c2): array
+	{
+		return match ($space) {
+			'xyz', 'xyz-d65' => [$c0, $c1, $c2],
+			'xyz-d50' => self::xyzD50ToD65($c0, $c1, $c2),
+			'srgb-linear' => self::linearSrgbToXyzD65($c0, $c1, $c2),
+			'srgb' => self::linearSrgbToXyzD65(self::srgbToLinear($c0), self::srgbToLinear($c1), self::srgbToLinear($c2)),
+			'display-p3' => self::linearDisplayP3ToXyzD65(self::srgbToLinear($c0), self::srgbToLinear($c1), self::srgbToLinear($c2)),
+			'a98-rgb' => self::linearA98ToXyzD65(self::a98ToLinear($c0), self::a98ToLinear($c1), self::a98ToLinear($c2)),
+			'prophoto-rgb' => self::xyzD50ToD65(...self::linearProphotoToXyzD50(self::prophotoToLinear($c0), self::prophotoToLinear($c1), self::prophotoToLinear($c2))),
+			'rec2020' => self::linearRec2020ToXyzD65(self::rec2020ToLinear($c0), self::rec2020ToLinear($c1), self::rec2020ToLinear($c2)),
+			default => throw new InvalidArgumentException('Unsupported RGB gamut space: ' . $space),
+		};
 	}
 
 	protected function toPredefinedColor(string $space, bool $gamutMap = false): CSSColor
@@ -597,64 +711,160 @@ abstract class CSSColorValue extends CSSStyleValue
 			/** @var CSSColor */
 			return CSSColorGamutMapper::map($this, $space);
 		}
-		if ($this instanceof CSSColor && $this->getColorSpace()->getValue() === $space) {
+		$thisSpace = $this->getSpaceNameInternal();
+		if ($this instanceof CSSColor && $thisSpace === $space) {
 			return $this->clone();
 		}
 
-		$missing = CSSColorConversionMeta::extractMissingCategories($this);
-		[$x, $y, $z, $alpha] = $this->toXyzD65();
-		switch ($space) {
-			case 'xyz':
-			case 'xyz-d65':
-				$channels = [$x, $y, $z];
-				break;
-			case 'xyz-d50':
-				$channels = self::xyzD65ToD50($x, $y, $z);
-				break;
-			case 'srgb-linear':
-				$channels = self::xyzD65ToLinearSrgb($x, $y, $z);
-				break;
-			case 'srgb':
-				[$c0, $c1, $c2] = self::xyzD65ToLinearSrgb($x, $y, $z);
-				$channels = [self::linearToSrgb($c0), self::linearToSrgb($c1), self::linearToSrgb($c2)];
-				break;
-			case 'display-p3':
-				[$c0, $c1, $c2] = self::xyzD65ToLinearDisplayP3($x, $y, $z);
-				$channels = [self::linearToSrgb($c0), self::linearToSrgb($c1), self::linearToSrgb($c2)];
-				break;
-			case 'a98-rgb':
-				[$c0, $c1, $c2] = self::xyzD65ToLinearA98($x, $y, $z);
-				$channels = [self::linearToA98($c0), self::linearToA98($c1), self::linearToA98($c2)];
-				break;
-			case 'prophoto-rgb':
-				[$x50, $y50, $z50] = self::xyzD65ToD50($x, $y, $z);
-				[$c0, $c1, $c2] = self::xyzD50ToLinearProphoto($x50, $y50, $z50);
-				$channels = [self::linearToProphoto($c0), self::linearToProphoto($c1), self::linearToProphoto($c2)];
-				break;
-			case 'rec2020':
-				[$c0, $c1, $c2] = self::xyzD65ToLinearRec2020($x, $y, $z);
-				$channels = [self::linearToRec2020($c0), self::linearToRec2020($c1), self::linearToRec2020($c2)];
-				break;
-			default:
-				throw new InvalidArgumentException('Unsupported predefined color space: ' . $space);
+		$missing = CSSColorConversionMeta::extractMissingMask($this);
+		if ($space === 'srgb'
+			&& ($this instanceof CSSRGB || $this instanceof CSSHSL || $this instanceof CSSHWB || $thisSpace === 'srgb-linear')
+		) {
+			$channels = $this->toSrgbChannels();
+		} else {
+			[$x, $y, $z] = $this->toXyzD65();
+			$channels = self::xyzD65ToSpaceFloatsInternal($space, $x, $y, $z);
 		}
 
-		$components = CSSColorConversionMeta::applyMissingAndPowerless(
-			$space,
-			[
-				new CSSUnitValue($channels[0], 'number'),
-				new CSSUnitValue($channels[1], 'number'),
-				new CSSUnitValue($channels[2], 'number'),
-			],
-			[$channels[0], $channels[1], $channels[2]],
-			$missing,
-		);
+		/** @var CSSColor */
+		return self::buildFromFloatsInternal($space, $channels[0], $channels[1], $channels[2], $this->alphaValue->clone(), $missing);
+	}
 
-		return CSSColor::fromValidated(
-			new CSSKeywordValue($space),
-			[$components[0], $components[1], $components[2]],
-			$alpha,
-		);
+	/**
+	 * @internal Converts this color to normalized interpolation floats + alpha without allocating intermediate CSSColorValue objects.
+	 * @return array{0: array{0: ?float, 1: ?float, 2: ?float}, 1: ?float}
+	 */
+	public function toSpaceFloatsInternal(string $space): array
+	{
+		$alpha = $this->alphaValue instanceof CSSKeywordValue ? null : self::resolvePercentUnit($this->alphaValue);
+		$thisSpace = $this->getSpaceNameInternal();
+		$canonTarget = match ($space) {
+			'rgba' => 'rgb',
+			'hsla' => 'hsl',
+			default => $space,
+		};
+
+		if ($thisSpace === $canonTarget) {
+			$comps = $this->getComponentValuesInternal();
+
+			return [match ($canonTarget) {
+				'lab' => [
+					$comps[0] instanceof CSSKeywordValue ? null : self::resolveLinearChannel($comps[0], 100.0),
+					$comps[1] instanceof CSSKeywordValue ? null : self::resolveLinearChannel($comps[1], 125.0),
+					$comps[2] instanceof CSSKeywordValue ? null : self::resolveLinearChannel($comps[2], 125.0),
+				],
+				'lch' => [
+					$comps[0] instanceof CSSKeywordValue ? null : self::resolveLinearChannel($comps[0], 100.0),
+					$comps[1] instanceof CSSKeywordValue ? null : self::resolveLinearChannel($comps[1], 150.0),
+					$comps[2] instanceof CSSKeywordValue ? null : self::resolveAngleDegrees($comps[2]),
+				],
+				'oklab' => [
+					$comps[0] instanceof CSSKeywordValue ? null : self::resolvePercentUnit($comps[0]),
+					$comps[1] instanceof CSSKeywordValue ? null : self::resolveLinearChannel($comps[1], 0.4),
+					$comps[2] instanceof CSSKeywordValue ? null : self::resolveLinearChannel($comps[2], 0.4),
+				],
+				'oklch' => [
+					$comps[0] instanceof CSSKeywordValue ? null : self::resolvePercentUnit($comps[0]),
+					$comps[1] instanceof CSSKeywordValue ? null : self::resolveLinearChannel($comps[1], 0.4),
+					$comps[2] instanceof CSSKeywordValue ? null : self::resolveAngleDegrees($comps[2]),
+				],
+				'hsl', 'hwb' => [
+					$comps[0] instanceof CSSKeywordValue ? null : self::resolveAngleDegrees($comps[0]),
+					$comps[1] instanceof CSSKeywordValue ? null : self::resolveLinearChannel($comps[1], 100.0),
+					$comps[2] instanceof CSSKeywordValue ? null : self::resolveLinearChannel($comps[2], 100.0),
+				],
+				'rgb' => [
+					$comps[0] instanceof CSSKeywordValue ? null : self::resolvePercentUnit($comps[0]),
+					$comps[1] instanceof CSSKeywordValue ? null : self::resolvePercentUnit($comps[1]),
+					$comps[2] instanceof CSSKeywordValue ? null : self::resolvePercentUnit($comps[2]),
+				],
+				default => [
+					$comps[0] instanceof CSSKeywordValue ? null : self::resolveLinearChannel($comps[0], 1.0),
+					$comps[1] instanceof CSSKeywordValue ? null : self::resolveLinearChannel($comps[1], 1.0),
+					$comps[2] instanceof CSSKeywordValue ? null : self::resolveLinearChannel($comps[2], 1.0),
+				],
+			}, $alpha];
+		}
+
+		$missing = CSSColorConversionMeta::extractMissingMask($this);
+		if ($canonTarget === 'rgb' || $canonTarget === 'srgb') {
+			[$r, $g, $b] = $this->toSrgbChannels();
+
+			return [CSSColorConversionMeta::maskFloats($canonTarget, $r, $g, $b, $r, $g, $b, $missing), $alpha];
+		}
+		if ($canonTarget === 'hsl') {
+			[$r, $g, $b] = $this->toSrgbChannels();
+			[$h, $s, $l] = self::srgbFloatsToHslInternal($r, $g, $b);
+
+			return [CSSColorConversionMeta::maskFloats('hsl', $h, $s * 100.0, $l * 100.0, $h, $s, $l, $missing), $alpha];
+		}
+		if ($canonTarget === 'hwb') {
+			[$r, $g, $b] = $this->toSrgbChannels();
+			[$h, $w, $bl] = self::srgbFloatsToHwbInternal($r, $g, $b);
+
+			return [CSSColorConversionMeta::maskFloats('hwb', $h, $w * 100.0, $bl * 100.0, $h, $w, $bl, $missing), $alpha];
+		}
+		if ($canonTarget === 'lch' && $this instanceof CSSLab) {
+			$comps = $this->getComponentValuesInternal();
+			$l = self::resolveLinearChannel($comps[0], 100.0);
+			$a = self::resolveLinearChannel($comps[1], 125.0);
+			$b = self::resolveLinearChannel($comps[2], 125.0);
+			$c = hypot($a, $b);
+			$h = $c < 1e-12 ? 0.0 : fmod(rad2deg(atan2($b, $a)) + 360.0, 360.0);
+
+			return [CSSColorConversionMeta::maskFloats('lch', $l, $c, $h, $l, $c, $h, $missing), $alpha];
+		}
+		if ($canonTarget === 'oklch' && $this instanceof CSSOKLab) {
+			[$l, $c, $h] = $this->toOklchFloatsInternal();
+
+			return [CSSColorConversionMeta::maskFloats('oklch', $l, $c, $h, $l, $c, $h, $missing), $alpha];
+		}
+		if (($canonTarget === 'lab' || $canonTarget === 'lch') && $thisSpace === 'xyz-d50') {
+			$comps = $this->getComponentValuesInternal();
+			$x50 = self::resolveLinearChannel($comps[0], 1.0);
+			$y50 = self::resolveLinearChannel($comps[1], 1.0);
+			$z50 = self::resolveLinearChannel($comps[2], 1.0);
+			[$l, $a, $b] = self::xyzD50ToLab($x50, $y50, $z50);
+			if ($canonTarget === 'lab') {
+				return [CSSColorConversionMeta::maskFloats('lab', $l, $a, $b, $l, $a, $b, $missing), $alpha];
+			}
+			$c = hypot($a, $b);
+			$h = $c < 1e-12 ? 0.0 : fmod(rad2deg(atan2($b, $a)) + 360.0, 360.0);
+
+			return [CSSColorConversionMeta::maskFloats('lch', $l, $c, $h, $l, $c, $h, $missing), $alpha];
+		}
+
+		[$x, $y, $z] = $this->toXyzD65();
+		if ($canonTarget === 'lab') {
+			[$x50, $y50, $z50] = self::xyzD65ToD50($x, $y, $z);
+			[$l, $a, $b] = self::xyzD50ToLab($x50, $y50, $z50);
+
+			return [CSSColorConversionMeta::maskFloats('lab', $l, $a, $b, $l, $a, $b, $missing), $alpha];
+		}
+		if ($canonTarget === 'lch') {
+			[$x50, $y50, $z50] = self::xyzD65ToD50($x, $y, $z);
+			[$l, $a, $b] = self::xyzD50ToLab($x50, $y50, $z50);
+			$c = hypot($a, $b);
+			$h = $c < 1e-12 ? 0.0 : fmod(rad2deg(atan2($b, $a)) + 360.0, 360.0);
+
+			return [CSSColorConversionMeta::maskFloats('lch', $l, $c, $h, $l, $c, $h, $missing), $alpha];
+		}
+		if ($canonTarget === 'oklab') {
+			[$l, $a, $b] = self::xyzD65ToOklab($x, $y, $z);
+
+			return [CSSColorConversionMeta::maskFloats('oklab', $l, $a, $b, $l, $a, $b, $missing), $alpha];
+		}
+		if ($canonTarget === 'oklch') {
+			[$l, $a, $b] = self::xyzD65ToOklab($x, $y, $z);
+			$c = hypot($a, $b);
+			$h = $c < 1e-12 ? 0.0 : fmod(rad2deg(atan2($b, $a)) + 360.0, 360.0);
+
+			return [CSSColorConversionMeta::maskFloats('oklch', $l, $c, $h, $l, $c, $h, $missing), $alpha];
+		}
+
+		$channels = self::xyzD65ToSpaceFloatsInternal($canonTarget, $x, $y, $z);
+
+		return [CSSColorConversionMeta::maskFloats($canonTarget, $channels[0], $channels[1], $channels[2], $channels[0], $channels[1], $channels[2], $missing), $alpha];
 	}
 
 	/** @internal */
@@ -682,38 +892,56 @@ abstract class CSSColorValue extends CSSStyleValue
 	 * @internal
 	 * @return array{0: float, 1: float, 2: float}
 	 */
-	public function toRgbSpaceFloatsInternal(string $gamutSpace): array
+	public function toXyzD65Internal(): array
 	{
-		if ($gamutSpace === 'srgb') {
-			[$r, $g, $b] = $this->toSrgbChannels();
-
-			return [$r, $g, $b];
-		}
-
-		[$x, $y, $z] = $this->toXyzD65();
-
-		return match ($gamutSpace) {
-			'srgb-linear' => self::xyzD65ToLinearSrgb($x, $y, $z),
-			'display-p3' => self::applySrgbTransfer(self::xyzD65ToLinearDisplayP3($x, $y, $z)),
-			'a98-rgb' => self::applyA98Transfer(self::xyzD65ToLinearA98($x, $y, $z)),
-			'prophoto-rgb' => self::applyProphotoTransfer(self::xyzD50ToLinearProphoto(...self::xyzD65ToD50($x, $y, $z))),
-			'rec2020' => self::applyRec2020Transfer(self::xyzD65ToLinearRec2020($x, $y, $z)),
-			default => throw new InvalidArgumentException('Unsupported RGB gamut space: ' . $gamutSpace),
-		};
+		return $this->toXyzD65();
 	}
 
 	/**
 	 * @internal
-	 * @return array{0: float, 1: float, 2: float, 3: CSSNumericValue|CSSKeywordValue}
+	 * @return array{float, float, float}
+	 */
+	public static function xyzD65ToOklabInternal(float $x, float $y, float $z): array
+	{
+		return self::xyzD65ToOklab($x, $y, $z);
+	}
+
+	/**
+	 * @internal
+	 * @return array{0: float, 1: float, 2: float}
+	 */
+	public function toRgbSpaceFloatsInternal(string $gamutSpace): array
+	{
+		if ($gamutSpace === 'srgb') {
+			return $this->toSrgbChannels();
+		}
+
+		[$x, $y, $z] = $this->toXyzD65();
+
+		return self::xyzD65ToSpaceFloatsInternal($gamutSpace, $x, $y, $z);
+	}
+
+	/**
+	 * @internal
+	 * @return array{0: float, 1: float, 2: float}
+	 */
+	public static function xyzD65ToRgbSpaceFloatsInternal(string $gamutSpace, float $x, float $y, float $z): array
+	{
+		return self::xyzD65ToSpaceFloatsInternal($gamutSpace, $x, $y, $z);
+	}
+
+	/**
+	 * @internal
+	 * @return array{0: float, 1: float, 2: float}
 	 */
 	public function toOklchFloatsInternal(): array
 	{
-		[$x, $y, $z, $alpha] = $this->toXyzD65();
+		[$x, $y, $z] = $this->toXyzD65();
 		[$l, $a, $b] = self::xyzD65ToOklab($x, $y, $z);
 		$c = hypot($a, $b);
 		$h = $c < 1e-12 ? 0.0 : fmod(rad2deg(atan2($b, $a)) + 360.0, 360.0);
 
-		return [$l, $c, $h, $alpha];
+		return [$l, $c, $h];
 	}
 
 	/**
@@ -731,20 +959,22 @@ abstract class CSSColorValue extends CSSStyleValue
 	 * @internal
 	 * @return array{0: float, 1: float, 2: float}
 	 */
+	public static function oklabToRgbSpaceFloatsInternal(string $gamutSpace, float $l, float $a, float $b): array
+	{
+		[$x, $y, $z] = self::oklabToXyzD65($l, $a, $b);
+
+		return self::xyzD65ToSpaceFloatsInternal($gamutSpace, $x, $y, $z);
+	}
+
+	/**
+	 * @internal
+	 * @return array{0: float, 1: float, 2: float}
+	 */
 	public static function oklchToRgbSpaceFloatsInternal(string $gamutSpace, float $l, float $c, float $hDeg): array
 	{
 		$hRad = deg2rad($hDeg);
-		[$x, $y, $z] = self::oklabToXyzD65($l, $c * cos($hRad), $c * sin($hRad));
 
-		return match ($gamutSpace) {
-			'srgb' => self::applySrgbTransfer(self::xyzD65ToLinearSrgb($x, $y, $z)),
-			'srgb-linear' => self::xyzD65ToLinearSrgb($x, $y, $z),
-			'display-p3' => self::applySrgbTransfer(self::xyzD65ToLinearDisplayP3($x, $y, $z)),
-			'a98-rgb' => self::applyA98Transfer(self::xyzD65ToLinearA98($x, $y, $z)),
-			'prophoto-rgb' => self::applyProphotoTransfer(self::xyzD50ToLinearProphoto(...self::xyzD65ToD50($x, $y, $z))),
-			'rec2020' => self::applyRec2020Transfer(self::xyzD65ToLinearRec2020($x, $y, $z)),
-			default => throw new InvalidArgumentException('Unsupported RGB gamut space: ' . $gamutSpace),
-		};
+		return self::oklabToRgbSpaceFloatsInternal($gamutSpace, $l, $c * cos($hRad), $c * sin($hRad));
 	}
 
 	/**
@@ -753,15 +983,7 @@ abstract class CSSColorValue extends CSSStyleValue
 	 */
 	public static function rgbSpaceToOklabFloatsInternal(string $gamutSpace, float $c0, float $c1, float $c2): array
 	{
-		[$x, $y, $z] = match ($gamutSpace) {
-			'srgb' => self::linearSrgbToXyzD65(self::srgbToLinear($c0), self::srgbToLinear($c1), self::srgbToLinear($c2)),
-			'srgb-linear' => self::linearSrgbToXyzD65($c0, $c1, $c2),
-			'display-p3' => self::linearDisplayP3ToXyzD65(self::srgbToLinear($c0), self::srgbToLinear($c1), self::srgbToLinear($c2)),
-			'a98-rgb' => self::linearA98ToXyzD65(self::a98ToLinear($c0), self::a98ToLinear($c1), self::a98ToLinear($c2)),
-			'prophoto-rgb' => self::xyzD50ToD65(...self::linearProphotoToXyzD50(self::prophotoToLinear($c0), self::prophotoToLinear($c1), self::prophotoToLinear($c2))),
-			'rec2020' => self::linearRec2020ToXyzD65(self::rec2020ToLinear($c0), self::rec2020ToLinear($c1), self::rec2020ToLinear($c2)),
-			default => throw new InvalidArgumentException('Unsupported RGB gamut space: ' . $gamutSpace),
-		};
+		[$x, $y, $z] = self::spaceFloatsToXyzD65Internal($gamutSpace, $c0, $c1, $c2);
 
 		return self::xyzD65ToOklab($x, $y, $z);
 	}
@@ -851,20 +1073,55 @@ abstract class CSSColorValue extends CSSStyleValue
 		return $this->toBoundedCssTextInternal(CSSParserOptions::DEFAULT_MAX_BYTES);
 	}
 
-	/** @param list<CSSNumericValue|CSSKeywordValue> $channels */
-	protected function serializeFunctionChannelsBounded(string $function, array $channels, ?int $maxBytes): string
+	/**
+	 * @internal
+	 * @return array{0: float, 1: float, 2: float}
+	 */
+	public static function hwbToSrgbFloatsInternal(float $h, float $w, float $b): array
 	{
-		$prefix = $function . '(';
-		$used = strlen($prefix) + 1;
+		if ($w + $b >= 1.0) {
+			$gray = $w / ($w + $b);
+
+			return [$gray, $gray, $gray];
+		}
+
+		[$r, $g, $bl] = self::hslToSrgbFloats($h, 1.0, 0.5);
+		$factor = 1.0 - $w - $b;
+
+		return [
+			$r * $factor + $w,
+			$g * $factor + $w,
+			$bl * $factor + $w,
+		];
+	}
+
+	/** @param list<CSSNumericValue|CSSKeywordValue> $channels */
+	protected function serializeFunctionChannelsBounded(
+		string $function,
+		array $channels,
+		?int $maxBytes,
+		?string $spacePrefix = null,
+	): string {
+		$out = $spacePrefix !== null ? $function . '(' . $spacePrefix : $function . '(';
+		$used = strlen($out) + 1;
 		if ($maxBytes !== null && $used > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS color value exceeds maximum size of %d bytes.', $maxBytes));
 		}
-		$parts = [];
+		$prev = $spacePrefix ?? '';
 		foreach ($channels as $i => $channel) {
-			$sep = $i === 0 ? '' : ' ';
-			$used += strlen($sep);
-			if ($maxBytes !== null && $used > $maxBytes) {
-				throw new CSSParserLimitException(sprintf('CSS color value exceeds maximum size of %d bytes.', $maxBytes));
+			if ($spacePrefix !== null) {
+				$sep = str_contains($prev, '\\') && CSSSyntaxScanner::endsWithBareHexEscape($prev) ? '  ' : ' ';
+				$used += strlen($sep);
+				if ($maxBytes !== null && $used > $maxBytes) {
+					throw new CSSParserLimitException(sprintf('CSS color value exceeds maximum size of %d bytes.', $maxBytes));
+				}
+				$out .= $sep;
+			} elseif ($i > 0) {
+				$used++;
+				if ($maxBytes !== null && $used > $maxBytes) {
+					throw new CSSParserLimitException(sprintf('CSS color value exceeds maximum size of %d bytes.', $maxBytes));
+				}
+				$out .= ' ';
 			}
 			$remaining = $maxBytes !== null ? $maxBytes - $used : null;
 			$part = $channel instanceof CSSMathValue
@@ -874,16 +1131,20 @@ abstract class CSSColorValue extends CSSStyleValue
 			if ($maxBytes !== null && $used > $maxBytes) {
 				throw new CSSParserLimitException(sprintf('CSS color value exceeds maximum size of %d bytes.', $maxBytes));
 			}
-			$parts[] = $sep . $part;
+			$out .= $part;
+			$prev = $part;
 		}
 		$remainingForAlpha = $maxBytes !== null ? $maxBytes - $used : null;
 
-		return $prefix . implode('', $parts) . $this->formatAlphaSuffixBounded($remainingForAlpha, $maxBytes) . ')';
+		return $out . $this->formatAlphaSuffixBounded($remainingForAlpha, $maxBytes) . ')';
 	}
 
 	protected function formatAlphaSuffixBounded(?int $remainingBytes, ?int $maxBytes = null): string
 	{
-		if ($this->alphaValue instanceof CSSUnitValue && $this->alphaValue->unit === 'percent' && abs($this->alphaValue->value - 100.0) < 1e-9) {
+		if ($this->alphaValue instanceof CSSUnitValue
+			&& $this->alphaValue->getUnitObjInternal() === CSSUnitEnum::PERCENT
+			&& abs($this->alphaValue->value - 100.0) < 1e-9
+		) {
 			return '';
 		}
 		$limitForMessage = $maxBytes ?? $remainingBytes ?? 0;
@@ -901,11 +1162,6 @@ abstract class CSSColorValue extends CSSStyleValue
 		return ' / ' . $alphaText;
 	}
 
-	protected function formatAlphaSuffix(): string
-	{
-		return $this->formatAlphaSuffixBounded(null);
-	}
-
 	protected static function exposeComponent(CSSNumericValue|CSSKeywordValue $component): CSSNumericValue|CSSKeywordValue
 	{
 		return $component instanceof CSSKeywordValue ? $component->clone() : $component;
@@ -917,16 +1173,92 @@ abstract class CSSColorValue extends CSSStyleValue
 			throw new InvalidArgumentException('Only the "none" keyword is permitted as a missing color component.');
 		}
 
-		return new CSSKeywordValue('none');
+		return CSSKeywordValue::fromValidated('none');
 	}
 
 	/**
-	 * Normalizes a percentage-based color channel (e.g. CSSRGB r/g/b or alpha).
+	 * @internal Normalizes a percentage-based color channel (e.g. CSSRGB r/g/b or alpha).
 	 * Bare numeric values are multiplied by $numberScale (e.g. 100.0 for 0..1 -> 0%..100%, or 1.0 for 0..100 -> 0%..100%).
 	 */
-	protected static function normalizePercentChannel(
+	public static function normalizePercentChannel(
 		CSSNumericValue|CSSKeywordValue|int|float $value,
 		float $numberScale = 100.0,
+		bool $clone = true,
+	): CSSNumericValue|CSSKeywordValue {
+		if ($value instanceof CSSKeywordValue) {
+			return self::normalizeNoneKeyword($value);
+		}
+		if (is_int($value) || is_float($value)) {
+			$scaled = (float) $value * $numberScale;
+			if (!is_finite($scaled)) {
+				throw new InvalidArgumentException('Non-finite value produced for color channel.');
+			}
+			return new CSSUnitValue($scaled, CSSUnitEnum::PERCENT);
+		}
+		if ($value instanceof CSSUnitValue) {
+			$unitObj = $value->getUnitObjInternal();
+			if ($unitObj === CSSUnitEnum::PERCENT) {
+				return $clone ? $value->clone() : $value;
+			}
+			if ($unitObj === CSSUnitEnum::NUMBER) {
+				$scaled = $value->value * $numberScale;
+				if (!is_finite($scaled)) {
+					throw new InvalidArgumentException('Non-finite value produced for color channel.');
+				}
+				return new CSSUnitValue($scaled, CSSUnitEnum::PERCENT);
+			}
+			throw new InvalidArgumentException('Color channel must be a number, percentage, or "none".');
+		}
+
+		$category = $value->getNumericCategory();
+		if ($value->getNumericTypeInternal()->percentHint !== null || ($category !== 'number' && $category !== 'percent')) {
+			throw new InvalidArgumentException('Color channel math expression must be a number or percentage.');
+		}
+		$target = $clone ? $value->clone() : $value;
+		if ($category === 'number' && $numberScale !== 1.0) {
+			return $target->mul(new CSSUnitValue($numberScale, CSSUnitEnum::PERCENT));
+		}
+
+		return $target;
+	}
+
+	/** @internal */
+	public static function normalizeAngleChannel(
+		CSSNumericValue|CSSKeywordValue|int|float $value,
+		bool $clone = true,
+	): CSSNumericValue|CSSKeywordValue {
+		if ($value instanceof CSSKeywordValue) {
+			return self::normalizeNoneKeyword($value);
+		}
+		if (is_int($value) || is_float($value)) {
+			if (!is_finite((float) $value)) {
+				throw new InvalidArgumentException('Hue angle must be finite.');
+			}
+			return new CSSUnitValue((float) $value, CSSUnitEnum::ANGLE_deg);
+		}
+		if ($value instanceof CSSUnitValue) {
+			$unitObj = $value->getUnitObjInternal();
+			if ($unitObj === CSSUnitEnum::NUMBER) {
+				return new CSSUnitValue($value->value, CSSUnitEnum::ANGLE_deg);
+			}
+			if ($value->getNumericCategory() === 'angle') {
+				return $clone ? $value->clone() : $value;
+			}
+			throw new InvalidArgumentException('Hue channel must be an angle, number, or "none".');
+		}
+
+		$category = $value->getNumericCategory();
+		if ($value->getNumericTypeInternal()->percentHint !== null || ($category !== 'angle' && $category !== 'number')) {
+			throw new InvalidArgumentException('Hue channel math expression must be an angle or number.');
+		}
+
+		return $clone ? $value->clone() : $value;
+	}
+
+	/** @internal */
+	public static function normalizeNumberOrPercentChannel(
+		CSSNumericValue|CSSKeywordValue|int|float $value,
+		bool $clone = true,
 	): CSSNumericValue|CSSKeywordValue {
 		if ($value instanceof CSSKeywordValue) {
 			return self::normalizeNoneKeyword($value);
@@ -935,79 +1267,26 @@ abstract class CSSColorValue extends CSSStyleValue
 			if (!is_finite((float) $value)) {
 				throw new InvalidArgumentException('Color channel value must be finite.');
 			}
-			return new CSSUnitValue((float) $value * $numberScale, 'percent');
+			return new CSSUnitValue((float) $value, CSSUnitEnum::NUMBER);
 		}
 		if ($value instanceof CSSUnitValue) {
-			if ($value->unit === 'percent') {
-				return $value->clone();
-			}
-			if ($value->unit === 'number') {
-				return new CSSUnitValue($value->value * $numberScale, 'percent');
+			$unitObj = $value->getUnitObjInternal();
+			if ($unitObj === CSSUnitEnum::NUMBER || $unitObj === CSSUnitEnum::PERCENT) {
+				return $clone ? $value->clone() : $value;
 			}
 			throw new InvalidArgumentException('Color channel must be a number, percentage, or "none".');
 		}
 
 		$category = $value->getNumericCategory();
-		if ($value->getNumericTypeInternal()->percentHint !== null || !in_array($category, ['number', 'percent'], true)) {
-			throw new InvalidArgumentException('Color channel math expression must be a number or percentage.');
-		}
-		if ($category === 'number' && $numberScale !== 1.0) {
-			return $value->clone()->mul(new CSSUnitValue($numberScale, 'percent'));
-		}
-
-		return $value->clone();
-	}
-
-	protected static function normalizeAngleChannel(CSSNumericValue|CSSKeywordValue|int|float $value): CSSNumericValue|CSSKeywordValue
-	{
-		if ($value instanceof CSSKeywordValue) {
-			return self::normalizeNoneKeyword($value);
-		}
-		if (is_int($value) || is_float($value)) {
-			if (!is_finite((float) $value)) {
-				throw new InvalidArgumentException('Hue angle must be finite.');
-			}
-			return new CSSUnitValue((float) $value, 'deg');
-		}
-		if ($value instanceof CSSUnitValue) {
-			if ($value->unit === 'number') {
-				return new CSSUnitValue($value->value, 'deg');
-			}
-			if ($value->getNumericCategory() === 'angle') {
-				return $value->clone();
-			}
-			throw new InvalidArgumentException('Hue channel must be an angle, number, or "none".');
-		}
-
-		$category = $value->getNumericCategory();
-		if ($value->getNumericTypeInternal()->percentHint !== null || !in_array($category, ['angle', 'number'], true)) {
-			throw new InvalidArgumentException('Hue channel math expression must be an angle or number.');
-		}
-
-		return $value->clone();
-	}
-
-	protected static function normalizeNumberOrPercentChannel(CSSNumericValue|CSSKeywordValue|int|float $value): CSSNumericValue|CSSKeywordValue
-	{
-		if ($value instanceof CSSKeywordValue) {
-			return self::normalizeNoneKeyword($value);
-		}
-		if (is_int($value) || is_float($value)) {
-			if (!is_finite((float) $value)) {
-				throw new InvalidArgumentException('Color channel value must be finite.');
-			}
-			return new CSSUnitValue((float) $value, 'number');
-		}
-
-		$category = $value->getNumericCategory();
-		if ($value->getNumericTypeInternal()->percentHint !== null || !in_array($category, ['number', 'percent'], true)) {
+		if ($value->getNumericTypeInternal()->percentHint !== null || ($category !== 'number' && $category !== 'percent')) {
 			throw new InvalidArgumentException('Color channel must be a number, percentage, or "none".');
 		}
 
-		return $value->clone();
+		return $clone ? $value->clone() : $value;
 	}
 
-	protected static function resolvePercentUnit(CSSNumericValue|CSSKeywordValue $component): float
+	/** @internal */
+	public static function resolvePercentUnit(CSSNumericValue|CSSKeywordValue $component): float
 	{
 		if ($component instanceof CSSKeywordValue) {
 			return 0.0;
@@ -1016,10 +1295,11 @@ abstract class CSSColorValue extends CSSStyleValue
 			throw new InvalidArgumentException('Color conversion requires concrete numeric channels (unresolved math values cannot be converted).');
 		}
 
-		return $component->unit === 'percent' ? $component->value / 100.0 : $component->value;
+		return $component->getUnitObjInternal() === CSSUnitEnum::PERCENT ? $component->value / 100.0 : $component->value;
 	}
 
-	protected static function resolveAngleDegrees(CSSNumericValue|CSSKeywordValue $component): float
+	/** @internal */
+	public static function resolveAngleDegrees(CSSNumericValue|CSSKeywordValue $component): float
 	{
 		if ($component instanceof CSSKeywordValue) {
 			return 0.0;
@@ -1028,10 +1308,17 @@ abstract class CSSColorValue extends CSSStyleValue
 			throw new InvalidArgumentException('Color conversion requires concrete numeric channels (unresolved math values cannot be converted).');
 		}
 
-		return $component->unit === 'number' ? $component->value : $component->to('deg')->value;
+		return match ($component->getUnitObjInternal()) {
+			CSSUnitEnum::NUMBER, CSSUnitEnum::ANGLE_deg => $component->value,
+			CSSUnitEnum::ANGLE_rad => $component->value * (180.0 / M_PI),
+			CSSUnitEnum::ANGLE_grad => $component->value * 0.9,
+			CSSUnitEnum::ANGLE_turn => $component->value * 360.0,
+			default => $component->to('deg')->value,
+		};
 	}
 
-	protected static function resolveLinearChannel(CSSNumericValue|CSSKeywordValue $component, float $percentReference): float
+	/** @internal */
+	public static function resolveLinearChannel(CSSNumericValue|CSSKeywordValue $component, float $percentReference): float
 	{
 		if ($component instanceof CSSKeywordValue) {
 			return 0.0;
@@ -1040,7 +1327,7 @@ abstract class CSSColorValue extends CSSStyleValue
 			throw new InvalidArgumentException('Color conversion requires concrete numeric channels (unresolved math values cannot be converted).');
 		}
 
-		return $component->unit === 'percent' ? ($component->value / 100.0) * $percentReference : $component->value;
+		return $component->getUnitObjInternal() === CSSUnitEnum::PERCENT ? ($component->value / 100.0) * $percentReference : $component->value;
 	}
 
 	protected static function srgbToLinear(float $value): float
@@ -1245,8 +1532,11 @@ abstract class CSSColorValue extends CSSStyleValue
 		];
 	}
 
-	/** @return array{float, float, float} */
-	protected static function hslToSrgbFloats(float $h, float $s, float $l): array
+	/**
+	 * @internal
+	 * @return array{0: float, 1: float, 2: float}
+	 */
+	public static function hslToSrgbFloats(float $h, float $s, float $l): array
 	{
 		$h = fmod(fmod($h, 360.0) + 360.0, 360.0);
 		$hOver30 = $h / 30.0;
@@ -1341,9 +1631,9 @@ abstract class CSSColorValue extends CSSStyleValue
 		$m_ = $l - 0.1055613458156586 * $a - 0.0638541728258133 * $b;
 		$s_ = $l - 0.0894841775298119 * $a - 1.2914855480194092 * $b;
 
-		$lc = $l_ ** 3;
-		$mc = $m_ ** 3;
-		$sc = $s_ ** 3;
+		$lc = $l_ * $l_ * $l_;
+		$mc = $m_ * $m_ * $m_;
+		$sc = $s_ * $s_ * $s_;
 
 		return [
 			1.2268798758459243 * $lc - 0.5578149944602171 * $mc + 0.2813910456659647 * $sc,
@@ -1352,8 +1642,7 @@ abstract class CSSColorValue extends CSSStyleValue
 		];
 	}
 
-	/** @internal */
-	public static function tryParseCurrentColorInternal(string $source, ?CSSContext $context = null): CSSColorValue|CSSKeywordValue|null
+	private static function decodeKeywordColorIdentInternal(string $source): ?string
 	{
 		$clean = str_contains($source, '/*')
 			? CSSSyntaxScanner::trimCssWhitespace(self::stripTopLevelComments($source))
@@ -1368,12 +1657,19 @@ abstract class CSSColorValue extends CSSStyleValue
 			}
 			$clean = $decoded['ident'];
 		}
-		if (strcasecmp($clean, 'currentcolor') !== 0) {
+
+		return strtolower($clean);
+	}
+
+	/** @internal */
+	public static function tryParseCurrentColorInternal(string $source, ?CSSContext $context = null): CSSColorValue|CSSKeywordValue|null
+	{
+		if (self::decodeKeywordColorIdentInternal($source) !== 'currentcolor') {
 			return null;
 		}
 		$resolved = $context?->getCurrentColor();
 
-		return $resolved !== null ? $resolved : new CSSKeywordValue('currentcolor');
+		return $resolved !== null ? $resolved : CSSKeywordValue::fromValidated('currentcolor');
 	}
 
 	/** @internal Zero-allocation check for named CSS color / `transparent`. */
@@ -1395,22 +1691,23 @@ abstract class CSSColorValue extends CSSStyleValue
 	{
 		if ($lowerIdent === 'transparent') {
 			return CSSRGB::fromValidated(
-				new CSSUnitValue(0.0, 'percent'),
-				new CSSUnitValue(0.0, 'percent'),
-				new CSSUnitValue(0.0, 'percent'),
-				new CSSUnitValue(0.0, 'percent'),
+				new CSSUnitValue(0.0, CSSUnitEnum::PERCENT),
+				new CSSUnitValue(0.0, CSSUnitEnum::PERCENT),
+				new CSSUnitValue(0.0, CSSUnitEnum::PERCENT),
+				new CSSUnitValue(0.0, CSSUnitEnum::PERCENT),
 			);
 		}
 		$rgb = self::NAMED_COLORS[$lowerIdent] ?? null;
 		if ($rgb === null) {
 			return null;
 		}
+		$scale = 100.0 / 255.0;
 
 		return CSSRGB::fromValidated(
-			new CSSUnitValue((($rgb >> 16) & 0xFF) / 255.0 * 100.0, 'percent'),
-			new CSSUnitValue((($rgb >> 8) & 0xFF) / 255.0 * 100.0, 'percent'),
-			new CSSUnitValue(($rgb & 0xFF) / 255.0 * 100.0, 'percent'),
-			new CSSUnitValue(100.0, 'percent'),
+			new CSSUnitValue((($rgb >> 16) & 0xFF) * $scale, CSSUnitEnum::PERCENT),
+			new CSSUnitValue((($rgb >> 8) & 0xFF) * $scale, CSSUnitEnum::PERCENT),
+			new CSSUnitValue(($rgb & 0xFF) * $scale, CSSUnitEnum::PERCENT),
+			new CSSUnitValue(100.0, CSSUnitEnum::PERCENT),
 		);
 	}
 
@@ -1422,48 +1719,48 @@ abstract class CSSColorValue extends CSSStyleValue
 
 	public static function tryParseNamedColor(string $source): ?CSSRGB
 	{
-		$clean = str_contains($source, '/*')
-			? CSSSyntaxScanner::trimCssWhitespace(self::stripTopLevelComments($source))
-			: $source;
-		if ($clean === '') {
-			return null;
-		}
-		if (str_contains($clean, '\\')) {
-			$decoded = CSSSyntaxScanner::decodeIdentAt($clean, 0, strlen($clean));
-			if ($decoded === null || $decoded['end'] !== strlen($clean)) {
-				return null;
-			}
-			$clean = $decoded['ident'];
-		}
+		$lower = self::decodeKeywordColorIdentInternal($source);
 
-		return self::tryParseNamedColorIdentInternal(strtolower($clean));
+		return $lower !== null ? self::tryParseNamedColorIdentInternal($lower) : null;
 	}
 
 	private static function parseHex(string $hex): CSSRGB
 	{
 		$digits = substr($hex, 1);
 		$len = strlen($digits);
-		if (!in_array($len, [3, 4, 6, 8], true) || !ctype_xdigit($digits)) {
+		if (($len !== 3 && $len !== 4 && $len !== 6 && $len !== 8) || !ctype_xdigit($digits)) {
 			throw new InvalidArgumentException('Invalid CSS hex color: ' . $hex);
 		}
 
-		if ($len === 3 || $len === 4) {
-			$r = hexdec($digits[0] . $digits[0]);
-			$g = hexdec($digits[1] . $digits[1]);
-			$b = hexdec($digits[2] . $digits[2]);
-			$a = $len === 4 ? hexdec($digits[3] . $digits[3]) : 255;
+		$val = (int) hexdec($digits);
+		if ($len === 3) {
+			$r = (($val >> 8) & 0xF) * 17;
+			$g = (($val >> 4) & 0xF) * 17;
+			$b = ($val & 0xF) * 17;
+			$a = 255;
+		} elseif ($len === 4) {
+			$r = (($val >> 12) & 0xF) * 17;
+			$g = (($val >> 8) & 0xF) * 17;
+			$b = (($val >> 4) & 0xF) * 17;
+			$a = ($val & 0xF) * 17;
+		} elseif ($len === 6) {
+			$r = ($val >> 16) & 0xFF;
+			$g = ($val >> 8) & 0xFF;
+			$b = $val & 0xFF;
+			$a = 255;
 		} else {
-			$r = hexdec(substr($digits, 0, 2));
-			$g = hexdec(substr($digits, 2, 2));
-			$b = hexdec(substr($digits, 4, 2));
-			$a = $len === 8 ? hexdec(substr($digits, 6, 2)) : 255;
+			$r = ($val >> 24) & 0xFF;
+			$g = ($val >> 16) & 0xFF;
+			$b = ($val >> 8) & 0xFF;
+			$a = $val & 0xFF;
 		}
+		$scale = 100.0 / 255.0;
 
 		return CSSRGB::fromValidated(
-			new CSSUnitValue(($r / 255.0) * 100.0, 'percent'),
-			new CSSUnitValue(($g / 255.0) * 100.0, 'percent'),
-			new CSSUnitValue(($b / 255.0) * 100.0, 'percent'),
-			new CSSUnitValue(($a / 255.0) * 100.0, 'percent'),
+			new CSSUnitValue($r * $scale, CSSUnitEnum::PERCENT),
+			new CSSUnitValue($g * $scale, CSSUnitEnum::PERCENT),
+			new CSSUnitValue($b * $scale, CSSUnitEnum::PERCENT),
+			new CSSUnitValue($a * $scale, CSSUnitEnum::PERCENT),
 		);
 	}
 
@@ -1583,6 +1880,111 @@ abstract class CSSColorValue extends CSSStyleValue
 	 */
 	private static function splitColorArguments(string $body, bool $allowLegacyComma): array
 	{
+		$len = strlen($body);
+		$maxParts = CSSColor::MAX_CUSTOM_CHANNELS + 4;
+		$channels = [];
+		$alpha = null;
+		$sawSlash = false;
+		$offset = 0;
+		$depth = 0;
+		$tokenStart = -1;
+		$mask = " \t\n\r\f,()/\\'\"[{";
+
+		while ($offset < $len) {
+			$span = strcspn($body, $mask, $offset, $len - $offset);
+			if ($tokenStart < 0 && $span > 0) {
+				$tokenStart = $offset;
+			}
+			$offset += $span;
+			if ($offset >= $len) {
+				break;
+			}
+			$ch = $body[$offset];
+			if ($ch === '\\' || $ch === '\'' || $ch === '"' || $ch === '[' || $ch === '{') {
+				return self::splitColorArgumentsSlow($body, $allowLegacyComma);
+			}
+			if ($ch === ',') {
+				if ($depth === 0) {
+					return self::splitColorArgumentsSlow($body, $allowLegacyComma);
+				}
+				$offset++;
+				continue;
+			}
+			if ($ch === '(') {
+				if ($tokenStart < 0) {
+					$tokenStart = $offset;
+				}
+				$depth++;
+				$offset++;
+				continue;
+			}
+			if ($ch === ')') {
+				if ($depth > 0) {
+					$depth--;
+				}
+				$offset++;
+				continue;
+			}
+			if ($depth > 0) {
+				$offset++;
+				continue;
+			}
+			if ($ch === '/' && ($offset + 1) < $len && $body[$offset + 1] === '*') {
+				return self::splitColorArgumentsSlow($body, $allowLegacyComma);
+			}
+			if ($tokenStart >= 0) {
+				$token = substr($body, $tokenStart, $offset - $tokenStart);
+				$tokenStart = -1;
+				if ($sawSlash) {
+					if ($alpha !== null) {
+						throw new InvalidArgumentException('Invalid alpha component in CSS color function.');
+					}
+					$alpha = $token;
+				} else {
+					if (count($channels) >= $maxParts) {
+						throw new CSSParserLimitException(sprintf('CSS list exceeds maximum limit of %d items.', $maxParts));
+					}
+					$channels[] = $token;
+				}
+			}
+			if ($ch === '/') {
+				if ($sawSlash) {
+					throw new InvalidArgumentException('Too many "/" separators in CSS color function.');
+				}
+				$sawSlash = true;
+				$offset++;
+				continue;
+			}
+			$offset += strspn($body, CSSSyntaxScanner::CSS_WHITESPACE, $offset, $len - $offset);
+		}
+
+		if ($tokenStart >= 0) {
+			$token = substr($body, $tokenStart, $len - $tokenStart);
+			if ($sawSlash) {
+				if ($alpha !== null) {
+					throw new InvalidArgumentException('Invalid alpha component in CSS color function.');
+				}
+				$alpha = $token;
+			} else {
+				if (count($channels) >= $maxParts) {
+					throw new CSSParserLimitException(sprintf('CSS list exceeds maximum limit of %d items.', $maxParts));
+				}
+				$channels[] = $token;
+			}
+		}
+
+		if ($sawSlash && $alpha === null) {
+			throw new InvalidArgumentException('Invalid alpha component in CSS color function.');
+		}
+
+		return [$channels, $alpha, false];
+	}
+
+	/**
+	 * @return array{list<string>, ?string, bool}
+	 */
+	private static function splitColorArgumentsSlow(string $body, bool $allowLegacyComma): array
+	{
 		$maxParts = CSSColor::MAX_CUSTOM_CHANNELS + 4;
 		$commaParts = str_contains($body, ',') ? CSSSyntaxScanner::splitTopLevel($body, ',', 0, null, $maxParts) : [$body];
 
@@ -1646,7 +2048,23 @@ abstract class CSSColorValue extends CSSStyleValue
 			if (!$allowNone) {
 				throw new InvalidArgumentException('"none" keyword is not allowed in legacy comma-separated color syntax.');
 			}
-			return new CSSKeywordValue('none');
+			return CSSKeywordValue::fromValidated('none');
+		}
+
+		$c0 = $token[0];
+		if ($c0 === '+' || $c0 === '-' || $c0 === '.' || ($c0 >= '0' && $c0 <= '9')) {
+			$tLen = strlen($token);
+			$hasPct = $token[$tLen - 1] === '%';
+			$numLen = $hasPct ? $tLen - 1 : $tLen;
+			$numStr = $hasPct ? substr($token, 0, $numLen) : $token;
+			if ($numLen > 0 && strspn($numStr, '0123456789.+-eE') === $numLen && is_numeric($numStr)) {
+				$numVal = (float) $numStr;
+				if (!is_finite($numVal)) {
+					throw new InvalidArgumentException('Invalid CSS numeric value: ' . $token);
+				}
+
+				return new CSSUnitValue($numVal, $hasPct ? CSSUnitEnum::PERCENT : CSSUnitEnum::NUMBER);
+			}
 		}
 
 		$numeric = CSSNumericValue::tryParseValidated($token, $options, 0, $mathBudget);
@@ -1670,12 +2088,13 @@ abstract class CSSColorValue extends CSSStyleValue
 		foreach ($channels as $token) {
 			$component = self::parseComponentToken($token, !$legacy, $options, $mathBudget);
 			if ($component instanceof CSSUnitValue) {
-				if ($component->unit === 'percent') {
+				$unitObj = $component->getUnitObjInternal();
+				if ($unitObj === CSSUnitEnum::PERCENT) {
 					$seenPercent = true;
 					$parsed[] = $component;
-				} elseif ($component->unit === 'number') {
+				} elseif ($unitObj === CSSUnitEnum::NUMBER) {
 					$seenNumber = true;
-					$parsed[] = new CSSUnitValue(($component->value / 255.0) * 100.0, 'percent');
+					$parsed[] = new CSSUnitValue(($component->value / 255.0) * 100.0, CSSUnitEnum::PERCENT);
 				} else {
 					throw new InvalidArgumentException('rgb() channels must be numbers, percentages, or "none".');
 				}
@@ -1683,7 +2102,7 @@ abstract class CSSColorValue extends CSSStyleValue
 				$parsed[] = $component;
 			} else {
 				$category = $component->getNumericCategory();
-				if ($component->getNumericTypeInternal()->percentHint !== null || !in_array($category, ['number', 'percent'], true)) {
+				if ($component->getNumericTypeInternal()->percentHint !== null || ($category !== 'number' && $category !== 'percent')) {
 					throw new InvalidArgumentException('rgb() math channel must be a number or percentage.');
 				}
 				if ($category === 'percent') {
@@ -1691,7 +2110,7 @@ abstract class CSSColorValue extends CSSStyleValue
 					$parsed[] = $component;
 				} else {
 					$seenNumber = true;
-					$parsed[] = $component->mul(new CSSUnitValue(100.0 / 255.0, 'percent'));
+					$parsed[] = $component->mul(new CSSUnitValue(100.0 / 255.0, CSSUnitEnum::PERCENT));
 				}
 			}
 		}
@@ -1701,8 +2120,8 @@ abstract class CSSColorValue extends CSSStyleValue
 		}
 
 		$alpha = $alphaToken === null
-			? new CSSUnitValue(100.0, 'percent')
-			: self::normalizePercentChannel(self::parseComponentToken($alphaToken, !$legacy, $options, $mathBudget), 100.0);
+			? new CSSUnitValue(100.0, CSSUnitEnum::PERCENT)
+			: self::normalizePercentChannel(self::parseComponentToken($alphaToken, !$legacy, $options, $mathBudget), 100.0, false);
 
 		return CSSRGB::fromValidated($parsed[0], $parsed[1], $parsed[2], $alpha);
 	}
@@ -1714,7 +2133,7 @@ abstract class CSSColorValue extends CSSStyleValue
 			throw new InvalidArgumentException('hsl() requires 3 color channels.');
 		}
 
-		$h = self::normalizeAngleChannel(self::parseComponentToken($channels[0], !$legacy, $options, $mathBudget));
+		$h = self::normalizeAngleChannel(self::parseComponentToken($channels[0], !$legacy, $options, $mathBudget), false);
 		$sRaw = self::parseComponentToken($channels[1], !$legacy, $options, $mathBudget);
 		$lRaw = self::parseComponentToken($channels[2], !$legacy, $options, $mathBudget);
 		if ($legacy) {
@@ -1723,98 +2142,54 @@ abstract class CSSColorValue extends CSSStyleValue
 				throw new InvalidArgumentException('Legacy comma-separated hsl() requires percentage saturation and lightness.');
 			}
 		}
-		$s = self::normalizePercentChannel($sRaw, 1.0);
-		$l = self::normalizePercentChannel($lRaw, 1.0);
+		$s = self::normalizePercentChannel($sRaw, 1.0, false);
+		$l = self::normalizePercentChannel($lRaw, 1.0, false);
 		$alpha = $alphaToken === null
-			? new CSSUnitValue(100.0, 'percent')
-			: self::normalizePercentChannel(self::parseComponentToken($alphaToken, !$legacy, $options, $mathBudget), 100.0);
+			? new CSSUnitValue(100.0, CSSUnitEnum::PERCENT)
+			: self::normalizePercentChannel(self::parseComponentToken($alphaToken, !$legacy, $options, $mathBudget), 100.0, false);
 
 		return CSSHSL::fromValidated($h, $s, $l, $alpha);
 	}
 
-	private static function parseHwbFunction(string $body, CSSParserOptions $options, int &$mathBudget = 0): CSSHWB
-	{
-		[$channels, $alphaToken] = self::splitColorArguments($body, false);
-		if (count($channels) !== 3) {
-			throw new InvalidArgumentException('hwb() requires 3 color channels.');
-		}
+	private static function normalizeStandardLeafChannel(
+		string $kind,
+		string $token,
+		CSSParserOptions $options,
+		int &$mathBudget,
+	): CSSNumericValue|CSSKeywordValue {
+		$comp = self::parseComponentToken($token, true, $options, $mathBudget);
 
-		$h = self::normalizeAngleChannel(self::parseComponentToken($channels[0], true, $options, $mathBudget));
-		$w = self::normalizePercentChannel(self::parseComponentToken($channels[1], true, $options, $mathBudget), 1.0);
-		$b = self::normalizePercentChannel(self::parseComponentToken($channels[2], true, $options, $mathBudget), 1.0);
-		$alpha = $alphaToken === null
-			? new CSSUnitValue(100.0, 'percent')
-			: self::normalizePercentChannel(self::parseComponentToken($alphaToken, true, $options, $mathBudget), 100.0);
-
-		return CSSHWB::fromValidated($h, $w, $b, $alpha);
+		return match ($kind) {
+			'angle' => self::normalizeAngleChannel($comp, false),
+			'percent1' => self::normalizePercentChannel($comp, 1.0, false),
+			'percent100' => self::normalizePercentChannel($comp, 100.0, false),
+			default => self::normalizeNumberOrPercentChannel($comp, false),
+		};
 	}
 
-	private static function parseLabFunction(string $body, CSSParserOptions $options, int &$mathBudget = 0): CSSLab
-	{
+	private static function parseStandardThreeChannelFunction(
+		string $function,
+		string $body,
+		CSSParserOptions $options,
+		int &$mathBudget = 0,
+	): CSSColorValue {
 		[$channels, $alphaToken] = self::splitColorArguments($body, false);
 		if (count($channels) !== 3) {
-			throw new InvalidArgumentException('lab() requires 3 color channels.');
+			throw new InvalidArgumentException($function . '() requires 3 color channels.');
 		}
 
-		$l = self::normalizePercentChannel(self::parseComponentToken($channels[0], true, $options, $mathBudget), 1.0);
-		$a = self::normalizeNumberOrPercentChannel(self::parseComponentToken($channels[1], true, $options, $mathBudget));
-		$b = self::normalizeNumberOrPercentChannel(self::parseComponentToken($channels[2], true, $options, $mathBudget));
+		$spec = CSSColorSpaceRegistry::LEAF_THREE_CHANNEL_SPEC[$function];
+		$c0 = self::normalizeStandardLeafChannel($spec['ch0'], $channels[0], $options, $mathBudget);
+		$c1 = self::normalizeStandardLeafChannel($spec['ch1'], $channels[1], $options, $mathBudget);
+		$c2 = self::normalizeStandardLeafChannel($spec['ch2'], $channels[2], $options, $mathBudget);
 		$alpha = $alphaToken === null
-			? new CSSUnitValue(100.0, 'percent')
-			: self::normalizePercentChannel(self::parseComponentToken($alphaToken, true, $options, $mathBudget), 100.0);
+			? new CSSUnitValue(100.0, CSSUnitEnum::PERCENT)
+			: self::normalizePercentChannel(self::parseComponentToken($alphaToken, true, $options, $mathBudget), 100.0, false);
 
-		return CSSLab::fromValidated($l, $a, $b, $alpha);
-	}
+		/** @var class-string<CSSHWB|CSSLab|CSSLCH|CSSOKLab|CSSOKLCH> $class */
+		$class = $spec['class'];
 
-	private static function parseLchFunction(string $body, CSSParserOptions $options, int &$mathBudget = 0): CSSLCH
-	{
-		[$channels, $alphaToken] = self::splitColorArguments($body, false);
-		if (count($channels) !== 3) {
-			throw new InvalidArgumentException('lch() requires 3 color channels.');
-		}
-
-		$l = self::normalizePercentChannel(self::parseComponentToken($channels[0], true, $options, $mathBudget), 1.0);
-		$c = self::normalizeNumberOrPercentChannel(self::parseComponentToken($channels[1], true, $options, $mathBudget));
-		$h = self::normalizeAngleChannel(self::parseComponentToken($channels[2], true, $options, $mathBudget));
-		$alpha = $alphaToken === null
-			? new CSSUnitValue(100.0, 'percent')
-			: self::normalizePercentChannel(self::parseComponentToken($alphaToken, true, $options, $mathBudget), 100.0);
-
-		return CSSLCH::fromValidated($l, $c, $h, $alpha);
-	}
-
-	private static function parseOklabFunction(string $body, CSSParserOptions $options, int &$mathBudget = 0): CSSOKLab
-	{
-		[$channels, $alphaToken] = self::splitColorArguments($body, false);
-		if (count($channels) !== 3) {
-			throw new InvalidArgumentException('oklab() requires 3 color channels.');
-		}
-
-		$l = self::normalizePercentChannel(self::parseComponentToken($channels[0], true, $options, $mathBudget), 100.0);
-		$a = self::normalizeNumberOrPercentChannel(self::parseComponentToken($channels[1], true, $options, $mathBudget));
-		$b = self::normalizeNumberOrPercentChannel(self::parseComponentToken($channels[2], true, $options, $mathBudget));
-		$alpha = $alphaToken === null
-			? new CSSUnitValue(100.0, 'percent')
-			: self::normalizePercentChannel(self::parseComponentToken($alphaToken, true, $options, $mathBudget), 100.0);
-
-		return CSSOKLab::fromValidated($l, $a, $b, $alpha);
-	}
-
-	private static function parseOklchFunction(string $body, CSSParserOptions $options, int &$mathBudget = 0): CSSOKLCH
-	{
-		[$channels, $alphaToken] = self::splitColorArguments($body, false);
-		if (count($channels) !== 3) {
-			throw new InvalidArgumentException('oklch() requires 3 color channels.');
-		}
-
-		$l = self::normalizePercentChannel(self::parseComponentToken($channels[0], true, $options, $mathBudget), 100.0);
-		$c = self::normalizeNumberOrPercentChannel(self::parseComponentToken($channels[1], true, $options, $mathBudget));
-		$h = self::normalizeAngleChannel(self::parseComponentToken($channels[2], true, $options, $mathBudget));
-		$alpha = $alphaToken === null
-			? new CSSUnitValue(100.0, 'percent')
-			: self::normalizePercentChannel(self::parseComponentToken($alphaToken, true, $options, $mathBudget), 100.0);
-
-		return CSSOKLCH::fromValidated($l, $c, $h, $alpha);
+		return $class::fromValidated($c0, $c1, $c2, $alpha);
 	}
 
 	private static function parseColorFunction(string $body, CSSParserOptions $options, int &$mathBudget = 0): CSSColor
@@ -1824,32 +2199,21 @@ abstract class CSSColorValue extends CSSStyleValue
 			throw new InvalidArgumentException('color() requires a color space and at least one channel.');
 		}
 
-		$rawSpace = CSSSyntaxScanner::trimCssWhitespace(array_shift($tokens));
-		$decodedSpace = CSSSyntaxScanner::decodeIdentAt($rawSpace, 0, strlen($rawSpace));
-		if ($decodedSpace !== null && $decodedSpace['end'] === strlen($rawSpace) && str_starts_with($decodedSpace['ident'], '--')) {
-			$space = new CSSKeywordValue(CSSStyleDeclaration::normalizePropertyName($rawSpace));
-		} else {
-			$lower = ($decodedSpace !== null && $decodedSpace['end'] === strlen($rawSpace))
-				? strtolower($decodedSpace['ident'])
-				: strtolower($rawSpace);
-			if (!isset(CSSColor::PREDEFINED_SPACES[$lower])) {
-				throw new InvalidArgumentException('Unsupported CSS color space: ' . $rawSpace);
-			}
-			if (count($tokens) !== 3) {
-				throw new InvalidArgumentException(sprintf('Predefined color space "%s" requires exactly 3 channels.', $lower));
-			}
-			$space = new CSSKeywordValue($lower);
+		[$normalizedSpace, $isPredefined] = CSSColor::normalizeColorSpaceInternal(array_shift($tokens));
+		if ($isPredefined && count($tokens) !== 3) {
+			throw new InvalidArgumentException(sprintf('Predefined color space "%s" requires exactly 3 channels.', $normalizedSpace));
 		}
+		$space = CSSKeywordValue::fromValidated($normalizedSpace);
 		if (count($tokens) > CSSColor::MAX_CUSTOM_CHANNELS) {
 			throw new CSSParserLimitException(sprintf('CSS color() channel count exceeds maximum limit of %d.', CSSColor::MAX_CUSTOM_CHANNELS));
 		}
 		$channels = [];
 		foreach ($tokens as $token) {
-			$channels[] = self::normalizeNumberOrPercentChannel(self::parseComponentToken($token, true, $options, $mathBudget));
+			$channels[] = self::normalizeNumberOrPercentChannel(self::parseComponentToken($token, true, $options, $mathBudget), false);
 		}
 		$alpha = $alphaToken === null
-			? new CSSUnitValue(100.0, 'percent')
-			: self::normalizePercentChannel(self::parseComponentToken($alphaToken, true, $options, $mathBudget), 100.0);
+			? new CSSUnitValue(100.0, CSSUnitEnum::PERCENT)
+			: self::normalizePercentChannel(self::parseComponentToken($alphaToken, true, $options, $mathBudget), 100.0, false);
 
 		return CSSColor::fromValidated($space, $channels, $alpha);
 	}

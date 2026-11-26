@@ -36,43 +36,7 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 
 	protected function resolveSheetParserOptions(): CSSParserOptions
 	{
-		$resolvedMaxBytes = $this->style->resolveMaxBytesInternal();
-		$resolvedMaxDecls = $this->style->resolveMaxDeclarationsInternal();
-		$resolvedMaxDepth = $this->style->resolveMaxDepthInternal();
-		$resolvedMaxMathDepth = $this->style->resolveMaxMathDepthInternal();
-		$sheet = $this->style->getParentRule()?->getParentStyleSheet();
-		if ($sheet !== null) {
-			if ($resolvedMaxBytes === $sheet->getMaxBytesInternal()
-				&& $resolvedMaxDecls === $sheet->getMaxDeclarationsInternal()
-				&& $resolvedMaxDepth === $sheet->getMaxDepthInternal()
-				&& $resolvedMaxMathDepth === $sheet->getMaxMathDepthInternal()
-			) {
-				return $sheet->resolveParserOptionsInternal(null);
-			}
-
-			return new CSSParserOptions(
-				maxBytes: $resolvedMaxBytes,
-				maxDepth: $resolvedMaxDepth,
-				maxMathDepth: $resolvedMaxMathDepth,
-				maxRules: $sheet->getMaxRulesInternal(),
-				maxDeclarations: $resolvedMaxDecls,
-				maxErrors: $sheet->getMaxErrorsInternal(),
-			);
-		}
-		if ($resolvedMaxBytes !== CSSParserOptions::DEFAULT_MAX_BYTES
-			|| $resolvedMaxDecls !== CSSParserOptions::DEFAULT_MAX_DECLARATIONS
-			|| $resolvedMaxDepth !== CSSParserOptions::DEFAULT_MAX_DEPTH
-			|| $resolvedMaxMathDepth !== CSSParserOptions::DEFAULT_MAX_MATH_DEPTH
-		) {
-			return new CSSParserOptions(
-				maxBytes: $resolvedMaxBytes,
-				maxDepth: $resolvedMaxDepth,
-				maxMathDepth: $resolvedMaxMathDepth,
-				maxDeclarations: $resolvedMaxDecls,
-			);
-		}
-
-		return CSSParserOptions::default();
+		return $this->style->resolveParserOptionsInternal(true);
 	}
 
 	protected function normalizeBoundedPropertyName(string $property, CSSParserOptions $options): string
@@ -84,24 +48,25 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 		return CSSStyleDeclaration::normalizePropertyName($property);
 	}
 
+	private function resolveDeclarationValue(string $normalized): ?string
+	{
+		if ($this->style->shouldExpandShorthandsInternal() && CSSShorthandRegistry::isShorthand($normalized)) {
+			return $this->style->getPropertyValue($normalized);
+		}
+
+		$declaration = $this->style->getDeclarationsRaw()[$normalized] ?? null;
+
+		return $declaration !== null ? $declaration['value'] : null;
+	}
+
 	public function get(string $property): ?CSSStyleValue
 	{
 		$options = $this->resolveSheetParserOptions();
 		$normalized = $this->normalizeBoundedPropertyName($property, $options);
-		if ($this->style->shouldExpandShorthandsInternal() && CSSShorthandRegistry::isShorthand($normalized)) {
-			$value = $this->style->getPropertyValue($normalized);
-			if ($value === '') {
-				return null;
-			}
-
-			return $this->parseFirstDeclarationValue($normalized, $value, $options);
-		}
-
-		$declaration = $this->style->getDeclarationsRaw()[$normalized] ?? null;
-		if ($declaration === null) {
+		$value = $this->resolveDeclarationValue($normalized);
+		if ($value === null) {
 			return null;
 		}
-		$value = $declaration['value'];
 		if ($value === '') {
 			return str_starts_with($normalized, '--') ? new CSSUnparsedValue([], $options) : null;
 		}
@@ -114,21 +79,15 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 	{
 		$options = $this->resolveSheetParserOptions();
 		$normalized = $this->normalizeBoundedPropertyName($property, $options);
-		if ($this->style->shouldExpandShorthandsInternal() && CSSShorthandRegistry::isShorthand($normalized)) {
-			$value = $this->style->getPropertyValue($normalized);
-			if ($value === '') {
-				return [];
-			}
-
-			return $this->parseAllDeclarationValues($normalized, $value, $options);
+		$value = $this->resolveDeclarationValue($normalized);
+		if ($value === null) {
+			return [];
 		}
-
-		$declaration = $this->style->getDeclarationsRaw()[$normalized] ?? null;
-		if ($declaration === null) {
+		if ($value === '' && $this->style->shouldExpandShorthandsInternal() && CSSShorthandRegistry::isShorthand($normalized)) {
 			return [];
 		}
 
-		return $this->parseAllDeclarationValues($normalized, $declaration['value'], $options);
+		return $this->parseAllDeclarationValues($normalized, $value, $options);
 	}
 
 	public function has(string $property): bool

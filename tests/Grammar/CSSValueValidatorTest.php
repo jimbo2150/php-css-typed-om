@@ -11,7 +11,6 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSFontFaceRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPropertyRule;
-use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStandardProperties;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleSheet;
@@ -31,7 +30,7 @@ final class CSSValueValidatorTest extends TestCase
 
 		$queue = [];
 		foreach ($properties as $prop) {
-			self::assertTrue(CSSStandardProperties::isKnown($prop));
+			self::assertTrue(CSSPropertyGrammarRegistry::isKnown($prop));
 			$ast = CSSPropertyGrammarRegistry::getPropertyGrammar($prop);
 			self::assertNotNull($ast, "Failed to compile grammar for {$prop}");
 			$queue[] = $ast;

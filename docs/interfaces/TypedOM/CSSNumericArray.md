@@ -8,7 +8,7 @@
 
 ### Properties
 
-`values` is a public `list<CSSNumericValue>` property (protected-set through `MultiValueArrayTrait`); `length` is the public read-only `?int` count from `LengthTrait`.
+`values` is a public `list<CSSNumericValue>` property with protected write access; `length` is a read-only `int` property hook returning `count($this->values)`.
 
 | Method | Signature and behavior |
 |---|---|

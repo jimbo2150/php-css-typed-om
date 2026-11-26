@@ -19,6 +19,13 @@ use PHPUnit\Framework\TestCase;
 
 final class CSSMathSimplifierTest extends TestCase
 {
+	private static function assertUnitValue(CSSNumericValue $value): CSSUnitValue
+	{
+		self::assertInstanceOf(CSSUnitValue::class, $value);
+
+		return $value;
+	}
+
 	public function testBareRootLiteralsAreNotSimplifiedAtParseTime(): void
 	{
 		$bare = CSSNumericValue::parse('1in');
@@ -123,11 +130,11 @@ final class CSSMathSimplifierTest extends TestCase
 	public function testTrigExpAndSignFunctionsFolding(): void
 	{
 		// Exact quadrant trigonometry
-		self::assertSame(0.0, CSSNumericValue::parse('sin(180deg)')->value);
-		self::assertSame(1.0, CSSNumericValue::parse('sin(0.25turn)')->value);
-		self::assertSame(0.0, CSSNumericValue::parse('cos(100grad)')->value);
-		self::assertSame(-1.0, CSSNumericValue::parse('cos(0.5turn)')->value);
-		self::assertSame(1.0, CSSNumericValue::parse('tan(45deg)')->value);
+		self::assertSame(0.0, self::assertUnitValue(CSSNumericValue::parse('sin(180deg)'))->value);
+		self::assertSame(1.0, self::assertUnitValue(CSSNumericValue::parse('sin(0.25turn)'))->value);
+		self::assertSame(0.0, self::assertUnitValue(CSSNumericValue::parse('cos(100grad)'))->value);
+		self::assertSame(-1.0, self::assertUnitValue(CSSNumericValue::parse('cos(0.5turn)'))->value);
+		self::assertSame(1.0, self::assertUnitValue(CSSNumericValue::parse('tan(45deg)'))->value);
 		$tan90 = CSSNumericValue::parse('tan(90deg)');
 		self::assertInstanceOf(CSSMathConstant::class, $tan90);
 		self::assertSame(CSSMathConstantEnum::INFINITY, $tan90->constant);
@@ -145,34 +152,34 @@ final class CSSMathSimplifierTest extends TestCase
 		self::assertSame(CSSMathConstantEnum::NAN, $sinInf->constant);
 
 		// Inverse trig -> deg
-		self::assertEqualsWithDelta(90.0, CSSNumericValue::parse('asin(1)')->value, 1e-12);
-		self::assertEqualsWithDelta(180.0, CSSNumericValue::parse('acos(-1)')->value, 1e-12);
+		self::assertEqualsWithDelta(90.0, self::assertUnitValue(CSSNumericValue::parse('asin(1)'))->value, 1e-12);
+		self::assertEqualsWithDelta(180.0, self::assertUnitValue(CSSNumericValue::parse('acos(-1)'))->value, 1e-12);
 		$asinOut = CSSNumericValue::parse('asin(2)');
 		self::assertSame('calc(NaN * 1deg)', (string) $asinOut);
 		self::assertSame(1, $asinOut->type->angle);
-		self::assertEqualsWithDelta(90.0, CSSNumericValue::parse('atan(infinity)')->value, 1e-12);
-		self::assertEqualsWithDelta(-90.0, CSSNumericValue::parse('atan(-infinity)')->value, 1e-12);
-		self::assertEqualsWithDelta(45.0, CSSNumericValue::parse('atan2(1in, 96px)')->value, 1e-12);
+		self::assertEqualsWithDelta(90.0, self::assertUnitValue(CSSNumericValue::parse('atan(infinity)'))->value, 1e-12);
+		self::assertEqualsWithDelta(-90.0, self::assertUnitValue(CSSNumericValue::parse('atan(-infinity)'))->value, 1e-12);
+		self::assertEqualsWithDelta(45.0, self::assertUnitValue(CSSNumericValue::parse('atan2(1in, 96px)'))->value, 1e-12);
 
 		// Exponential & logarithmic
-		self::assertSame(8.0, CSSNumericValue::parse('pow(2, 3)')->value);
-		self::assertSame(1.0, CSSNumericValue::parse('pow(NaN, 0)')->value);
-		self::assertSame(1.0, CSSNumericValue::parse('pow(-1, infinity)')->value);
+		self::assertSame(8.0, self::assertUnitValue(CSSNumericValue::parse('pow(2, 3)'))->value);
+		self::assertSame(1.0, self::assertUnitValue(CSSNumericValue::parse('pow(NaN, 0)'))->value);
+		self::assertSame(1.0, self::assertUnitValue(CSSNumericValue::parse('pow(-1, infinity)'))->value);
 		$powNaN = CSSNumericValue::parse('pow(-2, 0.5)');
 		self::assertInstanceOf(CSSMathConstant::class, $powNaN);
 		self::assertSame(CSSMathConstantEnum::NAN, $powNaN->constant);
-		self::assertSame(5.0, CSSNumericValue::parse('sqrt(25)')->value);
+		self::assertSame(5.0, self::assertUnitValue(CSSNumericValue::parse('sqrt(25)'))->value);
 		$sqrtNaN = CSSNumericValue::parse('sqrt(-1)');
 		self::assertInstanceOf(CSSMathConstant::class, $sqrtNaN);
 		self::assertSame(CSSMathConstantEnum::NAN, $sqrtNaN->constant);
-		self::assertSame(5.0, CSSNumericValue::parse('hypot(3, 4)')->value);
+		self::assertSame(5.0, self::assertUnitValue(CSSNumericValue::parse('hypot(3, 4)'))->value);
 		self::assertSame('5px', (string) CSSNumericValue::parse('hypot(3px, 4px)'));
 		self::assertSame('calc(infinity * 1px)', (string) CSSNumericValue::parse('hypot(NaN * 1px, infinity * 1px)'));
 		$hypotLarge = CSSNumericValue::parse('hypot(3e299, 4e299)');
 		self::assertInstanceOf(CSSUnitValue::class, $hypotLarge);
 		self::assertEqualsWithDelta(5e299, $hypotLarge->value, 1e290);
-		self::assertEqualsWithDelta(1.0, CSSNumericValue::parse('log(e)')->value, 1e-12);
-		self::assertEqualsWithDelta(3.0, CSSNumericValue::parse('log(8, 2)')->value, 1e-12);
+		self::assertEqualsWithDelta(1.0, self::assertUnitValue(CSSNumericValue::parse('log(e)'))->value, 1e-12);
+		self::assertEqualsWithDelta(3.0, self::assertUnitValue(CSSNumericValue::parse('log(8, 2)'))->value, 1e-12);
 		$logInf = CSSNumericValue::parse('log(10, 1)');
 		self::assertInstanceOf(CSSMathConstant::class, $logInf);
 		self::assertSame(CSSMathConstantEnum::INFINITY, $logInf->constant);
@@ -182,14 +189,14 @@ final class CSSMathSimplifierTest extends TestCase
 		$logNaN = CSSNumericValue::parse('log(1, 1)');
 		self::assertInstanceOf(CSSMathConstant::class, $logNaN);
 		self::assertSame(CSSMathConstantEnum::NAN, $logNaN->constant);
-		self::assertEqualsWithDelta(M_E, CSSNumericValue::parse('exp(1)')->value, 1e-12);
-		self::assertSame(0.0, CSSNumericValue::parse('exp(-infinity)')->value);
+		self::assertEqualsWithDelta(M_E, self::assertUnitValue(CSSNumericValue::parse('exp(1)'))->value, 1e-12);
+		self::assertSame(0.0, self::assertUnitValue(CSSNumericValue::parse('exp(-infinity)'))->value);
 
 		// Sign & abs
 		self::assertSame('12px', (string) CSSNumericValue::parse('abs(-12px)'));
-		self::assertSame(-1.0, CSSNumericValue::parse('sign(-12px)')->value);
-		self::assertSame(0.0, CSSNumericValue::parse('sign(0deg)')->value);
-		self::assertSame(1.0, CSSNumericValue::parse('sign(2s)')->value);
+		self::assertSame(-1.0, self::assertUnitValue(CSSNumericValue::parse('sign(-12px)'))->value);
+		self::assertSame(0.0, self::assertUnitValue(CSSNumericValue::parse('sign(0deg)'))->value);
+		self::assertSame(1.0, self::assertUnitValue(CSSNumericValue::parse('sign(2s)'))->value);
 		// Relative length and percentage sign() are preserved without context
 		self::assertInstanceOf(CSSMathFunction::class, CSSNumericValue::parse('sign(2em)'));
 		self::assertInstanceOf(CSSMathFunction::class, CSSNumericValue::parse('sign(-10%)'));
@@ -262,9 +269,9 @@ final class CSSMathSimplifierTest extends TestCase
 		self::assertInstanceOf(CSSMathConstant::class, $powZeroNeg);
 		self::assertSame(CSSMathConstantEnum::INFINITY, $powZeroNeg->constant);
 
-		self::assertEqualsWithDelta(-135.0, CSSNumericValue::parse('atan2(-1px, -1px)')->value, 1e-12);
-		self::assertEqualsWithDelta(0.0, CSSNumericValue::parse('atan2(0px, 1px)')->value, 1e-12);
-		self::assertEqualsWithDelta(45.0, CSSNumericValue::parse('atan2(infinity * 1px, infinity * 1px)')->value, 1e-12);
+		self::assertEqualsWithDelta(-135.0, self::assertUnitValue(CSSNumericValue::parse('atan2(-1px, -1px)'))->value, 1e-12);
+		self::assertEqualsWithDelta(0.0, self::assertUnitValue(CSSNumericValue::parse('atan2(0px, 1px)'))->value, 1e-12);
+		self::assertEqualsWithDelta(45.0, self::assertUnitValue(CSSNumericValue::parse('atan2(infinity * 1px, infinity * 1px)'))->value, 1e-12);
 		self::assertSame('calc(NaN * 1deg)', (string) CSSNumericValue::parse('atan2(NaN * 1px, 1px)'));
 		self::assertSame('0', (string) CSSNumericValue::parse('hypot(0, 0)'));
 		self::assertSame('calc(NaN * 1px)', (string) CSSNumericValue::parse('hypot(NaN * 1px, 3px)'));
@@ -278,8 +285,8 @@ final class CSSMathSimplifierTest extends TestCase
 		self::assertSame('calc(infinity * 1px)', (string) $overflowIn);
 
 		// One-sided clampToRange() and invalid-bound validation
-		self::assertEqualsWithDelta(10.0, CSSMathConstant::infinity()->clampToRange(null, 10.0)->value, 1e-12);
-		self::assertEqualsWithDelta(-5.0, CSSMathConstant::negInfinity()->clampToRange(-5.0, null)->value, 1e-12);
+		self::assertEqualsWithDelta(10.0, self::assertUnitValue(CSSMathConstant::infinity()->clampToRange(null, 10.0))->value, 1e-12);
+		self::assertEqualsWithDelta(-5.0, self::assertUnitValue(CSSMathConstant::negInfinity()->clampToRange(-5.0, null))->value, 1e-12);
 		foreach ([
 			[NAN, 10.0],
 			[0.0, INF],

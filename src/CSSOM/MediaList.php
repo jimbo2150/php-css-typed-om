@@ -122,9 +122,14 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 
 	private function buildParserOptions(?int $maxBytes): CSSParserOptions
 	{
+		$maxDepth = $this->resolveMaxDepth();
+		if ($maxBytes === CSSParserOptions::DEFAULT_MAX_BYTES && $maxDepth === CSSParserOptions::DEFAULT_MAX_DEPTH) {
+			return CSSParserOptions::default();
+		}
+
 		return new CSSParserOptions(
 			maxBytes: $maxBytes,
-			maxDepth: $this->resolveMaxDepth(),
+			maxDepth: $maxDepth,
 		);
 	}
 

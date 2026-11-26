@@ -137,9 +137,11 @@ final class CSSMathFunctionTest extends TestCase
 		// toSum evaluates foldable CSSMathFunction terms
 		$sumWithAbs = new CSSMathSum([CSS::px(10), new CSSMathFunction('abs', CSS::em(-1))]);
 		$toSum = $sumWithAbs->toSum('px');
+		self::assertInstanceOf(CSSUnitValue::class, $toSum->values[0]);
 		self::assertSame(26.0, $toSum->values[0]->value);
 
 		$sinSum = (new CSSMathFunction('sin', CSS::deg(90)))->toSum('number');
+		self::assertInstanceOf(CSSUnitValue::class, $sinSum->values[0]);
 		self::assertEqualsWithDelta(1.0, $sinSum->values[0]->value, 1e-9);
 	}
 

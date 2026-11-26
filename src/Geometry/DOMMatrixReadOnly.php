@@ -309,10 +309,10 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 	public function transformPoint(DOMPointReadOnly|array $point = []): DOMPoint
 	{
 		if ($point instanceof DOMPointReadOnly) {
-			$x = self::assertFinite($point->getX(), 'point.x');
-			$y = self::assertFinite($point->getY(), 'point.y');
-			$z = self::assertFinite($point->getZ(), 'point.z');
-			$w = self::assertFinite($point->getW(), 'point.w');
+			$x = $point->getX();
+			$y = $point->getY();
+			$z = $point->getZ();
+			$w = $point->getW();
 		} else {
 			$x = self::assertFinite($point['x'] ?? 0.0, 'point.x');
 			$y = self::assertFinite($point['y'] ?? 0.0, 'point.y');
@@ -322,10 +322,10 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 		$m = $this->elements;
 
 		return new DOMPoint(
-			self::assertFinite($m[0] * $x + $m[4] * $y + $m[8] * $z + $m[12] * $w, 'transformedPoint.x'),
-			self::assertFinite($m[1] * $x + $m[5] * $y + $m[9] * $z + $m[13] * $w, 'transformedPoint.y'),
-			self::assertFinite($m[2] * $x + $m[6] * $y + $m[10] * $z + $m[14] * $w, 'transformedPoint.z'),
-			self::assertFinite($m[3] * $x + $m[7] * $y + $m[11] * $z + $m[15] * $w, 'transformedPoint.w'),
+			self::assertFiniteFloat($m[0] * $x + $m[4] * $y + $m[8] * $z + $m[12] * $w, 'transformedPoint.x'),
+			self::assertFiniteFloat($m[1] * $x + $m[5] * $y + $m[9] * $z + $m[13] * $w, 'transformedPoint.y'),
+			self::assertFiniteFloat($m[2] * $x + $m[6] * $y + $m[10] * $z + $m[14] * $w, 'transformedPoint.z'),
+			self::assertFiniteFloat($m[3] * $x + $m[7] * $y + $m[11] * $z + $m[15] * $w, 'transformedPoint.w'),
 		);
 	}
 
@@ -458,21 +458,31 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 		bool $rightIs2D = false,
 	): array {
 		if ($leftIs2D && $rightIs2D) {
+			$m11 = $left[0] * $right[0] + $left[4] * $right[1];
+			$m12 = $left[1] * $right[0] + $left[5] * $right[1];
+			$m21 = $left[0] * $right[4] + $left[4] * $right[5];
+			$m22 = $left[1] * $right[4] + $left[5] * $right[5];
+			$m41 = $left[0] * $right[12] + $left[4] * $right[13] + $left[12];
+			$m42 = $left[1] * $right[12] + $left[5] * $right[13] + $left[13];
+			if (!is_finite($m11) || !is_finite($m12) || !is_finite($m21) || !is_finite($m22) || !is_finite($m41) || !is_finite($m42)) {
+				throw new InvalidArgumentException('Matrix matrix product must be finite.');
+			}
+
 			return [
-				self::assertFinite($left[0] * $right[0] + $left[4] * $right[1], 'matrix product'),
-				self::assertFinite($left[1] * $right[0] + $left[5] * $right[1], 'matrix product'),
+				$m11 === 0.0 ? 0.0 : $m11,
+				$m12 === 0.0 ? 0.0 : $m12,
 				0.0,
 				0.0,
-				self::assertFinite($left[0] * $right[4] + $left[4] * $right[5], 'matrix product'),
-				self::assertFinite($left[1] * $right[4] + $left[5] * $right[5], 'matrix product'),
+				$m21 === 0.0 ? 0.0 : $m21,
+				$m22 === 0.0 ? 0.0 : $m22,
 				0.0,
 				0.0,
 				0.0,
 				0.0,
 				1.0,
 				0.0,
-				self::assertFinite($left[0] * $right[12] + $left[4] * $right[13] + $left[12], 'matrix product'),
-				self::assertFinite($left[1] * $right[12] + $left[5] * $right[13] + $left[13], 'matrix product'),
+				$m41 === 0.0 ? 0.0 : $m41,
+				$m42 === 0.0 ? 0.0 : $m42,
 				0.0,
 				1.0,
 			];
@@ -490,7 +500,10 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 					+ $left[4 + $row] * $r1
 					+ $left[8 + $row] * $r2
 					+ $left[12 + $row] * $r3;
-				$result[$colBase + $row] = self::assertFinite($sum, 'matrix product');
+				if (!is_finite($sum)) {
+					throw new InvalidArgumentException('Matrix matrix product must be finite.');
+				}
+				$result[$colBase + $row] = $sum === 0.0 ? 0.0 : $sum;
 			}
 		}
 
@@ -513,9 +526,19 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 	}
 
 	/** @internal */
+	public static function assertFiniteFloat(float $value, string $label): float
+	{
+		if (!is_finite($value)) {
+			throw new InvalidArgumentException(sprintf('Matrix %s must be finite.', $label));
+		}
+
+		return $value === 0.0 ? 0.0 : $value;
+	}
+
+	/** @internal */
 	public static function assertFiniteInternal(mixed $value, string $label): float
 	{
-		return self::assertFinite($value, $label);
+		return is_float($value) ? self::assertFiniteFloat($value, $label) : self::assertFinite($value, $label);
 	}
 
 	protected static function assertFinite(mixed $value, string $label): float

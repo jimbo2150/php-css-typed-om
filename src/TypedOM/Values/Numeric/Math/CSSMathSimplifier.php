@@ -25,40 +25,6 @@ final class CSSMathSimplifier
 {
 	private const int MAX_TREE_DEPTH = 512;
 
-	/** @var array<string, float> */
-	private const array ABSOLUTE_LENGTH_TO_PX = [
-		'px' => 1.0,
-		'in' => 96.0,
-		'cm' => 96.0 / 2.54,
-		'mm' => 96.0 / 25.4,
-		'q' => 96.0 / 101.6,
-		'pt' => 96.0 / 72.0,
-		'pc' => 16.0,
-	];
-
-	/** @var array<string, array{CSSUnitEnum, float}> */
-	private const array CANONICAL_CONVERSIONS = [
-		'rad' => [CSSUnitEnum::ANGLE_deg, 180.0 / M_PI],
-		'grad' => [CSSUnitEnum::ANGLE_deg, 0.9],
-		'turn' => [CSSUnitEnum::ANGLE_deg, 360.0],
-		'ms' => [CSSUnitEnum::TIME_s, 0.001],
-		'khz' => [CSSUnitEnum::FREQ_Hz, 1000.0],
-		'dpi' => [CSSUnitEnum::RES_dppx, 1.0 / 96.0],
-		'dpcm' => [CSSUnitEnum::RES_dppx, 2.54 / 96.0],
-		'x' => [CSSUnitEnum::RES_dppx, 1.0],
-	];
-
-	/** @var array<string, CSSUnitEnum> */
-	private const array DIMENSION_TO_CANONICAL_UNIT = [
-		'length' => CSSUnitEnum::LENGTH_px,
-		'angle' => CSSUnitEnum::ANGLE_deg,
-		'time' => CSSUnitEnum::TIME_s,
-		'frequency' => CSSUnitEnum::FREQ_Hz,
-		'resolution' => CSSUnitEnum::RES_dppx,
-		'flex' => CSSUnitEnum::FLEX_fr,
-		'percent' => CSSUnitEnum::PERCENT,
-	];
-
 	/**
 	 * Simplifies a CSS numeric value / calculation tree per CSS Values Level 4 §10.10.
 	 */
@@ -186,7 +152,7 @@ final class CSSMathSimplifier
 
 		// Only collapse single-unit degenerate products (e.g. `calc(infinity * 1px)` / `calc(NaN * 1px)`)
 		// with no percentHint; compound/inverted/percentHint degenerates retain their full CSSNumericType.
-		if ($simplified instanceof CSSMathProduct && $simplified->getNumericTypeInternal()->percentHint === null) {
+		if ($simplified instanceof CSSMathProduct && $simplified->getNumericTypeInternal()->getPercentHintInternal() === null) {
 			$factors = $simplified->values->values;
 			if (count($factors) === 2
 				&& $factors[0] instanceof CSSMathConstant
@@ -253,39 +219,38 @@ final class CSSMathSimplifier
 			return $unitValue;
 		}
 
-		$lower = strtolower($unitObj->toString());
-		if (isset(self::ABSOLUTE_LENGTH_TO_PX[$lower])) {
-			$scaled = $unitValue->value * self::ABSOLUTE_LENGTH_TO_PX[$lower];
-			if (!is_finite($scaled)) {
-				return self::buildDegenerate($scaled, CSSNumericType::fromValidatedDimensions(['length' => 1]), $allocated);
-			}
-			self::countAllocation($allocated);
-
-			return new CSSUnitValue($scaled, CSSUnitEnum::LENGTH_px);
+		switch ($unitObj) {
+			case CSSUnitEnum::NUMBER:
+			case CSSUnitEnum::PERCENT:
+			case CSSUnitEnum::LENGTH_px:
+			case CSSUnitEnum::ANGLE_deg:
+			case CSSUnitEnum::TIME_s:
+			case CSSUnitEnum::FREQ_Hz:
+			case CSSUnitEnum::RES_dppx:
+			case CSSUnitEnum::FLEX_fr:
+				return $unitValue;
 		}
 
-		if ($context !== null && $unitObj->type() === CSSUnitTypeEnum::LENGTH) {
-			$scaled = $unitValue->value * $context->getToPxFactor($lower);
-			if (!is_finite($scaled)) {
-				return self::buildDegenerate($scaled, CSSNumericType::fromValidatedDimensions(['length' => 1]), $allocated);
-			}
-			self::countAllocation($allocated);
-
-			return new CSSUnitValue($scaled, CSSUnitEnum::LENGTH_px);
-		}
-
-		if (isset(self::CANONICAL_CONVERSIONS[$lower])) {
-			[$targetUnit, $factor] = self::CANONICAL_CONVERSIONS[$lower];
+		$canonical = $unitObj->toCanonicalUnitAndFactor();
+		if ($canonical !== null) {
+			[$targetUnit, $factor] = $canonical;
 			$scaled = $unitValue->value * $factor;
 			if (!is_finite($scaled)) {
-				$category = $targetUnit->type()?->value;
-				$type = CSSNumericType::fromValidatedDimensions($category !== null ? [$category => 1] : []);
-
-				return self::buildDegenerate($scaled, $type, $allocated);
+				return self::buildDegenerate($scaled, CSSNumericValue::baseTypeForUnitCategoryInternal($targetUnit->type()?->value), $allocated);
 			}
 			self::countAllocation($allocated);
 
 			return new CSSUnitValue($scaled, $targetUnit);
+		}
+
+		if ($context !== null && $unitObj->type() === CSSUnitTypeEnum::LENGTH) {
+			$scaled = $unitValue->value * $context->getToPxFactor($unitObj->toString());
+			if (!is_finite($scaled)) {
+				return self::buildDegenerate($scaled, CSSNumericValue::baseTypeForUnitCategoryInternal('length'), $allocated);
+			}
+			self::countAllocation($allocated);
+
+			return new CSSUnitValue($scaled, CSSUnitEnum::LENGTH_px);
 		}
 
 		return $unitValue;
@@ -326,8 +291,15 @@ final class CSSMathSimplifier
 		return $node;
 	}
 
-	private static function simplifyNegate(CSSNumericValue $child, int &$visits, int &$allocated): CSSNumericValue
+	private static function simplifyNegateLeafOrFlat(CSSNumericValue $child, int &$visits, int &$allocated): CSSNumericValue
 	{
+		while ($child instanceof CSSMathNegate) {
+			$inner = $child->values->values[0] ?? null;
+			if ($inner === null) {
+				break;
+			}
+			$child = $inner;
+		}
 		if ($child instanceof CSSUnitValue) {
 			self::countAllocation($allocated);
 
@@ -344,24 +316,18 @@ final class CSSMathSimplifier
 				CSSMathConstantEnum::PI => new CSSUnitValue(-M_PI, CSSUnitEnum::NUMBER),
 			};
 		}
-		if ($child instanceof CSSMathNegate) {
-			return $child->values->values[0];
-		}
-		if ($child instanceof CSSMathSum) {
-			$negated = [];
-			foreach ($child->values->values as $term) {
-				self::countVisit($visits);
-				$negated[] = self::simplifyNegate($term, $visits, $allocated);
-			}
-
-			return self::simplifySum($negated, $child->getNumericTypeInternal(), $visits, $allocated);
-		}
 		if ($child instanceof CSSMathProduct) {
 			$factors = $child->values->values;
 			if ($factors !== [] && $factors[0] instanceof CSSMathConstant) {
 				self::countVisit($visits);
-				$negFirst = self::simplifyNegate($factors[0], $visits, $allocated);
-				$factors[0] = $negFirst;
+				self::countAllocation($allocated);
+				$factors[0] = match ($factors[0]->constant) {
+					CSSMathConstantEnum::INFINITY => CSSMathConstant::negInfinity(),
+					CSSMathConstantEnum::NEG_INFINITY => CSSMathConstant::infinity(),
+					CSSMathConstantEnum::NAN => CSSMathConstant::nan(),
+					CSSMathConstantEnum::E => new CSSUnitValue(-M_E, CSSUnitEnum::NUMBER),
+					CSSMathConstantEnum::PI => new CSSUnitValue(-M_PI, CSSUnitEnum::NUMBER),
+				};
 
 				return self::simplifyProduct($factors, $child->getNumericTypeInternal(), $visits, $allocated);
 			}
@@ -372,8 +338,39 @@ final class CSSMathSimplifier
 		return new CSSMathNegate([$child]);
 	}
 
-	private static function simplifyInvert(CSSNumericValue $child, int &$visits, int &$allocated): CSSNumericValue
+	private static function simplifyNegate(CSSNumericValue $child, int &$visits, int &$allocated): CSSNumericValue
 	{
+		if ($child instanceof CSSMathSum) {
+			$negated = [];
+			$work = array_reverse($child->values->values);
+			while ($work !== []) {
+				$term = array_pop($work);
+				self::countVisit($visits);
+				if ($term instanceof CSSMathSum) {
+					$nested = $term->values->values;
+					for ($i = count($nested) - 1; $i >= 0; $i--) {
+						$work[] = $nested[$i];
+					}
+					continue;
+				}
+				$negated[] = self::simplifyNegateLeafOrFlat($term, $visits, $allocated);
+			}
+
+			return self::simplifySum($negated, $child->getNumericTypeInternal(), $visits, $allocated);
+		}
+
+		return self::simplifyNegateLeafOrFlat($child, $visits, $allocated);
+	}
+
+	private static function simplifyInvertFactor(CSSNumericValue $child, int &$allocated): CSSNumericValue
+	{
+		while ($child instanceof CSSMathInvert) {
+			$inner = $child->values->values[0] ?? null;
+			if ($inner === null) {
+				break;
+			}
+			$child = $inner;
+		}
 		if ($child instanceof CSSUnitValue && $child->getUnitObjInternal() === CSSUnitEnum::NUMBER) {
 			$inv = fdiv(1.0, $child->value);
 
@@ -384,22 +381,34 @@ final class CSSMathSimplifier
 
 			return self::boxNumber($inv, $allocated);
 		}
-		if ($child instanceof CSSMathInvert) {
-			return $child->values->values[0];
-		}
+
+		self::countAllocation($allocated);
+
+		return new CSSMathInvert([$child]);
+	}
+
+	private static function simplifyInvert(CSSNumericValue $child, int &$visits, int &$allocated): CSSNumericValue
+	{
 		if ($child instanceof CSSMathProduct) {
 			$invertedFactors = [];
-			foreach ($child->values->values as $factor) {
+			$work = array_reverse($child->values->values);
+			while ($work !== []) {
+				$factor = array_pop($work);
 				self::countVisit($visits);
-				$invertedFactors[] = self::simplifyInvert($factor, $visits, $allocated);
+				if ($factor instanceof CSSMathProduct) {
+					$nested = $factor->values->values;
+					for ($i = count($nested) - 1; $i >= 0; $i--) {
+						$work[] = $nested[$i];
+					}
+					continue;
+				}
+				$invertedFactors[] = self::simplifyInvertFactor($factor, $allocated);
 			}
 
 			return self::simplifyProduct($invertedFactors, $child->getNumericTypeInternal()->invert(), $visits, $allocated);
 		}
 
-		self::countAllocation($allocated);
-
-		return new CSSMathInvert([$child]);
+		return self::simplifyInvertFactor($child, $allocated);
 	}
 
 	/**
@@ -407,15 +416,26 @@ final class CSSMathSimplifier
 	 */
 	private static function simplifySum(array $children, CSSNumericType $origType, int &$visits, int &$allocated): CSSNumericValue
 	{
-		$flat = [];
+		$needsFlatten = false;
 		foreach ($children as $child) {
 			if ($child instanceof CSSMathSum) {
-				foreach ($child->values->values as $nested) {
-					$flat[] = $nested;
-				}
-			} else {
-				$flat[] = $child;
+				$needsFlatten = true;
+				break;
 			}
+		}
+		if ($needsFlatten) {
+			$flat = [];
+			foreach ($children as $child) {
+				if ($child instanceof CSSMathSum) {
+					foreach ($child->values->values as $nested) {
+						$flat[] = $nested;
+					}
+				} else {
+					$flat[] = $child;
+				}
+			}
+		} else {
+			$flat = $children;
 		}
 
 		/** @var array<string, array{unit: CSSUnitEnum, sum: float}> $unitBuckets */
@@ -491,31 +511,25 @@ final class CSSMathSimplifier
 			$nonLeafTerms = [$infTerm, ...$nonLeafTerms];
 		}
 
-		/** @var list<CSSUnitValue> $combinedLeaves */
-		$combinedLeaves = [];
-		foreach ($unitBuckets as $bucket) {
-			self::countAllocation($allocated);
-			$combinedLeaves[] = new CSSUnitValue($bucket['sum'], $bucket['unit']);
-		}
-
-		// Drop redundant 0 leaves only when remaining terms exist and preserve the exact CSSNumericType (including percentHint).
-		$totalRemaining = count($combinedLeaves) + count($nonLeafTerms);
+		// Drop redundant 0 buckets before allocating CSSUnitValue nodes while preserving exact CSSNumericType (including percentHint).
+		$totalRemaining = count($unitBuckets) + count($nonLeafTerms);
 		if ($totalRemaining > 1) {
-			$hasPercentHint = $origType->percentHint !== null;
+			$hasPercentHint = $origType->getPercentHintInternal() !== null;
 			$hintedCount = 0;
 			$purePercentCount = 0;
 			$pureBaseCount = 0;
 			if ($hasPercentHint) {
-				foreach ($combinedLeaves as $term) {
-					if ($term->getUnitObjInternal() === CSSUnitEnum::PERCENT) {
+				foreach ($unitBuckets as $bucket) {
+					if ($bucket['unit'] === CSSUnitEnum::PERCENT) {
 						$purePercentCount++;
 					} else {
 						$pureBaseCount++;
 					}
 				}
 				foreach ($nonLeafTerms as $term) {
-					$termDims = $term->getNumericTypeInternal()->toArray();
-					if (isset($termDims['percentHint'])) {
+					$termType = $term->getNumericTypeInternal();
+					$termDims = $termType->toArray();
+					if ($termType->getPercentHintInternal() !== null) {
 						$hintedCount++;
 					} elseif (((int) ($termDims['percent'] ?? 0)) !== 0) {
 						$purePercentCount++;
@@ -525,35 +539,49 @@ final class CSSMathSimplifier
 				}
 			}
 
-			$keptLeaves = [];
-			foreach ($combinedLeaves as $leaf) {
-				if ($leaf->value !== 0.0 || $totalRemaining <= 1) {
-					$keptLeaves[] = $leaf;
+			foreach ($unitBuckets as $key => $bucket) {
+				if ($bucket['sum'] !== 0.0 || $totalRemaining <= 1) {
 					continue;
 				}
 				if (!$hasPercentHint) {
+					unset($unitBuckets[$key]);
 					$totalRemaining--;
 					continue;
 				}
-				if ($leaf->getUnitObjInternal() === CSSUnitEnum::PERCENT) {
+				if ($bucket['unit'] === CSSUnitEnum::PERCENT) {
 					if ($hintedCount > 0 || $purePercentCount > 1) {
+						unset($unitBuckets[$key]);
 						$purePercentCount--;
 						$totalRemaining--;
-						continue;
 					}
 				} elseif ($hintedCount > 0 || $pureBaseCount > 1) {
+					unset($unitBuckets[$key]);
 					$pureBaseCount--;
 					$totalRemaining--;
-					continue;
 				}
-				$keptLeaves[] = $leaf;
 			}
-			$combinedLeaves = $keptLeaves;
 		}
 
-		$allTerms = [...$combinedLeaves, ...$nonLeafTerms];
+		/** @var list<CSSNumericValue> $allTerms */
+		$allTerms = [];
+		foreach ($unitBuckets as $bucket) {
+			self::countAllocation($allocated);
+			$allTerms[] = new CSSUnitValue($bucket['sum'], $bucket['unit']);
+		}
+		foreach ($nonLeafTerms as $term) {
+			$allTerms[] = $term;
+		}
+
 		if ($allTerms === []) {
 			return self::buildZeroForType($origType, $allocated);
+		}
+		if (count($allTerms) === 1) {
+			if ($allTerms[0]->getNumericTypeInternal()->equals($origType)) {
+				return $allTerms[0];
+			}
+			self::countAllocation($allocated);
+
+			return CSSMathSum::fromValidated($allTerms, $origType);
 		}
 
 		// Canonical §10.10.2 sort: number -> percentage -> dimensions ASCII case-insensitively -> non-leaf nodes (stable).
@@ -577,18 +605,16 @@ final class CSSMathSimplifier
 			}
 			$indexed[] = [$tier, $key, $idx, $term];
 		}
-		usort($indexed, static function (array $a, array $b): int {
-			return ($a[0] <=> $b[0]) ?: strcmp($a[1], $b[1]) ?: ($a[2] <=> $b[2]);
-		});
-
-		$sorted = array_column($indexed, 3);
-		if (count($sorted) === 1 && $sorted[0]->getNumericTypeInternal()->equals($origType)) {
-			return $sorted[0];
+		if (count($indexed) > 1) {
+			usort($indexed, static function (array $a, array $b): int {
+				return ($a[0] <=> $b[0]) ?: strcmp($a[1], $b[1]) ?: ($a[2] <=> $b[2]);
+			});
 		}
 
+		$sorted = array_column($indexed, 3);
 		self::countAllocation($allocated);
 
-		return CSSMathSum::fromValidated($sorted, clone $origType);
+		return CSSMathSum::fromValidated($sorted, $origType);
 	}
 
 	/**
@@ -596,15 +622,26 @@ final class CSSMathSimplifier
 	 */
 	private static function simplifyProduct(array $children, CSSNumericType $origType, int &$visits, int &$allocated): CSSNumericValue
 	{
-		$flat = [];
+		$needsFlatten = false;
 		foreach ($children as $child) {
 			if ($child instanceof CSSMathProduct) {
-				foreach ($child->values->values as $nested) {
-					$flat[] = $nested;
-				}
-			} else {
-				$flat[] = $child;
+				$needsFlatten = true;
+				break;
 			}
+		}
+		if ($needsFlatten) {
+			$flat = [];
+			foreach ($children as $child) {
+				if ($child instanceof CSSMathProduct) {
+					foreach ($child->values->values as $nested) {
+						$flat[] = $nested;
+					}
+				} else {
+					$flat[] = $child;
+				}
+			}
+		} else {
+			$flat = $children;
 		}
 
 		$k = 1.0;
@@ -688,13 +725,11 @@ final class CSSMathSimplifier
 		if (is_nan($k)) {
 			return self::buildDegenerate(NAN, $origType, $allocated);
 		}
-		if (is_infinite($k)) {
-			if ($complexFactors === []) {
-				return self::buildDegenerate($k, $origType, $allocated);
-			}
+		if (is_infinite($k) && $complexFactors === []) {
+			return self::buildDegenerate($k, $origType, $allocated);
 		}
 
-		// Distribute finite scalar multiplier into a single CSSMathSum factor (never distribute sum * sum).
+		// Distribute finite scalar multiplier into a single CSSMathSum factor iteratively (never distribute sum * sum).
 		if (is_finite($k)
 			&& $directUnits === []
 			&& $invertedUnits === []
@@ -705,15 +740,68 @@ final class CSSMathSimplifier
 			if ($k === 1.0 && $sum->getNumericTypeInternal()->equals($origType)) {
 				return $sum;
 			}
-			self::countAllocation($allocated);
-			$scalarNode = new CSSUnitValue($k, CSSUnitEnum::NUMBER);
 			$distributed = [];
 			foreach ($sum->values->values as $sumTerm) {
 				self::countVisit($visits);
-				$distributed[] = self::simplifyProduct([$scalarNode, $sumTerm], $sumTerm->getNumericTypeInternal(), $visits, $allocated);
+				$termType = $sumTerm->getNumericTypeInternal();
+				$termK = $k;
+				$termDirect = [];
+				$termInverted = [];
+				$termComplex = [];
+				$termFactors = $sumTerm instanceof CSSMathProduct ? $sumTerm->values->values : [$sumTerm];
+				foreach ($termFactors as $tf) {
+					if ($tf instanceof CSSUnitValue) {
+						$u = $tf->getUnitObjInternal() ?? CSSUnitEnum::NUMBER;
+						$termK *= $tf->value;
+						if ($u !== CSSUnitEnum::NUMBER) {
+							$termDirect[] = $u;
+						}
+					} elseif ($tf instanceof CSSMathConstant) {
+						$termK *= $tf->getFloatValue();
+					} elseif ($tf instanceof CSSMathInvert) {
+						$inner = $tf->values->values[0] ?? null;
+						if ($inner instanceof CSSUnitValue) {
+							$u = $inner->getUnitObjInternal() ?? CSSUnitEnum::NUMBER;
+							$termK = fdiv($termK, $inner->value);
+							if ($u !== CSSUnitEnum::NUMBER) {
+								$termInverted[] = $u;
+							}
+						} elseif ($inner instanceof CSSMathConstant) {
+							$termK = fdiv($termK, $inner->getFloatValue());
+						} else {
+							$termComplex[] = $tf;
+						}
+					} else {
+						$termComplex[] = $tf;
+					}
+				}
+				$distributed[] = self::reduceProductNormalized($termK, $termDirect, $termInverted, $termComplex, $termType, $allocated);
 			}
 
 			return self::simplifySum($distributed, $origType, $visits, $allocated);
+		}
+
+		return self::reduceProductNormalized($k, $directUnits, $invertedUnits, $complexFactors, $origType, $allocated);
+	}
+
+	/**
+	 * @param list<CSSUnitEnum> $directUnits
+	 * @param list<CSSUnitEnum> $invertedUnits
+	 * @param list<CSSNumericValue> $complexFactors
+	 */
+	private static function reduceProductNormalized(
+		float $k,
+		array $directUnits,
+		array $invertedUnits,
+		array $complexFactors,
+		CSSNumericType $origType,
+		int &$allocated,
+	): CSSNumericValue {
+		if (is_nan($k)) {
+			return self::buildDegenerate(NAN, $origType, $allocated);
+		}
+		if (is_infinite($k) && $complexFactors === []) {
+			return self::buildDegenerate($k, $origType, $allocated);
 		}
 
 		if (is_finite($k) && $complexFactors === [] && $invertedUnits === [] && $directUnits === []) {
@@ -726,10 +814,12 @@ final class CSSMathSimplifier
 
 		if (is_finite($k) && $complexFactors === [] && $invertedUnits === [] && count($directUnits) === 1) {
 			$singleUnit = $directUnits[0];
-			self::countAllocation($allocated);
-			$candidate = new CSSUnitValue($k, $singleUnit);
-			if ($candidate->getNumericTypeInternal()->equals($origType)) {
-				return $candidate;
+			if ($origType->getPercentHintInternal() === null
+				&& CSSNumericValue::baseTypeForUnitCategoryInternal($singleUnit->type()?->value)->equals($origType)
+			) {
+				self::countAllocation($allocated);
+
+				return new CSSUnitValue($k, $singleUnit);
 			}
 		}
 
@@ -753,7 +843,9 @@ final class CSSMathSimplifier
 				$dimUnits[] = $u;
 			}
 		}
-		usort($dimUnits, static fn (CSSUnitEnum $a, CSSUnitEnum $b): int => strcmp(strtolower($a->toString()), strtolower($b->toString())));
+		if (count($dimUnits) > 1) {
+			usort($dimUnits, static fn (CSSUnitEnum $a, CSSUnitEnum $b): int => strcmp(strtolower($a->toString()), strtolower($b->toString())));
+		}
 		foreach ([...$percentUnits, ...$dimUnits] as $u) {
 			self::countAllocation($allocated);
 			$ordered[] = new CSSUnitValue(1.0, $u);
@@ -768,7 +860,9 @@ final class CSSMathSimplifier
 				$invDims[] = $u;
 			}
 		}
-		usort($invDims, static fn (CSSUnitEnum $a, CSSUnitEnum $b): int => strcmp(strtolower($a->toString()), strtolower($b->toString())));
+		if (count($invDims) > 1) {
+			usort($invDims, static fn (CSSUnitEnum $a, CSSUnitEnum $b): int => strcmp(strtolower($a->toString()), strtolower($b->toString())));
+		}
 		foreach ([...$invPercent, ...$invDims] as $u) {
 			self::countAllocation($allocated);
 			self::countAllocation($allocated);
@@ -790,7 +884,7 @@ final class CSSMathSimplifier
 
 		self::countAllocation($allocated);
 
-		return CSSMathProduct::fromValidated($ordered, clone $origType);
+		return CSSMathProduct::fromValidated($ordered, $origType);
 	}
 
 	/**
@@ -834,8 +928,7 @@ final class CSSMathSimplifier
 		$resultArgs = [];
 		foreach ($unitBuckets as $bucket) {
 			if (is_infinite($bucket['value'])) {
-				$cat = $bucket['unit']->type()?->value;
-				$type = CSSNumericType::fromValidatedDimensions($cat !== null ? [$cat => 1] : []);
+				$type = CSSNumericValue::baseTypeForUnitCategoryInternal($bucket['unit']->type()?->value);
 				$resultArgs[] = self::buildDegenerate($bucket['value'], $type, $allocated);
 			} else {
 				self::countAllocation($allocated);
@@ -853,8 +946,8 @@ final class CSSMathSimplifier
 		self::countAllocation($allocated);
 
 		return $isMin
-			? CSSMathMin::fromValidated($resultArgs, clone $origType)
-			: CSSMathMax::fromValidated($resultArgs, clone $origType);
+			? CSSMathMin::fromValidated($resultArgs, $origType)
+			: CSSMathMax::fromValidated($resultArgs, $origType);
 	}
 
 	private static function simplifyClamp(
@@ -888,7 +981,7 @@ final class CSSMathSimplifier
 
 		self::countAllocation($allocated);
 
-		return new CSSMathClamp($minNode, $valNode, $maxNode);
+		return CSSMathClamp::fromValidated([$minNode, $valNode, $maxNode], $origType);
 	}
 
 	/**
@@ -1048,8 +1141,7 @@ final class CSSMathSimplifier
 				if ($sA !== null && $sA[1] !== null && $sA[1] !== CSSUnitEnum::PERCENT) {
 					$isFoldableUnit = $sA[1] === CSSUnitEnum::NUMBER
 						|| $sA[1]->type() !== CSSUnitTypeEnum::LENGTH
-						|| $sA[1] === CSSUnitEnum::LENGTH_px
-						|| isset(self::ABSOLUTE_LENGTH_TO_PX[strtolower($sA[1]->toString())])
+						|| $sA[1]->absoluteToPxFactor() !== null
 						|| $context !== null;
 					if ($isFoldableUnit) {
 						$v = $sA[0];
@@ -1282,7 +1374,7 @@ final class CSSMathSimplifier
 		if ($node instanceof CSSMathConstant) {
 			return [$node->getFloatValue(), CSSUnitEnum::NUMBER];
 		}
-		if ($node instanceof CSSMathProduct && $node->getNumericTypeInternal()->percentHint === null) {
+		if ($node instanceof CSSMathProduct && $node->getNumericTypeInternal()->getPercentHintInternal() === null) {
 			$factors = $node->values->values;
 			if (count($factors) === 2
 				&& $factors[0] instanceof CSSMathConstant
@@ -1331,7 +1423,7 @@ final class CSSMathSimplifier
 	{
 		self::countAllocation($allocated);
 
-		return CSSMathSum::fromValidated([$val], clone $origType);
+		return CSSMathSum::fromValidated([$val], $origType);
 	}
 
 	private static function buildZeroForType(CSSNumericType $origType, int &$allocated): CSSNumericValue
@@ -1350,7 +1442,7 @@ final class CSSMathSimplifier
 		}
 		if (count($nonZero) === 1 && reset($nonZero) === 1) {
 			$dimName = array_key_first($nonZero);
-			$unit = self::DIMENSION_TO_CANONICAL_UNIT[$dimName] ?? null;
+			$unit = CSSUnitEnum::canonicalUnitForDimension($dimName);
 			if ($unit !== null) {
 				self::countAllocation($allocated);
 				$uv = new CSSUnitValue(0.0, $unit);
@@ -1362,7 +1454,7 @@ final class CSSMathSimplifier
 
 		self::countAllocation($allocated);
 
-		return CSSMathProduct::fromValidated([new CSSUnitValue(0.0, CSSUnitEnum::NUMBER)], clone $origType);
+		return CSSMathProduct::fromValidated([new CSSUnitValue(0.0, CSSUnitEnum::NUMBER)], $origType);
 	}
 
 	/**
@@ -1390,7 +1482,7 @@ final class CSSMathSimplifier
 			if ($expInt === 0) {
 				continue;
 			}
-			$unit = self::DIMENSION_TO_CANONICAL_UNIT[$dim] ?? null;
+			$unit = CSSUnitEnum::canonicalUnitForDimension($dim);
 			if ($unit === null) {
 				continue;
 			}
@@ -1414,7 +1506,7 @@ final class CSSMathSimplifier
 			}
 		}
 
-		if ($unitFactors === [] && $type->percentHint === null) {
+		if ($unitFactors === [] && $type->getPercentHintInternal() === null) {
 			self::countAllocation($allocated);
 
 			return $const;
@@ -1423,7 +1515,7 @@ final class CSSMathSimplifier
 		self::countAllocation($allocated);
 		self::countAllocation($allocated);
 
-		return CSSMathProduct::fromValidated([$const, ...$unitFactors], clone $type);
+		return CSSMathProduct::fromValidated([$const, ...$unitFactors], $type);
 	}
 
 	private static function countVisit(int &$visits): void

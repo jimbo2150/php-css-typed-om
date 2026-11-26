@@ -79,6 +79,8 @@ class CSSCalcParserTest extends TestCase
 		$this->assertInstanceOf(CSSMathSum::class, $result);
 		/** @var CSSMathSum $result */
 		$this->assertEquals(2, $result->length);
+		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[0]);
+		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[1]);
 		$this->assertEquals('em', $result->inner_values[0]->unit);
 		$this->assertEquals('px', $result->inner_values[1]->unit);
 		$this->assertEquals('calc(5em + 10px)', (string) $result);
@@ -188,6 +190,8 @@ class CSSCalcParserTest extends TestCase
 		$this->assertInstanceOf(CSSMathSum::class, $result);
 		/** @var CSSMathSum $result */
 		$this->assertEquals(2, $result->length);
+		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[0]);
+		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[1]);
 		$this->assertEquals(10, $result->inner_values[0]->value);
 		$this->assertEquals('em', $result->inner_values[0]->unit);
 		$this->assertEquals(17, $result->inner_values[1]->value);

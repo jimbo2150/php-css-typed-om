@@ -807,11 +807,25 @@ final class CSSPropertyGrammarRegistry
 		'zoom' => ['normal' => true, 'reset' => true],
 	];
 
+	private const int MAX_CUSTOM_GRAMMAR_CACHE = 512;
+
+	/** @var array<string, CSSGrammarNode> Permanent deduplicated compiled ASTs keyed by `(caseSensitive:grammar)` */
+	private static array $compiledByGrammar = [];
+
+	/** @var array<string, CSSGrammarNode> Bounded cache for custom syntaxes / ad-hoc shorthand grammars */
+	private static array $compiledCustomGrammars = [];
+
 	/** @var array<string, CSSGrammarNode> */
 	private static array $compiledProperties = [];
 
-	/** @var array<string, CSSGrammarNode> */
+	/** @var array<string, ?CSSGrammarNode> */
 	private static array $compiledNonTerminals = [];
+
+	/** @var ?array<string, array<string, true>> Lazily derived pure-keyword properties from PROPERTIES */
+	private static ?array $pureKeywordProperties = null;
+
+	/** @var ?array<string, true> Lazily derived pure-<color> properties from PROPERTIES */
+	private static ?array $pureColorProperties = null;
 
 	public static function isKnown(string $normalizedLowerProperty): bool
 	{
@@ -840,26 +854,121 @@ final class CSSPropertyGrammarRegistry
 		return isset(self::FAST_KEYWORDS[$normalizedLowerProperty][$lowerValue]);
 	}
 
-	public static function getPropertyGrammar(string $normalizedLowerProperty): ?CSSGrammarNode
+	/**
+	 * Returns the complete allowed keyword set (`array<string, true>`) when `$normalizedLowerProperty`
+	 * accepts exclusively keywords (allowing O(1) positive and negative fast-path checks), or `null`.
+	 *
+	 * @return ?array<string, true>
+	 */
+	public static function getPureKeywordSet(string $normalizedLowerProperty): ?array
 	{
-		if (isset(self::PROPERTIES[$normalizedLowerProperty])) {
-			return self::$compiledProperties[$normalizedLowerProperty] ??= CSSGrammarParser::parse(self::PROPERTIES[$normalizedLowerProperty]);
+		if (self::$pureKeywordProperties === null) {
+			self::initDerivedFastTables();
 		}
 
-		return null;
+		return self::$pureKeywordProperties[$normalizedLowerProperty] ?? null;
+	}
+
+	public static function isPureColorProperty(string $normalizedLowerProperty): bool
+	{
+		if (self::$pureColorProperties === null) {
+			self::initDerivedFastTables();
+		}
+
+		return isset(self::$pureColorProperties[$normalizedLowerProperty]);
+	}
+
+	public static function hasCachedGrammar(string $grammarExpr, bool $caseSensitive = false): bool
+	{
+		$key = ($caseSensitive ? '1:' : '0:') . $grammarExpr;
+
+		return isset(self::$compiledByGrammar[$key]) || isset(self::$compiledCustomGrammars[$key]);
+	}
+
+	public static function getGrammar(string $grammarExpr, bool $caseSensitive = false): CSSGrammarNode
+	{
+		$key = ($caseSensitive ? '1:' : '0:') . $grammarExpr;
+		if (isset(self::$compiledByGrammar[$key])) {
+			return self::$compiledByGrammar[$key];
+		}
+		if (isset(self::$compiledCustomGrammars[$key])) {
+			return self::$compiledCustomGrammars[$key];
+		}
+
+		$node = CSSGrammarParser::parse($grammarExpr, $caseSensitive);
+		if (count(self::$compiledCustomGrammars) >= self::MAX_CUSTOM_GRAMMAR_CACHE) {
+			self::$compiledCustomGrammars = array_slice(self::$compiledCustomGrammars, (int) (self::MAX_CUSTOM_GRAMMAR_CACHE / 2), null, true);
+		}
+		self::$compiledCustomGrammars[$key] = $node;
+
+		return $node;
+	}
+
+	public static function clearCustomGrammarCacheInternal(): void
+	{
+		self::$compiledCustomGrammars = [];
+	}
+
+	public static function getPropertyGrammar(string $normalizedLowerProperty): ?CSSGrammarNode
+	{
+		if (isset(self::$compiledProperties[$normalizedLowerProperty])) {
+			return self::$compiledProperties[$normalizedLowerProperty];
+		}
+		$expr = self::PROPERTIES[$normalizedLowerProperty] ?? null;
+		if ($expr === null) {
+			return null;
+		}
+
+		return self::$compiledProperties[$normalizedLowerProperty] = self::$compiledByGrammar['0:' . $expr] ??= CSSGrammarParser::parse($expr);
 	}
 
 	public static function resolveNonTerminal(string $name): ?CSSGrammarNode
 	{
 		$lower = strtolower($name);
+		if (array_key_exists($lower, self::$compiledNonTerminals)) {
+			return self::$compiledNonTerminals[$lower];
+		}
+
 		if (str_starts_with($lower, '@prop:')) {
-			return self::getPropertyGrammar(substr($lower, 6));
+			return self::$compiledNonTerminals[$lower] = self::getPropertyGrammar(substr($lower, 6));
 		}
 
-		if (isset(self::NON_TERMINALS[$lower])) {
-			return self::$compiledNonTerminals[$lower] ??= CSSGrammarParser::parse(self::NON_TERMINALS[$lower]);
+		$expr = self::NON_TERMINALS[$lower] ?? null;
+		if ($expr !== null) {
+			return self::$compiledNonTerminals[$lower] = self::$compiledByGrammar['0:' . $expr] ??= CSSGrammarParser::parse($expr);
 		}
 
-		return null;
+		return self::$compiledNonTerminals[$lower] = null;
+	}
+
+	private static function initDerivedFastTables(): void
+	{
+		$pureKeywords = [];
+		$pureColors = [];
+		foreach (self::PROPERTIES as $prop => $grammar) {
+			if ($grammar === '<color>') {
+				$pureColors[$prop] = true;
+				continue;
+			}
+			if (strpbrk($grammar, "<[{}*+?#,'&()") !== false) {
+				continue;
+			}
+			$parts = explode('|', $grammar);
+			$set = [];
+			$allIdent = true;
+			foreach ($parts as $p) {
+				$kw = trim($p);
+				if ($kw === '' || $kw === '0' || strcspn($kw, ' ') !== strlen($kw)) {
+					$allIdent = false;
+					break;
+				}
+				$set[$kw] = true;
+			}
+			if ($allIdent && $set !== []) {
+				$pureKeywords[$prop] = $set;
+			}
+		}
+		self::$pureKeywordProperties = $pureKeywords;
+		self::$pureColorProperties = $pureColors;
 	}
 }

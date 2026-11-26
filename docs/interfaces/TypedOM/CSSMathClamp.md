@@ -6,7 +6,7 @@
 
 ## Public API
 
-Constant: `operator = 'clamp'`. Declares read-only property hooks `public CSSNumericValue $lower { get; }` and `public CSSNumericValue $upper { get; }`, and inherits `values`, `inner_values`, `value`, `unit`, `length` from [CSSMathValue](CSSMathValue.md#public-properties-and-constants) (where `$value` is set to the middle operand). Numeric methods `parse`, `parseAll`, `from`, `type`, `getType`, `getNumericType`, `getNumericCategory`, `to`, `toSum`, `add`, `sub`, `mul`, `div`, `min`, `max`, `equals`, `mergeAdditiveTypes`, `unitType`, and `__set` are inherited with their full signatures/examples in [CSSNumericValue](CSSNumericValue.md#public-api). Also inherits `getOperator`, `__toString`, `clone`, `__get`, and `__isset` behavior from [CSSMathValue](CSSMathValue.md#public-api).
+Constant: `operator = 'clamp'`. Declares `public protected(set) ?CSSNumericValue $value = null` (storing the middle operand), read-only property hooks `public CSSNumericValue $lower { get; }` and `public CSSNumericValue $upper { get; }`, and inherits `values`, `inner_values`, and `length` from [CSSMathValue](CSSMathValue.md#public-properties-and-constants). Numeric methods `parse`, `parseAll`, `from`, `type`, `getType`, `getNumericType`, `getNumericCategory`, `to`, `toSum`, `add`, `sub`, `mul`, `div`, `min`, `max`, `equals`, `mergeAdditiveTypes`, and `__set` are inherited with their full signatures/examples in [CSSNumericValue](CSSNumericValue.md#public-api). Also inherits `getOperator`, `__toString`, `clone`, `__get`, and `__isset` behavior from [CSSMathValue](CSSMathValue.md#public-api).
 
 | Method/property | Signature and behavior |
 |---|---|

@@ -7,6 +7,7 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 use Exception;
 use InvalidArgumentException;
 use TypeError;
+use ValueError;
 
 /**
  * Represents the dimensional exponent map of a CSS numeric value.
@@ -33,6 +34,18 @@ class CSSNumericType
 		'flex',
 		'percent',
 		'percentHint',
+	];
+
+	/** @var array<string, 'int'|'string'> */
+	private const array DIMENSION_KEYS = [
+		'length' => 'int',
+		'angle' => 'int',
+		'time' => 'int',
+		'frequency' => 'int',
+		'resolution' => 'int',
+		'flex' => 'int',
+		'percent' => 'int',
+		'percentHint' => 'string',
 	];
 
 	/** @var array<string, int|string> */
@@ -80,6 +93,9 @@ class CSSNumericType
 	 */
 	public function __set(string $key, string|int $value): void
 	{
+		if (!isset(self::DIMENSION_KEYS[$key])) {
+			throw new ValueError(sprintf('"%s" is not a valid backing value for enum %s', $key, CSSUnitTypeEnum::class));
+		}
 		$type = CSSUnitTypeEnum::from($key);
 		$typeStr = $type->verifyValue($value);
 		if ($typeStr instanceof Exception) {
@@ -90,23 +106,30 @@ class CSSNumericType
 			throw new TypeError('Could not change type of value to ' . $typeStr);
 			// @codeCoverageIgnoreEnd
 		}
-		$this->dimensions[$type->value] = $value;
+		$this->dimensions[$key] = $value;
 	}
 
 	public function __get(string $key): int|string|null
 	{
-		$type = CSSUnitTypeEnum::from($key);
-		if ($type === CSSUnitTypeEnum::PERCENT_HINT) {
+		if (!isset(self::DIMENSION_KEYS[$key])) {
+			throw new ValueError(sprintf('"%s" is not a valid backing value for enum %s', $key, CSSUnitTypeEnum::class));
+		}
+		if ($key === 'percentHint') {
 			return $this->dimensions['percentHint'] ?? null;
 		}
 
-		return $this->dimensions[$type->value] ?? 0;
+		return $this->dimensions[$key] ?? 0;
 	}
 
 	public function __isset(string $key): bool
 	{
-		$type = CSSUnitTypeEnum::tryFrom($key);
-		return $type !== null && isset($this->dimensions[$type->value]);
+		return isset(self::DIMENSION_KEYS[$key], $this->dimensions[$key]);
+	}
+
+	/** @internal */
+	public function getPercentHintInternal(): ?string
+	{
+		return isset($this->dimensions['percentHint']) ? (string) $this->dimensions['percentHint'] : null;
 	}
 
 	/** @return array<string, int|string> */
@@ -117,13 +140,12 @@ class CSSNumericType
 
 	public function applyPercentHint(string $hint): self
 	{
-		$hintType = CSSUnitTypeEnum::tryFrom($hint);
-		if ($hintType === null || $hintType === CSSUnitTypeEnum::PERCENT_HINT) {
+		if (!isset(self::DIMENSION_KEYS[$hint]) || $hint === 'percentHint') {
 			throw new InvalidArgumentException(sprintf('Invalid percent hint dimension "%s".', $hint));
 		}
 
 		$dimensions = $this->dimensions;
-		if ($hintType !== CSSUnitTypeEnum::PERCENT && isset($dimensions['percent'])) {
+		if ($hint !== 'percent' && isset($dimensions['percent'])) {
 			$newExp = self::safeAddInt((int) ($dimensions[$hint] ?? 0), (int) $dimensions['percent']);
 			unset($dimensions['percent']);
 			if ($newExp === 0) {
@@ -139,6 +161,21 @@ class CSSNumericType
 
 	public function multiply(self $other): self
 	{
+		$result = $this->multiplyInternal($other);
+
+		return $result === $this || $result === $other ? self::fromValidatedDimensions($result->dimensions) : $result;
+	}
+
+	/** @internal */
+	public function multiplyInternal(self $other): self
+	{
+		if ($this->dimensions === []) {
+			return $other;
+		}
+		if ($other->dimensions === []) {
+			return $this;
+		}
+
 		$leftHint = $this->dimensions['percentHint'] ?? null;
 		$rightHint = $other->dimensions['percentHint'] ?? null;
 		if ($leftHint !== null && $rightHint !== null && $leftHint !== $rightHint) {
@@ -149,8 +186,8 @@ class CSSNumericType
 		$right = ($rightHint === null && $hint !== null) ? $other->applyPercentHint((string) $hint) : $other;
 
 		$dimensions = [];
-		foreach (self::allowedProperties as $dimension) {
-			if ($dimension === 'percentHint') {
+		foreach (self::DIMENSION_KEYS as $dimension => $type) {
+			if ($type !== 'int') {
 				continue;
 			}
 			$sum = self::safeAddInt((int) ($left->dimensions[$dimension] ?? 0), (int) ($right->dimensions[$dimension] ?? 0));
@@ -198,14 +235,14 @@ class CSSNumericType
 
 	public function equals(self $other): bool
 	{
-		if ($this === $other) {
+		if ($this === $other || $this->dimensions === $other->dimensions) {
 			return true;
 		}
-		foreach (self::allowedProperties as $dimension) {
-			if ($dimension === 'percentHint') {
-				if (($this->dimensions['percentHint'] ?? null) !== ($other->dimensions['percentHint'] ?? null)) {
-					return false;
-				}
+		if (($this->dimensions['percentHint'] ?? null) !== ($other->dimensions['percentHint'] ?? null)) {
+			return false;
+		}
+		foreach (self::DIMENSION_KEYS as $dimension => $type) {
+			if ($type !== 'int') {
 				continue;
 			}
 			if ((int) ($this->dimensions[$dimension] ?? 0) !== (int) ($other->dimensions[$dimension] ?? 0)) {

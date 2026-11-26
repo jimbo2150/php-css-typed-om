@@ -6,6 +6,7 @@ namespace Jimbo2150\PhpCssTypedOm\Parser;
 
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 
 /**
  * Linear-time CSS component-value scanner supporting strings, unquoted `url(...)` tokens,
@@ -17,13 +18,17 @@ final class CSSSyntaxScanner
 
 	public const string IDENT_ESCAPE_REGEX = '\\\\(?>(?:[0-9a-fA-F]{1,6}(?:\r\n|[ \t\n\r\f])?)|[^0-9a-fA-F\x00-\x1F\x7F])';
 
-	private const string CONTROL_BYTES = "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0B\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x7F";
+	public const string CONTROL_BYTES = "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0B\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x7F";
+
+	private const string FAST_FRAGMENT_MASK = self::CONTROL_BYTES . "\\/\"'()[]{};";
 
 	private const string ASCII_WHITESPACE = self::CSS_WHITESPACE;
 
 	private const int ESCAPED_URL_WINDOW = 40;
 
-	private const string HEX_DIGITS = '0123456789abcdefABCDEF';
+	public const string HEX_DIGITS = '0123456789abcdefABCDEF';
+
+	public const string ASCII_IDENT_BYTES = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_';
 
 	/** @var array<string, string> */
 	private const array CLOSING_DELIMITERS = [
@@ -311,75 +316,9 @@ final class CSSSyntaxScanner
 		if (strlen($delimiter) !== 1) {
 			throw new InvalidArgumentException('The delimiter must be a single byte.');
 		}
+		$matched = null;
 
-		$stack = [];
-		$length = $end === null ? strlen($source) : min($end, strlen($source));
-		$baseStart = max(0, $start);
-		$offset = $baseStart;
-		$lastEscapeOffset = -1;
-		$mask = "\\/\"'()[]{}" . $delimiter;
-
-		while ($offset < $length) {
-			$offset += strcspn($source, $mask, $offset, $length - $offset);
-			if ($offset >= $length) {
-				break;
-			}
-
-			$character = $source[$offset];
-
-			if ($character === '"' || $character === "'") {
-				$valid = true;
-				$strEnd = self::scanQuotedString($source, $offset, $length, $valid);
-				$offset = $valid ? $strEnd + 1 : $strEnd;
-				continue;
-			}
-
-			if ($character === '/') {
-				if ($offset + 1 < $length && $source[$offset + 1] === '*') {
-					$commentEnd = strpos($source, '*/', $offset + 2);
-					if ($commentEnd === false || $commentEnd + 1 >= $length) {
-						return null;
-					}
-					$offset = $commentEnd + 2;
-					continue;
-				}
-				if ($character === $delimiter && $stack === []) {
-					return $offset;
-				}
-				$offset++;
-				continue;
-			}
-
-			if ($character === '\\') {
-				$lastEscapeOffset = $offset;
-				$offset = self::advanceIdentEscapeEnd($source, $offset, $length);
-				continue;
-			}
-
-			if ($character === $delimiter && $stack === []) {
-				return $offset;
-			}
-
-			if ($character === '(' && self::isUnquotedUrlStart($source, $offset, $baseStart, $length, $lastEscapeOffset)) {
-				$valid = true;
-				$urlEnd = self::scanUnquotedUrl($source, $offset, $length, $valid);
-				$offset = $urlEnd < $length ? $urlEnd + 1 : $length;
-				continue;
-			}
-
-			if (isset(self::CLOSING_DELIMITERS[$character])) {
-				$stack[] = self::CLOSING_DELIMITERS[$character];
-				$offset++;
-				continue;
-			}
-
-			if (isset(self::CLOSING_SET[$character]) && $stack !== [] && end($stack) === $character) {
-				array_pop($stack);
-			}
-			$offset++;
-		}
-
-		return null;
+		return self::scanTopLevelDelimiter($source, $delimiter, $start, $end, true, $matched);
 	}
 
 	/**
@@ -411,7 +350,23 @@ final class CSSSyntaxScanner
 		if ($delimiterBytes === '') {
 			return null;
 		}
+		$matched = null;
+		$offset = self::scanTopLevelDelimiter($source, $delimiterBytes, $start, $end, strlen($delimiterBytes) === 1, $matched);
+		if ($offset === null || $matched === null) {
+			return null;
+		}
 
+		return ['offset' => $offset, 'delimiter' => $matched];
+	}
+
+	private static function scanTopLevelDelimiter(
+		string $source,
+		string $delimiterBytes,
+		int $start,
+		?int $end,
+		bool $singleByte,
+		?string &$matchedDelimiter,
+	): ?int {
 		$stack = [];
 		$length = $end === null ? strlen($source) : min($end, strlen($source));
 		$baseStart = max(0, $start);
@@ -443,8 +398,9 @@ final class CSSSyntaxScanner
 					$offset = $commentEnd + 2;
 					continue;
 				}
-				if ($stack === [] && str_contains($delimiterBytes, $character)) {
-					return ['offset' => $offset, 'delimiter' => $character];
+				if ($stack === [] && ($singleByte ? $character === $delimiterBytes : str_contains($delimiterBytes, $character))) {
+					$matchedDelimiter = $character;
+					return $offset;
 				}
 				$offset++;
 				continue;
@@ -456,8 +412,9 @@ final class CSSSyntaxScanner
 				continue;
 			}
 
-			if ($stack === [] && str_contains($delimiterBytes, $character)) {
-				return ['offset' => $offset, 'delimiter' => $character];
+			if ($stack === [] && ($singleByte ? $character === $delimiterBytes : str_contains($delimiterBytes, $character))) {
+				$matchedDelimiter = $character;
+				return $offset;
 			}
 
 			if ($character === '(' && self::isUnquotedUrlStart($source, $offset, $baseStart, $length, $lastEscapeOffset)) {
@@ -526,13 +483,26 @@ final class CSSSyntaxScanner
 	 */
 	public static function findMatchingDelimiter(string $source, int $openOffset, ?int $end = null): ?int
 	{
+		return self::scanMatchingClose($source, $openOffset, $end, false);
+	}
+
+	/**
+	 * Finds the closing '}' for an opening '{' while ignoring stray unmatched ')' or ']' per CSS Syntax L3 §5.4.7.
+	 */
+	public static function findMatchingBlockEnd(string $source, int $openBraceOffset, ?int $end = null): ?int
+	{
+		return self::scanMatchingClose($source, $openBraceOffset, $end, true);
+	}
+
+	private static function scanMatchingClose(string $source, int $openOffset, ?int $end, bool $lenientBlock): ?int
+	{
 		$length = $end === null ? strlen($source) : min($end, strlen($source));
 		if ($openOffset < 0 || $openOffset >= $length) {
 			return null;
 		}
 
 		$opening = $source[$openOffset];
-		if (!isset(self::CLOSING_DELIMITERS[$opening])) {
+		if ($lenientBlock ? $opening !== '{' : !isset(self::CLOSING_DELIMITERS[$opening])) {
 			return null;
 		}
 
@@ -571,88 +541,11 @@ final class CSSSyntaxScanner
 
 			if ($character === '\\') {
 				$lastEscapeOffset = $offset;
-				$offset += 2;
+				$offset = self::advanceIdentEscapeEnd($source, $offset, $length);
 				continue;
 			}
 
 			if ($character === '(' && self::isUnquotedUrlStart($source, $offset, $openOffset + 1, $length, $lastEscapeOffset)) {
-				$valid = true;
-				$urlEnd = self::scanUnquotedUrl($source, $offset, $length, $valid);
-				$offset = $urlEnd < $length ? $urlEnd + 1 : $length;
-				continue;
-			}
-
-			if (isset(self::CLOSING_DELIMITERS[$character])) {
-				$stack[] = self::CLOSING_DELIMITERS[$character];
-				$offset++;
-				continue;
-			}
-
-			if (isset(self::CLOSING_SET[$character])) {
-				if (end($stack) !== $character) {
-					return null;
-				}
-				array_pop($stack);
-				if ($stack === []) {
-					return $offset;
-				}
-			}
-			$offset++;
-		}
-
-		return null;
-	}
-
-	/**
-	 * Finds the closing '}' for an opening '{' while ignoring stray unmatched ')' or ']' per CSS Syntax L3 §5.4.7.
-	 */
-	public static function findMatchingBlockEnd(string $source, int $openBraceOffset, ?int $end = null): ?int
-	{
-		$length = $end === null ? strlen($source) : min($end, strlen($source));
-		if ($openBraceOffset < 0 || $openBraceOffset >= $length || $source[$openBraceOffset] !== '{') {
-			return null;
-		}
-
-		$stack = ['}'];
-		$offset = $openBraceOffset + 1;
-		$lastEscapeOffset = -1;
-		$mask = "\\/\"'()[]{}";
-
-		while ($offset < $length) {
-			$offset += strcspn($source, $mask, $offset, $length - $offset);
-			if ($offset >= $length) {
-				break;
-			}
-
-			$character = $source[$offset];
-
-			if ($character === '"' || $character === "'") {
-				$valid = true;
-				$strEnd = self::scanQuotedString($source, $offset, $length, $valid);
-				$offset = $valid ? $strEnd + 1 : $strEnd;
-				continue;
-			}
-
-			if ($character === '/') {
-				if ($offset + 1 < $length && $source[$offset + 1] === '*') {
-					$commentEnd = strpos($source, '*/', $offset + 2);
-					if ($commentEnd === false || $commentEnd + 1 >= $length) {
-						return null;
-					}
-					$offset = $commentEnd + 2;
-					continue;
-				}
-				$offset++;
-				continue;
-			}
-
-			if ($character === '\\') {
-				$lastEscapeOffset = $offset;
-				$offset += 2;
-				continue;
-			}
-
-			if ($character === '(' && self::isUnquotedUrlStart($source, $offset, $openBraceOffset + 1, $length, $lastEscapeOffset)) {
 				$valid = true;
 				$urlEnd = self::scanUnquotedUrl($source, $offset, $length, $valid);
 				$offset = $urlEnd < $length ? $urlEnd + 1 : $length;
@@ -672,6 +565,8 @@ final class CSSSyntaxScanner
 					if ($stack === []) {
 						return $offset;
 					}
+				} elseif (!$lenientBlock) {
+					return null;
 				} elseif ($character === '}' && count($stack) > 1) {
 					// If '}' closes an enclosing '{' past unclosed inner '(' or '[', unwind to that '{' or outer block.
 					do {
@@ -708,20 +603,8 @@ final class CSSSyntaxScanner
 				return $source;
 			}
 		} else {
-			$probe = $baseStart;
-			$hasComment = false;
-			while ($probe + 1 < $length) {
-				$probe += strcspn($source, '/', $probe, $length - $probe);
-				if ($probe + 1 >= $length) {
-					break;
-				}
-				if ($source[$probe + 1] === '*') {
-					$hasComment = true;
-					break;
-				}
-				$probe++;
-			}
-			if (!$hasComment) {
+			$probe = strpos($source, '/*', $baseStart);
+			if ($probe === false || $probe + 1 >= $length) {
 				return substr($source, $baseStart, $sliceLen);
 			}
 		}
@@ -920,83 +803,7 @@ final class CSSSyntaxScanner
 	 */
 	public static function isBalanced(string $source, int $start = 0, ?int $end = null): bool
 	{
-		$stack = [];
-		$length = $end === null ? strlen($source) : min($end, strlen($source));
-		$baseStart = max(0, $start);
-		$offset = $baseStart;
-		$lastEscapeOffset = -1;
-		$mask = "\\/\"'()[]{}";
-
-		while ($offset < $length) {
-			$offset += strcspn($source, $mask, $offset, $length - $offset);
-			if ($offset >= $length) {
-				break;
-			}
-
-			$character = $source[$offset];
-
-			if ($character === '"' || $character === "'") {
-				$valid = true;
-				$strEnd = self::scanQuotedString($source, $offset, $length, $valid);
-				if (!$valid) {
-					return false;
-				}
-				$offset = $strEnd + 1;
-				continue;
-			}
-
-			if ($character === '/') {
-				if ($offset + 1 < $length && $source[$offset + 1] === '*') {
-					$commentEnd = strpos($source, '*/', $offset + 2);
-					if ($commentEnd === false || $commentEnd + 1 >= $length) {
-						return false;
-					}
-					$offset = $commentEnd + 2;
-					continue;
-				}
-				$offset++;
-				continue;
-			}
-
-			if ($character === '\\') {
-				if ($offset + 1 >= $length) {
-					return false;
-				}
-				$next = $source[$offset + 1];
-				if ($next === "\n" || $next === "\r" || $next === "\f") {
-					return false;
-				}
-				$lastEscapeOffset = $offset;
-				$offset += 2;
-				continue;
-			}
-
-			if ($character === '(' && self::isUnquotedUrlStart($source, $offset, $baseStart, $length, $lastEscapeOffset)) {
-				$valid = true;
-				$urlEnd = self::scanUnquotedUrl($source, $offset, $length, $valid);
-				if (!$valid) {
-					return false;
-				}
-				$offset = $urlEnd + 1;
-				continue;
-			}
-
-			if (isset(self::CLOSING_DELIMITERS[$character])) {
-				$stack[] = self::CLOSING_DELIMITERS[$character];
-				$offset++;
-				continue;
-			}
-
-			if (isset(self::CLOSING_SET[$character])) {
-				if ($stack === [] || end($stack) !== $character) {
-					return false;
-				}
-				array_pop($stack);
-			}
-			$offset++;
-		}
-
-		return $stack === [];
+		return self::scanBalancedOrAssertInternal($source, $start, $end, '', '', false, null);
 	}
 
 	/**
@@ -1088,24 +895,59 @@ final class CSSSyntaxScanner
 		array $forbiddenTopLevel = [';', '{', '}'],
 		array $forbiddenAnywhere = [],
 	): void {
-		$length = strlen($source);
-		if (strcspn($source, self::CONTROL_BYTES) !== $length) {
-			throw new InvalidArgumentException($label . ' contains disallowed control characters.');
+		if ($forbiddenAnywhere === [] && $forbiddenTopLevel === [';', '{', '}']) {
+			$len = strlen($source);
+			$pos = strcspn($source, self::FAST_FRAGMENT_MASK, 0, $len);
+			if ($pos === $len) {
+				return;
+			}
+			if (strcspn($source, self::CONTROL_BYTES, $pos, $len - $pos) !== ($len - $pos)) {
+				throw new InvalidArgumentException($label . ' contains disallowed control characters.');
+			}
+			self::scanBalancedOrAssertInternal($source, 0, $len, ';{}', '', false, $label, $pos);
+			return;
 		}
-
 		$topBytes = $forbiddenTopLevel === [] ? '' : implode('', $forbiddenTopLevel);
 		$anyBytes = $forbiddenAnywhere === [] ? '' : implode('', $forbiddenAnywhere);
-		$mask = "\\/\"'()[]{}" . $topBytes . $anyBytes;
+		self::scanBalancedOrAssertInternal($source, 0, null, $topBytes, $anyBytes, true, $label);
+	}
 
+	private static function scanBalancedOrAssertInternal(
+		string $source,
+		int $start,
+		?int $end,
+		string $topBytes,
+		string $anyBytes,
+		bool $checkControlBytes,
+		?string $label,
+		int $initialOffset = -1,
+	): bool {
+		$length = $end === null ? strlen($source) : min($end, strlen($source));
+		if ($checkControlBytes && strcspn($source, self::CONTROL_BYTES, 0, $length) !== $length) {
+			if ($label !== null) {
+				throw new InvalidArgumentException($label . ' contains disallowed control characters.');
+			}
+			return false;
+		}
+
+		$baseStart = max(0, $start);
+		$mask = "\\/\"'()[]{}" . $topBytes . $anyBytes;
+		$offset = $initialOffset >= $baseStart ? $initialOffset : ($baseStart + strcspn($source, $mask, $baseStart, $length - $baseStart));
+		if ($offset >= $length) {
+			return true;
+		}
 		$stack = [];
-		$offset = 0;
 		$lastEscapeOffset = -1;
+		$first = true;
 
 		while ($offset < $length) {
-			$offset += strcspn($source, $mask, $offset, $length - $offset);
-			if ($offset >= $length) {
-				break;
+			if (!$first) {
+				$offset += strcspn($source, $mask, $offset, $length - $offset);
+				if ($offset >= $length) {
+					break;
+				}
 			}
+			$first = false;
 
 			$character = $source[$offset];
 
@@ -1113,7 +955,10 @@ final class CSSSyntaxScanner
 				$valid = true;
 				$strEnd = self::scanQuotedString($source, $offset, $length, $valid);
 				if (!$valid) {
-					throw new InvalidArgumentException($label . ' has unbalanced syntax or unclosed comments/strings.');
+					if ($label !== null) {
+						throw new InvalidArgumentException($label . ' has unbalanced syntax or unclosed comments/strings.');
+					}
+					return false;
 				}
 				$offset = $strEnd + 1;
 				continue;
@@ -1122,14 +967,20 @@ final class CSSSyntaxScanner
 			if ($character === '/') {
 				if ($offset + 1 < $length && $source[$offset + 1] === '*') {
 					$commentEnd = strpos($source, '*/', $offset + 2);
-					if ($commentEnd === false) {
-						throw new InvalidArgumentException($label . ' has unbalanced syntax or unclosed comments/strings.');
+					if ($commentEnd === false || $commentEnd + 1 >= $length) {
+						if ($label !== null) {
+							throw new InvalidArgumentException($label . ' has unbalanced syntax or unclosed comments/strings.');
+						}
+						return false;
 					}
 					$offset = $commentEnd + 2;
 					continue;
 				}
 				if (($anyBytes !== '' && str_contains($anyBytes, $character)) || ($stack === [] && $topBytes !== '' && str_contains($topBytes, $character))) {
-					throw new InvalidArgumentException(sprintf('%s cannot contain "%s".', $label, $character));
+					if ($label !== null) {
+						throw new InvalidArgumentException(sprintf('%s cannot contain "%s".', $label, $character));
+					}
+					return false;
 				}
 				$offset++;
 				continue;
@@ -1137,11 +988,17 @@ final class CSSSyntaxScanner
 
 			if ($character === '\\') {
 				if ($offset + 1 >= $length) {
-					throw new InvalidArgumentException($label . ' has unbalanced syntax or unclosed comments/strings.');
+					if ($label !== null) {
+						throw new InvalidArgumentException($label . ' has unbalanced syntax or unclosed comments/strings.');
+					}
+					return false;
 				}
 				$next = $source[$offset + 1];
 				if ($next === "\n" || $next === "\r" || $next === "\f") {
-					throw new InvalidArgumentException($label . ' has unbalanced syntax or unclosed comments/strings.');
+					if ($label !== null) {
+						throw new InvalidArgumentException($label . ' has unbalanced syntax or unclosed comments/strings.');
+					}
+					return false;
 				}
 				$lastEscapeOffset = $offset;
 				$offset = self::advanceIdentEscapeEnd($source, $offset, $length);
@@ -1149,14 +1006,20 @@ final class CSSSyntaxScanner
 			}
 
 			if (($anyBytes !== '' && str_contains($anyBytes, $character)) || ($stack === [] && $topBytes !== '' && str_contains($topBytes, $character))) {
-				throw new InvalidArgumentException(sprintf('%s cannot contain "%s".', $label, $character));
+				if ($label !== null) {
+					throw new InvalidArgumentException(sprintf('%s cannot contain "%s".', $label, $character));
+				}
+				return false;
 			}
 
-			if ($character === '(' && self::isUnquotedUrlStart($source, $offset, 0, $length, $lastEscapeOffset)) {
+			if ($character === '(' && self::isUnquotedUrlStart($source, $offset, $baseStart, $length, $lastEscapeOffset)) {
 				$valid = true;
 				$urlEnd = self::scanUnquotedUrl($source, $offset, $length, $valid);
 				if (!$valid) {
-					throw new InvalidArgumentException($label . ' has unbalanced syntax or unclosed comments/strings.');
+					if ($label !== null) {
+						throw new InvalidArgumentException($label . ' has unbalanced syntax or unclosed comments/strings.');
+					}
+					return false;
 				}
 				$offset = $urlEnd + 1;
 				continue;
@@ -1170,7 +1033,10 @@ final class CSSSyntaxScanner
 
 			if (isset(self::CLOSING_SET[$character])) {
 				if ($stack === [] || end($stack) !== $character) {
-					throw new InvalidArgumentException($label . ' has unbalanced syntax or unclosed comments/strings.');
+					if ($label !== null) {
+						throw new InvalidArgumentException($label . ' has unbalanced syntax or unclosed comments/strings.');
+					}
+					return false;
 				}
 				array_pop($stack);
 			}
@@ -1178,8 +1044,13 @@ final class CSSSyntaxScanner
 		}
 
 		if ($stack !== []) {
-			throw new InvalidArgumentException($label . ' has unbalanced syntax or unclosed comments/strings.');
+			if ($label !== null) {
+				throw new InvalidArgumentException($label . ' has unbalanced syntax or unclosed comments/strings.');
+			}
+			return false;
 		}
+
+		return true;
 	}
 
 	/**
@@ -1533,9 +1404,7 @@ final class CSSSyntaxScanner
 			return null;
 		}
 
-		if (!str_contains(substr($source, 0, $openParen), '\\')
-			&& strspn($source, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_', 0, $openParen) === $openParen
-		) {
+		if (strspn($source, self::ASCII_IDENT_BYTES, 0, $openParen) === $openParen) {
 			$c0 = $source[0];
 			if ($c0 >= '0' && $c0 <= '9') {
 				return null;
@@ -1738,7 +1607,7 @@ final class CSSSyntaxScanner
 			return false;
 		}
 
-		if ($lastEscapeOffset < $start) {
+		if ($lastEscapeOffset < $start || $lastEscapeOffset < $openParenOffset - self::ESCAPED_URL_WINDOW) {
 			if ($openParenOffset < $start + 3) {
 				return false;
 			}
@@ -1756,7 +1625,7 @@ final class CSSSyntaxScanner
 				}
 			}
 		} else {
-			if (!self::precedingEscapedIdentIsUrl($source, $openParenOffset, $start, $lastEscapeOffset)) {
+			if (self::findPrecedingEscapedIdentStart($source, $openParenOffset, $start, 'url') === null) {
 				return false;
 			}
 		}
@@ -1768,30 +1637,6 @@ final class CSSSyntaxScanner
 		}
 
 		return true;
-	}
-
-	private static function precedingEscapedIdentIsUrl(
-		string $source,
-		int $openParenOffset,
-		int $start,
-		int $lastEscapeOffset,
-	): bool {
-		if ($lastEscapeOffset < $openParenOffset - self::ESCAPED_URL_WINDOW) {
-			$lastChar = $source[$openParenOffset - 1];
-			if ($lastChar !== 'l' && $lastChar !== 'L') {
-				return false;
-			}
-			if ($openParenOffset < $start + 3 || substr_compare($source, 'url', $openParenOffset - 3, 3, true) !== 0) {
-				return false;
-			}
-			if ($openParenOffset - 4 < $start) {
-				return true;
-			}
-			$prev = $source[$openParenOffset - 4];
-			return $prev !== '#' && $prev !== '@' && !self::isIdentByte($prev);
-		}
-
-		return self::findPrecedingEscapedIdentStart($source, $openParenOffset, $start, 'url') !== null;
 	}
 
 	private static function isEscapedBackslash(string $source, int $slashOffset, int $start): bool
@@ -1894,7 +1739,237 @@ final class CSSSyntaxScanner
 			|| $ord >= 0x80;
 	}
 
-	private static function encodeUtf8Codepoint(int $cp): string
+	/**
+	 * Strips CSS comments only when `/*` is present, avoiding any scan on clean strings.
+	 *
+	 * @internal
+	 */
+	public static function stripCommentsIfPresent(string $source): string
+	{
+		return str_contains($source, '/*') ? self::removeComments($source) : $source;
+	}
+
+	/**
+	 * Unwraps a matching outer single or double quote pair when it spans the entire trimmed fragment.
+	 *
+	 * @internal
+	 */
+	public static function unwrapQuotedString(string $source): string
+	{
+		$len = strlen($source);
+		if ($len >= 2 && ($source[0] === '"' || $source[0] === "'")) {
+			$valid = false;
+			$end = self::scanQuotedStringEnd($source, 0, $len, $valid);
+			if ($valid && $end === $len - 1) {
+				return substr($source, 1, -1);
+			}
+		}
+
+		return $source;
+	}
+
+	/**
+	 * Trims leading and trailing CSS whitespace within `[start, end)` in place.
+	 *
+	 * @internal
+	 */
+	public static function trimSlice(string $source, int &$start, int &$end, bool $preserveEscapedTrailingSpace = false): void
+	{
+		if ($start < $end) {
+			$start += strspn($source, self::CSS_WHITESPACE, $start, $end - $start);
+		}
+		$origEnd = $end;
+		while ($end > $start && str_contains(self::CSS_WHITESPACE, $source[$end - 1])) {
+			$end--;
+		}
+		if ($preserveEscapedTrailingSpace && $end < $origEnd && $end > $start && $source[$end - 1] === '\\') {
+			$bs = 0;
+			for ($i = $end - 1; $i >= $start && $source[$i] === '\\'; $i--) {
+				$bs++;
+			}
+			if (($bs & 1) === 1 && ($source[$end] === ' ' || $source[$end] === "\t")) {
+				$end++;
+			}
+		}
+	}
+
+	/**
+	 * Advances past comments (and optionally CSS whitespace) starting at `$pos`, returning null if a comment is unclosed.
+	 *
+	 * @internal
+	 */
+	public static function skipWhitespaceAndComments(string $source, int $pos, int $length, bool $skipWhitespace = true): ?int
+	{
+		while ($pos < $length) {
+			if ($skipWhitespace) {
+				$pos += strspn($source, self::CSS_WHITESPACE, $pos, $length - $pos);
+			}
+			if ($pos + 1 < $length && $source[$pos] === '/' && $source[$pos + 1] === '*') {
+				$commentEnd = strpos($source, '*/', $pos + 2);
+				if ($commentEnd === false) {
+					return null;
+				}
+				$pos = $commentEnd + 2;
+				continue;
+			}
+			break;
+		}
+
+		return $pos;
+	}
+
+	/**
+	 * Trims leading and trailing Whitespace tokens from a packed token slice range `[$start, $end)`.
+	 *
+	 * @internal
+	 * @param list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}> $tokens
+	 */
+	public static function trimTokenRange(array $tokens, int &$start, int &$end): void
+	{
+		while ($start < $end && $tokens[$start][0] === CSSTokenType::Whitespace) {
+			$start++;
+		}
+		while ($end > $start && $tokens[$end - 1][0] === CSSTokenType::Whitespace) {
+			$end--;
+		}
+	}
+
+	/**
+	 * Tokenizes `$source` into packed token tuples and computes matching `()`/`[]` delimiter pairs.
+	 * Shared by `CSSSelectorList` and `CSSMediaQueryParser`.
+	 *
+	 * Token tuple layout: `[0 => type, 1 => start, 2 => end, 3 => value, 4 => flag, 5 => num, 6 => unit, 7 => hasEscapes]`.
+	 * Item tuple layout (when `$splitCommas` is true): `[0 => startIdx, 1 => endIdx, 2 => hasError]`.
+	 *
+	 * @internal
+	 * @return array{
+	 *   0: list<array{0: CSSTokenType, 1: int, 2: int, 3: string, 4: ?string, 5: ?float, 6: ?string, 7: bool}>,
+	 *   1: array<int, int>,
+	 *   2: list<array{0: int, 1: int, 2: bool}>,
+	 *   3: bool,
+	 *   4: bool
+	 * }
+	 */
+	public static function tokenizeBracketedInternal(
+		string $source,
+		CSSParserOptions $options,
+		int $maxNodes,
+		string $limitSubject,
+		bool $checkCommentControlBytes,
+		bool $ignoreEofUnclosed,
+		bool $splitCommas,
+		int $maxItems,
+	): array {
+		$tokenizer = CSSTokenizer::forParserInternal($source, $options, false, true, 0, null, true);
+		$tokens = [];
+		$pairEnd = [];
+		$openStack = [];
+		$items = [];
+		$itemStart = 0;
+		$itemNonWs = 0;
+		$itemError = false;
+		$hasControl = false;
+		$hasUnclosed = false;
+		$idx = 0;
+
+		while (true) {
+			$type = $tokenizer->advanceInternal();
+			$tokControl = ($checkCommentControlBytes && $tokenizer->commentControlErrorOffsets !== [])
+				|| $tokenizer->tokenControlByteOffset !== null;
+			if ($tokControl) {
+				$hasControl = true;
+				$itemError = true;
+			}
+			if ($tokenizer->tokenUnclosedCommentOffset !== null) {
+				$hasUnclosed = true;
+				$itemError = true;
+			}
+			if ($tokenizer->tokenClosedAtEof) {
+				$hasUnclosed = true;
+				if (!$ignoreEofUnclosed) {
+					$itemError = true;
+				}
+			}
+			if ($type === CSSTokenType::BadString || $type === CSSTokenType::BadUrl) {
+				$hasUnclosed = true;
+				$itemError = true;
+			}
+
+			if ($type === CSSTokenType::Eof) {
+				if ($openStack !== []) {
+					$hasUnclosed = true;
+					$itemError = true;
+				}
+				if ($splitCommas) {
+					$items[] = [$itemStart, $idx, $itemError];
+					if (count($items) > $maxItems) {
+						throw new CSSParserLimitException(sprintf('%s list exceeds maximum limit of %d items.', $limitSubject, $maxItems));
+					}
+				}
+				break;
+			}
+
+			if ($idx >= $maxNodes) {
+				throw new CSSParserLimitException(sprintf('%s exceeds maximum node limit of %d.', $limitSubject, $maxNodes));
+			}
+
+			if ($splitCommas && $openStack === [] && $type === CSSTokenType::Comma) {
+				$items[] = [$itemStart, $idx, $itemError];
+				if (count($items) > $maxItems) {
+					throw new CSSParserLimitException(sprintf('%s list exceeds maximum limit of %d items.', $limitSubject, $maxItems));
+				}
+				$itemStart = $idx + 1;
+				$itemNonWs = 0;
+				$itemError = false;
+			} else {
+				if ($splitCommas && $type !== CSSTokenType::Whitespace) {
+					if (++$itemNonWs > $maxItems) {
+						throw new CSSParserLimitException(sprintf('%s exceeds maximum limit of %d tokens.', $limitSubject, $maxItems));
+					}
+				}
+				if ($type === CSSTokenType::Semicolon || $type === CSSTokenType::LeftCurlyBracket || $type === CSSTokenType::RightCurlyBracket) {
+					$hasUnclosed = true;
+					$itemError = true;
+				} elseif ($type === CSSTokenType::LeftParenthesis || $type === CSSTokenType::Function) {
+					$openStack[] = [$idx, ')'];
+					if ($options->maxDepth !== null && count($openStack) > $options->maxDepth) {
+						throw new CSSParserLimitException(sprintf('%s exceeds maximum nesting depth of %d.', $limitSubject, $options->maxDepth));
+					}
+				} elseif ($type === CSSTokenType::LeftSquareBracket) {
+					$openStack[] = [$idx, ']'];
+					if ($options->maxDepth !== null && count($openStack) > $options->maxDepth) {
+						throw new CSSParserLimitException(sprintf('%s exceeds maximum nesting depth of %d.', $limitSubject, $options->maxDepth));
+					}
+				} elseif ($type === CSSTokenType::RightParenthesis || $type === CSSTokenType::RightSquareBracket) {
+					$closer = $type === CSSTokenType::RightParenthesis ? ')' : ']';
+					if ($openStack !== [] && $openStack[count($openStack) - 1][1] === $closer) {
+						[$openIdx] = array_pop($openStack);
+						$pairEnd[$openIdx] = $idx;
+					} else {
+						$hasUnclosed = true;
+						$itemError = true;
+					}
+				}
+			}
+
+			$tokens[] = [
+				$type,
+				$tokenizer->tokenStart,
+				$tokenizer->tokenEnd,
+				$tokenizer->tokenValue,
+				$tokenizer->tokenFlag,
+				$tokenizer->tokenNumericValue,
+				$tokenizer->tokenUnit,
+				$tokenizer->tokenHasEscapes,
+			];
+			$idx++;
+		}
+
+		return [$tokens, $pairEnd, $items, $hasControl, $hasUnclosed];
+	}
+
+	/** @internal */
+	public static function encodeUtf8Codepoint(int $cp): string
 	{
 		if ($cp <= 0x7F) {
 			return chr($cp);

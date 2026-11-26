@@ -74,24 +74,21 @@ final class CSSSkew extends CSSTransformComponent
 
 	public function setIs2D(bool $is2D): void
 	{
-		if (!$is2D) {
-			throw new InvalidArgumentException('CSSSkew cannot be 3D.');
-		}
+		self::assertStrict2D($is2D, 'CSSSkew');
 		parent::setIs2D(true);
 	}
 
 	public function toMatrix(): DOMMatrix
 	{
-		$tanX = tan(self::scalar($this->axValue, 'angle'));
-		$tanY = tan(self::scalar($this->ayValue, 'angle'));
-		if (!is_finite($tanX) || !is_finite($tanY)) {
-			throw new InvalidArgumentException('Skew angle produces a non-finite tangent.');
-		}
-
 		return DOMMatrix::fromTrustedElements(
-			self::matrix2d(1.0, $tanY, $tanX, 1.0, 0.0, 0.0),
+			self::matrix2d(1.0, self::finiteTan($this->ayValue), self::finiteTan($this->axValue), 1.0, 0.0, 0.0),
 			$this->twoDimensional,
 		);
+	}
+
+	public function applyToMatrixInternal(DOMMatrix $matrix): void
+	{
+		$matrix->multiplyAffine2DInternal(1.0, self::finiteTan($this->ayValue), self::finiteTan($this->axValue), 1.0, 0.0, 0.0);
 	}
 
 	public function getValues(): array
@@ -117,10 +114,5 @@ final class CSSSkew extends CSSTransformComponent
 		$this->axValue = $this->axValue->clone();
 		$this->ayValue = $this->ayValue->clone();
 		$this->values = count($this->values) === 1 ? [$this->axValue] : [$this->axValue, $this->ayValue];
-	}
-
-	public function clone(): static
-	{
-		return clone $this;
 	}
 }

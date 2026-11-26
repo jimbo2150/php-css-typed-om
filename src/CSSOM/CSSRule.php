@@ -6,6 +6,7 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 use Error;
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 
 /**
  * Base class for all CSSOM rule nodes.
@@ -125,6 +126,57 @@ abstract class CSSRule
 		}
 	}
 
+	/** @internal Returns false for descriptor-only at-rules (`@property`, `@counter-style`, `@font-palette-values`, `@view-transition`, `@font-face`, `@color-profile`). */
+	public function validatesDescriptorPropertyValuesInternal(): bool
+	{
+		return true;
+	}
+
+	/** @internal */
+	public function getOwnedStyleInternal(): ?CSSStyleDeclaration
+	{
+		return null;
+	}
+
+	/** @internal */
+	public static function validateNonEmptyFragmentInternal(
+		string $text,
+		?int $maxBytes,
+		string $bytesLabel,
+		string $emptyMessage,
+		string $fragmentLabel,
+	): string {
+		if ($maxBytes !== null && strlen($text) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('%s exceeds maximum size of %d bytes.', $bytesLabel, $maxBytes));
+		}
+		$trimmed = CSSSyntaxScanner::trimCssWhitespace($text);
+		if ($trimmed === '' || (str_contains($trimmed, '/*') && CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '')) {
+			throw new InvalidArgumentException($emptyMessage);
+		}
+		CSSSyntaxScanner::assertValidFragment($trimmed, $fragmentLabel, [';', '{', '}']);
+
+		return $trimmed;
+	}
+
+	/** @internal */
+	public static function validateDashedIdentInternal(
+		string $name,
+		?int $maxBytes,
+		string $bytesLabel,
+		string $missingPrefixMessage,
+	): string {
+		self::assertValidMaxBytesInternal($maxBytes);
+		if ($maxBytes !== null && strlen($name) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('%s exceeds maximum size of %d bytes.', $bytesLabel, $maxBytes));
+		}
+		$normalized = CSSStyleDeclaration::normalizePropertyName($name);
+		if (!str_starts_with($normalized, '--')) {
+			throw new InvalidArgumentException($missingPrefixMessage);
+		}
+
+		return $normalized;
+	}
+
 	protected function syncChildLimitsInternal(
 		?int $maxBytes,
 		?int $maxDeclarations,
@@ -133,34 +185,28 @@ abstract class CSSRule
 		?int $maxMathDepth = CSSParserOptions::DEFAULT_MAX_MATH_DEPTH,
 		bool $syncDepths = false,
 	): void {
+		$this->getOwnedStyleInternal()?->clampLimitsInternal(
+			$maxBytes,
+			$syncDeclarations ? $maxDeclarations : null,
+			$maxDepth,
+			$maxMathDepth,
+			$syncDepths,
+		);
 	}
 
 	/** @internal Updates parent pointers without traversing child subtrees. */
 	public function setParentLinks(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void
 	{
-		if ($sheet === null && $this->parentSheetRef !== null) {
-			$detachedMaxBytes = self::minLimitInternal($this->maxBytes, $this->parentSheetRef->getMaxBytesInternal());
-			$detachedMaxDecls = $this->parentSheetRef->getMaxDeclarationsInternal();
-			$detachedMaxDepth = $this->parentSheetRef->getMaxDepthInternal();
-			$detachedMaxMathDepth = $this->parentSheetRef->getMaxMathDepthInternal();
-			$this->maxBytes = $detachedMaxBytes;
-			$this->syncChildLimitsInternal(
-				$detachedMaxBytes,
-				$detachedMaxDecls,
-				true,
-				$detachedMaxDepth,
-				$detachedMaxMathDepth,
-				true,
-			);
-		} elseif ($sheet !== null) {
-			$clampedMaxBytes = self::minLimitInternal($this->maxBytes, $sheet->getMaxBytesInternal());
+		$limitSource = $sheet ?? $this->parentSheetRef;
+		if ($limitSource !== null) {
+			$clampedMaxBytes = self::minLimitInternal($this->maxBytes, $limitSource->getMaxBytesInternal());
 			$this->maxBytes = $clampedMaxBytes;
 			$this->syncChildLimitsInternal(
 				$clampedMaxBytes,
-				$sheet->getMaxDeclarationsInternal(),
+				$limitSource->getMaxDeclarationsInternal(),
 				true,
-				$sheet->getMaxDepthInternal(),
-				$sheet->getMaxMathDepthInternal(),
+				$limitSource->getMaxDepthInternal(),
+				$limitSource->getMaxMathDepthInternal(),
 				true,
 			);
 		}

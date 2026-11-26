@@ -76,6 +76,27 @@ class CSSCalcParser
 		'u-' => ['precedence' => 3, 'left' => false],
 	];
 
+	private static function validateEntryAndLimits(string $expr, ?CSSParserOptions $options, int $depth, string $sizeError): CSSParserOptions
+	{
+		if ($depth < 0 || $depth === PHP_INT_MAX) {
+			throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
+		}
+		$options ??= CSSParserOptions::default();
+		if ($options->maxBytes !== null && strlen($expr) > $options->maxBytes) {
+			throw new CSSParserLimitException(sprintf($sizeError, $options->maxBytes));
+		}
+		if ($options->maxMathDepth !== null && $depth > $options->maxMathDepth) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $options->maxMathDepth));
+		}
+		if (CSSSyntaxScanner::hasControlCharacters($expr)) {
+			throw new InvalidArgumentException($sizeError === 'CSS math expression exceeds maximum size of %d bytes.'
+				? 'CSS math expression contains disallowed control characters.'
+				: 'CSS calc() expression contains disallowed control characters.');
+		}
+
+		return $options;
+	}
+
 	/**
 	 * Parses a CSS `calc(...)` expression into a CSSNumericValue / CSSMathValue tree.
 	 *
@@ -83,34 +104,13 @@ class CSSCalcParser
 	 */
 	public static function parse(string $calcString, ?CSSParserOptions $options = null, int $depth = 0): CSSNumericValue
 	{
-		if ($depth < 0 || $depth === PHP_INT_MAX) {
-			throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
-		}
-		$options ??= CSSParserOptions::default();
-		if ($options->maxBytes !== null && strlen($calcString) > $options->maxBytes) {
-			throw new CSSParserLimitException(sprintf('CSS calc() expression exceeds maximum size of %d bytes.', $options->maxBytes));
-		}
-		if ($options->maxMathDepth !== null && $depth > $options->maxMathDepth) {
-			throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $options->maxMathDepth));
-		}
-		if (CSSSyntaxScanner::hasControlCharacters($calcString)) {
-			throw new InvalidArgumentException('CSS calc() expression contains disallowed control characters.');
-		}
+		$options = self::validateEntryAndLimits($calcString, $options, $depth, 'CSS calc() expression exceeds maximum size of %d bytes.');
 
 		$trimmed = CSSSyntaxScanner::trimCssWhitespace($calcString);
 		$len = strlen($trimmed);
-		$pos = 0;
-		while ($pos < $len) {
-			$pos += strspn($trimmed, CSSSyntaxScanner::CSS_WHITESPACE, $pos, $len - $pos);
-			if ($pos + 1 < $len && $trimmed[$pos] === '/' && $trimmed[$pos + 1] === '*') {
-				$cEnd = strpos($trimmed, '*/', $pos + 2);
-				if ($cEnd === false) {
-					throw new InvalidArgumentException('Unclosed comment in CSS math expression.');
-				}
-				$pos = $cEnd + 2;
-				continue;
-			}
-			break;
+		$pos = CSSSyntaxScanner::skipWhitespaceAndComments($trimmed, 0, $len);
+		if ($pos === null) {
+			throw new InvalidArgumentException('Unclosed comment in CSS math expression.');
 		}
 		if (($len - $pos) < 5) {
 			throw new InvalidArgumentException('Expected a calc() expression.');
@@ -124,25 +124,23 @@ class CSSCalcParser
 				throw new InvalidArgumentException('Expected a calc() expression.');
 			}
 		}
-		$close = CSSSyntaxScanner::findMatchingDelimiter($trimmed, $open, $len);
-		if ($close === null || ($close < $len - 1 && $trimmed[$close + 1] === ')')) {
-			throw new InvalidArgumentException('Mismatched parentheses.');
-		}
-		$tail = $close + 1;
-		while ($tail < $len) {
-			$tail += strspn($trimmed, CSSSyntaxScanner::CSS_WHITESPACE, $tail, $len - $tail);
-			if ($tail + 1 < $len && $trimmed[$tail] === '/' && $trimmed[$tail + 1] === '*') {
-				$cEnd = strpos($trimmed, '*/', $tail + 2);
-				if ($cEnd === false) {
-					throw new InvalidArgumentException('Unclosed comment in CSS math expression.');
-				}
-				$tail = $cEnd + 2;
-				continue;
+
+		// C-level fast path: skip findMatchingDelimiter() when the body has no nested parens or comments and ends with `)`.
+		$innerLen = $len - $open - 2;
+		if ($innerLen >= 0 && $trimmed[$len - 1] === ')' && strcspn($trimmed, '()/', $open + 1, $innerLen) === $innerLen) {
+			$close = $len - 1;
+		} else {
+			$close = CSSSyntaxScanner::findMatchingDelimiter($trimmed, $open, $len);
+			if ($close === null || ($close < $len - 1 && $trimmed[$close + 1] === ')')) {
+				throw new InvalidArgumentException('Mismatched parentheses.');
 			}
-			break;
-		}
-		if ($tail !== $len) {
-			throw new InvalidArgumentException('Invalid expression.');
+			$tail = CSSSyntaxScanner::skipWhitespaceAndComments($trimmed, $close + 1, $len);
+			if ($tail === null) {
+				throw new InvalidArgumentException('Unclosed comment in CSS math expression.');
+			}
+			if ($tail !== $len) {
+				throw new InvalidArgumentException('Invalid expression.');
+			}
 		}
 
 		return self::parseSliceIterative($trimmed, $open + 1, $close, $options, $depth, 2, true);
@@ -155,19 +153,7 @@ class CSSCalcParser
 	 */
 	public static function parseExpression(string $expression, ?CSSParserOptions $options = null, int $depth = 0): CSSNumericValue
 	{
-		if ($depth < 0 || $depth === PHP_INT_MAX) {
-			throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
-		}
-		$options ??= CSSParserOptions::default();
-		if ($options->maxBytes !== null && strlen($expression) > $options->maxBytes) {
-			throw new CSSParserLimitException(sprintf('CSS math expression exceeds maximum size of %d bytes.', $options->maxBytes));
-		}
-		if ($options->maxMathDepth !== null && $depth > $options->maxMathDepth) {
-			throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $options->maxMathDepth));
-		}
-		if (CSSSyntaxScanner::hasControlCharacters($expression)) {
-			throw new InvalidArgumentException('CSS math expression contains disallowed control characters.');
-		}
+		$options = self::validateEntryAndLimits($expression, $options, $depth, 'CSS math expression exceeds maximum size of %d bytes.');
 
 		return self::parseSliceIterative($expression, 0, strlen($expression), $options, $depth, 2, true);
 	}
@@ -423,23 +409,24 @@ class CSSCalcParser
 					return null;
 				}
 				$c0 = $source[$start];
-				$sliceLen = $end - $start;
+				$unitEnd = 0;
 
 				if ((($c0 >= '0' && $c0 <= '9') || $c0 === '.' || $c0 === '+' || $c0 === '-')
-					&& preg_match('/\G([+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?)([a-zA-Z%]*)/', $source, $matches, 0, $start) === 1
-					&& strlen($matches[0]) === $sliceLen
+					&& ($numEnd = self::scanNumberTokenEnd($source, $start, $end, $unitEnd)) > 0
+					&& $unitEnd === $end
 				) {
-					$value = (float) $matches[1];
+					$value = (float) substr($source, $start, $numEnd - $start);
 					if (!is_finite($value)) {
 						if ($throwOnInvalid) {
-							throw new InvalidArgumentException('CSS numeric value must be finite: ' . substr($source, $start, $sliceLen));
+							throw new InvalidArgumentException('CSS numeric value must be finite: ' . substr($source, $start, $end - $start));
 						}
 						return null;
 					}
-					$unit = CSSUnitEnum::tryFromSymbol($matches[2]);
+					$unitStr = $unitEnd > $numEnd ? substr($source, $numEnd, $unitEnd - $numEnd) : '';
+					$unit = CSSUnitEnum::tryFromSymbol($unitStr);
 					if ($unit === null) {
 						if ($throwOnInvalid) {
-							throw new InvalidArgumentException('Unsupported CSS unit: ' . $matches[2]);
+							throw new InvalidArgumentException('Unsupported CSS unit: ' . $unitStr);
 						}
 						return null;
 					}
@@ -450,68 +437,56 @@ class CSSCalcParser
 					continue;
 				}
 
-				if ($allowConstants) {
-					$constEnum = null;
-					if (($c0 >= 'a' && $c0 <= 'z') || ($c0 >= 'A' && $c0 <= 'Z') || $c0 === '-') {
-						if ($sliceLen <= 9 && !str_contains($rawSlice = substr($source, $start, $sliceLen), '\\')) {
-							$constEnum = CSSMathConstantEnum::tryFromKeyword($rawSlice);
-						}
-					}
-					if ($constEnum === null && ($c0 === '\\' || $c0 === '-' || ($c0 >= 'a' && $c0 <= 'z') || ($c0 >= 'A' && $c0 <= 'Z'))) {
-						$ident = CSSSyntaxScanner::decodeIdentAt($source, $start, $end);
-						if ($ident !== null && $ident['end'] === $end) {
-							$constEnum = CSSMathConstantEnum::tryFromKeyword($ident['ident']);
-						}
-					}
-					if ($constEnum !== null) {
-						if (++$totalNodes > CSSNumericValue::MAX_MATH_NODES) {
-							throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
-						}
-						$slots[$targetSlot] = new CSSMathConstant($constEnum);
-						continue;
-					}
-					if ($channelSymbols !== null) {
-						$symIdent = null;
-						if (($c0 >= 'a' && $c0 <= 'z') || ($c0 >= 'A' && $c0 <= 'Z')) {
-							if ($sliceLen <= 16 && !str_contains($rawSlice = substr($source, $start, $sliceLen), '\\')) {
-								$symIdent = strtolower($rawSlice);
-							}
-						}
-						if ($symIdent === null && ($c0 === '\\' || ($c0 >= 'a' && $c0 <= 'z') || ($c0 >= 'A' && $c0 <= 'Z'))) {
-							$ident = CSSSyntaxScanner::decodeIdentAt($source, $start, $end);
-							if ($ident !== null && $ident['end'] === $end) {
-								$symIdent = strtolower($ident['ident']);
-							}
-						}
-						if ($symIdent !== null && isset($channelSymbols[$symIdent])) {
-							if (++$totalNodes > CSSNumericValue::MAX_MATH_NODES) {
-								throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
-							}
-							$slots[$targetSlot] = new CSSUnitValue($channelSymbols[$symIdent], CSSUnitEnum::NUMBER);
-							continue;
-						}
-					}
-				}
-
 				$fnName = null;
 				$openOffset = -1;
-				if ((($c0 >= 'a' && $c0 <= 'z') || ($c0 >= 'A' && $c0 <= 'Z'))
-					&& preg_match('/\G([a-zA-Z][a-zA-Z0-9-]*)\(/', $source, $fnMatch, 0, $start) === 1
-					&& ($start + strlen($fnMatch[0])) <= $end
-				) {
-					$candidate = strtolower($fnMatch[1]);
-					if (isset(self::MATH_FUNCTIONS[$candidate])) {
-						$fnName = $candidate;
-						$openOffset = $start + strlen($fnMatch[1]);
+				if ($c0 === '\\' || ($c0 >= 'a' && $c0 <= 'z') || ($c0 >= 'A' && $c0 <= 'Z') || $c0 === '-') {
+					$identEnd = -1;
+					$identStr = null;
+					if ($c0 !== '\\') {
+						$idLen = strspn($source, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_', $start, $end - $start);
+						if ($idLen > 0) {
+							$afterId = $start + $idLen;
+							$c1 = $c0 === '-' && $idLen >= 2 ? $source[$start + 1] : '';
+							$validStart = $c0 !== '-' || ($c1 !== '' && ($c1 === '-' || $c1 === '_' || ($c1 >= 'a' && $c1 <= 'z') || ($c1 >= 'A' && $c1 <= 'Z')));
+							if ($validStart && ($afterId >= $end || ($source[$afterId] !== '\\' && ord($source[$afterId]) < 0x80))) {
+								$identEnd = $afterId;
+								$identStr = substr($source, $start, $idLen);
+							}
+						}
 					}
-				}
-				if ($fnName === null && ($c0 === '\\' || ($c0 >= 'a' && $c0 <= 'z') || ($c0 >= 'A' && $c0 <= 'Z'))) {
-					$ident = CSSSyntaxScanner::decodeIdentAt($source, $start, $end);
-					if ($ident !== null && $ident['end'] < $end && $source[$ident['end']] === '(') {
-						$candidate = strtolower($ident['ident']);
-						if (isset(self::MATH_FUNCTIONS[$candidate])) {
-							$fnName = $candidate;
-							$openOffset = $ident['end'];
+					if ($identStr === null) {
+						$decoded = CSSSyntaxScanner::decodeIdentAt($source, $start, $end);
+						if ($decoded !== null) {
+							$identEnd = $decoded['end'];
+							$identStr = $decoded['ident'];
+						}
+					}
+					if ($identStr !== null) {
+						if ($identEnd === $end && $allowConstants) {
+							$constEnum = CSSMathConstantEnum::tryFromKeyword($identStr);
+							if ($constEnum !== null) {
+								if (++$totalNodes > CSSNumericValue::MAX_MATH_NODES) {
+									throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
+								}
+								$slots[$targetSlot] = new CSSMathConstant($constEnum);
+								continue;
+							}
+							if ($channelSymbols !== null) {
+								$lowerSym = strtolower($identStr);
+								if (isset($channelSymbols[$lowerSym])) {
+									if (++$totalNodes > CSSNumericValue::MAX_MATH_NODES) {
+										throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
+									}
+									$slots[$targetSlot] = new CSSUnitValue($channelSymbols[$lowerSym], CSSUnitEnum::NUMBER);
+									continue;
+								}
+							}
+						} elseif ($identEnd < $end && $source[$identEnd] === '(' && $c0 !== '-') {
+							$candidate = strtolower($identStr);
+							if (isset(self::MATH_FUNCTIONS[$candidate])) {
+								$fnName = $candidate;
+								$openOffset = $identEnd;
+							}
 						}
 					}
 				}
@@ -751,12 +726,7 @@ class CSSCalcParser
 
 	private static function trimSlice(string $source, int &$start, int &$end): void
 	{
-		while ($start < $end && str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$start])) {
-			$start++;
-		}
-		while ($end > $start && str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$end - 1])) {
-			$end--;
-		}
+		CSSSyntaxScanner::trimSlice($source, $start, $end);
 	}
 
 	/**
@@ -941,10 +911,9 @@ class CSSCalcParser
 		$expectsOperand = true;
 		$hadWhitespace = false;
 		$unaryRun = 0;
-		$maxTokens = $options->maxMathDepth !== null
+			$maxTokens = $options->maxMathDepth !== null
 			? max(4096, min($options->maxMathDepth, intdiv(PHP_INT_MAX, 64)) * 64)
 			: null;
-		$numberPattern = '/\G[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?([a-zA-Z%]*)/';
 
 		while ($offset < $sliceEnd) {
 			$ws = strspn($expression, CSSSyntaxScanner::CSS_WHITESPACE, $offset, $sliceEnd - $offset);
@@ -984,13 +953,9 @@ class CSSCalcParser
 			}
 
 			if (!$expectsOperand && ($character === '+' || $character === '-')) {
-				$look = $offset + 1;
-				while ($look + 1 < $sliceEnd && $expression[$look] === '/' && $expression[$look + 1] === '*') {
-					$cEnd = strpos($expression, '*/', $look + 2);
-					if ($cEnd === false || $cEnd + 1 >= $sliceEnd) {
-						throw new InvalidArgumentException('Unclosed comment in calc() expression.');
-					}
-					$look = $cEnd + 2;
+				$look = CSSSyntaxScanner::skipWhitespaceAndComments($expression, $offset + 1, $sliceEnd, skipWhitespace: false);
+				if ($look === null) {
+					throw new InvalidArgumentException('Unclosed comment in calc() expression.');
 				}
 				if (!$hadWhitespace || ($look < $sliceEnd && !str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $expression[$look]) && $expression[$look] !== ')')) {
 					throw new InvalidArgumentException('Binary + and - operators in calc() require surrounding whitespace.');
@@ -1012,10 +977,11 @@ class CSSCalcParser
 				continue;
 			}
 
+			$unitEnd = 0;
 			if ($character === '+' || $character === '-') {
-				if (preg_match($numberPattern, $expression, $number, 0, $offset) && ($offset + strlen($number[0])) <= $sliceEnd) {
-					$tokens[] = self::makeNumberToken($number[0], $number[1]);
-					$offset += strlen($number[0]);
+				if (($numEnd = self::scanNumberTokenEnd($expression, $offset, $sliceEnd, $unitEnd)) > 0) {
+					$tokens[] = self::makeNumberToken($expression, $offset, $numEnd, $unitEnd);
+					$offset = $unitEnd;
 					$expectsOperand = false;
 					$hadWhitespace = false;
 					$unaryRun = 0;
@@ -1041,16 +1007,11 @@ class CSSCalcParser
 				if ($options->maxMathDepth !== null && ($depth + $unaryRun) > $options->maxMathDepth) {
 					throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $options->maxMathDepth));
 				}
-				$look = $offset + 1;
-				$sawComment = false;
-				while ($look + 1 < $sliceEnd && $expression[$look] === '/' && $expression[$look + 1] === '*') {
-					$cEnd = strpos($expression, '*/', $look + 2);
-					if ($cEnd === false || $cEnd + 1 >= $sliceEnd) {
-						throw new InvalidArgumentException('Unclosed comment in calc() expression.');
-					}
-					$sawComment = true;
-					$look = $cEnd + 2;
+				$look = CSSSyntaxScanner::skipWhitespaceAndComments($expression, $offset + 1, $sliceEnd, skipWhitespace: false);
+				if ($look === null) {
+					throw new InvalidArgumentException('Unclosed comment in calc() expression.');
 				}
+				$sawComment = $look > $offset + 1;
 				if ($look < $sliceEnd) {
 					$nextChar = $expression[$look];
 					if ($nextChar === '+'
@@ -1078,11 +1039,10 @@ class CSSCalcParser
 			}
 
 			if ((($character >= '0' && $character <= '9') || $character === '.')
-				&& preg_match($numberPattern, $expression, $number, 0, $offset)
-				&& ($offset + strlen($number[0])) <= $sliceEnd
+				&& ($numEnd = self::scanNumberTokenEnd($expression, $offset, $sliceEnd, $unitEnd)) > 0
 			) {
-				$tokens[] = self::makeNumberToken($number[0], $number[1]);
-				$offset += strlen($number[0]);
+				$tokens[] = self::makeNumberToken($expression, $offset, $numEnd, $unitEnd);
+				$offset = $unitEnd;
 				$expectsOperand = false;
 				$hadWhitespace = false;
 				$unaryRun = 0;
@@ -1110,54 +1070,25 @@ class CSSCalcParser
 				continue;
 			}
 
-			if ($character === '+' || $character === '-' || $character === '*' || $character === '/') {
-				$tokens[] = [self::T_OP, $character];
-				$offset++;
-				$expectsOperand = true;
-				$hadWhitespace = false;
-				$unaryRun = 0;
-				continue;
-			}
-
-			if ((($character >= 'a' && $character <= 'z') || ($character >= 'A' && $character <= 'Z'))
-				&& preg_match('/\G[a-zA-Z][a-zA-Z0-9-]*/', $expression, $identifier, 0, $offset)
-				&& ($offset + strlen($identifier[0])) <= $sliceEnd
-			) {
-				$name = $identifier[0];
-				$afterName = $offset + strlen($name);
-				if ($afterName < $sliceEnd && $expression[$afterName] === '(') {
-					$mathIndex ??= self::buildMathIndex($expression, $rootStart, $rootEnd, $options, $rootDepth, $hasOuterWrapper, $initialIndexedNodes);
-					$close = $mathIndex['matchingParens'][$afterName] ?? null;
-					if ($close === null || $close >= $sliceEnd) {
-						throw new InvalidArgumentException('Mismatched parentheses.');
+			if (($character >= 'a' && $character <= 'z') || ($character >= 'A' && $character <= 'Z') || $character === '\\') {
+				$name = null;
+				$afterName = -1;
+				if ($character !== '\\') {
+					$idLen = strspn($expression, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-', $offset + 1, $sliceEnd - $offset - 1) + 1;
+					$candidateEnd = $offset + $idLen;
+					if ($candidateEnd >= $sliceEnd || ($expression[$candidateEnd] !== '\\' && ord($expression[$candidateEnd]) < 0x80)) {
+						$name = substr($expression, $offset, $idLen);
+						$afterName = $candidateEnd;
 					}
-					$tokens[] = [self::T_FUNC, $offset, $close + 1];
-					$offset = $close + 1;
-					$expectsOperand = false;
-					$hadWhitespace = false;
-					$unaryRun = 0;
-					continue;
 				}
-				if ($afterName >= $sliceEnd || $expression[$afterName] !== '\\') {
-					$constEnum = CSSMathConstantEnum::tryFromKeyword($name);
-					if ($constEnum !== null) {
-						$tokens[] = [self::T_CONST, $constEnum];
-					} elseif ($channelSymbols !== null && isset($channelSymbols[strtolower($name)])) {
-						$tokens[] = [self::T_NUMBER, $name, $channelSymbols[strtolower($name)], CSSUnitEnum::NUMBER];
-					} else {
-						$tokens[] = [self::T_UNKNOWN, $name];
+				if ($name === null) {
+					$ident = CSSSyntaxScanner::decodeIdentAt($expression, $offset, $sliceEnd);
+					if ($ident !== null) {
+						$name = $ident['ident'];
+						$afterName = $ident['end'];
 					}
-					$offset = $afterName;
-					$expectsOperand = false;
-					$hadWhitespace = false;
-					$unaryRun = 0;
-					continue;
 				}
-			}
-			if ($character === '\\' || ($character >= 'a' && $character <= 'z') || ($character >= 'A' && $character <= 'Z')) {
-				$ident = CSSSyntaxScanner::decodeIdentAt($expression, $offset, $sliceEnd);
-				if ($ident !== null) {
-					$afterName = $ident['end'];
+				if ($name !== null) {
 					if ($afterName < $sliceEnd && $expression[$afterName] === '(') {
 						$mathIndex ??= self::buildMathIndex($expression, $rootStart, $rootEnd, $options, $rootDepth, $hasOuterWrapper, $initialIndexedNodes);
 						$close = $mathIndex['matchingParens'][$afterName] ?? null;
@@ -1171,13 +1102,13 @@ class CSSCalcParser
 						$unaryRun = 0;
 						continue;
 					}
-					$constEnum = CSSMathConstantEnum::tryFromKeyword($ident['ident']);
+					$constEnum = CSSMathConstantEnum::tryFromKeyword($name);
 					if ($constEnum !== null) {
 						$tokens[] = [self::T_CONST, $constEnum];
-					} elseif ($channelSymbols !== null && isset($channelSymbols[strtolower($ident['ident'])])) {
-						$tokens[] = [self::T_NUMBER, $ident['ident'], $channelSymbols[strtolower($ident['ident'])], CSSUnitEnum::NUMBER];
+					} elseif ($channelSymbols !== null && isset($channelSymbols[strtolower($name)])) {
+						$tokens[] = [self::T_NUMBER, $name, $channelSymbols[strtolower($name)], CSSUnitEnum::NUMBER];
 					} else {
-						$tokens[] = [self::T_UNKNOWN, $ident['ident']];
+						$tokens[] = [self::T_UNKNOWN, $name];
 					}
 					$offset = $afterName;
 					$expectsOperand = false;
@@ -1203,14 +1134,54 @@ class CSSCalcParser
 		return $tokens;
 	}
 
-	/** @return array{0: int, 1: string, 2: float, 3: CSSUnitEnum} */
-	private static function makeNumberToken(string $raw, string $unitSymbol): array
+	/**
+	 * Scans a CSS number (`[+-]?(\d+(\.\d+)?|\.\d+)([eE][+-]?\d+)?`) and optional `[a-zA-Z%]*` unit
+	 * within `[$start, $limit)`. Returns the end offset of the numeric portion, or `-1` on mismatch.
+	 */
+	private static function scanNumberTokenEnd(string $source, int $start, int $limit, int &$unitEnd): int
 	{
-		$numStr = $unitSymbol === '' ? $raw : substr($raw, 0, strlen($raw) - strlen($unitSymbol));
-		$float = (float) $numStr;
+		$p = $start;
+		if ($p >= $limit) {
+			return -1;
+		}
+		if ($source[$p] === '+' || $source[$p] === '-') {
+			$p++;
+		}
+		$digits = strspn($source, '0123456789', $p, $limit - $p);
+		$p += $digits;
+		$hasDigits = $digits > 0;
+		if ($p + 1 < $limit && $source[$p] === '.' && $source[$p + 1] >= '0' && $source[$p + 1] <= '9') {
+			$p++;
+			$p += strspn($source, '0123456789', $p, $limit - $p);
+			$hasDigits = true;
+		}
+		if (!$hasDigits) {
+			return -1;
+		}
+		if ($p < $limit && ($source[$p] === 'e' || $source[$p] === 'E')) {
+			$ep = $p + 1;
+			if ($ep < $limit && ($source[$ep] === '+' || $source[$ep] === '-')) {
+				$ep++;
+			}
+			$eDigits = strspn($source, '0123456789', $ep, $limit - $ep);
+			if ($eDigits > 0) {
+				$p = $ep + $eDigits;
+			}
+		}
+		$unitEnd = $p + strspn($source, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ%', $p, $limit - $p);
+
+		return $p;
+	}
+
+	/** @return array{0: int, 1: string, 2: float, 3: CSSUnitEnum} */
+	private static function makeNumberToken(string $source, int $start, int $numEnd, int $unitEnd): array
+	{
+		$float = (float) substr($source, $start, $numEnd - $start);
+		$raw = substr($source, $start, $unitEnd - $start);
 		if (!is_finite($float)) {
 			throw new InvalidArgumentException('CSS numeric value must be finite: ' . $raw);
 		}
+		$unitSymbol = $unitEnd > $numEnd ? substr($source, $numEnd, $unitEnd - $numEnd) : '';
 		$unit = CSSUnitEnum::tryFromSymbol($unitSymbol);
 		if ($unit === null) {
 			throw new InvalidArgumentException('Unsupported CSS unit: ' . $unitSymbol);

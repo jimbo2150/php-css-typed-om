@@ -9,8 +9,8 @@ use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPropertyRule;
-use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStandardProperties;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
+use Jimbo2150\PhpCssTypedOm\Grammar\CSSPropertyGrammarRegistry;
 use Jimbo2150\PhpCssTypedOm\Grammar\CSSValueComponentParser;
 use Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
@@ -120,6 +120,9 @@ abstract class CSS
 	/** @var array<string, CSSPropertyRule> Standalone custom property registry */
 	private static array $registeredProperties = [];
 
+	/** @var array<string, string> Zero-clone syntax mirror kept in sync with `$registeredProperties` */
+	private static array $registeredSyntaxes = [];
+
 	public static function px(string|int|float|null $value = null): CSSUnitValue { return self::unitFactory($value, CSSUnitEnum::LENGTH_px, 'px'); }
 	public static function em(string|int|float|null $value = null): CSSUnitValue { return self::unitFactory($value, CSSUnitEnum::LENGTH_em, 'em'); }
 	public static function rem(string|int|float|null $value = null): CSSUnitValue { return self::unitFactory($value, CSSUnitEnum::LENGTH_rem, 'rem'); }
@@ -154,10 +157,18 @@ abstract class CSS
 
 	private static function unitFactory(mixed $rawValue, CSSUnitEnum $unit, string $methodName): CSSUnitValue
 	{
-		if ($rawValue === null || !(is_string($rawValue) || is_int($rawValue) || is_float($rawValue))) {
+		if (is_int($rawValue) || is_float($rawValue)) {
+			$value = (float) $rawValue;
+			if (!is_finite($value)) {
+				throw new InvalidArgumentException('CSS numeric value must be finite.');
+			}
+
+			return new CSSUnitValue($value, $unit);
+		}
+		if (!is_string($rawValue)) {
 			throw new InvalidArgumentException('Static method ' . $methodName . ' requires 1 numeric parameter.');
 		}
-		if (is_string($rawValue) && CSSSyntaxScanner::hasControlCharacters($rawValue)) {
+		if (CSSSyntaxScanner::hasControlCharacters($rawValue)) {
 			throw new InvalidArgumentException('CSS numeric value contains disallowed control characters.');
 		}
 		if (!is_numeric($rawValue)) {
@@ -197,22 +208,13 @@ abstract class CSS
 			$rawSyntax = $style?->getPropertyValue('syntax') ?? '';
 			$rawInheritsRaw = $style?->getPropertyValue('inherits') ?? '';
 			$initialValue = $definition->getInitialValue();
-			if (strlen($rawName) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-				throw new CSSParserLimitException(sprintf('Registered property name exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+			self::assertRegisteredFieldSize($rawName, 'name');
+			self::assertRegisteredFieldSize($rawSyntax, 'syntax');
+			self::assertRegisteredFieldSize($rawInheritsRaw, 'inherits');
+			if ($initialValue !== null) {
+				self::assertRegisteredFieldSize($initialValue, 'initialValue');
 			}
-			if (strlen($rawSyntax) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-				throw new CSSParserLimitException(sprintf('Registered property syntax exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
-			}
-			if (strlen($rawInheritsRaw) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-				throw new CSSParserLimitException(sprintf('Registered property inherits exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
-			}
-			if ($initialValue !== null && strlen($initialValue) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-				throw new CSSParserLimitException(sprintf('Registered property initialValue exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
-			}
-			$name = CSSStyleDeclaration::normalizePropertyName($rawName);
-			if (!str_starts_with($name, '--')) {
-				throw new InvalidArgumentException('Registered property name must begin with "--".');
-			}
+			$name = self::normalizeRegisteredPropertyName($rawName);
 			$syntax = $definition->getSyntax();
 			$rawInherits = CSSSyntaxScanner::trimCssWhitespace($rawInheritsRaw);
 			if (str_contains($rawInherits, '/*')) {
@@ -234,30 +236,23 @@ abstract class CSS
 			if (!isset($definition['name']) || !is_string($definition['name'])) {
 				throw new InvalidArgumentException('Property registration requires a custom property "name".');
 			}
-			if (strlen($definition['name']) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-				throw new CSSParserLimitException(sprintf('Registered property name exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
-			}
+			self::assertRegisteredFieldSize($definition['name'], 'name');
 			if (!array_key_exists('inherits', $definition) || !is_bool($definition['inherits'])) {
 				throw new InvalidArgumentException('Property registration requires a boolean "inherits" flag.');
 			}
-			$name = CSSStyleDeclaration::normalizePropertyName($definition['name']);
-			if (!str_starts_with($name, '--')) {
-				throw new InvalidArgumentException('Registered property name must begin with "--".');
-			}
+			$name = self::normalizeRegisteredPropertyName($definition['name']);
 			$syntax = $definition['syntax'] ?? '*';
 			if (!is_string($syntax)) {
 				throw new InvalidArgumentException('Registered property "syntax" must be a string.');
 			}
-			if (strlen($syntax) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-				throw new CSSParserLimitException(sprintf('Registered property syntax exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
-			}
+			self::assertRegisteredFieldSize($syntax, 'syntax');
 			$inherits = $definition['inherits'];
 			$initialValue = $definition['initialValue'] ?? null;
 			if ($initialValue !== null && !is_string($initialValue)) {
 				throw new InvalidArgumentException('Registered property "initialValue" must be a string or null.');
 			}
-			if ($initialValue !== null && strlen($initialValue) > CSSParserOptions::DEFAULT_MAX_BYTES) {
-				throw new CSSParserLimitException(sprintf('Registered property initialValue exceeds maximum size of %d bytes.', CSSParserOptions::DEFAULT_MAX_BYTES));
+			if ($initialValue !== null) {
+				self::assertRegisteredFieldSize($initialValue, 'initialValue');
 			}
 		}
 
@@ -295,19 +290,53 @@ abstract class CSS
 		}
 
 		$rule = new CSSPropertyRule($name, $descriptors, $hasEmptyInitialValue);
-		self::$registeredProperties[$name] = clone $rule;
+		self::$registeredProperties[$name] = $rule;
+		self::$registeredSyntaxes[$name] = $rule->getSyntax();
 
 		return clone $rule;
 	}
 
-	public static function getRegisteredProperty(string $name): ?CSSPropertyRule
+	private static function assertRegisteredFieldSize(string $value, string $field): void
+	{
+		if (strlen($value) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+			throw new CSSParserLimitException(sprintf('Registered property %s exceeds maximum size of %d bytes.', $field, CSSParserOptions::DEFAULT_MAX_BYTES));
+		}
+	}
+
+	private static function normalizeRegisteredPropertyName(string $rawName): string
+	{
+		$name = CSSStyleDeclaration::normalizePropertyName($rawName);
+		if (!str_starts_with($name, '--')) {
+			throw new InvalidArgumentException('Registered property name must begin with "--".');
+		}
+
+		return $name;
+	}
+
+	private static function resolveRegisteredKey(string $name): ?string
 	{
 		if (self::$registeredProperties === [] || strlen($name) > CSSParserOptions::DEFAULT_MAX_BYTES) {
 			return null;
 		}
 		try {
-			$key = CSSStyleDeclaration::normalizePropertyName($name);
+			return CSSStyleDeclaration::normalizePropertyName($name);
 		} catch (InvalidArgumentException) {
+			return null;
+		}
+	}
+
+	/**
+	 * @internal Zero-clone syntax lookup for `CSSValueValidator`.
+	 */
+	public static function getRegisteredPropertySyntaxInternal(string $normalizedProperty): ?string
+	{
+		return self::$registeredSyntaxes[$normalizedProperty] ?? null;
+	}
+
+	public static function getRegisteredProperty(string $name): ?CSSPropertyRule
+	{
+		$key = self::resolveRegisteredKey($name);
+		if ($key === null) {
 			return null;
 		}
 		$rule = self::$registeredProperties[$key] ?? null;
@@ -328,18 +357,11 @@ abstract class CSS
 
 	public static function unregisterProperty(string $name): bool
 	{
-		if (self::$registeredProperties === [] || strlen($name) > CSSParserOptions::DEFAULT_MAX_BYTES) {
+		$key = self::resolveRegisteredKey($name);
+		if ($key === null || !isset(self::$registeredProperties[$key])) {
 			return false;
 		}
-		try {
-			$key = CSSStyleDeclaration::normalizePropertyName($name);
-		} catch (InvalidArgumentException) {
-			return false;
-		}
-		if (!isset(self::$registeredProperties[$key])) {
-			return false;
-		}
-		unset(self::$registeredProperties[$key]);
+		unset(self::$registeredProperties[$key], self::$registeredSyntaxes[$key]);
 
 		return true;
 	}
@@ -347,6 +369,7 @@ abstract class CSS
 	public static function clearRegisteredProperties(): void
 	{
 		self::$registeredProperties = [];
+		self::$registeredSyntaxes = [];
 		CSSValueValidator::clearCustomSyntaxCacheInternal();
 	}
 
@@ -373,12 +396,19 @@ abstract class CSS
 		}
 
 		$rawCondition = CSSSyntaxScanner::trimCssWhitespace($propertyOrCondition);
-		if ($rawCondition === '' || CSSSyntaxScanner::hasControlCharacters($rawCondition) || !CSSSyntaxScanner::isBalanced($rawCondition)) {
+		if ($rawCondition === '' || CSSSyntaxScanner::hasControlCharacters($rawCondition)) {
 			return false;
 		}
-		$condition = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($rawCondition));
-		if ($condition === '') {
-			return false;
+		if (str_contains($rawCondition, '/*')) {
+			if (CSSSyntaxScanner::hasUnclosedCommentOrString($rawCondition)) {
+				return false;
+			}
+			$condition = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($rawCondition));
+			if ($condition === '') {
+				return false;
+			}
+		} else {
+			$condition = $rawCondition;
 		}
 
 		$matchingParens = [];
@@ -402,6 +432,16 @@ abstract class CSS
 		$length = strlen($source);
 		if ($length === 0) {
 			return '';
+		}
+
+		$first = $source[0];
+		if ((($first >= 'a' && $first <= 'z')
+			|| ($first >= 'A' && $first <= 'Z')
+			|| $first === '_'
+			|| ($first === '-' && $length > 1 && ($source[1] < '0' || $source[1] > '9')))
+			&& strspn($source, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-') === $length
+		) {
+			return $source;
 		}
 
 		$output = '';
@@ -520,8 +560,22 @@ abstract class CSS
 			return false;
 		}
 
+		$isCustom = str_starts_with($normalized, '--');
+		if (!$isCustom && !CSSPropertyGrammarRegistry::isKnown($normalized)) {
+			return false;
+		}
+
 		$rawValue = CSSSyntaxScanner::trimCssWhitespace($value);
-		if (!$preValidated) {
+		$cleanFlatAscii = !$preValidated
+			&& $rawValue !== ''
+			&& strcspn(
+				$rawValue,
+				"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x7F/\\'\";{}()[]!",
+			) === strlen($rawValue);
+
+		if ($cleanFlatAscii) {
+			$trimmed = $rawValue;
+		} elseif (!$preValidated) {
 			if ($rawValue !== '' && (CSSSyntaxScanner::hasControlCharacters($rawValue) || !CSSSyntaxScanner::isBalanced($rawValue))) {
 				return false;
 			}
@@ -532,7 +586,7 @@ abstract class CSS
 			$trimmed = $rawValue;
 		}
 
-		if ($allowImportant && str_contains($trimmed, '!')) {
+		if ($allowImportant && !$cleanFlatAscii && str_contains($trimmed, '!')) {
 			$bang = CSSSyntaxScanner::findLastTopLevelImportant($trimmed);
 			if ($bang !== null) {
 				$beforeBang = substr($trimmed, 0, $bang);
@@ -542,11 +596,11 @@ abstract class CSS
 			}
 		}
 
-		if ($trimmed === '' && !str_starts_with($normalized, '--')) {
+		if ($trimmed === '' && !$isCustom) {
 			return false;
 		}
 
-		if ($trimmed !== '' && (!$preValidated || strcspn($trimmed, ';{}!') !== strlen($trimmed))) {
+		if ($trimmed !== '' && !$cleanFlatAscii && (!$preValidated || strcspn($trimmed, ';{}!') !== strlen($trimmed))) {
 			try {
 				CSSStyleDeclaration::validatePropertyValue($trimmed);
 			} catch (InvalidArgumentException) {
@@ -554,7 +608,7 @@ abstract class CSS
 			}
 		}
 
-		if (str_starts_with($normalized, '--')) {
+		if ($isCustom) {
 			if ($trimmed === '') {
 				return true;
 			}
@@ -563,10 +617,6 @@ abstract class CSS
 			} catch (CSSParserLimitException) {
 				return false;
 			}
-		}
-
-		if (!CSSStandardProperties::isKnown($normalized)) {
-			return false;
 		}
 
 		try {
@@ -579,64 +629,40 @@ abstract class CSS
 	/** @internal */
 	public static function hasVarReference(string $source): bool
 	{
-		$clean = CSSSyntaxScanner::removeComments($source);
+		if (!str_contains($source, '(') || (stripos($source, 'var') === false && !str_contains($source, '\\'))) {
+			return false;
+		}
+		$clean = str_contains($source, '/*') ? CSSSyntaxScanner::removeComments($source) : $source;
+		if (!str_contains($clean, '(')) {
+			return false;
+		}
 		$length = strlen($clean);
 		$offset = 0;
 
 		while ($offset < $length) {
 			$char = $clean[$offset];
 			if ($char === '"' || $char === "'") {
-				$quote = $char;
-				$offset++;
-				while ($offset < $length) {
-					$step = $clean[$offset];
-					if ($step === '\\') {
-						$offset += ($offset + 1 < $length && $clean[$offset + 1] === "\r" && ($clean[$offset + 2] ?? '') === "\n") ? 3 : 2;
-						continue;
-					}
-					$offset++;
-					if ($step === $quote) {
-						break;
-					}
-				}
+				$valid = true;
+				$strEnd = CSSSyntaxScanner::scanQuotedStringEnd($clean, $offset, $length, $valid);
+				$offset = $valid ? ($strEnd + 1) : $length;
 				continue;
 			}
 
 			// Scan identifier/function name including CSS escapes
-			$isIdentStart = ($char >= 'a' && $char <= 'z')
+			if (($char >= 'a' && $char <= 'z')
 				|| ($char >= 'A' && $char <= 'Z')
 				|| $char === '_'
 				|| $char === '-'
 				|| $char === '\\'
-				|| ord($char) >= 0x80;
-
-			if ($isIdentStart) {
+				|| ord($char) >= 0x80
+			) {
 				$start = $offset;
-				while ($offset < $length) {
-					$c = $clean[$offset];
-					if ($c === '\\') {
-						$hexLen = strspn($clean, '0123456789abcdefABCDEF', $offset + 1, 6);
-						if ($hexLen > 0) {
-							$offset += 1 + $hexLen;
-							if ($offset < $length) {
-								$ws = $clean[$offset];
-								if ($ws === "\r" && ($clean[$offset + 1] ?? '') === "\n") {
-									$offset += 2;
-								} elseif ($ws === ' ' || $ws === "\t" || $ws === "\n" || $ws === "\r" || $ws === "\f") {
-									$offset++;
-								}
-							}
-							continue;
-						}
-						$offset += ($offset + 1 < $length && $clean[$offset + 1] === "\r" && ($clean[$offset + 2] ?? '') === "\n") ? 3 : 2;
-						continue;
-					}
-					if (($c >= 'a' && $c <= 'z') || ($c >= 'A' && $c <= 'Z') || ($c >= '0' && $c <= '9') || $c === '_' || $c === '-' || ord($c) >= 0x80) {
-						$offset++;
-						continue;
-					}
-					break;
+				$ident = CSSSyntaxScanner::decodeIdentAt($clean, $offset, $length);
+				if ($ident === null) {
+					$offset++;
+					continue;
 				}
+				$offset = $ident['end'];
 				if ($offset < $length && $clean[$offset] === '(') {
 					$prevByte = $start > 0 ? $clean[$start - 1] : null;
 					$precededByBoundaryBreak = $prevByte !== null && (
@@ -649,12 +675,8 @@ abstract class CSS
 						|| $prevByte === '-'
 						|| ord($prevByte) >= 0x80
 					);
-					if (!$precededByBoundaryBreak) {
-						$ident = substr($clean, $start, $offset - $start);
-						$decoded = str_contains($ident, '\\') ? CSSSyntaxScanner::decodeCssIdentEscapes($ident) : $ident;
-						if (strcasecmp($decoded, 'var') === 0) {
-							return true;
-						}
+					if (!$precededByBoundaryBreak && strcasecmp($ident['ident'], 'var') === 0) {
+						return true;
 					}
 				}
 				continue;
@@ -696,18 +718,24 @@ abstract class CSS
 				continue;
 			}
 			if ($ch === '\\') {
-				$lastEscapeOffset = $offset;
-				if ($offset + 1 < $length && $source[$offset + 1] === "\r" && ($source[$offset + 2] ?? '') === "\n") {
-					$offset += 3;
-				} else {
-					$offset += 2;
+				if ($offset + 1 >= $length) {
+					return false;
 				}
+				$next = $source[$offset + 1];
+				if ($next === "\n" || $next === "\r" || $next === "\f") {
+					return false;
+				}
+				$lastEscapeOffset = $offset;
+				$offset = CSSSyntaxScanner::advanceIdentEscapeEnd($source, $offset, $length);
 				continue;
 			}
 			if ($ch === '(' || $ch === '[' || $ch === '{') {
 				if ($ch === '(' && CSSSyntaxScanner::isUnquotedUrlStartInternal($source, $offset, 0, $length, $lastEscapeOffset)) {
 					$valid = false;
 					$urlEnd = CSSSyntaxScanner::scanUnquotedUrlEnd($source, $offset, $length, $valid);
+					if (!$valid) {
+						return false;
+					}
 					$offset = $urlEnd < $length ? $urlEnd + 1 : $length;
 					continue;
 				}
@@ -831,8 +859,8 @@ abstract class CSS
 			}
 
 			$c0 = $source[$start];
-			$notKwEnd = self::matchSupportsKeyword($source, $start, $end, 'not');
-			$selectorOpen = $notKwEnd === null ? self::matchSupportsSelectorOpen($source, $start, $end) : null;
+			$notKwEnd = $c0 !== '(' ? self::matchSupportsKeyword($source, $start, $end, 'not') : null;
+			$selectorOpen = ($c0 !== '(' && $notKwEnd === null) ? self::matchSupportsSelectorOpen($source, $start, $end) : null;
 
 			if ($c0 !== '(' && $notKwEnd === null && $selectorOpen === null) {
 				$colon = CSSSyntaxScanner::findTopLevel($source, ':', $start, $end);
@@ -865,52 +893,19 @@ abstract class CSS
 				continue;
 			}
 
-			$tokens = self::splitSupportsClausesSlice($source, $start, $end, $matchingParens);
-			if ($tokens === null || $tokens === []) {
+			$parsedCombo = self::splitSupportsClausesSlice($source, $start, $end, $matchingParens);
+			if ($parsedCombo === null) {
 				$slots[$destSlot] = false;
 				continue;
 			}
+			[$clauses, $operator] = $parsedCombo;
 
-			if (count($tokens) === 1) {
-				if (!is_array($tokens[0])) {
-					$slots[$destSlot] = false;
-					continue;
-				}
-				self::pushSupportsInParens($source, $tokens[0][0], $tokens[0][1], $depth, $destSlot, $maxDepth, $slots, $stack, $matchingParens, $options);
+			if (count($clauses) === 1) {
+				self::pushSupportsInParens($source, $clauses[0][0], $clauses[0][1], $depth, $destSlot, $maxDepth, $slots, $stack, $matchingParens, $options);
 				continue;
 			}
 
-			$tokenCount = count($tokens);
-			if ($tokenCount % 2 === 0) {
-				$slots[$destSlot] = false;
-				continue;
-			}
-
-			$operator = null;
-			$clauses = [];
-			$validCombo = true;
-			for ($i = 0; $i < $tokenCount; $i++) {
-				if ($i % 2 === 0) {
-					if (!is_array($tokens[$i])) {
-						$validCombo = false;
-						break;
-					}
-					$clauses[] = $tokens[$i];
-				} else {
-					if (!is_string($tokens[$i])) {
-						$validCombo = false;
-						break;
-					}
-					$op = $tokens[$i];
-					if ($operator !== null && $operator !== $op) {
-						$validCombo = false;
-						break;
-					}
-					$operator = $op;
-				}
-			}
-
-			if (!$validCombo || $operator === null || $clauses === []) {
+			if ($operator === null) {
 				$slots[$destSlot] = false;
 				continue;
 			}
@@ -1017,22 +1012,7 @@ abstract class CSS
 
 	private static function trimSlice(string $source, int &$start, int &$end): void
 	{
-		while ($start < $end && str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$start])) {
-			$start++;
-		}
-		$origEnd = $end;
-		while ($end > $start && str_contains(CSSSyntaxScanner::CSS_WHITESPACE, $source[$end - 1])) {
-			$end--;
-		}
-		if ($end < $origEnd && $end > $start && $source[$end - 1] === '\\') {
-			$bs = 0;
-			for ($i = $end - 1; $i >= $start && $source[$i] === '\\'; $i--) {
-				$bs++;
-			}
-			if (($bs & 1) === 1 && ($source[$end] === ' ' || $source[$end] === "\t")) {
-				$end++;
-			}
-		}
+		CSSSyntaxScanner::trimSlice($source, $start, $end, true);
 	}
 
 	/**
@@ -1056,12 +1036,13 @@ abstract class CSS
 
 	/**
 	 * @param array<int, int> $matchingParens
-	 * @return list<array{0: int, 1: int}|string>|null
+	 * @return array{0: list<array{0: int, 1: int}>, 1: ?string}|null
 	 */
 	private static function splitSupportsClausesSlice(string $source, int $start, int $end, array &$matchingParens): ?array
 	{
-		$tokens = [];
-		$maxTokens = CSSStyleValue::MAX_LIST_ITEMS * 2;
+		$clauses = [];
+		$operator = null;
+		$expectCombinator = false;
 		$offset = $start;
 
 		while ($offset < $end) {
@@ -1069,45 +1050,64 @@ abstract class CSS
 			if ($offset >= $end) {
 				break;
 			}
-			if (count($tokens) >= $maxTokens) {
-				return null;
-			}
 
 			if ($source[$offset] === '(') {
+				if ($expectCombinator || count($clauses) >= CSSStyleValue::MAX_LIST_ITEMS) {
+					return null;
+				}
 				$close = $matchingParens[$offset] ?? null;
 				if ($close === null || $close >= $end) {
 					return null;
 				}
-				$tokens[] = [$offset, $close + 1];
+				$clauses[] = [$offset, $close + 1];
+				$expectCombinator = true;
 				$offset = $close + 1;
 				continue;
 			}
 
-			if (($open = self::matchSupportsSelectorOpen($source, $offset, $end)) !== null) {
+			if (!$expectCombinator && ($open = self::matchSupportsSelectorOpen($source, $offset, $end)) !== null) {
+				if (count($clauses) >= CSSStyleValue::MAX_LIST_ITEMS) {
+					return null;
+				}
 				$close = $matchingParens[$open] ?? null;
 				if ($close === null || $close >= $end) {
 					return null;
 				}
-				$tokens[] = [$offset, $close + 1];
+				$clauses[] = [$offset, $close + 1];
+				$expectCombinator = true;
 				$offset = $close + 1;
 				continue;
 			}
 
-			if (($kwEnd = self::matchSupportsKeyword($source, $offset, $end, 'and')) !== null) {
-				$tokens[] = 'and';
-				$offset = $kwEnd;
-				continue;
-			}
-			if (($kwEnd = self::matchSupportsKeyword($source, $offset, $end, 'or')) !== null) {
-				$tokens[] = 'or';
-				$offset = $kwEnd;
-				continue;
+			if ($expectCombinator) {
+				if (($kwEnd = self::matchSupportsKeyword($source, $offset, $end, 'and')) !== null) {
+					if ($operator !== null && $operator !== 'and') {
+						return null;
+					}
+					$operator = 'and';
+					$expectCombinator = false;
+					$offset = $kwEnd;
+					continue;
+				}
+				if (($kwEnd = self::matchSupportsKeyword($source, $offset, $end, 'or')) !== null) {
+					if ($operator !== null && $operator !== 'or') {
+						return null;
+					}
+					$operator = 'or';
+					$expectCombinator = false;
+					$offset = $kwEnd;
+					continue;
+				}
 			}
 
 			return null;
 		}
 
-		return $tokens;
+		if ($clauses === [] || !$expectCombinator) {
+			return null;
+		}
+
+		return [$clauses, $operator];
 	}
 
 	private static function matchSupportsKeyword(string $source, int $offset, int $end, string $expectedLower): ?int

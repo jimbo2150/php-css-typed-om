@@ -6,7 +6,7 @@
 
 ## Public API
 
-Constant: `operator = 'max'`. Inherits `values`, `inner_values`, and `value`, `unit`, `length` properties as documented in [CSSMathValue](CSSMathValue.md#public-properties-and-constants). Inherits `__construct(CSSNumericValue|CSSNumericArray|array $values)`, `getOperator(): ?string`, `__get(string $name): mixed`, `__toString(): string`, `clone(): static`, `parse`, `parseAll`, `from`, `type`, `getType`, `getNumericType`, `getNumericCategory`, `to`, `toSum`, `add`, `sub`, `mul`, `div`, `min`, `max`, `equals`, `mergeAdditiveTypes`, `unitType`, and `__set`; see [CSSMathValue](CSSMathValue.md#public-api) and [CSSNumericValue](CSSNumericValue.md#public-api) for full inherited signatures/examples.
+Constant: `operator = 'max'`. Inherits `values`, `inner_values`, and `length` properties as documented in [CSSMathValue](CSSMathValue.md#public-properties-and-constants). Inherits `__construct(CSSNumericValue|CSSNumericArray|array $values)`, `getOperator(): ?string`, `__get(string $name): mixed`, `__toString(): string`, `clone(): static`, `parse`, `parseAll`, `from`, `type`, `getType`, `getNumericType`, `getNumericCategory`, `to`, `toSum`, `add`, `sub`, `mul`, `div`, `min`, `max`, `equals`, `mergeAdditiveTypes`, and `__set`; see [CSSMathValue](CSSMathValue.md#public-api) and [CSSNumericValue](CSSNumericValue.md#public-api) for full inherited signatures/examples.
 
 | Method | Signature and behavior |
 |---|---|

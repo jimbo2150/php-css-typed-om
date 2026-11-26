@@ -72,22 +72,14 @@ final class CSSScale extends CSSTransformComponent
 	public function setX(CSSNumericValue|int|float $x): void
 	{
 		$this->xValue = self::numericValue($x, 'number', ['number']);
-		if ($this->functionName === 'scaley') {
-			$this->functionName = 'scale';
-		} elseif ($this->functionName === 'scalez') {
-			$this->functionName = 'scale3d';
-		}
+		$this->promoteFromSingleAxis('scaley', 'scalez', 'scale', 'scale3d');
 		$this->syncSerializedValues();
 	}
 
 	public function setY(CSSNumericValue|int|float $y): void
 	{
 		$this->yValue = self::numericValue($y, 'number', ['number']);
-		if ($this->functionName === 'scalex') {
-			$this->functionName = 'scale';
-		} elseif ($this->functionName === 'scalez') {
-			$this->functionName = 'scale3d';
-		}
+		$this->promoteFromSingleAxis('scalex', 'scalez', 'scale', 'scale3d');
 		$this->syncSerializedValues();
 	}
 
@@ -105,14 +97,7 @@ final class CSSScale extends CSSTransformComponent
 
 	public function setIs2D(bool $is2D): void
 	{
-		parent::setIs2D($is2D);
-		if ($is2D) {
-			if ($this->functionName === 'scale3d' || $this->functionName === 'scalez') {
-				$this->functionName = 'scale';
-			}
-		} elseif ($this->functionName !== 'scalez') {
-			$this->functionName = 'scale3d';
-		}
+		$this->applyAxisIs2D($is2D, 'scalez', 'scale', 'scale3d');
 		$this->syncSerializedValues();
 	}
 
@@ -127,6 +112,15 @@ final class CSSScale extends CSSTransformComponent
 		return DOMMatrix::fromTrustedElements($matrix, $this->twoDimensional && $z === 1.0);
 	}
 
+	public function applyToMatrixInternal(DOMMatrix $matrix): void
+	{
+		$matrix->scaleSelf(
+			self::scalar($this->xValue, 'number'),
+			self::scalar($this->yValue, 'number'),
+			$this->twoDimensional ? 1.0 : self::scalar($this->zValue, 'number'),
+		);
+	}
+
 	public function __clone(): void
 	{
 		$preserveSingleScale = $this->functionName === 'scale' && count($this->values) === 1;
@@ -138,11 +132,6 @@ final class CSSScale extends CSSTransformComponent
 			return;
 		}
 		$this->syncSerializedValues();
-	}
-
-	public function clone(): static
-	{
-		return clone $this;
 	}
 
 	public function getFunctionName(): string

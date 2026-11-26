@@ -105,14 +105,7 @@ final class CSSRenderer
 				[, , $depth, $openIdx, $header] = $frame;
 				$selfEmitted = array_pop($containerEmitted);
 				$topEmittedIdx--;
-
-				if (!$pretty) {
-					$chunks[] = '}';
-				} elseif (!$selfEmitted) {
-					$chunks[$openIdx] = self::indent($depth) . $header . ' {}';
-				} else {
-					$chunks[] = "\n" . self::indent($depth) . '}';
-				}
+				self::closeGroupingFrame($chunks, $pretty, $depth, $openIdx, $header, $selfEmitted);
 				$containerEmitted[$topEmittedIdx] = true;
 				continue;
 			}
@@ -188,13 +181,7 @@ final class CSSRenderer
 				$local = array_pop($bufferStack);
 				$bufTopIdx--;
 
-				if (!$pretty) {
-					$local[] = '}';
-				} elseif (!$selfEmitted) {
-					$local[$openIdx] = self::indent($depth) . $header . ' {}';
-				} else {
-					$local[] = "\n" . self::indent($depth) . '}';
-				}
+				self::closeGroupingFrame($local, $pretty, $depth, $openIdx, $header, $selfEmitted);
 				$serialized = count($local) === 1 ? $local[0] : implode('', $local);
 				$transformed = $callback($closeRule, $serialized);
 				if ($transformed === '') {
@@ -255,27 +242,74 @@ final class CSSRenderer
 	}
 
 	/**
+	 * @param array<int, string> $buffer
+	 */
+	private static function closeGroupingFrame(
+		array &$buffer,
+		bool $pretty,
+		int $depth,
+		int $openIdx,
+		string $header,
+		bool $selfEmitted,
+	): void {
+		if (!$pretty) {
+			$buffer[] = '}';
+		} elseif (!$selfEmitted) {
+			$buffer[$openIdx] = self::indent($depth) . $header . ' {}';
+		} else {
+			$buffer[] = "\n" . self::indent($depth) . '}';
+		}
+	}
+
+	/**
+	 * @return array{0: string, 1: bool}
+	 */
+	private static function formatOpeningHeader(CSSRule $rule): array
+	{
+		if ($rule instanceof CSSStyleRule) {
+			return [$rule->getSelectorText(), true];
+		}
+		if ($rule instanceof CSSPageRule) {
+			$prelude = $rule->getSelectorText();
+			return ['@page' . ($prelude === '' ? '' : ' ' . $prelude), true];
+		}
+		if ($rule instanceof CSSKeyframeRule) {
+			return [$rule->getKeyText(), true];
+		}
+		if ($rule instanceof CSSFontFeatureValuesRule) {
+			return ['@font-feature-values ' . $rule->getFontFamily(), false];
+		}
+		assert($rule instanceof CSSGroupingRule);
+		$prelude = $rule->getPrelude();
+		return ['@' . $rule->getName() . ($prelude === '' ? '' : ' ' . $prelude), false];
+	}
+
+	private static function formatFlatBlockRule(
+		string $header,
+		CSSStyleDeclaration $style,
+		bool $pretty,
+		int $depth,
+		bool $collapseCommas,
+	): string {
+		$decls = self::buildDeclarationsString($style, $pretty, $depth + 1, $pretty);
+		if (!$pretty) {
+			return self::normalizeMinifiedWhitespace($header, $collapseCommas) . '{' . $decls . '}';
+		}
+		$indent = self::indent($depth);
+		return $decls === '' ? $indent . $header . ' {}' : $indent . $header . ' {' . $decls . "\n" . $indent . '}';
+	}
+
+	/**
 	 * @param list<string> $out
 	 * @return array{int, string, bool}
 	 */
 	private static function appendNonEmptyGroupingOpen(CSSGroupingRule $rule, bool $pretty, int $depth, array &$out): array
 	{
 		$openIdx = count($out);
-		if ($rule instanceof CSSStyleRule) {
-			$header = $rule->getSelectorText();
-			$out[] = $pretty ? self::indent($depth) . $header . ' {' : self::normalizeMinifiedWhitespace($header, true) . '{';
-			$decls = self::buildDeclarationsString($rule->getStyle(), $pretty, $depth + 1, $pretty);
-			if ($decls !== '') {
-				$out[] = $decls;
-				return [$openIdx, $header, true];
-			}
-			return [$openIdx, $header, false];
-		}
+		[$header, $collapseCommas] = self::formatOpeningHeader($rule);
+		$out[] = $pretty ? self::indent($depth) . $header . ' {' : self::normalizeMinifiedWhitespace($header, $collapseCommas) . '{';
 
-		if ($rule instanceof CSSPageRule) {
-			$prelude = $rule->getSelectorText();
-			$header = '@page' . ($prelude === '' ? '' : ' ' . $prelude);
-			$out[] = $pretty ? self::indent($depth) . $header . ' {' : self::normalizeMinifiedWhitespace($header, true) . '{';
+		if ($rule instanceof CSSStyleRule || $rule instanceof CSSPageRule) {
 			$decls = self::buildDeclarationsString($rule->getStyle(), $pretty, $depth + 1, $pretty);
 			if ($decls !== '') {
 				$out[] = $decls;
@@ -285,44 +319,23 @@ final class CSSRenderer
 		}
 
 		if ($rule instanceof CSSFontFeatureValuesRule) {
-			$header = '@font-feature-values ' . $rule->getFontFamily();
-			$out[] = $pretty ? self::indent($depth) . $header . ' {' : self::normalizeMinifiedWhitespace($header, false) . '{';
 			$emitted = self::appendFontFeatureMaps($rule->getFeatureMaps(), $pretty, $depth, $out);
 			return [$openIdx, $header, $emitted];
 		}
 
-		$prelude = $rule->getPrelude();
-		$header = '@' . $rule->getName() . ($prelude === '' ? '' : ' ' . $prelude);
-		$out[] = $pretty ? self::indent($depth) . $header . ' {' : self::normalizeMinifiedWhitespace($header, false) . '{';
 		return [$openIdx, $header, false];
 	}
 
 	private static function renderFlatRule(CSSRule $rule, CSSRenderOptions $options, bool $pretty, int $depth): string
 	{
-		if ($rule instanceof CSSStyleRule) {
-			$header = $rule->getSelectorText();
-			$decls = self::buildDeclarationsString($rule->getStyle(), $pretty, $depth + 1, $pretty);
-			if (!$pretty) {
-				return self::normalizeMinifiedWhitespace($header, true) . '{' . $decls . '}';
-			}
-			$indent = self::indent($depth);
-			return $decls === '' ? $indent . $header . ' {}' : $indent . $header . ' {' . $decls . "\n" . $indent . '}';
-		}
-
-		if ($rule instanceof CSSPageRule) {
-			$prelude = $rule->getSelectorText();
-			$header = '@page' . ($prelude === '' ? '' : ' ' . $prelude);
-			$decls = self::buildDeclarationsString($rule->getStyle(), $pretty, $depth + 1, $pretty);
-			if (!$pretty) {
-				return self::normalizeMinifiedWhitespace($header, true) . '{' . $decls . '}';
-			}
-			$indent = self::indent($depth);
-			return $decls === '' ? $indent . $header . ' {}' : $indent . $header . ' {' . $decls . "\n" . $indent . '}';
+		if ($rule instanceof CSSStyleRule || $rule instanceof CSSPageRule || $rule instanceof CSSKeyframeRule) {
+			[$header, $collapseCommas] = self::formatOpeningHeader($rule);
+			return self::formatFlatBlockRule($header, $rule->getStyle(), $pretty, $depth, $collapseCommas);
 		}
 
 		if ($rule instanceof CSSFontFeatureValuesRule) {
 			$out = [];
-			$header = '@font-feature-values ' . $rule->getFontFamily();
+			[$header] = self::formatOpeningHeader($rule);
 			$indent = $pretty ? self::indent($depth) : '';
 			$out[] = $pretty ? $indent . $header . ' {' : self::normalizeMinifiedWhitespace($header, false) . '{';
 			$emitted = self::appendFontFeatureMaps($rule->getFeatureMaps(), $pretty, $depth, $out);
@@ -338,8 +351,7 @@ final class CSSRenderer
 		}
 
 		if ($rule instanceof CSSGroupingRule) {
-			$prelude = $rule->getPrelude();
-			$header = '@' . $rule->getName() . ($prelude === '' ? '' : ' ' . $prelude);
+			[$header] = self::formatOpeningHeader($rule);
 			return $pretty ? self::indent($depth) . $header . ' {}' : self::normalizeMinifiedWhitespace($header, false) . '{}';
 		}
 
@@ -349,16 +361,6 @@ final class CSSRenderer
 				return '';
 			}
 			return $pretty && $depth > 0 ? self::indent($depth) . $raw : $raw;
-		}
-
-		if ($rule instanceof CSSKeyframeRule) {
-			$header = $rule->getKeyText();
-			$decls = self::buildDeclarationsString($rule->getStyle(), $pretty, $depth + 1, $pretty);
-			if (!$pretty) {
-				return self::normalizeMinifiedWhitespace($header, true) . '{' . $decls . '}';
-			}
-			$indent = self::indent($depth);
-			return $decls === '' ? $indent . $header . ' {}' : $indent . $header . ' {' . $decls . "\n" . $indent . '}';
 		}
 
 		if ($rule instanceof CSSAtRule) {
@@ -496,16 +498,19 @@ final class CSSRenderer
 
 	private static function normalizeMinifiedWhitespace(string $text, bool $collapseTopLevelCommas): string
 	{
-		$trimmed = CSSSyntaxScanner::trimCssWhitespace($text);
+		$trimmed = ($text !== '' && $text[0] > ' ' && $text[-1] > ' ')
+			? $text
+			: CSSSyntaxScanner::trimCssWhitespace($text);
 		if ($trimmed === '') {
 			return '';
 		}
-		if (
-			strpbrk($trimmed, "\r\n\t\f") === false
-			&& !str_contains($trimmed, '  ')
-			&& (!$collapseTopLevelCommas || (!str_contains($trimmed, ' ,') && !str_contains($trimmed, ', ')))
-		) {
-			return $trimmed;
+		if (strpbrk($trimmed, "\r\n\t\f") === false && !str_contains($trimmed, '  ')) {
+			if (!$collapseTopLevelCommas || (!str_contains($trimmed, ' ,') && !str_contains($trimmed, ', '))) {
+				return $trimmed;
+			}
+			if (strpbrk($trimmed, "\"'\\/*()[]{}") === false) {
+				return str_replace([' ,', ', '], ',', $trimmed);
+			}
 		}
 
 		$length = strlen($trimmed);
@@ -563,21 +568,12 @@ final class CSSRenderer
 					$output .= ' ';
 				}
 				$pendingSpace = false;
-				$hexLen = strspn($trimmed, '0123456789abcdefABCDEF', $offset + 1, 6);
-				if ($hexLen > 0) {
-					$endEsc = $offset + 1 + $hexLen;
-					$hasTerminatingSpace = false;
-					if ($endEsc < $length) {
-						$ws = $trimmed[$endEsc];
-						if ($ws === "\r" && ($trimmed[$endEsc + 1] ?? '') === "\n") {
-							$endEsc += 2;
-							$hasTerminatingSpace = true;
-						} elseif ($ws === ' ' || $ws === "\t" || $ws === "\n" || $ws === "\r" || $ws === "\f") {
-							$endEsc++;
-							$hasTerminatingSpace = true;
-						}
-					}
-					$output .= substr($trimmed, $offset, 1 + $hexLen) . ($hasTerminatingSpace ? ' ' : '');
+				if ($offset + 1 < $length && $trimmed[$offset + 1] !== "\n" && $trimmed[$offset + 1] !== "\r" && $trimmed[$offset + 1] !== "\f") {
+					$endEsc = CSSSyntaxScanner::advanceIdentEscapeEnd($trimmed, $offset, $length);
+					$hexLen = strspn($trimmed, CSSSyntaxScanner::HEX_DIGITS, $offset + 1, min(6, $length - $offset - 1));
+					$output .= $hexLen > 0
+						? substr($trimmed, $offset, 1 + $hexLen) . ($endEsc > ($offset + 1 + $hexLen) ? ' ' : '')
+						: substr($trimmed, $offset, $endEsc - $offset);
 				} else {
 					$step = ($offset + 1 < $length && $trimmed[$offset + 1] === "\r" && ($trimmed[$offset + 2] ?? '') === "\n") ? 3 : 2;
 					$endEsc = min($length, $offset + $step);
@@ -593,6 +589,13 @@ final class CSSRenderer
 					$output .= ' ';
 				}
 				$pendingSpace = false;
+				$strValid = true;
+				$strEnd = CSSSyntaxScanner::scanQuotedStringEnd($trimmed, $offset, $length, $strValid);
+				if ($strValid) {
+					$output .= substr($trimmed, $offset, $strEnd - $offset);
+					$offset = $strEnd;
+					continue;
+				}
 				$start = $offset;
 				$quote = $ch;
 				$offset++;

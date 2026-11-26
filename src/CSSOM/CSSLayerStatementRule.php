@@ -13,31 +13,33 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
  */
 final class CSSLayerStatementRule extends CSSAtRule
 {
+	/** @var ?list<string> */
+	private ?array $cachedLayerNames = null;
+
 	/**
 	 * @throws InvalidArgumentException When $layerNames is empty, invalid, or contains empty/comment-only segments
 	 */
 	public function __construct(string $layerNames, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
 		self::assertValidMaxBytesInternal($maxBytes);
-		if ($maxBytes !== null && strlen($layerNames) > $maxBytes) {
-			throw new CSSParserLimitException(sprintf('CSS @layer statement exceeds maximum size of %d bytes.', $maxBytes));
-		}
-		$trimmed = CSSSyntaxScanner::trimCssWhitespace($layerNames);
-		if ($trimmed === '') {
-			throw new InvalidArgumentException('@layer statement requires at least one layer name.');
-		}
-		CSSSyntaxScanner::assertValidFragment($trimmed, '@layer statement', [';', '{', '}']);
-		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
-			throw new InvalidArgumentException('@layer statement requires at least one layer name.');
-		}
+		$trimmed = self::validateNonEmptyFragmentInternal(
+			$layerNames,
+			$maxBytes,
+			'CSS @layer statement',
+			'@layer statement requires at least one layer name.',
+			'@layer statement',
+		);
 		$parts = CSSSyntaxScanner::splitTopLevel($trimmed, ',', 0, null, CSSStyleValue::MAX_LIST_ITEMS);
+		$names = [];
 		foreach ($parts as $part) {
 			$cleanPart = CSSSyntaxScanner::trimCssWhitespace($part);
-			if ($cleanPart === '' || CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($cleanPart)) === '') {
+			if ($cleanPart === '' || (str_contains($cleanPart, '/*') && CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($cleanPart)) === '')) {
 				throw new InvalidArgumentException('@layer statement cannot contain empty layer names.');
 			}
+			$names[] = $cleanPart;
 		}
-		parent::__construct('layer', $trimmed, null, false, $maxBytes);
+		$this->cachedLayerNames = $names;
+		$this->initAtRuleInternal('layer', $trimmed, null, false, $maxBytes);
 	}
 
 	public function getType(): int
@@ -48,13 +50,19 @@ final class CSSLayerStatementRule extends CSSAtRule
 	/** @return list<string> */
 	public function getLayerNames(): array
 	{
-		return array_values(array_filter(
-			array_map(
-				static fn (string $name): string => CSSSyntaxScanner::trimCssWhitespace($name),
-				CSSSyntaxScanner::splitTopLevel($this->prelude, ','),
-			),
-			static fn (string $name): bool => $name !== '',
-		));
+		if ($this->cachedLayerNames !== null) {
+			return $this->cachedLayerNames;
+		}
+
+		$names = [];
+		foreach (CSSSyntaxScanner::splitTopLevel($this->prelude, ',') as $name) {
+			$trimmed = CSSSyntaxScanner::trimCssWhitespace($name);
+			if ($trimmed !== '') {
+				$names[] = $trimmed;
+			}
+		}
+
+		return $this->cachedLayerNames = $names;
 	}
 
 	public function __get(string $name): mixed

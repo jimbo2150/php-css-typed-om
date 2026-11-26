@@ -18,14 +18,6 @@ use Jimbo2150\PhpCssTypedOm\Parser\CSSTokenType;
  */
 final class GridShorthandCodec
 {
-	public static function supports(string $shorthand): bool
-	{
-		return match ($shorthand) {
-			'grid-row', 'grid-column', 'grid-area', 'grid-template', 'grid' => true,
-			default => false,
-		};
-	}
-
 	/**
 	 * @param list<ParsedComponent> $components
 	 * @return ?array<string, string>

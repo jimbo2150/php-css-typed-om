@@ -16,6 +16,8 @@ final class CSSMathClamp extends CSSMathValue
 {
 	public const ?string operator = 'clamp';
 
+	public protected(set) ?CSSNumericValue $value = null;
+
 	public CSSNumericValue $lower {
 		get => $this->values->values[0];
 	}

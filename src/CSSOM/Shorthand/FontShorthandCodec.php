@@ -116,11 +116,6 @@ final class FontShorthandCodec
 		'unicode' => true,
 	];
 
-	public static function supports(string $shorthand): bool
-	{
-		return $shorthand === 'font' || $shorthand === 'font-variant' || $shorthand === 'font-synthesis';
-	}
-
 	/**
 	 * @param list<ParsedComponent> $components
 	 * @return ?ShorthandExpandResult

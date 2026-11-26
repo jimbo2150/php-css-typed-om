@@ -7,6 +7,7 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM;
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
 
 /**
  * Runtime context for CSS unit conversions (font size and viewport dimensions in pixels)
@@ -20,11 +21,8 @@ class CSSContext
 	private string $colorScheme;
 	private ?CSSColorValue $currentColor;
 
-	/** @var array<string, float> Cache for valid length unit to-px conversion factors */
-	private array $toPxFactors = [];
-
-	/** @var array<string, float> Cache for valid length unit from-px conversion factors */
-	private array $fromPxFactors = [];
+	/** @var array<string, array{0: float, 1: float}> Cache for [toPx, fromPx] conversion factor pairs */
+	private array $factorPairs = [];
 
 	/**
 	 * @throws InvalidArgumentException When any context dimension is non-finite or <= 0, or colorScheme is invalid
@@ -88,8 +86,7 @@ class CSSContext
 	public function setFontSize(float $fontSize): self
 	{
 		$this->fontSize = self::validateDimension($fontSize, 'fontSize');
-		$this->toPxFactors = [];
-		$this->fromPxFactors = [];
+		$this->factorPairs = [];
 		return $this;
 	}
 
@@ -104,8 +101,7 @@ class CSSContext
 	public function setViewportWidth(float $viewportWidth): self
 	{
 		$this->viewportWidth = self::validateDimension($viewportWidth, 'viewportWidth');
-		$this->toPxFactors = [];
-		$this->fromPxFactors = [];
+		$this->factorPairs = [];
 		return $this;
 	}
 
@@ -120,59 +116,48 @@ class CSSContext
 	public function setViewportHeight(float $viewportHeight): self
 	{
 		$this->viewportHeight = self::validateDimension($viewportHeight, 'viewportHeight');
-		$this->toPxFactors = [];
-		$this->fromPxFactors = [];
+		$this->factorPairs = [];
 		return $this;
 	}
 
 	public function getToPxFactor(string $unit): float
 	{
-		$key = strtolower($unit);
-		if (isset($this->toPxFactors[$key])) {
-			return $this->toPxFactors[$key];
-		}
-
-		$factor = $this->computeFactor($key);
-		if ($factor === null) {
-			return 1.0;
-		}
-		if (!is_finite($factor) || $factor <= 0.0 || !is_finite(1.0 / $factor)) {
-			throw new InvalidArgumentException(sprintf('Unit conversion factor for "%s" overflows finite precision.', $unit));
-		}
-
-		return $this->toPxFactors[$key] = $factor;
+		return $this->getFactorPair($unit)[0];
 	}
 
 	public function getFromPxFactor(string $unit): float
 	{
+		return $this->getFactorPair($unit)[1];
+	}
+
+	/** @return array{0: float, 1: float} */
+	private function getFactorPair(string $unit): array
+	{
 		$key = strtolower($unit);
-		if (isset($this->fromPxFactors[$key])) {
-			return $this->fromPxFactors[$key];
+		if (isset($this->factorPairs[$key])) {
+			return $this->factorPairs[$key];
 		}
 
 		$factor = $this->computeFactor($key);
 		if ($factor === null) {
-			return 1.0;
+			return [1.0, 1.0];
 		}
 		$inverse = $factor > 0.0 ? 1.0 / $factor : 1.0;
 		if (!is_finite($factor) || $factor <= 0.0 || !is_finite($inverse)) {
 			throw new InvalidArgumentException(sprintf('Unit conversion factor for "%s" overflows finite precision.', $unit));
 		}
 
-		$this->toPxFactors[$key] ??= $factor;
-		return $this->fromPxFactors[$key] = $inverse;
+		return $this->factorPairs[$key] = [$factor, $inverse];
 	}
 
 	private function computeFactor(string $unit): ?float
 	{
+		$absFactor = CSSUnitEnum::tryFromSymbol($unit)?->absoluteToPxFactor();
+		if ($absFactor !== null) {
+			return $absFactor;
+		}
+
 		return match ($unit) {
-			'px' => 1.0,
-			'pt' => 96.0 / 72.0,
-			'pc' => 16.0,
-			'in' => 96.0,
-			'cm' => 96.0 / 2.54,
-			'mm' => 96.0 / 25.4,
-			'q' => 96.0 / 101.6,
 			'em', 'rem', 'ic', 'ric' => $this->fontSize,
 			'ex', 'rex', 'ch', 'rch', 'cap', 'rcap' => $this->fontSize / 2.0,
 			'lh', 'rlh' => $this->fontSize * 1.2,

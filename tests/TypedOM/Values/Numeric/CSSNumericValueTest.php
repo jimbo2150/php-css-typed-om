@@ -97,6 +97,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertInstanceOf(CSSMathSum::class, $sum);
 		/** @var CSSMathSum $sum */
 		$this->assertEquals(1, $sum->length);
+		$this->assertInstanceOf(CSSUnitValue::class, $sum->inner_values[0]);
 		$this->assertEquals('em', $sum->inner_values[0]->unit);
 		$this->assertEqualsWithDelta(0.625, $sum->inner_values[0]->value, 0.001); // 10px / 16 = 0.625em
 	}
@@ -111,12 +112,15 @@ class CSSNumericValueTest extends TestCase
 		$this->assertEquals(3, $sum->length);
 
 		// First matching unit absorbs the px value; remaining units are zeroed to preserve total
+		$this->assertInstanceOf(CSSUnitValue::class, $sum->inner_values[0]);
 		$this->assertEquals('px', $sum->inner_values[0]->unit);
 		$this->assertEquals(16, $sum->inner_values[0]->value);
 
+		$this->assertInstanceOf(CSSUnitValue::class, $sum->inner_values[1]);
 		$this->assertEquals('em', $sum->inner_values[1]->unit);
 		$this->assertEqualsWithDelta(0.0, $sum->inner_values[1]->value, 0.001);
 
+		$this->assertInstanceOf(CSSUnitValue::class, $sum->inner_values[2]);
 		$this->assertEquals('pt', $sum->inner_values[2]->unit);
 		$this->assertEqualsWithDelta(0.0, $sum->inner_values[2]->value, 0.01);
 	}
@@ -125,6 +129,8 @@ class CSSNumericValueTest extends TestCase
 	{
 		$converted = CSS::px(16)->toSum('em', 'pt');
 		self::assertCount(2, $converted->values);
+		self::assertInstanceOf(CSSUnitValue::class, $converted->values[0]);
+		self::assertInstanceOf(CSSUnitValue::class, $converted->values[1]);
 		self::assertSame('em', $converted->values[0]->unit);
 		self::assertEqualsWithDelta(1.0, $converted->values[0]->value, 0.001);
 		self::assertSame('pt', $converted->values[1]->unit);
@@ -132,10 +138,13 @@ class CSSNumericValueTest extends TestCase
 
 		$duplicate = CSS::px(16)->toSum('px', 'px');
 		self::assertCount(1, $duplicate->values);
+		self::assertInstanceOf(CSSUnitValue::class, $duplicate->values[0]);
 		self::assertEqualsWithDelta(16.0, $duplicate->values[0]->value, 0.001);
 
 		$mixed = CSSNumericValue::parse('calc(10px + 2em + 50%)')->toSum('px', 'percent');
 		self::assertCount(2, $mixed->values);
+		self::assertInstanceOf(CSSUnitValue::class, $mixed->values[0]);
+		self::assertInstanceOf(CSSUnitValue::class, $mixed->values[1]);
 		self::assertSame('px', $mixed->values[0]->unit);
 		self::assertEqualsWithDelta(42.0, $mixed->values[0]->value, 0.001);
 		self::assertSame('percent', $mixed->values[1]->unit);
@@ -143,6 +152,7 @@ class CSSNumericValueTest extends TestCase
 
 		$negated = (new CSSMathNegate(CSS::px(10)))->toSum('px');
 		self::assertCount(1, $negated->values);
+		self::assertInstanceOf(CSSUnitValue::class, $negated->values[0]);
 		self::assertSame('px', $negated->values[0]->unit);
 		self::assertEqualsWithDelta(-10.0, $negated->values[0]->value, 0.001);
 	}
@@ -264,7 +274,7 @@ class CSSNumericValueTest extends TestCase
 	{
 		$value1 = new CSSUnitValue(10, 'px');
 		$value2 = new class(10, 'em') extends CSSUnitValue {
-			public function to(string $unit, ?\Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext $context = null): CSSNumericValue
+			public function to(string $unit, ?\Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext $context = null): self
 			{
 				throw new \Exception('Conversion failed');
 			}
@@ -377,6 +387,7 @@ class CSSNumericValueTest extends TestCase
 		$this->assertInstanceOf(CSSMathSum::class, $result);
 		/** @var CSSMathSum $result */
 		$this->assertEquals(2, $result->length);
+		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[0]);
 		$this->assertEquals(10, $result->inner_values[0]->value);
 		$this->assertEquals('px', $result->inner_values[0]->unit);
 		/** @var CSSMathNegate $negate */
@@ -386,6 +397,7 @@ class CSSNumericValueTest extends TestCase
 		$innerSum = $negate->inner_values[0];
 		$this->assertInstanceOf(CSSMathSum::class, $innerSum);
 		$this->assertEquals(1, $innerSum->length);
+		$this->assertInstanceOf(CSSUnitValue::class, $innerSum->inner_values[0]);
 		$this->assertEquals(5, $innerSum->inner_values[0]->value);
 		$this->assertEquals('px', $innerSum->inner_values[0]->unit);
 	}
@@ -468,10 +480,13 @@ class CSSNumericValueTest extends TestCase
 		$this->assertInstanceOf(CSSMathMin::class, $result);
 		/** @var CSSMathMin $result */
 		$this->assertEquals(3, $result->length);
+		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[0]);
 		$this->assertEquals(10, $result->inner_values[0]->value);
 		$this->assertEquals('px', $result->inner_values[0]->unit);
+		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[1]);
 		$this->assertEquals(5, $result->inner_values[1]->value);
 		$this->assertEquals('px', $result->inner_values[1]->unit);
+		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[2]);
 		$this->assertEquals(15, $result->inner_values[2]->value);
 		$this->assertEquals('px', $result->inner_values[2]->unit);
 	}
@@ -494,10 +509,13 @@ class CSSNumericValueTest extends TestCase
 		$this->assertInstanceOf(CSSMathMax::class, $result);
 		/** @var CSSMathMax $result */
 		$this->assertEquals(3, $result->length);
+		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[0]);
 		$this->assertEquals(10, $result->inner_values[0]->value);
 		$this->assertEquals('px', $result->inner_values[0]->unit);
+		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[1]);
 		$this->assertEquals(5, $result->inner_values[1]->value);
 		$this->assertEquals('px', $result->inner_values[1]->unit);
+		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[2]);
 		$this->assertEquals(15, $result->inner_values[2]->value);
 		$this->assertEquals('px', $result->inner_values[2]->unit);
 	}
@@ -676,11 +694,13 @@ class CSSNumericValueTest extends TestCase
 		$converted = (new CSSMathProduct([new CSSUnitValue(2, 'number'), new CSSUnitValue(3, 'number')]))->to('number');
 		$this->assertSame('calc(2 * 3)', (string) $converted);
 		$evaluatedNum = $converted->toSum('number');
+		$this->assertInstanceOf(CSSUnitValue::class, $evaluatedNum->inner_values[0]);
 		$this->assertSame(6.0, $evaluatedNum->inner_values[0]->value);
 		$this->assertSame('number', $evaluatedNum->inner_values[0]->unit);
 
 		$sum = (new CSSMathProduct([new CSSUnitValue(10, 'px'), new CSSUnitValue(2, 'number')]))->toSum('px');
 		$this->assertCount(1, $sum->inner_values);
+		$this->assertInstanceOf(CSSUnitValue::class, $sum->inner_values[0]);
 		$this->assertSame(20.0, $sum->inner_values[0]->value);
 		$this->assertSame('px', $sum->inner_values[0]->unit);
 
@@ -801,14 +821,17 @@ class CSSNumericValueTest extends TestCase
 		self::assertSame('in', $absIn->values[0]->unit);
 
 		$absMs = (new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction('abs', new CSSUnitValue(-1000, 'ms')))->toSum('ms');
+		self::assertInstanceOf(CSSUnitValue::class, $absMs->values[0]);
 		self::assertEqualsWithDelta(1000.0, $absMs->values[0]->value, 1e-12);
 		self::assertSame('ms', $absMs->values[0]->unit);
 
 		$absTurn = (new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction('abs', new CSSUnitValue(-1, 'turn')))->toSum('turn');
+		self::assertInstanceOf(CSSUnitValue::class, $absTurn->values[0]);
 		self::assertEqualsWithDelta(1.0, $absTurn->values[0]->value, 1e-12);
 		self::assertSame('turn', $absTurn->values[0]->unit);
 
 		$hypotIn = (new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction('hypot', [new CSSUnitValue(3, 'in'), new CSSUnitValue(4, 'in')]))->toSum('in');
+		self::assertInstanceOf(CSSUnitValue::class, $hypotIn->values[0]);
 		self::assertEqualsWithDelta(5.0, $hypotIn->values[0]->value, 1e-12);
 		self::assertSame('in', $hypotIn->values[0]->unit);
 
@@ -816,6 +839,7 @@ class CSSNumericValueTest extends TestCase
 			new CSSUnitValue(2, 'number'),
 			new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction('abs', new CSSUnitValue(-1, 'in')),
 		]))->toSum('in');
+		self::assertInstanceOf(CSSUnitValue::class, $prodAbsIn->values[0]);
 		self::assertEqualsWithDelta(2.0, $prodAbsIn->values[0]->value, 1e-12);
 		self::assertSame('in', $prodAbsIn->values[0]->unit);
 
@@ -823,6 +847,7 @@ class CSSNumericValueTest extends TestCase
 			new CSSUnitValue(1, 'in'),
 			new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction('abs', new CSSUnitValue(-2, 'in')),
 		]))->toSum('in');
+		self::assertInstanceOf(CSSUnitValue::class, $sumAbsIn->values[0]);
 		self::assertEqualsWithDelta(3.0, $sumAbsIn->values[0]->value, 1e-12);
 		self::assertSame('in', $sumAbsIn->values[0]->unit);
 

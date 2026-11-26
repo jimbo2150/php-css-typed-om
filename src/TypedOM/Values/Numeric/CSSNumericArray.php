@@ -10,8 +10,9 @@ use Countable;
 use Error;
 use InvalidArgumentException;
 use IteratorAggregate;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\LengthTrait;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\MultiValueArrayTrait;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
+use ReflectionClass;
 use Stringable;
 use Traversable;
 
@@ -24,7 +25,62 @@ use Traversable;
  */
 class CSSNumericArray implements ArrayAccess, Countable, IteratorAggregate, Stringable
 {
-	use MultiValueArrayTrait, LengthTrait;
+	/** @var list<CSSNumericValue> */
+	public protected(set) array $values = [];
+
+	public int $length {
+		get => count($this->values);
+	}
+
+	/**
+	 * @param CSSNumericValue|self|list<CSSNumericValue> $value
+	 */
+	public function __construct(CSSNumericValue|self|array $value)
+	{
+		if ($value instanceof self) {
+			$this->values = $value->values;
+		} elseif ($value instanceof CSSNumericValue) {
+			$this->values = [$value];
+		} else {
+			if (count($value) > CSSNumericValue::MAX_MATH_NODES) {
+				throw new CSSParserLimitException(sprintf('Maximum CSS numeric array node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
+			}
+			$values = [];
+			foreach ($value as $entry) {
+				if (!$entry instanceof CSSNumericValue) {
+					throw new InvalidArgumentException('All values must be of type ' . CSSNumericValue::class);
+				}
+				$values[] = $entry;
+			}
+			$this->values = $values;
+		}
+	}
+
+	/** @internal */
+	public static function empty(): self
+	{
+		static $empty = null;
+
+		return $empty ??= new self([]);
+	}
+
+	/**
+	 * @internal Fast path for already-validated list<CSSNumericValue>.
+	 * @param list<CSSNumericValue> $values
+	 */
+	public static function fromTrustedList(array $values): self
+	{
+		if ($values === []) {
+			return self::empty();
+		}
+		static $reflection = null;
+		$reflection ??= new ReflectionClass(self::class);
+		/** @var self $arr */
+		$arr = $reflection->newInstanceWithoutConstructor();
+		$arr->values = $values;
+
+		return $arr;
+	}
 
 	public function count(): int
 	{
@@ -118,6 +174,27 @@ class CSSNumericArray implements ArrayAccess, Countable, IteratorAggregate, Stri
 			$cloned[] = CSSNumericValue::cloneTreeIteratively($value, $visits);
 		}
 		$this->values = $cloned;
+	}
+
+	public function __toString(): string
+	{
+		if ($this->values === []) {
+			return '';
+		}
+
+		$parts = [];
+		$totalBytes = 0;
+		$maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES;
+		foreach ($this->values as $i => $value) {
+			$part = (string) $value;
+			$totalBytes += strlen($part) + ($i > 0 ? 2 : 0);
+			if ($totalBytes > $maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS numeric array serialization exceeds maximum size of %d bytes.', $maxBytes));
+			}
+			$parts[] = $part;
+		}
+
+		return implode(', ', $parts);
 	}
 
 	public function clone(): static

@@ -4,15 +4,16 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values;
 
-use Error;
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrixReadOnly;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathValue;
+use LogicException;
 
 /**
  * Base class for CSS Typed OM transform component functions.
@@ -21,17 +22,6 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathValue;
  */
 abstract class CSSTransformComponent extends CSSStyleValue
 {
-	/** @var array<string, true> */
-	private const array ABSOLUTE_LENGTH_UNITS = [
-		'px' => true,
-		'cm' => true,
-		'mm' => true,
-		'q' => true,
-		'in' => true,
-		'pc' => true,
-		'pt' => true,
-	];
-
 	/** @var list<float> */
 	protected const array IDENTITY_MATRIX = [
 		1.0, 0.0, 0.0, 0.0,
@@ -79,6 +69,51 @@ abstract class CSSTransformComponent extends CSSStyleValue
 	public function toMatrix(): DOMMatrix
 	{
 		return DOMMatrix::fromTrustedElements(self::IDENTITY_MATRIX, $this->twoDimensional);
+	}
+
+	/** @internal Mutates $matrix in place for CSSTransformValue::toMatrix(). */
+	public function applyToMatrixInternal(DOMMatrix $matrix): void
+	{
+		$matrix->multiplySelf($this->toMatrix());
+	}
+
+	protected static function assertStrict2D(bool $is2D, string $className): void
+	{
+		if (!$is2D) {
+			throw new InvalidArgumentException($className . ' cannot be 3D.');
+		}
+	}
+
+	protected static function finiteTan(CSSNumericValue $angleValue): float
+	{
+		$tan = tan(self::scalar($angleValue, 'angle'));
+		if (!is_finite($tan)) {
+			throw new InvalidArgumentException('Skew angle produces a non-finite tangent.');
+		}
+
+		return $tan;
+	}
+
+	protected function promoteFromSingleAxis(string $otherAxisFn, string $zFn, string $fn2D, string $fn3D): void
+	{
+		if ($this->functionName === $otherAxisFn) {
+			$this->functionName = $fn2D;
+		} elseif ($this->functionName === $zFn) {
+			$this->functionName = $fn3D;
+			$this->twoDimensional = false;
+		}
+	}
+
+	protected function applyAxisIs2D(bool $is2D, string $zFn, string $fn2D, string $fn3D): void
+	{
+		$this->twoDimensional = $is2D;
+		if ($is2D) {
+			if ($this->functionName === $fn3D || $this->functionName === $zFn) {
+				$this->functionName = $fn2D;
+			}
+		} elseif ($this->functionName !== $zFn) {
+			$this->functionName = $fn3D;
+		}
 	}
 
 	public function __clone(): void
@@ -145,21 +180,6 @@ abstract class CSSTransformComponent extends CSSStyleValue
 		return $this->toBoundedCssTextInternal(CSSParserOptions::DEFAULT_MAX_BYTES);
 	}
 
-	public function __get(string $name): mixed
-	{
-		throw new Error('Undefined property: ' . static::class . '::$' . $name);
-	}
-
-	public function __isset(string $name): bool
-	{
-		return false;
-	}
-
-	public function __set(string $name, mixed $value): void
-	{
-		throw new Error('Cannot set property ' . static::class . '::$' . $name);
-	}
-
 	/** @return list<float> */
 	public static function identityMatrix(): array
 	{
@@ -202,11 +222,19 @@ abstract class CSSTransformComponent extends CSSStyleValue
 		}
 
 		if ($expectedCategories !== []) {
+			if ($numeric instanceof CSSUnitValue) {
+				if (!in_array($numeric->getNumericCategory(), $expectedCategories, true)) {
+					throw new InvalidArgumentException('Transform component argument has an incompatible numeric type.');
+				}
+
+				return $numeric;
+			}
 			$type = $numeric->getNumericTypeInternal();
 			$category = $numeric->getNumericCategory();
 			$categoryValid = in_array($category, $expectedCategories, true);
-			$hintValid = $type->percentHint === null
-				|| (in_array('percent', $expectedCategories, true) && in_array($type->percentHint, $expectedCategories, true));
+			$hint = $type->getPercentHintInternal();
+			$hintValid = $hint === null
+				|| (in_array('percent', $expectedCategories, true) && in_array($hint, $expectedCategories, true));
 			if (!$categoryValid || !$hintValid) {
 				throw new InvalidArgumentException('Transform component argument has an incompatible numeric type.');
 			}
@@ -220,29 +248,30 @@ abstract class CSSTransformComponent extends CSSStyleValue
 		if (!$value instanceof CSSUnitValue) {
 			throw new InvalidArgumentException('Matrix conversion requires concrete numeric values.');
 		}
-		$unit = $value->unit;
-		$type = $value->unitType();
+		$unitObj = $value->getUnitObjInternal();
+		if ($unitObj === null) {
+			throw new LogicException('No unit set.');
+		}
+		$type = $unitObj->type()?->value;
 		$compatible = $expectedType === 'number'
-			? $type === null && ($unit === '' || $unit === 'number')
+			? $unitObj === CSSUnitEnum::NUMBER
 			: $type === $expectedType;
 		if (!$compatible) {
 			throw new InvalidArgumentException('Transform component value has an incompatible unit.');
 		}
 
 		if ($expectedType === 'length') {
-			$lowerUnit = strtolower($unit);
-			if (!isset(self::ABSOLUTE_LENGTH_UNITS[$lowerUnit])) {
-				throw new InvalidArgumentException('Matrix conversion requires absolute length units; relative unit given: ' . $unit);
+			$factor = $unitObj->absoluteToPxFactor();
+			if ($factor === null) {
+				throw new InvalidArgumentException('Matrix conversion requires absolute length units; relative unit given: ' . $unitObj->toUnitName());
 			}
-			$result = $lowerUnit === 'px' ? $value->value : $value->to('px')->value;
+			$result = $value->value * $factor;
 		} elseif ($expectedType === 'angle') {
-			$result = $value->value * match (strtolower($unit)) {
-				'rad' => 1.0,
-				'grad' => M_PI / 200.0,
-				'turn' => 2.0 * M_PI,
-				'deg' => M_PI / 180.0,
-				default => throw new InvalidArgumentException('Expected an angle unit.'),
-			};
+			$factor = $unitObj->angleToRadiansFactor();
+			if ($factor === null) {
+				throw new InvalidArgumentException('Expected an angle unit.');
+			}
+			$result = $value->value * $factor;
 		} else {
 			$result = $value->value;
 		}

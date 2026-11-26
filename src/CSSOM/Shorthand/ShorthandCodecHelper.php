@@ -6,8 +6,6 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM\Shorthand;
 
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\Grammar\CSSGrammarMatcher;
-use Jimbo2150\PhpCssTypedOm\Grammar\CSSGrammarNode;
-use Jimbo2150\PhpCssTypedOm\Grammar\CSSGrammarParser;
 use Jimbo2150\PhpCssTypedOm\Grammar\CSSPropertyGrammarRegistry;
 use Jimbo2150\PhpCssTypedOm\Grammar\CSSValueComponentParser;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
@@ -42,10 +40,26 @@ final class ShorthandCodecHelper
 		'thick' => true,
 	];
 
-	private const int MAX_GRAMMAR_CACHE = 128;
+	/**
+	 * Splits an already-validated clean flat ASCII space-delimited string without regex or closures.
+	 *
+	 * @return list<string>
+	 */
+	public static function splitFlatSpaces(string $value): array
+	{
+		if (!str_contains($value, ' ')) {
+			return $value === '' ? [] : [$value];
+		}
 
-	/** @var array<string, CSSGrammarNode> */
-	private static array $compiledGrammars = [];
+		$parts = [];
+		foreach (explode(' ', $value) as $part) {
+			if ($part !== '') {
+				$parts[] = $part;
+			}
+		}
+
+		return $parts;
+	}
 
 	/**
 	 * @param list<ParsedComponent> $components
@@ -60,15 +74,8 @@ final class ShorthandCodecHelper
 		if ($startIdx >= $endIdx || !isset($components[$startIdx], $components[$endIdx - 1])) {
 			return '';
 		}
-		$start = $components[$startIdx]['start'];
-		$end = $components[$endIdx - 1]['end'];
-		$slice = $hasComments
-			? CSSValueComponentParser::sliceClean($source, $start, $end, true)
-			: substr($source, $start, $end - $start);
 
-		return str_contains($slice, '\\')
-			? CSSSyntaxScanner::trimCssWhitespace($slice)
-			: trim($slice, " \t\n\r\f");
+		return self::cleanSlice($source, $components[$startIdx]['start'], $components[$endIdx - 1]['end'], $hasComments);
 	}
 
 	/**
@@ -76,8 +83,11 @@ final class ShorthandCodecHelper
 	 */
 	public static function componentText(string $source, array $component, bool $hasComments): string
 	{
-		$start = $component['start'];
-		$end = $component['end'];
+		return self::cleanSlice($source, $component['start'], $component['end'], $hasComments);
+	}
+
+	private static function cleanSlice(string $source, int $start, int $end, bool $hasComments): string
+	{
 		$slice = $hasComments
 			? CSSValueComponentParser::sliceClean($source, $start, $end, true)
 			: substr($source, $start, $end - $start);
@@ -116,10 +126,14 @@ final class ShorthandCodecHelper
 	): ?array {
 		$segments = [];
 		$current = [];
+		$delimLen = $delimChar !== null ? strlen($delimChar) : 0;
 		foreach ($components as $comp) {
 			$isMatch = ($comp['kind'] ?? '') === 'token'
 				&& ($comp['tokenType'] ?? null) === $tokenType
-				&& ($delimChar === null || substr($source, $comp['start'], $comp['end'] - $comp['start']) === $delimChar);
+				&& ($delimChar === null
+					|| ($delimLen === 1
+						? (($comp['end'] - $comp['start']) === 1 && $source[$comp['start']] === $delimChar)
+						: substr($source, $comp['start'], $comp['end'] - $comp['start']) === $delimChar));
 			if ($isMatch) {
 				if ($current === []) {
 					return null;
@@ -139,6 +153,64 @@ final class ShorthandCodecHelper
 	}
 
 	/**
+	 * Splits comma-separated layer longhand values across multiple properties into synchronized per-layer lists.
+	 * Fast-paths single-layer flat strings when `$needComponents` is false.
+	 *
+	 * @param array<string, string> $propValues
+	 * @return ?array{count: int, text: array<string, list<string>>, comps: array<string, list<list<ParsedComponent>>>, parsed: array<string, array{source: string, hasComments: bool}>}
+	 */
+	public static function splitCommaLayers(
+		array $propValues,
+		CSSParserOptions $options,
+		bool $needComponents = true,
+	): ?array {
+		$count = null;
+		$text = [];
+		$comps = [];
+		$parsedMap = [];
+
+		foreach ($propValues as $key => $raw) {
+			if (!$needComponents
+				&& strcspn($raw, ',\\/') === strlen($raw)
+				&& !isset(CSSValueComponentParser::CSS_WIDE_KEYWORDS[strtolower($raw)])
+			) {
+				if ($count === null) {
+					$count = 1;
+				} elseif ($count !== 1) {
+					return null;
+				}
+				$text[$key] = [$raw];
+				$comps[$key] = [];
+				$parsedMap[$key] = ['source' => $raw, 'hasComments' => false];
+				continue;
+			}
+
+			$parsed = self::parseValue($raw, $options);
+			if ($parsed === null) {
+				return null;
+			}
+			$segments = self::splitByDelimiter($parsed['components'], $parsed['source'], CSSTokenType::Comma);
+			if ($segments === null) {
+				return null;
+			}
+			if ($count === null) {
+				$count = count($segments);
+			} elseif (count($segments) !== $count) {
+				return null;
+			}
+			$parsedMap[$key] = ['source' => $parsed['source'], 'hasComments' => $parsed['hasComments']];
+			$comps[$key] = $segments;
+			$textList = [];
+			foreach ($segments as $seg) {
+				$textList[] = self::joinComponents($parsed['source'], $seg, $parsed['hasComments']);
+			}
+			$text[$key] = $textList;
+		}
+
+		return ['count' => $count ?? 0, 'text' => $text, 'comps' => $comps, 'parsed' => $parsedMap];
+	}
+
+	/**
 	 * @param ParsedComponent $comp
 	 */
 	public static function identLower(array $comp): ?string
@@ -147,7 +219,7 @@ final class ShorthandCodecHelper
 			return null;
 		}
 
-		return strtolower((string) ($comp['name'] ?? ''));
+		return $comp['lower'] ?? strtolower((string) ($comp['name'] ?? ''));
 	}
 
 	/**
@@ -165,8 +237,9 @@ final class ShorthandCodecHelper
 	{
 		return ($comp['kind'] ?? '') === 'token'
 			&& ($comp['tokenType'] ?? null) === CSSTokenType::Delim
-			&& ($comp['end'] - $comp['start']) === strlen($char)
-			&& substr($source, $comp['start'], $comp['end'] - $comp['start']) === $char;
+			&& (strlen($char) === 1
+				? (($comp['end'] - $comp['start']) === 1 && $source[$comp['start']] === $char)
+				: (($comp['end'] - $comp['start']) === strlen($char) && substr($source, $comp['start'], $comp['end'] - $comp['start']) === $char));
 	}
 
 	/**
@@ -218,14 +291,8 @@ final class ShorthandCodecHelper
 		if ($sliceComponents === []) {
 			return false;
 		}
-		if (!isset(self::$compiledGrammars[$grammarExpr])) {
-			if (count(self::$compiledGrammars) >= self::MAX_GRAMMAR_CACHE) {
-				self::$compiledGrammars = array_slice(self::$compiledGrammars, (int) (self::MAX_GRAMMAR_CACHE / 2), null, true);
-			}
-			self::$compiledGrammars[$grammarExpr] = CSSGrammarParser::parse($grammarExpr);
-		}
 
-		return CSSGrammarMatcher::matches(self::$compiledGrammars[$grammarExpr], $source, $hasComments, $sliceComponents, $options);
+		return CSSGrammarMatcher::matches(CSSPropertyGrammarRegistry::getGrammar($grammarExpr), $source, $hasComments, $sliceComponents, $options);
 	}
 
 	/**

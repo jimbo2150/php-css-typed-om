@@ -214,7 +214,9 @@ final class CSSMathConstantsTest extends TestCase
 		$piSimplifiedToNum = CSSMathConstant::pi()->simplify()->to('number');
 		self::assertInstanceOf(CSSUnitValue::class, $piSimplifiedToNum);
 		self::assertEqualsWithDelta(M_PI, $piSimplifiedToNum->value, 1e-12);
-		self::assertEqualsWithDelta(M_E, CSSMathConstant::e()->toSum('number')->values[0]->value, 1e-12);
+		$eToNum = CSSMathConstant::e()->toSum('number');
+		self::assertInstanceOf(CSSUnitValue::class, $eToNum->values[0]);
+		self::assertEqualsWithDelta(M_E, $eToNum->values[0]->value, 1e-12);
 
 		foreach (['unknown-const', '+infinity', 'pi '] as $invalidConst) {
 			try {

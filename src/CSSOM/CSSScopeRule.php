@@ -23,9 +23,16 @@ final class CSSScopeRule extends CSSGroupingRule
 
 	public function __construct(string $prelude = '', ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
-		parent::__construct('scope', $prelude, $maxBytes);
-		[$this->startSelector, $this->endSelector, $canonicalPrelude] = self::parseBounds($this->prelude, $maxBytes);
-		$this->prelude = $canonicalPrelude;
+		self::assertValidMaxBytesInternal($maxBytes);
+		if ($maxBytes !== null && strlen($prelude) > $maxBytes) {
+			throw new CSSParserLimitException(sprintf('CSS grouping rule exceeds maximum size of %d bytes.', $maxBytes));
+		}
+		$trimmedPrelude = CSSSyntaxScanner::trimCssWhitespace($prelude);
+		if ($trimmedPrelude !== '') {
+			CSSSyntaxScanner::assertValidFragment($trimmedPrelude, 'CSS rule prelude', [';', '{', '}']);
+		}
+		[$this->startSelector, $this->endSelector, $canonicalPrelude] = self::parseBounds($trimmedPrelude, $maxBytes);
+		$this->initGroupingRuleInternal('scope', $canonicalPrelude, $maxBytes);
 	}
 
 	public function getType(): int

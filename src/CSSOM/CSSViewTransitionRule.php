@@ -19,26 +19,23 @@ final class CSSViewTransitionRule extends CSSAtRule
 {
 	public function __construct(CSSStyleDeclaration $descriptors, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
-		parent::__construct('view-transition', '', $descriptors, true, $maxBytes);
+		$this->initAtRuleInternal('view-transition', '', $descriptors, true, $maxBytes);
+	}
+
+	public function validatesDescriptorPropertyValuesInternal(): bool
+	{
+		return false;
 	}
 
 	public function getNavigation(): string
 	{
-		$raw = CSSSyntaxScanner::trimCssWhitespace($this->styleDeclaration?->getPropertyValue('navigation') ?? '');
-		if (str_contains($raw, '/*')) {
-			$raw = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($raw));
-		}
-
-		return $raw;
+		return $this->readCleanDescriptor('navigation');
 	}
 
 	/** @return list<string> */
 	public function getTypes(): array
 	{
-		$raw = CSSSyntaxScanner::trimCssWhitespace($this->styleDeclaration?->getPropertyValue('types') ?? '');
-		if (str_contains($raw, '/*')) {
-			$raw = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($raw));
-		}
+		$raw = $this->readCleanDescriptor('types');
 		if ($raw === '') {
 			return [];
 		}

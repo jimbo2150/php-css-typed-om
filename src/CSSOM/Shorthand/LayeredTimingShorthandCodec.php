@@ -165,13 +165,13 @@ final class LayeredTimingShorthandCodec
 	 */
 	private static function serializeTransition(array $values, CSSParserOptions $options): string
 	{
-		$split = self::splitCommaValues([
+		$split = ShorthandCodecHelper::splitCommaLayers([
 			'prop' => $values['transition-property'],
 			'dur' => $values['transition-duration'],
 			'timing' => $values['transition-timing-function'],
 			'delay' => $values['transition-delay'],
 			'behav' => $values['transition-behavior'],
-		], $options);
+		], $options, false);
 		if ($split === null) {
 			return '';
 		}
@@ -179,11 +179,11 @@ final class LayeredTimingShorthandCodec
 		$count = $split['count'];
 		$out = [];
 		for ($i = 0; $i < $count; $i++) {
-			$prop = $split['items']['prop'][$i];
-			$dur = $split['items']['dur'][$i];
-			$timing = $split['items']['timing'][$i];
-			$delay = $split['items']['delay'][$i];
-			$behav = $split['items']['behav'][$i];
+			$prop = $split['text']['prop'][$i];
+			$dur = $split['text']['dur'][$i];
+			$timing = $split['text']['timing'][$i];
+			$delay = $split['text']['delay'][$i];
+			$behav = $split['text']['behav'][$i];
 
 			$parts = [];
 			if ($prop !== 'all') {
@@ -329,13 +329,7 @@ final class LayeredTimingShorthandCodec
 	 */
 	private static function serializeAnimation(array $values, CSSParserOptions $options): string
 	{
-		$parsedStart = ShorthandCodecHelper::parseValue($values['animation-range-start'], $options);
-		$parsedEnd = ShorthandCodecHelper::parseValue($values['animation-range-end'], $options);
-		if ($parsedStart === null || $parsedEnd === null) {
-			return '';
-		}
-
-		$split = self::splitCommaValues([
+		$split = ShorthandCodecHelper::splitCommaLayers([
 			'dur' => $values['animation-duration'],
 			'timing' => $values['animation-timing-function'],
 			'delay' => $values['animation-delay'],
@@ -345,36 +339,48 @@ final class LayeredTimingShorthandCodec
 			'play' => $values['animation-play-state'],
 			'name' => $values['animation-name'],
 			'timeline' => $values['animation-timeline'],
-		], $options);
+		], $options, false);
 		if ($split === null) {
 			return '';
 		}
 
 		$count = $split['count'];
-		$startComps = ShorthandCodecHelper::splitByDelimiter($parsedStart['components'], $parsedStart['source'], CSSTokenType::Comma);
-		$endComps = ShorthandCodecHelper::splitByDelimiter($parsedEnd['components'], $parsedEnd['source'], CSSTokenType::Comma);
-		if ($startComps === null || $endComps === null || count($startComps) !== $count || count($endComps) !== $count) {
-			return '';
-		}
-		for ($i = 0; $i < $count; $i++) {
-			if (!ShorthandCodecHelper::isIdent($startComps[$i][0], 'normal') || count($startComps[$i]) !== 1
-				|| !ShorthandCodecHelper::isIdent($endComps[$i][0], 'normal') || count($endComps[$i]) !== 1
-			) {
+		$rawRangeStart = $values['animation-range-start'];
+		$rawRangeEnd = $values['animation-range-end'];
+		$bothSingleNormal = $count === 1
+			&& strtolower($rawRangeStart) === 'normal'
+			&& strtolower($rawRangeEnd) === 'normal';
+		if (!$bothSingleNormal) {
+			$parsedStart = ShorthandCodecHelper::parseValue($rawRangeStart, $options);
+			$parsedEnd = ShorthandCodecHelper::parseValue($rawRangeEnd, $options);
+			if ($parsedStart === null || $parsedEnd === null) {
 				return '';
+			}
+			$startComps = ShorthandCodecHelper::splitByDelimiter($parsedStart['components'], $parsedStart['source'], CSSTokenType::Comma);
+			$endComps = ShorthandCodecHelper::splitByDelimiter($parsedEnd['components'], $parsedEnd['source'], CSSTokenType::Comma);
+			if ($startComps === null || $endComps === null || count($startComps) !== $count || count($endComps) !== $count) {
+				return '';
+			}
+			for ($i = 0; $i < $count; $i++) {
+				if (!ShorthandCodecHelper::isIdent($startComps[$i][0], 'normal') || count($startComps[$i]) !== 1
+					|| !ShorthandCodecHelper::isIdent($endComps[$i][0], 'normal') || count($endComps[$i]) !== 1
+				) {
+					return '';
+				}
 			}
 		}
 
 		$out = [];
 		for ($i = 0; $i < $count; $i++) {
-			$dur = $split['items']['dur'][$i];
-			$timing = $split['items']['timing'][$i];
-			$delay = $split['items']['delay'][$i];
-			$iter = $split['items']['iter'][$i];
-			$dir = $split['items']['dir'][$i];
-			$fill = $split['items']['fill'][$i];
-			$play = $split['items']['play'][$i];
-			$name = $split['items']['name'][$i];
-			$timeline = $split['items']['timeline'][$i];
+			$dur = $split['text']['dur'][$i];
+			$timing = $split['text']['timing'][$i];
+			$delay = $split['text']['delay'][$i];
+			$iter = $split['text']['iter'][$i];
+			$dir = $split['text']['dir'][$i];
+			$fill = $split['text']['fill'][$i];
+			$play = $split['text']['play'][$i];
+			$name = $split['text']['name'][$i];
+			$timeline = $split['text']['timeline'][$i];
 
 			$nameLower = strtolower($name);
 			if ($nameLower === 'auto') {
@@ -382,7 +388,7 @@ final class LayeredTimingShorthandCodec
 			}
 			$parts = [];
 
-			$emitDur = $dur !== 'auto' || $delay !== '0s' || $nameLower === 'auto';
+			$emitDur = $dur !== 'auto' || $delay !== '0s';
 			if ($emitDur) {
 				$parts[] = $dur;
 			}
@@ -538,7 +544,7 @@ final class LayeredTimingShorthandCodec
 	 */
 	private static function serializeAnimationRange(array $values, CSSParserOptions $options): string
 	{
-		$split = self::splitCommaValues([
+		$split = ShorthandCodecHelper::splitCommaLayers([
 			'start' => $values['animation-range-start'],
 			'end' => $values['animation-range-end'],
 		], $options);
@@ -548,11 +554,11 @@ final class LayeredTimingShorthandCodec
 
 		$out = [];
 		for ($i = 0; $i < $split['count']; $i++) {
-			$start = $split['items']['start'][$i];
-			$end = $split['items']['end'][$i];
+			$start = $split['text']['start'][$i];
+			$end = $split['text']['end'][$i];
 			$startComps = $split['comps']['start'][$i];
 			$firstLower = ShorthandCodecHelper::identLower($startComps[0]);
-			$impliedEnd = ($firstLower !== null && $firstLower !== 'normal' && ShorthandCodecHelper::matchesNonTerminal('timeline-range-name', $split['sources']['start'], $split['comments']['start'], [$startComps[0]], $options))
+			$impliedEnd = ($firstLower !== null && $firstLower !== 'normal' && ShorthandCodecHelper::matchesNonTerminal('timeline-range-name', $split['parsed']['start']['source'], $split['parsed']['start']['hasComments'], [$startComps[0]], $options))
 				? $firstLower
 				: 'normal';
 
@@ -593,17 +599,17 @@ final class LayeredTimingShorthandCodec
 	 */
 	private static function serializeScrollTimeline(array $values, CSSParserOptions $options): string
 	{
-		$split = self::splitCommaValues([
+		$split = ShorthandCodecHelper::splitCommaLayers([
 			'name' => $values['scroll-timeline-name'],
 			'axis' => $values['scroll-timeline-axis'],
-		], $options);
+		], $options, false);
 		if ($split === null) {
 			return '';
 		}
 		$out = [];
 		for ($i = 0; $i < $split['count']; $i++) {
-			$name = $split['items']['name'][$i];
-			$axis = $split['items']['axis'][$i];
+			$name = $split['text']['name'][$i];
+			$axis = $split['text']['axis'][$i];
 			$out[] = $axis === 'block' ? $name : $name . ' ' . $axis;
 		}
 
@@ -656,19 +662,19 @@ final class LayeredTimingShorthandCodec
 	 */
 	private static function serializeViewTimeline(array $values, CSSParserOptions $options): string
 	{
-		$split = self::splitCommaValues([
+		$split = ShorthandCodecHelper::splitCommaLayers([
 			'name' => $values['view-timeline-name'],
 			'axis' => $values['view-timeline-axis'],
 			'inset' => $values['view-timeline-inset'],
-		], $options);
+		], $options, false);
 		if ($split === null) {
 			return '';
 		}
 		$out = [];
 		for ($i = 0; $i < $split['count']; $i++) {
-			$name = $split['items']['name'][$i];
-			$axis = $split['items']['axis'][$i];
-			$inset = $split['items']['inset'][$i];
+			$name = $split['text']['name'][$i];
+			$axis = $split['text']['axis'][$i];
+			$inset = $split['text']['inset'][$i];
 
 			$parts = [$name];
 			if ($axis !== 'block') {
@@ -681,44 +687,5 @@ final class LayeredTimingShorthandCodec
 		}
 
 		return implode(', ', $out);
-	}
-
-	/**
-	 * @param array<string, string> $propValues
-	 * @return ?array{count: int, items: array<string, list<string>>, comps: array<string, list<list<ParsedComponent>>>, sources: array<string, string>, comments: array<string, bool>}
-	 */
-	private static function splitCommaValues(array $propValues, CSSParserOptions $options): ?array
-	{
-		$count = null;
-		$items = [];
-		$comps = [];
-		$sources = [];
-		$comments = [];
-
-		foreach ($propValues as $key => $raw) {
-			$parsed = ShorthandCodecHelper::parseValue($raw, $options);
-			if ($parsed === null) {
-				return null;
-			}
-			$segments = ShorthandCodecHelper::splitByDelimiter($parsed['components'], $parsed['source'], CSSTokenType::Comma);
-			if ($segments === null) {
-				return null;
-			}
-			if ($count === null) {
-				$count = count($segments);
-			} elseif (count($segments) !== $count) {
-				return null;
-			}
-			$sources[$key] = $parsed['source'];
-			$comments[$key] = $parsed['hasComments'];
-			$comps[$key] = $segments;
-			$list = [];
-			foreach ($segments as $seg) {
-				$list[] = ShorthandCodecHelper::joinComponents($parsed['source'], $seg, $parsed['hasComments']);
-			}
-			$items[$key] = $list;
-		}
-
-		return ['count' => $count ?? 0, 'items' => $items, 'comps' => $comps, 'sources' => $sources, 'comments' => $comments];
 	}
 }

@@ -22,21 +22,21 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
  * @phpstan-type ParsedComponent array{
  *   kind: 'token'|'function'|'paren'|'bracket'|'brace',
  *   tokenType?: CSSTokenType,
- *   name?: string,
+ *   name?: ?string,
+ *   lower?: string,
  *   start: int,
  *   end: int,
- *   innerStart?: int,
- *   innerEnd?: int,
- *   components?: list<mixed>,
- *   hasEscapes?: bool
+ *   numValue?: float,
+ *   isInt?: bool,
+ *   unitLower?: string,
+ *   components?: list<mixed>
  * }
  * @phpstan-type ParsedResult array{
  *   source: string,
  *   components: list<ParsedComponent>,
  *   hasSubstitution: bool,
  *   isCssWideKeyword: bool,
- *   hasComments: bool,
- *   hasEscapes: bool
+ *   hasComments: bool
  * }
  *
  * @internal
@@ -85,25 +85,23 @@ final class CSSValueComponentParser
 
 		$maxDepth = $options->maxDepth;
 		$maxMathDepth = $options->maxMathDepth;
-		/** @var list<array{kind: 'brace'|'bracket'|'function'|'paren'|'root', closeType: ?CSSTokenType, name: ?string, start: int, innerStart: int, hasEscapes: bool, isMath: bool, mathDepth: int, components: list<mixed>}> $stack */
+		/** @var list<array{kind: 'brace'|'bracket'|'function'|'paren'|'root', closeType: ?CSSTokenType, name: ?string, start: int, isMath: bool, mathDepth: int, components: list<mixed>}> $stack */
 		$stack = [
 			[
 				'kind' => 'root',
 				'closeType' => null,
 				'name' => null,
 				'start' => 0,
-				'innerStart' => 0,
-				'hasEscapes' => false,
 				'isMath' => false,
 				'mathDepth' => 0,
 				'components' => [],
 			],
 		];
+		$stackDepth = 1;
 
 		$componentCount = 0;
 		$topLevelCommaCount = 0;
 		$hasComments = false;
-		$hasEscapes = false;
 		$potentialSubstitutions = [];
 
 		while (true) {
@@ -129,12 +127,9 @@ final class CSSValueComponentParser
 			if ($type === CSSTokenType::Whitespace) {
 				continue;
 			}
-			if ($tokenizer->tokenHasEscapes) {
-				$hasEscapes = true;
-			}
 
 			// Structural CSS delimiters disallowed outside custom property raw blocks at top-level
-			if (count($stack) === 1) {
+			if ($stackDepth === 1) {
 				if ($type === CSSTokenType::Semicolon || $type === CSSTokenType::LeftCurlyBracket || $type === CSSTokenType::RightCurlyBracket) {
 					return null;
 				}
@@ -152,12 +147,11 @@ final class CSSValueComponentParser
 				|| $type === CSSTokenType::LeftSquareBracket
 				|| $type === CSSTokenType::LeftCurlyBracket
 			) {
-				$newDepth = count($stack);
-				if ($maxDepth !== null && $newDepth > $maxDepth) {
+				if ($maxDepth !== null && $stackDepth > $maxDepth) {
 					throw new CSSParserLimitException(sprintf('CSS nesting depth exceeds maximum limit of %d.', $maxDepth));
 				}
 
-				$parentFrame = $stack[$newDepth - 1];
+				$parentFrame = $stack[$stackDepth - 1];
 				$fnName = null;
 				$kind = 'paren';
 				$closeType = CSSTokenType::RightParenthesis;
@@ -167,7 +161,6 @@ final class CSSValueComponentParser
 				if ($type === CSSTokenType::Function) {
 					$fnName = strtolower($tokenizer->decodeCurrentIdentInternal());
 					$kind = 'function';
-					$closeType = CSSTokenType::RightParenthesis;
 					if ($parentFrame['isMath']) {
 						$frameIsMath = true;
 						$frameMathDepth = $parentFrame['mathDepth'] + 1;
@@ -195,12 +188,11 @@ final class CSSValueComponentParser
 					'closeType' => $closeType,
 					'name' => $fnName,
 					'start' => $tokenizer->tokenStart,
-					'innerStart' => $tokenizer->tokenEnd,
-					'hasEscapes' => $tokenizer->tokenHasEscapes,
 					'isMath' => $frameIsMath,
 					'mathDepth' => $frameMathDepth,
 					'components' => [],
 				];
+				$stackDepth++;
 				continue;
 			}
 
@@ -208,10 +200,11 @@ final class CSSValueComponentParser
 				|| $type === CSSTokenType::RightSquareBracket
 				|| $type === CSSTokenType::RightCurlyBracket
 			) {
-				if (count($stack) <= 1) {
+				if ($stackDepth <= 1) {
 					return null;
 				}
 				$frame = array_pop($stack);
+				$stackDepth--;
 				if ($frame['closeType'] !== $type) {
 					return null;
 				}
@@ -220,34 +213,67 @@ final class CSSValueComponentParser
 					'name' => $frame['name'],
 					'start' => $frame['start'],
 					'end' => $tokenizer->tokenEnd,
-					'innerStart' => $frame['innerStart'],
-					'innerEnd' => $tokenizer->tokenStart,
 					'components' => $frame['components'],
-					'hasEscapes' => $frame['hasEscapes'],
 				];
 				if ($frame['kind'] === 'function' && isset(self::SUBSTITUTION_FUNCTIONS[(string) $frame['name']])) {
 					$potentialSubstitutions[] = $node;
 				}
-				$stack[count($stack) - 1]['components'][] = $node;
+				$stack[$stackDepth - 1]['components'][] = $node;
 				continue;
 			}
 
-			$name = null;
-			if ($type === CSSTokenType::Ident || $type === CSSTokenType::AtKeyword || $type === CSSTokenType::Hash) {
+			if ($type === CSSTokenType::Ident) {
 				$name = $tokenizer->decodeCurrentIdentInternal();
+				$stack[$stackDepth - 1]['components'][] = [
+					'kind' => 'token',
+					'tokenType' => $type,
+					'name' => $name,
+					'lower' => strtolower($name),
+					'start' => $tokenizer->tokenStart,
+					'end' => $tokenizer->tokenEnd,
+				];
+				continue;
 			}
 
-			$stack[count($stack) - 1]['components'][] = [
+			if ($type === CSSTokenType::Number || $type === CSSTokenType::Percentage || $type === CSSTokenType::Dimension) {
+				$tokStart = $tokenizer->tokenStart;
+				$numValue = (float) substr($value, $tokStart, $tokenizer->tokenNumEnd - $tokStart);
+				$unitLower = match ($type) {
+					CSSTokenType::Percentage => '%',
+					CSSTokenType::Dimension => strtolower(
+						$tokenizer->tokenHasEscapes
+							? CSSSyntaxScanner::decodeCssIdentEscapes(substr($value, $tokenizer->tokenUnitStart, $tokenizer->tokenUnitEnd - $tokenizer->tokenUnitStart))
+							: substr($value, $tokenizer->tokenUnitStart, $tokenizer->tokenUnitEnd - $tokenizer->tokenUnitStart),
+					),
+					default => '',
+				};
+				$stack[$stackDepth - 1]['components'][] = [
+					'kind' => 'token',
+					'tokenType' => $type,
+					'name' => null,
+					'start' => $tokStart,
+					'end' => $tokenizer->tokenEnd,
+					'numValue' => $numValue,
+					'isInt' => $tokenizer->tokenIsInteger,
+					'unitLower' => $unitLower,
+				];
+				continue;
+			}
+
+			$name = ($type === CSSTokenType::AtKeyword || $type === CSSTokenType::Hash)
+				? $tokenizer->decodeCurrentIdentInternal()
+				: null;
+
+			$stack[$stackDepth - 1]['components'][] = [
 				'kind' => 'token',
 				'tokenType' => $type,
 				'name' => $name,
 				'start' => $tokenizer->tokenStart,
 				'end' => $tokenizer->tokenEnd,
-				'hasEscapes' => $tokenizer->tokenHasEscapes,
 			];
 		}
 
-		if (count($stack) !== 1) {
+		if ($stackDepth !== 1) {
 			return null;
 		}
 
@@ -268,7 +294,7 @@ final class CSSValueComponentParser
 		$isCssWideKeyword = count($components) === 1
 			&& $components[0]['kind'] === 'token'
 			&& ($components[0]['tokenType'] ?? null) === CSSTokenType::Ident
-			&& isset(self::CSS_WIDE_KEYWORDS[strtolower((string) ($components[0]['name'] ?? ''))]);
+			&& isset(self::CSS_WIDE_KEYWORDS[$components[0]['lower'] ?? '']);
 
 		return [
 			'source' => $value,
@@ -276,53 +302,6 @@ final class CSSValueComponentParser
 			'hasSubstitution' => $hasSubstitution,
 			'isCssWideKeyword' => $isCssWideKeyword,
 			'hasComments' => $hasComments,
-			'hasEscapes' => $hasEscapes,
-		];
-	}
-
-	/**
-	 * Decodes numeric metadata `(value, isInteger, unit)` for a Number/Percentage/Dimension token component.
-	 *
-	 * @param ParsedComponent $component
-	 * @return array{value: float, isInteger: bool, unit: string}
-	 */
-	public static function decodeNumericToken(string $source, array $component): array
-	{
-		$start = $component['start'];
-		$end = $component['end'];
-		$raw = substr($source, $start, $end - $start);
-		$rawLen = strlen($raw);
-
-		$numEnd = 0;
-		if ($numEnd < $rawLen && ($raw[$numEnd] === '+' || $raw[$numEnd] === '-')) {
-			$numEnd++;
-		}
-		$numEnd += strspn($raw, '0123456789', $numEnd);
-		$isInteger = true;
-		if ($numEnd + 1 < $rawLen && $raw[$numEnd] === '.' && $raw[$numEnd + 1] >= '0' && $raw[$numEnd + 1] <= '9') {
-			$isInteger = false;
-			$numEnd += 2;
-			$numEnd += strspn($raw, '0123456789', $numEnd);
-		}
-		if ($numEnd + 1 < $rawLen && ($raw[$numEnd] === 'e' || $raw[$numEnd] === 'E')) {
-			$expPos = $numEnd + 1;
-			if ($raw[$expPos] === '+' || $raw[$expPos] === '-') {
-				$expPos++;
-			}
-			if ($expPos < $rawLen && $raw[$expPos] >= '0' && $raw[$expPos] <= '9') {
-				$isInteger = false;
-				$numEnd = $expPos + strspn($raw, '0123456789', $expPos);
-			}
-		}
-
-		$numVal = (float) substr($raw, 0, $numEnd);
-		$unitRaw = substr($raw, $numEnd);
-		$unit = str_contains($unitRaw, '\\') ? CSSSyntaxScanner::decodeCssIdentEscapes($unitRaw) : $unitRaw;
-
-		return [
-			'value' => $numVal,
-			'isInteger' => $isInteger,
-			'unit' => $unit,
 		];
 	}
 
@@ -389,11 +368,7 @@ final class CSSValueComponentParser
 				if ($tt === CSSTokenType::Comma) {
 					return true;
 				}
-				if ($tt !== CSSTokenType::Number) {
-					return false;
-				}
-				$info = self::decodeNumericToken($source, $tok);
-				if (!$info['isInteger']) {
+				if ($tt !== CSSTokenType::Number || !($tok['isInt'] ?? false)) {
 					return false;
 				}
 				$idx++;
@@ -409,23 +384,17 @@ final class CSSValueComponentParser
 				return false;
 			}
 			$tt = $first['tokenType'] ?? null;
+			$hasPipeAfter0 = $argCount >= 3
+				&& ($args[1]['kind'] ?? '') === 'token'
+				&& ($args[1]['tokenType'] ?? null) === CSSTokenType::Delim
+				&& ($args[1]['end'] - $args[1]['start']) === 1
+				&& $source[$args[1]['start']] === '|';
 			if ($tt === CSSTokenType::Ident) {
-				if ($argCount >= 3
-					&& ($args[1]['kind'] ?? '') === 'token'
-					&& ($args[1]['tokenType'] ?? null) === CSSTokenType::Delim
-					&& substr($source, (int) ($args[1]['start'] ?? 0), ((int) ($args[1]['end'] ?? 0)) - ((int) ($args[1]['start'] ?? 0))) === '|'
-				) {
-					return ($args[2]['kind'] ?? '') === 'token' && ($args[2]['tokenType'] ?? null) === CSSTokenType::Ident;
-				}
-				return true;
+				return !$hasPipeAfter0 || (($args[2]['kind'] ?? '') === 'token' && ($args[2]['tokenType'] ?? null) === CSSTokenType::Ident);
 			}
-			if ($tt === CSSTokenType::Delim) {
-				$ch = substr($source, (int) ($first['start'] ?? 0), ((int) ($first['end'] ?? 0)) - ((int) ($first['start'] ?? 0)));
-				if ($ch === '*' && $argCount >= 3
-					&& ($args[1]['kind'] ?? '') === 'token'
-					&& ($args[1]['tokenType'] ?? null) === CSSTokenType::Delim
-					&& substr($source, (int) ($args[1]['start'] ?? 0), ((int) ($args[1]['end'] ?? 0)) - ((int) ($args[1]['start'] ?? 0))) === '|'
-				) {
+			if ($tt === CSSTokenType::Delim && ($first['end'] - $first['start']) === 1) {
+				$ch = $source[$first['start']];
+				if ($ch === '*' && $hasPipeAfter0) {
 					return ($args[2]['kind'] ?? '') === 'token' && ($args[2]['tokenType'] ?? null) === CSSTokenType::Ident;
 				}
 				if ($ch === '|' && $argCount >= 2) {

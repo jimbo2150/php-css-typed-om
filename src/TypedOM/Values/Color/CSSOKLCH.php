@@ -7,36 +7,36 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color;
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
-use ReflectionClass;
 
 /**
  * Represents a CSS `oklch(...)` color value.
  */
 final class CSSOKLCH extends CSSColorValue
 {
-	private CSSNumericValue|CSSKeywordValue $lValue;
-	private CSSNumericValue|CSSKeywordValue $cValue;
-	private CSSNumericValue|CSSKeywordValue $hValue;
+	use ThreeChannelColorTrait;
+
+	private const string SPACE_NAME = 'oklch';
 
 	public CSSNumericValue|CSSKeywordValue $l {
-		get => self::exposeComponent($this->lValue);
+		get => self::exposeComponent($this->c0Value);
 		set (CSSNumericValue|CSSKeywordValue|int|float $value) {
-			$this->lValue = self::normalizePercentChannel($value, 100.0);
+			$this->c0Value = self::normalizePercentChannel($value, 100.0);
 		}
 	}
 
 	public CSSNumericValue|CSSKeywordValue $c {
-		get => self::exposeComponent($this->cValue);
+		get => self::exposeComponent($this->c1Value);
 		set (CSSNumericValue|CSSKeywordValue|int|float $value) {
-			$this->cValue = self::normalizeNumberOrPercentChannel($value);
+			$this->c1Value = self::normalizeNumberOrPercentChannel($value);
 		}
 	}
 
 	public CSSNumericValue|CSSKeywordValue $h {
-		get => self::exposeComponent($this->hValue);
+		get => self::exposeComponent($this->c2Value);
 		set (CSSNumericValue|CSSKeywordValue|int|float $value) {
-			$this->hValue = self::normalizeAngleChannel($value);
+			$this->c2Value = self::normalizeAngleChannel($value);
 		}
 	}
 
@@ -46,50 +46,29 @@ final class CSSOKLCH extends CSSColorValue
 		CSSNumericValue|CSSKeywordValue|int|float $h,
 		CSSNumericValue|CSSKeywordValue|int|float $alpha = 1.0,
 	) {
-		$this->lValue = self::normalizePercentChannel($l, 100.0);
-		$this->cValue = self::normalizeNumberOrPercentChannel($c);
-		$this->hValue = self::normalizeAngleChannel($h);
+		$this->c0Value = self::normalizePercentChannel($l, 100.0);
+		$this->c1Value = self::normalizeNumberOrPercentChannel($c);
+		$this->c2Value = self::normalizeAngleChannel($h);
 		$this->alphaValue = self::normalizePercentChannel($alpha, 100.0);
 	}
 
-	/**
-	 * @internal Fast factory for already-validated, caller-owned channel objects.
-	 */
-	public static function fromValidated(
-		CSSNumericValue|CSSKeywordValue $l,
-		CSSNumericValue|CSSKeywordValue $c,
-		CSSNumericValue|CSSKeywordValue $h,
-		CSSNumericValue|CSSKeywordValue $alpha,
-	): self {
-		static $reflection = null;
-		$reflection ??= new ReflectionClass(self::class);
-		/** @var self $instance */
-		$instance = $reflection->newInstanceWithoutConstructor();
-		$instance->lValue = $l;
-		$instance->cValue = $c;
-		$instance->hValue = $h;
-		$instance->alphaValue = $alpha;
-
-		return $instance;
-	}
-
-	public function getL(): CSSNumericValue|CSSKeywordValue { return self::exposeComponent($this->lValue); }
-	public function getC(): CSSNumericValue|CSSKeywordValue { return self::exposeComponent($this->cValue); }
-	public function getH(): CSSNumericValue|CSSKeywordValue { return self::exposeComponent($this->hValue); }
+	public function getL(): CSSNumericValue|CSSKeywordValue { return self::exposeComponent($this->c0Value); }
+	public function getC(): CSSNumericValue|CSSKeywordValue { return self::exposeComponent($this->c1Value); }
+	public function getH(): CSSNumericValue|CSSKeywordValue { return self::exposeComponent($this->c2Value); }
 
 	public function setL(CSSNumericValue|CSSKeywordValue|int|float $l): void
 	{
-		$this->lValue = self::normalizePercentChannel($l, 100.0);
+		$this->c0Value = self::normalizePercentChannel($l, 100.0);
 	}
 
 	public function setC(CSSNumericValue|CSSKeywordValue|int|float $c): void
 	{
-		$this->cValue = self::normalizeNumberOrPercentChannel($c);
+		$this->c1Value = self::normalizeNumberOrPercentChannel($c);
 	}
 
 	public function setH(CSSNumericValue|CSSKeywordValue|int|float $h): void
 	{
-		$this->hValue = self::normalizeAngleChannel($h);
+		$this->c2Value = self::normalizeAngleChannel($h);
 	}
 
 	public function toOKLCH(): CSSOKLCH
@@ -99,68 +78,39 @@ final class CSSOKLCH extends CSSColorValue
 
 	public function toOKLab(): CSSOKLab
 	{
-		if ($this->lValue instanceof CSSNumericValue && !$this->lValue instanceof CSSUnitValue) {
+		if ($this->c0Value instanceof CSSNumericValue && !$this->c0Value instanceof CSSUnitValue) {
 			throw new InvalidArgumentException('Color conversion requires concrete numeric values.');
 		}
-		$c = self::resolveLinearChannel($this->cValue, 0.4);
-		$hRad = deg2rad(self::resolveAngleDegrees($this->hValue));
+		$c = self::resolveLinearChannel($this->c1Value, 0.4);
+		$hRad = deg2rad(self::resolveAngleDegrees($this->c2Value));
 
 		return CSSOKLab::fromValidated(
-			$this->lValue->clone(),
-			new CSSUnitValue($c * cos($hRad), 'number'),
-			new CSSUnitValue($c * sin($hRad), 'number'),
+			$this->c0Value->clone(),
+			new CSSUnitValue($c * cos($hRad), CSSUnitEnum::NUMBER),
+			new CSSUnitValue($c * sin($hRad), CSSUnitEnum::NUMBER),
 			$this->alphaValue->clone(),
 		);
 	}
 
-	public function __clone(): void
-	{
-		$this->lValue = $this->lValue->clone();
-		$this->cValue = $this->cValue->clone();
-		$this->hValue = $this->hValue->clone();
-		$this->alphaValue = $this->alphaValue->clone();
-	}
-
-	public function clone(): static
-	{
-		return clone $this;
-	}
-
-	/** @internal */
-	public function getSpaceNameInternal(): string
-	{
-		return 'oklch';
-	}
-
-	/** @internal */
-	public function getComponentValuesInternal(): array
-	{
-		return [$this->lValue, $this->cValue, $this->hValue, $this->alphaValue];
-	}
-
-	/** @internal */
-	public function toBoundedCssTextInternal(?int $maxBytes): string
-	{
-		return $this->serializeFunctionChannelsBounded('oklch', [$this->lValue, $this->cValue, $this->hValue], $maxBytes);
-	}
-
-	/** @internal */
+	/**
+	 * @internal
+	 * @return array{0: float, 1: float, 2: float}
+	 */
 	public function toOklchFloatsInternal(): array
 	{
-		$l = self::resolvePercentUnit($this->lValue);
-		$c = self::resolveLinearChannel($this->cValue, 0.4);
-		$h = fmod(fmod(self::resolveAngleDegrees($this->hValue), 360.0) + 360.0, 360.0);
+		$l = self::resolvePercentUnit($this->c0Value);
+		$c = self::resolveLinearChannel($this->c1Value, 0.4);
+		$h = fmod(fmod(self::resolveAngleDegrees($this->c2Value), 360.0) + 360.0, 360.0);
 
-		return [$l, $c, $h === 0.0 ? 0.0 : $h, $this->alphaValue->clone()];
+		return [$l, $c, $h === 0.0 ? 0.0 : $h];
 	}
 
 	protected function toXyzD65(): array
 	{
-		$l = self::resolvePercentUnit($this->lValue);
-		$c = self::resolveLinearChannel($this->cValue, 0.4);
-		$hRad = deg2rad(self::resolveAngleDegrees($this->hValue));
-		[$x, $y, $z] = self::oklabToXyzD65($l, $c * cos($hRad), $c * sin($hRad));
+		$l = self::resolvePercentUnit($this->c0Value);
+		$c = self::resolveLinearChannel($this->c1Value, 0.4);
+		$hRad = deg2rad(self::resolveAngleDegrees($this->c2Value));
 
-		return [$x, $y, $z, $this->alphaValue->clone()];
+		return self::oklabToXyzD65($l, $c * cos($hRad), $c * sin($hRad));
 	}
 }

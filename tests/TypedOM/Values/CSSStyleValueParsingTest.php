@@ -142,10 +142,13 @@ final class CSSStyleValueParsingTest extends TestCase
 		self::assertSame(3, $transform->length);
 		self::assertFalse($transform->is2D);
 		self::assertInstanceOf(CSSTranslate::class, $transform[0]);
+		self::assertInstanceOf(CSSUnitValue::class, $transform[0]->x);
 		self::assertSame(10.0, $transform[0]->x->value);
 		self::assertInstanceOf(CSSRotate::class, $transform[1]);
+		self::assertInstanceOf(CSSUnitValue::class, $transform[1]->angle);
 		self::assertSame(90.0, $transform[1]->angle->value);
 		self::assertInstanceOf(CSSScale::class, $transform[2]);
+		self::assertInstanceOf(CSSUnitValue::class, $transform[2]->y);
 		self::assertSame(3.0, $transform[2]->y->value);
 		self::assertSame(10.0, $transform->toMatrix()[12]);
 		self::assertCount(16, $transform->toMatrix());
@@ -166,6 +169,7 @@ final class CSSStyleValueParsingTest extends TestCase
 	{
 		$numericArray = new CSSNumericArray([new CSSUnitValue(1, 'px'), new CSSUnitValue(2, 'px')]);
 		self::assertCount(2, $numericArray);
+		self::assertInstanceOf(CSSUnitValue::class, $numericArray[1]);
 		self::assertSame(2.0, $numericArray[1]->value);
 		self::assertCount(2, iterator_to_array($numericArray));
 

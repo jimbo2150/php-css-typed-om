@@ -7,6 +7,7 @@ namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
+use ReflectionClass;
 
 /**
  * Represents a CSS `@function` rule, including its parameter signatures and return type.
@@ -18,14 +19,14 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
  */
 final class CSSFunctionRule extends CSSGroupingRule
 {
-	private readonly string $functionName;
+	private string $functionName;
 
 	/** @var list<array{name: string, type: string, defaultValue: ?string}> */
-	private readonly array $parameters;
+	private array $parameters;
 
-	private readonly string $functionReturnType;
+	private string $functionReturnType;
 
-	private readonly int $componentBytes;
+	private int $componentBytes;
 
 	/** @param list<array{name: string, type: string, defaultValue: ?string}> $parameters */
 	public function __construct(
@@ -128,7 +129,7 @@ final class CSSFunctionRule extends CSSGroupingRule
 		$this->parameters = $normalizedParameters;
 		$this->functionReturnType = $normalizedReturnType;
 		$this->componentBytes = $componentBytes;
-		parent::__construct('function', $trimmedPrelude === '' ? $validatedName : $trimmedPrelude, $maxBytes);
+		$this->initGroupingRuleInternal('function', $trimmedPrelude === '' ? $validatedName : $trimmedPrelude, $maxBytes);
 	}
 
 	/**
@@ -148,18 +149,9 @@ final class CSSFunctionRule extends CSSGroupingRule
 		}
 		CSSSyntaxScanner::assertValidFragment($prelude, '@function prelude', [';', '{', '}']);
 		$length = strlen($prelude);
-		$pos = 0;
-		while ($pos < $length) {
-			$pos += strspn($prelude, CSSSyntaxScanner::CSS_WHITESPACE, $pos, $length - $pos);
-			if ($pos + 1 < $length && $prelude[$pos] === '/' && $prelude[$pos + 1] === '*') {
-				$commentEnd = strpos($prelude, '*/', $pos + 2);
-				if ($commentEnd === false) {
-					throw new InvalidArgumentException('Malformed @function name or parameter list.');
-				}
-				$pos = $commentEnd + 2;
-				continue;
-			}
-			break;
+		$pos = CSSSyntaxScanner::skipWhitespaceAndComments($prelude, 0, $length);
+		if ($pos === null) {
+			throw new InvalidArgumentException('Malformed @function name or parameter list.');
 		}
 		$nameEnd = CSSSyntaxScanner::scanIdentEnd($prelude, $pos, $length);
 		if ($nameEnd === null || $nameEnd >= $length || $prelude[$nameEnd] !== '(') {
@@ -198,7 +190,25 @@ final class CSSFunctionRule extends CSSGroupingRule
 			CSSSyntaxScanner::assertValidFragment($returnType, '@function return type', [';', '{', '}']);
 		}
 
-		return new self($normalizedName, $prelude, $parameters, $returnType, $maxBytes);
+		$componentBytes = strlen($normalizedName) + strlen($returnType);
+		foreach ($parameters as $param) {
+			$componentBytes += strlen($param['name']) + strlen($param['type']) + ($param['defaultValue'] !== null ? strlen($param['defaultValue']) : 0);
+			if ($maxBytes !== null && $componentBytes > $maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS @function rule exceeds maximum size of %d bytes.', $maxBytes));
+			}
+		}
+
+		/** @var ?ReflectionClass<self> $reflection */
+		static $reflection = null;
+		$reflection ??= new ReflectionClass(self::class);
+		$rule = $reflection->newInstanceWithoutConstructor();
+		$rule->functionName = $normalizedName;
+		$rule->parameters = $parameters;
+		$rule->functionReturnType = $returnType;
+		$rule->componentBytes = $componentBytes;
+		$rule->initGroupingRuleInternal('function', $prelude, $maxBytes);
+
+		return $rule;
 	}
 
 	public function getType(): int
