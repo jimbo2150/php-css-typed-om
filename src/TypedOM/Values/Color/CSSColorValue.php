@@ -718,9 +718,14 @@ abstract class CSSColorValue extends CSSStyleValue
 				return $this->clone();
 			}
 
+			$clonedChannels = [];
+			foreach ($this->channels as $channel) {
+				$clonedChannels[] = $channel->clone();
+			}
+
 			return CSSColor::fromValidated(
 				CSSKeywordValue::fromValidated($space),
-				$this->channels,
+				$clonedChannels,
 				$this->alphaValue->clone(),
 			);
 		}

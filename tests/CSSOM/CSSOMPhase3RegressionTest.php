@@ -205,5 +205,22 @@ final class CSSOMPhase3RegressionTest extends TestCase
 
 		self::assertNull(CSSSyntaxScanner::skipWhitespaceAndComments('/* a */', 0, 6));
 		self::assertSame(7, CSSSyntaxScanner::skipWhitespaceAndComments('/* a */', 0, 7));
+
+		// Paren-only fast path and upfront control-byte precedence in assertValidFragment()
+		CSSSyntaxScanner::assertValidFragment('1px solid rgba(10, 20, 30, 0.5)', 'val');
+		CSSSyntaxScanner::assertValidFragment('url(foo)', 'val');
+		foreach ([
+			["a;b\x00", 'disallowed control characters'],
+			['rgba(10, 20', 'unbalanced syntax'],
+			['rgba(10))', 'unbalanced syntax'],
+			['url(foo bar)', 'unbalanced syntax'],
+		] as [$fragment, $expectedMessage]) {
+			try {
+				CSSSyntaxScanner::assertValidFragment($fragment, 'val');
+				self::fail('Expected InvalidArgumentException for fragment.');
+			} catch (InvalidArgumentException $e) {
+				self::assertStringContainsString($expectedMessage, $e->getMessage());
+			}
+		}
 	}
 }

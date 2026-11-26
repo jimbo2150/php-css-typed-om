@@ -174,6 +174,14 @@ final class CSSColorPhase5RegressionTest extends TestCase
 		$xyzNone = CSSColorValue::parse('color(xyz none 0.25 0.5)');
 		$converted = $xyzNone->to('xyz-d65');
 		$this->assertSame('color(xyz-d65 none 0.25 0.5)', (string) $converted);
+		$this->assertInstanceOf(CSSColor::class, $converted);
+		$convertedChannels = $converted->channels;
+		$this->assertInstanceOf(CSSUnitValue::class, $convertedChannels[1]);
+		$origComponents = $xyzNone->getComponentValuesInternal();
+		$convertedComponents = $converted->getComponentValuesInternal();
+		$this->assertNotSame($origComponents[1], $convertedComponents[1]);
+		$convertedChannels[1]->value = 0.9;
+		$this->assertSame('color(xyz none 0.25 0.5)', (string) $xyzNone);
 
 		$mixed = CSSColorValue::parse('color-mix(in xyz-d65, color(xyz none 0.2 0.4), color(xyz 0.4 0.6 0.8))');
 		$this->assertStringStartsWith('color(xyz-d65 0.4 0.4', (string) $mixed);
