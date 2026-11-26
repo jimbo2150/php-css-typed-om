@@ -3423,5 +3423,22 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		self::assertSame('int', CSSUnitTypeEnum::LENGTH->verifyValue('-0'));
 		self::assertInstanceOf(InvalidArgumentException::class, CSSUnitTypeEnum::LENGTH->verifyValue('99999999999999999999'));
 		self::assertInstanceOf(InvalidArgumentException::class, CSSUnitTypeEnum::LENGTH->verifyValue('-99999999999999999999'));
+
+		// Release sign-off blocker fix: \0 -> U+FFFD expansion during CSSNestedDeclarations / CSSFunctionDeclarations flush
+		$escLimitOpts = new CSSParserOptions(maxBytes: 64);
+		foreach ([
+			'.a{&{}--p' . str_repeat('\\0', 24) . ':1}',
+			'@function --f(){--p' . str_repeat('\\0', 21) . ':1}',
+			'.a{&{}--p' . str_repeat('\\0', 24) . ':1;&{}}',
+		] as $escapedExpansionCss) {
+			$recovered = CSSStyleSheet::parse($escapedExpansionCss, $escLimitOpts);
+			self::assertNotEmpty($recovered->getParseErrors());
+			try {
+				CSSParser::parseStylesheet($escapedExpansionCss, $escLimitOpts, true);
+				self::fail('Expected parseStylesheet(..., throwOnLimit: true) to throw CSSParserLimitException.');
+			} catch (CSSParserLimitException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
 	}
 }

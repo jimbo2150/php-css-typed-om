@@ -1104,11 +1104,18 @@ final class CSSParser
 				self::flushDiagnostics($sheet, $diagnostics);
 				if ($ownerRule !== null && !$pageMode && ($hasNestedRule || $isGroupingWithDecls) && count($currentStyle) > 0) {
 					if (self::canRecordRule($options, $ruleCount, $sheet, $delimOffset, $throwOnLimit)) {
-						$declarations = $functionMode && $currentStyle instanceof CSSFunctionDescriptors
-							? new CSSFunctionDeclarations($currentStyle, $options->maxBytes)
-							: new CSSNestedDeclarations($currentStyle, $options->maxBytes);
-						$ownerRule->getCssRules()->appendDetached($declarations);
-						self::incrementCounter($ruleCount, 'CSS rule count');
+						try {
+							$declarations = $functionMode && $currentStyle instanceof CSSFunctionDescriptors
+								? new CSSFunctionDeclarations($currentStyle, $options->maxBytes)
+								: new CSSNestedDeclarations($currentStyle, $options->maxBytes);
+							$ownerRule->getCssRules()->appendDetached($declarations);
+							self::incrementCounter($ruleCount, 'CSS rule count');
+						} catch (InvalidArgumentException $exception) {
+							if ($throwOnLimit && $exception instanceof CSSParserLimitException) {
+								throw $exception;
+							}
+							$sheet->recordParseError($exception->getMessage(), $delimOffset);
+						}
 					}
 				}
 				$offset = $delimOffset + 1;
@@ -1185,11 +1192,18 @@ final class CSSParser
 			// Style rule / grouping rule / @function nested rule
 			if ($ownerRule !== null && ($hasNestedRule || $isGroupingWithDecls) && count($currentStyle) > 0) {
 				if (self::canRecordRule($options, $ruleCount, $sheet, $offset, $throwOnLimit)) {
-					$declarations = $functionMode && $currentStyle instanceof CSSFunctionDescriptors
-						? new CSSFunctionDeclarations($currentStyle, $options->maxBytes)
-						: new CSSNestedDeclarations($currentStyle, $options->maxBytes);
-					$ownerRule->getCssRules()->appendDetached($declarations);
-					self::incrementCounter($ruleCount, 'CSS rule count');
+					try {
+						$declarations = $functionMode && $currentStyle instanceof CSSFunctionDescriptors
+							? new CSSFunctionDeclarations($currentStyle, $options->maxBytes)
+							: new CSSNestedDeclarations($currentStyle, $options->maxBytes);
+						$ownerRule->getCssRules()->appendDetached($declarations);
+						self::incrementCounter($ruleCount, 'CSS rule count');
+					} catch (InvalidArgumentException $exception) {
+						if ($throwOnLimit && $exception instanceof CSSParserLimitException) {
+							throw $exception;
+						}
+						$sheet->recordParseError($exception->getMessage(), $offset);
+					}
 				}
 			}
 
