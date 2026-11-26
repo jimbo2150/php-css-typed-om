@@ -140,6 +140,42 @@
       "input": { "propertyOrCondition": "\\63 olor", "value": "rebeccapurple" },
       "expected": { "result": true },
       "status": "pass"
+    },
+    {
+      "id": "cssom/supports/two-arg-invalid-width-color-false",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "error-recovery",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "width", "value": "purple" },
+      "expected": { "result": false },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/supports/two-arg-invalid-display-length-false",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "error-recovery",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "display", "value": "12px" },
+      "expected": { "result": false },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/supports/one-arg-grid-line-names-true",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "parsing",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "(grid-template-columns: [header-start] 1fr [header-end])" },
+      "expected": { "result": true },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/supports/two-arg-all-var-true",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "parsing",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "all", "value": "var(--reset)" },
+      "expected": { "result": true },
+      "status": "pass"
     }
   ]
 }

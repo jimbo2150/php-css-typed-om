@@ -14,14 +14,20 @@ final class StylePropertyMapTest extends TestCase
 {
 	public function testTypedGetSetAppendAndDelete(): void
 	{
-		$map = new StylePropertyMap(CSSStyleDeclaration::parse('display: block'));
+		$map = new StylePropertyMap(CSSStyleDeclaration::parse('transition-property: opacity'));
 		$map->set('width', new CSSUnitValue(10, 'px'));
-		$map->append('display', new CSSKeywordValue('flex'));
+		$map->append('transition-property', new CSSKeywordValue('transform'));
 
 		self::assertInstanceOf(CSSUnitValue::class, $map->get('width'));
-		self::assertSame('block', (string) $map->get('display'));
-		self::assertCount(2, $map->getAll('display'));
+		self::assertSame('opacity', (string) $map->get('transition-property'));
+		self::assertCount(2, $map->getAll('transition-property'));
 		self::assertCount(2, $map);
+
+		try {
+			$map->append('display', new CSSKeywordValue('flex'));
+			self::fail('Expected append() on non-list property display to throw InvalidArgumentException.');
+		} catch (\InvalidArgumentException) {
+		}
 
 		$map->delete('width');
 		self::assertFalse($map->has('width'));

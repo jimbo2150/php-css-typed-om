@@ -7,7 +7,9 @@ namespace Jimbo2150\PhpCssTypedOm\TypedOM;
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
+use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStandardProperties;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
+use Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSImageValue;
@@ -49,6 +51,11 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 		if ($partCount > 1) {
 			CSSStyleDeclaration::validatePropertyValue($serialized);
 		}
+		if ($this->style->shouldValidatePropertyValuesInternal() || str_starts_with($normalized, '--')) {
+			if (!CSSValueValidator::validatePropertyValue($normalized, $serialized, $options, true)) {
+				throw new InvalidArgumentException(sprintf('Invalid value "%s" for property "%s".', $serialized, $normalized));
+			}
+		}
 		$this->style->setValidatedProperty($normalized, $serialized, '');
 	}
 
@@ -64,6 +71,9 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 		}
 		$options = $this->resolveSheetParserOptions();
 		$normalized = $this->normalizeBoundedPropertyName($property, $options);
+		if (CSSStandardProperties::isKnown($normalized) && !CSSValueValidator::isListValuedProperty($normalized)) {
+			throw new InvalidArgumentException(sprintf('CSS property "%s" does not support list values.', $normalized));
+		}
 		$parts = [];
 		$existing = $this->style->getDeclarationsRaw()[$normalized] ?? null;
 		$current = $existing['value'] ?? '';
@@ -71,7 +81,7 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 		$runningBytes = $current === '' ? 0 : strlen($current);
 		$itemCount = $current === '' ? 0 : (CSSSyntaxScanner::countTopLevelDelimiters($current, ',') + 1);
 		foreach ($values as $item) {
-			$part = $this->validateSingleValue($normalized, $item, $options, $runningBytes, $current !== '' || $parts !== [] ? 2 : 0);
+			$part = $this->validateSingleValue($normalized, $item, $options, $runningBytes, $current !== '' || $parts !== [] ? 2 : 0, false, false);
 			$itemCount += CSSSyntaxScanner::countTopLevelDelimiters($part, ',') + 1;
 			if ($itemCount > CSSStyleValue::MAX_LIST_ITEMS) {
 				throw new CSSParserLimitException(sprintf('CSS property value list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
@@ -82,6 +92,11 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 		$next = $current === '' ? $serialized : $current . ', ' . $serialized;
 		if ($options->maxBytes !== null && (strlen($normalized) + strlen($next)) > $options->maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS property declaration exceeds maximum size of %d bytes.', $options->maxBytes));
+		}
+		if ($this->style->shouldValidatePropertyValuesInternal() || str_starts_with($normalized, '--')) {
+			if (!CSSValueValidator::validatePropertyValue($normalized, $next, $options, true)) {
+				throw new InvalidArgumentException(sprintf('Invalid value "%s" for property "%s".', $next, $normalized));
+			}
 		}
 		$this->style->setValidatedProperty($normalized, $next, $priority);
 	}
@@ -126,11 +141,12 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 		}
 
 		$allowEmpty = str_starts_with($normalizedProperty, '--') && count($flat) === 1;
+		$singlePart = count($flat) === 1;
 		$joined = '';
 		$runningBytes = 0;
 		foreach ($flat as $index => $item) {
 			$sep = $index === 0 ? '' : (CSSSyntaxScanner::endsWithBareHexEscape($joined) ? '  ' : ' ');
-			$part = $this->validateSingleValue($normalizedProperty, $item, $options, $runningBytes, strlen($sep), $allowEmpty);
+			$part = $this->validateSingleValue($normalizedProperty, $item, $options, $runningBytes, strlen($sep), $allowEmpty, $singlePart);
 			$joined .= $sep . $part;
 		}
 
@@ -144,6 +160,7 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 		int &$runningBytes,
 		int $separatorBytes,
 		bool $allowEmpty = false,
+		bool $validatePropertyGrammar = true,
 	): string {
 		if (!$item instanceof CSSStyleValue && !is_string($item)) {
 			throw new InvalidArgumentException('StylePropertyMap values must be CSSStyleValue objects or strings.');
@@ -189,7 +206,7 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 			|| (($item instanceof CSSUnparsedValue || $item instanceof CSSVariableReferenceValue)
 				&& ($options->maxDepth !== null || $options->maxMathDepth !== null))
 		) {
-			CSSStyleValue::parseValidated($normalizedProperty, $cssText, $options);
+			CSSStyleValue::parseValidated($validatePropertyGrammar ? $normalizedProperty : '', $cssText, $options, 0, null, $validatePropertyGrammar);
 		} elseif ($options->maxMathDepth !== null) {
 			self::assertValueMathDepthWithin($item, $options->maxMathDepth);
 		}

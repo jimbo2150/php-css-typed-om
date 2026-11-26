@@ -367,6 +367,7 @@ final class CSSParser
 					'allowNestedRules' => true,
 					'pageMode' => false,
 					'functionMode' => false,
+					'validatePropertyGrammar' => true,
 					'hasNestedRule' => false,
 					'isGroupingWithDecls' => false,
 					'allowEmptyInitialValue' => false,
@@ -560,6 +561,7 @@ final class CSSParser
 			'allowNestedRules' => false,
 			'pageMode' => false,
 			'functionMode' => false,
+			'validatePropertyGrammar' => true,
 			'hasNestedRule' => false,
 			'isGroupingWithDecls' => false,
 			'allowEmptyInitialValue' => false,
@@ -809,6 +811,7 @@ final class CSSParser
 									'allowNestedRules' => !$keyframes,
 									'pageMode' => false,
 									'functionMode' => false,
+									'validatePropertyGrammar' => true,
 									'hasNestedRule' => false,
 									'isGroupingWithDecls' => false,
 									'allowEmptyInitialValue' => false,
@@ -1097,6 +1100,7 @@ final class CSSParser
 					'allowNestedRules' => !$keyframes,
 					'pageMode' => false,
 					'functionMode' => false,
+					'validatePropertyGrammar' => true,
 					'hasNestedRule' => false,
 					'isGroupingWithDecls' => false,
 					'allowEmptyInitialValue' => false,
@@ -1134,6 +1138,7 @@ final class CSSParser
 				$allowNestedRules = (bool) $stack[$topIdx]['allowNestedRules'];
 				$pageMode = (bool) $stack[$topIdx]['pageMode'];
 				$functionMode = (bool) $stack[$topIdx]['functionMode'];
+				$validatePropertyGrammar = (bool) ($stack[$topIdx]['validatePropertyGrammar'] ?? true);
 				$allowEmptyInitialValue = (bool) $stack[$topIdx]['allowEmptyInitialValue'];
 
 				// C-level clean ASCII declaration fast path (only when terminating at ';' or '}', never '{').
@@ -1163,6 +1168,7 @@ final class CSSParser
 								true,
 								$allowEmptyInitialValue,
 								$sawEmpty,
+								$validatePropertyGrammar,
 							);
 							$stack[$topIdx]['diagnostics'] = $diags;
 							$stack[$topIdx]['sawEmptyInitialValue'] = $sawEmpty;
@@ -1319,6 +1325,7 @@ final class CSSParser
 							'allowNestedRules' => false,
 							'pageMode' => false,
 							'functionMode' => false,
+							'validatePropertyGrammar' => true,
 							'hasNestedRule' => false,
 							'isGroupingWithDecls' => false,
 							'allowEmptyInitialValue' => false,
@@ -1488,6 +1495,7 @@ final class CSSParser
 						'allowNestedRules' => true,
 						'pageMode' => false,
 						'functionMode' => false,
+						'validatePropertyGrammar' => true,
 						'hasNestedRule' => false,
 						'isGroupingWithDecls' => false,
 						'allowEmptyInitialValue' => false,
@@ -1534,6 +1542,7 @@ final class CSSParser
 						$allowEmptyInitialValue,
 						$sawEmpty,
 						$browserMode,
+						$validatePropertyGrammar,
 					);
 					$stack[$topIdx]['diagnostics'] = $diags;
 					$stack[$topIdx]['sawEmptyInitialValue'] = $sawEmpty;
@@ -2270,6 +2279,7 @@ final class CSSParser
 				'allowNestedRules' => true,
 				'pageMode' => true,
 				'functionMode' => false,
+				'validatePropertyGrammar' => true,
 				'hasNestedRule' => false,
 				'isGroupingWithDecls' => false,
 				'allowEmptyInitialValue' => false,
@@ -2364,6 +2374,7 @@ final class CSSParser
 					'allowNestedRules' => true,
 					'pageMode' => false,
 					'functionMode' => $isFunction,
+					'validatePropertyGrammar' => !$isFunction,
 					'hasNestedRule' => false,
 					'isGroupingWithDecls' => true,
 					'allowEmptyInitialValue' => false,
@@ -2412,6 +2423,7 @@ final class CSSParser
 			'allowNestedRules' => false,
 			'pageMode' => false,
 			'functionMode' => false,
+			'validatePropertyGrammar' => !in_array($name, ['property', 'counter-style', 'font-palette-values', 'view-transition', 'font-face'], true),
 			'hasNestedRule' => false,
 			'isGroupingWithDecls' => false,
 			'allowEmptyInitialValue' => $name === 'property',

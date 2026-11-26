@@ -11,6 +11,7 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSPropertyRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStandardProperties;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
+use Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
@@ -277,8 +278,8 @@ abstract class CSS
 			$trimmedInitial = CSSSyntaxScanner::trimCssWhitespace($initialValue);
 			if ($trimmedInitial !== '') {
 				CSSStyleDeclaration::validatePropertyValue($trimmedInitial);
-				if (self::hasVarReference($trimmedInitial)) {
-					throw new InvalidArgumentException('Registered custom property initialValue cannot contain var() references.');
+				if (!CSSValueValidator::validateRegisteredCustomProperty($syntax, $trimmedInitial, true)) {
+					throw new InvalidArgumentException(sprintf('Invalid or non-computationally-independent initialValue "%s" for syntax "%s".', $trimmedInitial, $syntax));
 				}
 			}
 			$initialValue = $trimmedInitial;
@@ -366,7 +367,7 @@ abstract class CSS
 		}
 
 		if ($value !== null) {
-			return self::supportsDeclaration($propertyOrCondition, $value, false);
+			return self::supportsDeclaration($propertyOrCondition, $value, false, false, $options);
 		}
 
 		$rawCondition = CSSSyntaxScanner::trimCssWhitespace($propertyOrCondition);
@@ -383,7 +384,7 @@ abstract class CSS
 			return false;
 		}
 
-		return self::evaluateSupportsConditionIterative($condition, $options->maxDepth, $matchingParens) === true;
+		return self::evaluateSupportsConditionIterative($condition, $options->maxDepth, $matchingParens, $options) === true;
 	}
 
 	/**
@@ -506,6 +507,7 @@ abstract class CSS
 		string $value,
 		bool $allowImportant,
 		bool $preValidated = false,
+		?CSSParserOptions $options = null,
 	): bool {
 		try {
 			$normalized = CSSStyleDeclaration::normalizePropertyName($property);
@@ -551,7 +553,15 @@ abstract class CSS
 			return true;
 		}
 
-		return CSSStandardProperties::isKnown($normalized);
+		if (!CSSStandardProperties::isKnown($normalized)) {
+			return false;
+		}
+
+		try {
+			return CSSValueValidator::validateStandardProperty($normalized, $trimmed, $options);
+		} catch (CSSParserLimitException) {
+			return false;
+		}
 	}
 
 	/** @internal */
@@ -714,7 +724,7 @@ abstract class CSS
 	 *
 	 * @param array<int, int> $matchingParens
 	 */
-	private static function evaluateSupportsConditionIterative(string $source, ?int $maxDepth, array &$matchingParens): ?bool
+	private static function evaluateSupportsConditionIterative(string $source, ?int $maxDepth, array &$matchingParens, ?CSSParserOptions $options = null): ?bool
 	{
 		// Frame modes:
 		// 0 = EVAL_CONDITION(start, end, depth, targetKind, targetIdx)
@@ -773,7 +783,7 @@ abstract class CSS
 				$nextSlot = count($slots);
 				$slots[] = null;
 				$stack[] = [1, $op, $clauses, $idx + 1, $depth, $nextSlot, $destSlot];
-				self::pushSupportsInParens($source, $cStart, $cEnd, $depth, $nextSlot, $maxDepth, $slots, $stack, $matchingParens);
+				self::pushSupportsInParens($source, $cStart, $cEnd, $depth, $nextSlot, $maxDepth, $slots, $stack, $matchingParens, $options);
 				continue;
 			}
 
@@ -808,6 +818,7 @@ abstract class CSS
 						substr($source, $colon + 1, $end - ($colon + 1)),
 						true,
 						true,
+						$options,
 					);
 				} else {
 					$slots[$destSlot] = false;
@@ -826,7 +837,7 @@ abstract class CSS
 				$innerSlot = count($slots);
 				$slots[] = null;
 				$stack[] = [2, $innerSlot, $destSlot];
-				self::pushSupportsInParens($source, $opStart, $opEnd, $depth, $innerSlot, $maxDepth, $slots, $stack, $matchingParens);
+				self::pushSupportsInParens($source, $opStart, $opEnd, $depth, $innerSlot, $maxDepth, $slots, $stack, $matchingParens, $options);
 				continue;
 			}
 
@@ -841,7 +852,7 @@ abstract class CSS
 					$slots[$destSlot] = false;
 					continue;
 				}
-				self::pushSupportsInParens($source, $tokens[0][0], $tokens[0][1], $depth, $destSlot, $maxDepth, $slots, $stack, $matchingParens);
+				self::pushSupportsInParens($source, $tokens[0][0], $tokens[0][1], $depth, $destSlot, $maxDepth, $slots, $stack, $matchingParens, $options);
 				continue;
 			}
 
@@ -883,7 +894,7 @@ abstract class CSS
 			$firstSlot = count($slots);
 			$slots[] = null;
 			$stack[] = [1, $operator, $clauses, 1, $depth, $firstSlot, $destSlot];
-			self::pushSupportsInParens($source, $clauses[0][0], $clauses[0][1], $depth, $firstSlot, $maxDepth, $slots, $stack, $matchingParens);
+			self::pushSupportsInParens($source, $clauses[0][0], $clauses[0][1], $depth, $firstSlot, $maxDepth, $slots, $stack, $matchingParens, $options);
 		}
 
 		return $slots[0];
@@ -904,6 +915,7 @@ abstract class CSS
 		array &$slots,
 		array &$stack,
 		array &$matchingParens,
+		?CSSParserOptions $options = null,
 	): void {
 		if ($maxDepth !== null && $depth > $maxDepth) {
 			$slots[$destSlot] = null;
@@ -971,6 +983,7 @@ abstract class CSS
 				substr($source, $colon + 1, $innerEnd - ($colon + 1)),
 				true,
 				true,
+				$options,
 			);
 			return;
 		}

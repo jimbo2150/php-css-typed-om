@@ -11,6 +11,7 @@ use Error;
 use InvalidArgumentException;
 use IteratorAggregate;
 use Jimbo2150\PhpCssTypedOm\CSS;
+use Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSInputPreprocessor;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSTokenizer;
@@ -285,6 +286,30 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		return true;
 	}
 
+	protected static function validatesPropertyValues(): bool
+	{
+		return true;
+	}
+
+	/** @internal */
+	public function shouldValidatePropertyValuesInternal(): bool
+	{
+		if (!static::validatesPropertyValues()) {
+			return false;
+		}
+		$owner = $this->ownerRule;
+		if ($owner instanceof CSSPropertyRule
+			|| $owner instanceof CSSCounterStyleRule
+			|| $owner instanceof CSSFontPaletteValuesRule
+			|| $owner instanceof CSSViewTransitionRule
+			|| $owner instanceof CSSFontFaceRule
+		) {
+			return false;
+		}
+
+		return true;
+	}
+
 	/**
 	 * @throws InvalidArgumentException When $name is not permitted on this declaration block
 	 */
@@ -402,6 +427,23 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		self::validatePropertyValue($value);
 		if (!str_starts_with($name, '--') && str_contains($value, '/*') && CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($value)) === '') {
 			throw new InvalidArgumentException('CSS property value cannot be empty.');
+		}
+		if ($this->shouldValidatePropertyValuesInternal() && CSSStandardProperties::isKnown($name)) {
+			$maxDepth = $this->resolveMaxDepthInternal();
+			$maxMathDepth = $this->resolveMaxMathDepthInternal();
+			$validationOptions = ($maxDepth === CSSParserOptions::DEFAULT_MAX_DEPTH
+				&& $maxMathDepth === CSSParserOptions::DEFAULT_MAX_MATH_DEPTH
+				&& $maxBytes === CSSParserOptions::DEFAULT_MAX_BYTES)
+				? null
+				: new CSSParserOptions(
+					maxBytes: $maxBytes,
+					maxDepth: $maxDepth,
+					maxMathDepth: $maxMathDepth,
+					maxDeclarations: $this->resolveMaxDeclarationsInternal(),
+				);
+			if (!CSSValueValidator::validateStandardProperty($name, $value, $validationOptions)) {
+				throw new InvalidArgumentException(sprintf('Invalid value "%s" for CSS property "%s".', $value, $name));
+			}
 		}
 		$delta = $oldEntry !== null ? 0 : 1;
 		$this->assertSheetDeclarationGrowth($delta, null);
@@ -541,10 +583,11 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			}
 		}
 		$allowEmptyInitialValue = $this->ownerRule instanceof CSSPropertyRule;
+		$validatePropertyGrammar = $this->shouldValidatePropertyValuesInternal();
 		$sawEmptyInitialValue = false;
 		$replacement = new static();
 		$detailed = [];
-		$replacement->parseInto($cssText, true, $detailed, 0, $effectiveOptions, $allowEmptyInitialValue, $sawEmptyInitialValue);
+		$replacement->parseInto($cssText, true, $detailed, 0, $effectiveOptions, $allowEmptyInitialValue, $sawEmptyInitialValue, $validatePropertyGrammar);
 		$delta = count($replacement->declarations) - count($this->declarations);
 		$this->assertSheetDeclarationGrowth($delta, $effectiveOptions);
 		$this->declarations = $replacement->declarations;
@@ -816,6 +859,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		bool $allowSentinelSlot = false,
 		bool $allowEmptyInitialValue = false,
 		bool &$sawEmptyInitialValue = false,
+		bool $validatePropertyGrammar = true,
 	): bool {
 		$declaration = trim($slice, " \t\n");
 		if ($declaration === '') {
@@ -875,6 +919,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			$allowSentinelSlot,
 			$allowEmptyInitialValue,
 			$sawEmptyInitialValue,
+			$validatePropertyGrammar,
 		);
 	}
 
@@ -905,6 +950,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		bool $allowEmptyInitialValue = false,
 		bool &$sawEmptyInitialValue = false,
 		bool $browserMode = false,
+		bool $validatePropertyGrammar = true,
 	): bool {
 		$segmentOffset = $tokens !== [] ? $tokens[0]['start'] : $start;
 
@@ -991,6 +1037,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				$allowSentinelSlot,
 				$allowEmptyInitialValue,
 				$sawEmptyInitialValue,
+				$validatePropertyGrammar,
 			);
 		}
 
@@ -1082,6 +1129,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			$allowSentinelSlot,
 			$allowEmptyInitialValue,
 			$sawEmptyInitialValue,
+			$validatePropertyGrammar,
 		);
 	}
 
@@ -1161,6 +1209,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		bool $allowSentinelSlot,
 		bool $allowEmptyInitialValue,
 		bool &$sawEmptyInitialValue,
+		bool $validatePropertyGrammar = true,
 	): bool {
 		if ($value === '' && !str_starts_with($name, '--')) {
 			if ($allowEmptyInitialValue && $name === 'initial-value' && $priority === '') {
@@ -1190,6 +1239,29 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			}
 			self::handleInvalidDeclaration('CSS declaration value cannot be empty: ' . $name, $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
 			return true;
+		}
+
+		if ($validatePropertyGrammar && CSSStandardProperties::isKnown($name)) {
+			try {
+				$validGrammar = CSSValueValidator::validateStandardProperty($name, $value, $options);
+			} catch (CSSParserLimitException $exception) {
+				if ($strict || $throwOnLimit) {
+					throw $exception;
+				}
+				self::recordDiagnostic($exception->getMessage(), $segmentOffset, $diagnostics, $options, $allowSentinelSlot);
+				return false;
+			}
+			if (!$validGrammar) {
+				self::handleInvalidDeclaration(
+					sprintf('Invalid value "%s" for CSS property "%s".', $value, $name),
+					$segmentOffset,
+					$strict,
+					$diagnostics,
+					$options,
+					$allowSentinelSlot,
+				);
+				return true;
+			}
 		}
 
 		if ($options !== null && $options->maxDeclarations !== null && $declarationCount >= $options->maxDeclarations) {
@@ -1242,7 +1314,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		?CSSParserOptions $options = null,
 		bool $allowEmptyInitialValue = false,
 		bool &$sawEmptyInitialValue = false,
+		?bool $validatePropertyGrammar = null,
 	): void {
+		$validatePropertyGrammar ??= $this->shouldValidatePropertyValuesInternal();
 		if ($baseOffset < 0) {
 			throw new InvalidArgumentException('Base offset cannot be negative.');
 		}
@@ -1301,6 +1375,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 					false,
 					$allowEmptyInitialValue,
 					$sawEmptyInitialValue,
+					$validatePropertyGrammar,
 				);
 				if (!$ok) {
 					break;
@@ -1451,6 +1526,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				$allowEmptyInitialValue,
 				$sawEmptyInitialValue,
 				$browserMode,
+				$validatePropertyGrammar,
 			);
 			if (!$ok) {
 				break;

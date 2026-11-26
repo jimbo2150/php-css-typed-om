@@ -97,7 +97,7 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 		}
 
 		if (str_starts_with($normalized, '--')) {
-			return CSSStyleValue::parseValidated($normalized, $value, $options);
+			return CSSStyleValue::parseValidated($normalized, $value, $options, 0, null, false);
 		}
 		$length = strlen($value);
 		$offset = 0;
@@ -110,7 +110,7 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 			$segmentEnd = $comma ?? $length;
 			$first = CSSSyntaxScanner::trimCssWhitespace(substr($value, $offset, $segmentEnd - $offset));
 			if ($first !== '' && (!str_contains($first, '/*') || CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($first)) !== '')) {
-				return CSSStyleValue::parseValidated($normalized, $first, $options);
+				return CSSStyleValue::parseValidated($normalized, $first, $options, 0, null, false);
 			}
 			$offset = $segmentEnd + 1;
 		}
@@ -215,7 +215,7 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 		}
 
 		try {
-			return CSSStyleValue::parseAllValidated($property, $value, $options);
+			return CSSStyleValue::parseAllValidated($property, $value, $options, null, false);
 		} catch (CSSParserLimitException $e) {
 			throw $e;
 		} catch (InvalidArgumentException $e) {

@@ -108,10 +108,15 @@ final class CSSStyleDeclarationTest extends TestCase
 		self::assertSame($card->styleMap, $card->styleMap);
 		$card->styleMap->set('margin', '10px 20px');
 		$card->styleMap->set('background-image', 'url(a.png), url(b.png)');
-		$card->style->setProperty('padding', '4px', 'important');
-		$card->styleMap->append('padding', '8px');
-		self::assertSame('4px, 8px', $card->style->getPropertyValue('padding'));
-		self::assertSame('important', $card->style->getPropertyPriority('padding'));
+		$card->style->setProperty('transition-duration', '0.2s', 'important');
+		$card->styleMap->append('transition-duration', '0.5s');
+		self::assertSame('0.2s, 0.5s', $card->style->getPropertyValue('transition-duration'));
+		self::assertSame('important', $card->style->getPropertyPriority('transition-duration'));
+		try {
+			$card->styleMap->append('padding', '8px');
+			self::fail('Expected append() on non-list property padding to throw InvalidArgumentException.');
+		} catch (\InvalidArgumentException) {
+		}
 		self::assertSame('', (string) $card->styleMap->get('--empty'));
 		self::assertSame('10px 20px', (string) $card->styleMap->get('margin'));
 		self::assertSame('url(a.png)', (string) $card->styleMap->get('background-image'));
@@ -145,12 +150,13 @@ final class CSSStyleDeclarationTest extends TestCase
 
 		$diags = [];
 		$browserDecl = CSSStyleDeclaration::parse(
-			"\xEF\xBB\xBFcolor: r\x00ed; content: \"abc\\; width: calc(10px; background: url(a.png",
+			"\xEF\xBB\xBF--nul: r\x00ed; color: r\x00ed; content: \"abc\\; width: calc(10px; background: url(a.png",
 			false,
 			$diags,
 			new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions(browserErrorRecovery: true),
 		);
-		self::assertSame("r\u{FFFD}ed", $browserDecl->getPropertyValue('color'));
+		self::assertSame("r\u{FFFD}ed", $browserDecl->getPropertyValue('--nul'));
+		self::assertSame('', $browserDecl->getPropertyValue('color'));
 
 		$unclosedStr = CSSStyleDeclaration::parse(
 			'content: "hello\\',
@@ -184,14 +190,23 @@ final class CSSStyleDeclarationTest extends TestCase
 		self::assertSame('', $dupImportant->getPropertyValue('color'));
 		self::assertCount(2, $dupDiags);
 
-		$unclosedImportant = CSSStyleDeclaration::parse(
+		$unclosedImportantCustom = CSSStyleDeclaration::parse(
+			'--x: calc(10px !important',
+			false,
+			$diags,
+			new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions(browserErrorRecovery: true),
+		);
+		self::assertSame('calc(10px !important)', $unclosedImportantCustom->getPropertyValue('--x'));
+		self::assertSame('', $unclosedImportantCustom->getPropertyPriority('--x'));
+		self::assertSame('--x: calc(10px !important);', $unclosedImportantCustom->getCssText());
+
+		// Standard property drops invalid `calc(10px !important)` under property grammar validation
+		$unclosedImportantWidth = CSSStyleDeclaration::parse(
 			'width: calc(10px !important',
 			false,
 			$diags,
 			new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions(browserErrorRecovery: true),
 		);
-		self::assertSame('calc(10px !important)', $unclosedImportant->getPropertyValue('width'));
-		self::assertSame('', $unclosedImportant->getPropertyPriority('width'));
-		self::assertSame('width: calc(10px !important);', $unclosedImportant->getCssText());
+		self::assertSame('', $unclosedImportantWidth->getPropertyValue('width'));
 	}
 }

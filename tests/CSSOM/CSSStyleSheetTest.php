@@ -543,9 +543,12 @@ final class CSSStyleSheetTest extends TestCase
 			self::assertCount(1, $sheet->cssRules);
 		}
 
-		// 5. !important inside unclosed calc() stays inside calc() and closes ')' cleanly in browser mode
-		$unclosedImportant = CSSStyleSheet::parse('div { width: calc(10px !important', $browserOpts);
-		self::assertSame('div { width: calc(10px !important); }', $unclosedImportant->getCssText());
+		// 5. !important inside unclosed calc() stays inside calc() and closes ')' cleanly in browser mode; invalid width grammar is dropped
+		$unclosedImportant = CSSStyleSheet::parse('div { --x: calc(10px !important', $browserOpts);
+		self::assertSame('div { --x: calc(10px !important); }', $unclosedImportant->getCssText());
+		$invalidUnclosedWidth = CSSStyleSheet::parse('div { width: calc(10px !important', $browserOpts);
+		self::assertSame('div {  }', $invalidUnclosedWidth->getCssText());
+		self::assertNotSame([], $invalidUnclosedWidth->getParseErrors());
 
 		// 6. Control byte inside prelude comment succeeds in browser mode, rejected in default mode
 		$commentCtrlDefault = CSSStyleSheet::parse("div /* \x01 */ { color: red; }");

@@ -26,4 +26,9 @@ final class CSSFunctionDescriptors extends CSSStyleDeclaration
 		}
 		return parent::__isset($name);
 	}
+
+	protected static function validatesPropertyValues(): bool
+	{
+		return false;
+	}
 }

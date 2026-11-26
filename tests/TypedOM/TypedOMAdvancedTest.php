@@ -360,10 +360,10 @@ final class TypedOMAdvancedTest extends TestCase
 		self::assertInstanceOf(CSSUnitValue::class, $sinOpacity);
 		self::assertEqualsWithDelta(sin(0.5), $sinOpacity->value, 1e-12);
 
-		$commaAll = CSSStyleValue::parseAll('background-image', 'linear-gradient(calc(sin(1deg) * 10px), red, blue), linear-gradient(calc(abs(-5px)), green, yellow)');
+		$commaAll = CSSStyleValue::parseAll('background-image', 'linear-gradient(calc(sin(1deg) * 45deg), red, blue), linear-gradient(45deg, green calc(abs(-5px)), yellow)');
 		self::assertCount(2, $commaAll);
-		self::assertSame('linear-gradient(calc(sin(1deg) * 10px), red, blue)', (string) $commaAll[0]);
-		self::assertSame('linear-gradient(calc(abs(-5px)), green, yellow)', (string) $commaAll[1]);
+		self::assertSame('linear-gradient(calc(sin(1deg) * 45deg), red, blue)', (string) $commaAll[0]);
+		self::assertSame('linear-gradient(45deg, green calc(abs(-5px)), yellow)', (string) $commaAll[1]);
 
 		$transform = CSSStyleValue::parse('transform', 'translate(round(up, 1em, 10px), abs(-2vw))');
 		self::assertInstanceOf(CSSTransformValue::class, $transform);
@@ -388,6 +388,7 @@ final class TypedOMAdvancedTest extends TestCase
 			['width', 'atan2(1px, 2s)'],
 			['width', 'pi'],
 			['opacity', 'e'],
+			['margin', 'sin()'],
 		] as [$prop, $raw]) {
 			try {
 				CSSStyleValue::parse($prop, $raw);
@@ -396,20 +397,20 @@ final class TypedOMAdvancedTest extends TestCase
 				self::assertNotSame('', $e->getMessage());
 			}
 		}
-		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('margin', 'sin()'));
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('--custom', 'sin()'));
 
-		// StylePropertyMap set/get/append round-trip with CSSMathFunction, CSSMathConstant & negated constant
+		// StylePropertyMap set/get round-trip with CSSMathFunction, CSSMathConstant & negated constant
 		$map = new StylePropertyMap(new CSSStyleDeclaration());
 		$negInfExpr = new CSSMathNegate(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathConstant::negInfinity());
 		$map->set('width', CSSNumericValue::parse('round(up, 1em, 10px)'));
 		$map->set('opacity', \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathConstant::infinity());
 		$map->set('z-index', $negInfExpr);
-		$map->append('margin', CSSNumericValue::parse('abs(-2em)'), CSSNumericValue::parse('hypot(3em, 4vw)'));
+		$map->set('margin', CSSNumericValue::parse('abs(-2em)'), CSSNumericValue::parse('hypot(3em, 4vw)'));
 
 		self::assertSame('round(up, 1em, 10px)', (string) $map->get('width'));
 		self::assertSame('calc(infinity)', (string) $map->get('opacity'));
 		self::assertSame('calc(infinity)', (string) $map->get('z-index'));
-		self::assertSame('2em, hypot(3em, 4vw)', $map->getStyleDeclaration()->getPropertyValue('margin'));
+		self::assertSame('2em hypot(3em, 4vw)', $map->getStyleDeclaration()->getPropertyValue('margin'));
 
 		$absNode = CSSNumericValue::parse('abs(-2em)');
 		self::assertInstanceOf(CSSUnitValue::class, $absNode);

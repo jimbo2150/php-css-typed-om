@@ -1246,8 +1246,8 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		$map->set('margin', ['first' => CSS::px(1), 'second' => CSS::px(2)]);
 		self::assertSame('1px 2px', $decl->getPropertyValue('margin'));
 
-		$map->set('animation-name', new CSSKeywordValue('foo\\61'), new CSSKeywordValue('bar'));
-		self::assertSame('foo\\61  bar', $decl->getPropertyValue('animation-name'));
+		$map->set('font-family', new CSSKeywordValue('foo\\61'), new CSSKeywordValue('bar'));
+		self::assertSame('foo\\61  bar', $decl->getPropertyValue('font-family'));
 
 		// 6. CSS::registerProperty() clone isolation
 		CSS::clearRegisteredProperties();
@@ -1696,11 +1696,23 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		self::assertSame('var(--mid, 1px)', (string) $rootUnparsed);
 		self::assertSame('var(--ok, 1px)', (string) $clonedRoot);
 
-		// 4. Bounded arity splits preserve CSSStyleValue::parse() fallback while capping huge floods
-		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('background-position', 'left top extra third'));
-		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('transform', 'matrix3d(' . implode(',', array_fill(0, 17, '1')) . ')'));
-		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('transform', 'translate(' . implode(' ', array_fill(0, 20, '1px')) . ')'));
-		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('color', 'rgb(1,2,3,4,5)'));
+		// 4. Bounded arity splits preserve standalone/custom fallback while property-validated parsing rejects invalid arity floods cleanly
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('x-pos', 'left top extra third'));
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('x-tf', 'matrix3d(' . implode(',', array_fill(0, 17, '1')) . ')'));
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('x-tf', 'translate(' . implode(' ', array_fill(0, 20, '1px')) . ')'));
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('x-col', 'rgb(1,2,3,4,5)'));
+		foreach ([
+			['background-position', 'left top extra third'],
+			['transform', 'matrix3d(' . implode(',', array_fill(0, 17, '1')) . ')'],
+			['transform', 'translate(' . implode(' ', array_fill(0, 20, '1px')) . ')'],
+			['color', 'rgb(1,2,3,4,5)'],
+		] as [$arityProp, $arityVal]) {
+			try {
+				CSSStyleValue::parse($arityProp, $arityVal);
+				self::fail("Expected invalid arity on {$arityProp} to throw InvalidArgumentException.");
+			} catch (InvalidArgumentException) {
+			}
+		}
 		try {
 			CSSStyleValue::parse('color', 'color(--x ' . implode(' ', array_fill(0, CSSColor::MAX_CUSTOM_CHANNELS + 10, '1')) . ')');
 			self::fail('Expected CSSParserLimitException for excessive color() arguments.');
@@ -1878,11 +1890,11 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		}
 
 		$commaDecl = new CSSStyleDeclaration();
-		$commaDecl->setProperty('background-image', ',');
+		$commaDecl->setProperty('x-comma-test', ',');
 		$commaMap = new \Jimbo2150\PhpCssTypedOm\TypedOM\StylePropertyMapReadOnly($commaDecl);
-		self::assertSame([], $commaMap->getAll('background-image'));
+		self::assertSame([], $commaMap->getAll('x-comma-test'));
 		self::assertSame([[]], $commaMap->values());
-		self::assertSame([['background-image', []]], $commaMap->entries());
+		self::assertSame([['x-comma-test', []]], $commaMap->entries());
 
 		// v8.1 uncovered boundaries: CSSRotate [4] = -sin, escapeHtmlStyleTag variants, maxDepth > 512
 		$rot90Mat = (new CSSRotate(CSS::deg(90)))->toMatrix()->toFloat64Array();
@@ -2168,7 +2180,12 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		} catch (InvalidArgumentException $e) {
 			self::assertNotSame('', $e->getMessage());
 		}
-		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('transform', 'translatefoo(calc(calc(calc(1px))))', new CSSParserOptions(maxMathDepth: 2)));
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('x-transform', 'translatefoo(calc(calc(calc(1px))))', new CSSParserOptions(maxMathDepth: 2)));
+		try {
+			CSSStyleValue::parse('transform', 'translatefoo(calc(1px))');
+			self::fail('Expected invalid transform function translatefoo() to throw.');
+		} catch (InvalidArgumentException) {
+		}
 		self::assertSame('UTF-8', (new CSSCharsetRule('/*c*/ "UTF-8"'))->getEncoding());
 		self::assertTrue((new \Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix('/* c */ none'))->isIdentity());
 		$detachedMargin = new CSSMarginRule('top-left', new CSSStyleDeclaration());
@@ -2277,7 +2294,7 @@ final class CSSSecurityAndLimitsTest extends TestCase
 			static fn () => $detachedStyleRule->style->setCssText('color: ' . str_repeat('b', 40) . ';'),
 			static fn () => $detachedStyleRule->setSelectorText(str_repeat('a', 40)),
 			static fn () => $detachedStyleRule->styleMap->set('color', str_repeat('c', 40)),
-			static fn () => $detachedStyleRule->styleMap->append('color', str_repeat('d', 40)),
+			static fn () => $detachedStyleRule->styleMap->append('transition-property', str_repeat('d', 40)),
 		] as $op) {
 			try {
 				$op();
@@ -2499,16 +2516,16 @@ final class CSSSecurityAndLimitsTest extends TestCase
 
 		// 4. WS4: StylePropertyMapReadOnly get vs getAll, CSSPageRule duplicate atomicity, ViewTransition/PropertyRule comments, 65536 parens, Color pre-scan, comment-only rejections
 		$roDecl = new CSSStyleDeclaration();
-		$roDecl->setProperty('background-image', '/* c */, url(a.png)');
+		$roDecl->setProperty('x-comma-test', '/* c */, url(a.png)');
 		$roMap = new StylePropertyMapReadOnly($roDecl);
-		$roFirst = $roMap->get('background-image');
-		$roAll = $roMap->getAll('background-image');
+		$roFirst = $roMap->get('x-comma-test');
+		$roAll = $roMap->getAll('x-comma-test');
 		self::assertInstanceOf(CSSImageValue::class, $roFirst);
 		self::assertCount(1, $roAll);
 		self::assertEquals($roFirst, $roAll[0]);
-		$roDecl->setProperty('background-image', '/* a */, /* b */');
-		self::assertNull($roMap->get('background-image'));
-		self::assertSame([], $roMap->getAll('background-image'));
+		$roDecl->setProperty('x-comma-test', '/* a */, /* b */');
+		self::assertNull($roMap->get('x-comma-test'));
+		self::assertSame([], $roMap->getAll('x-comma-test'));
 
 		$dupMargin = new CSSMarginRule('top-left', new CSSStyleDeclaration('content: "hi";'));
 		$pageStyle = new CSSPageDescriptors('margin: 1in;');
@@ -2783,7 +2800,7 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		}
 
 		// Pre-built oversized declaration/margin adoption in rule constructors & attach/CSSRuleList byte enforcement
-		$oversizedDecl = new CSSStyleDeclaration('color: ' . str_repeat('a', 40) . ';');
+		$oversizedDecl = new CSSStyleDeclaration('animation-name: ' . str_repeat('a', 40) . ';');
 		$oversizedFuncDecl = new CSSFunctionDescriptors();
 		$oversizedFuncDecl->setProperty('result', str_repeat('a', 40));
 		foreach ([
@@ -2805,7 +2822,7 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		}
 
 		$tightListSheet = CSSStyleSheet::parse('', new CSSParserOptions(maxBytes: 24));
-		$wideStyleRule = new CSSStyleRule('a', new CSSStyleDeclaration('color: ' . str_repeat('z', 30) . ';'));
+		$wideStyleRule = new CSSStyleRule('a', new CSSStyleDeclaration('animation-name: ' . str_repeat('z', 30) . ';'));
 		foreach ([
 			static fn () => $tightListSheet->cssRules->append($wideStyleRule),
 			static fn () => $tightListSheet->cssRules->insert(0, $wideStyleRule),
@@ -3024,10 +3041,10 @@ final class CSSSecurityAndLimitsTest extends TestCase
 
 		// StylePropertyMapReadOnly::get() comma limit & parseAll comment skipping
 		$commaDecl = new CSSStyleDeclaration();
-		$commaDecl->setProperty('color', str_repeat(',', CSSStyleValue::MAX_LIST_ITEMS + 2) . 'red');
+		$commaDecl->setProperty('x-comma-test', str_repeat(',', CSSStyleValue::MAX_LIST_ITEMS + 2) . 'red');
 		$commaMap = new StylePropertyMapReadOnly($commaDecl);
 		try {
-			$commaMap->get('color');
+			$commaMap->get('x-comma-test');
 			self::fail('Expected StylePropertyMapReadOnly::get() to enforce MAX_LIST_ITEMS comma cap.');
 		} catch (CSSParserLimitException $e) {
 			self::assertNotSame('', $e->getMessage());
@@ -3806,5 +3823,38 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		$elapsedMs = (hrtime(true) - $tStart) / 1_000_000;
 		self::assertCount(5000, $atTailSheet->cssRules);
 		self::assertLessThan(250.0, $elapsedMs);
+
+		// 9. VDS Matcher ReDoS resistance & validation cache maxDepth/maxMathDepth non-bypass
+		$redosBg = str_repeat('10px 20px / cover no-repeat, ', 60) . 'bogustoken';
+		$tRedos = hrtime(true);
+		self::assertFalse(\Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator::validateStandardProperty('background', $redosBg));
+		self::assertLessThan(100.0, (hrtime(true) - $tRedos) / 1_000_000);
+
+		$redosFont = str_repeat('a ', 120) . '10px';
+		$tFont = hrtime(true);
+		self::assertFalse(\Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator::validateStandardProperty('font-family', $redosFont));
+		self::assertLessThan(50.0, (hrtime(true) - $tFont) / 1_000_000);
+
+		// Cache boundedness (> 2_048 unique entries evicts cleanly without unbounded growth)
+		for ($i = 0; $i < 2_200; $i++) {
+			self::assertTrue(\Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator::validateStandardProperty('width', $i . 'px'));
+		}
+
+		// Security: caching default-limits validation MUST NOT bypass tighter maxDepth/maxMathDepth options!
+		$nestedCalc = 'calc(calc(calc(1px + 2px)))'; // < 160 bytes (cache-eligible under defaults)
+		self::assertTrue(\Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator::validateStandardProperty('width', $nestedCalc));
+		try {
+			\Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator::validateStandardProperty('width', $nestedCalc, new CSSParserOptions(maxDepth: 2));
+			self::fail('Expected cached default-depth validation NOT to bypass tighter maxDepth=2.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+		try {
+			\Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator::validateStandardProperty('width', $nestedCalc, new CSSParserOptions(maxMathDepth: 1));
+			self::fail('Expected cached default-depth validation NOT to bypass tighter maxMathDepth=1.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+		self::assertFalse(CSS::supports('width', $nestedCalc, new CSSParserOptions(maxMathDepth: 1)));
 	}
 }

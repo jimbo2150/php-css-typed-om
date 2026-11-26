@@ -62,4 +62,9 @@ final class CSSFontFaceDescriptors extends CSSStyleDeclaration
 	{
 		return false;
 	}
+
+	protected static function validatesPropertyValues(): bool
+	{
+		return false;
+	}
 }

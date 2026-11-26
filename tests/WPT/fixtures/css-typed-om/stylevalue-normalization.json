@@ -137,6 +137,24 @@
       "expected": { "throws": "InvalidArgumentException" },
       "status": "pass",
       "specRef": "https://drafts.css-houdini.org/css-typed-om/#dom-cssstylevalue-parse"
+    },
+    {
+      "id": "css-typed-om/normalize/invalid-calc-zero-on-width-throws",
+      "upstream": "css/css-typed-om/stylevalue-objects/parse-invalid.html",
+      "category": "error-recovery",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "width", "cssText": "calc(0)" },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/normalize/parse-all-cursor-fallback-list",
+      "upstream": "css/css-typed-om/stylevalue-objects/parse.html",
+      "category": "parsing",
+      "operation": "typed-om.stylevalue.parseAll",
+      "input": { "property": "cursor", "cssText": "url(a.cur), pointer" },
+      "expected": { "count": 2, "items": ["url(a.cur)", "pointer"] },
+      "status": "pass"
     }
   ]
 }
