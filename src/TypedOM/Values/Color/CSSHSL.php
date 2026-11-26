@@ -90,8 +90,13 @@ final class CSSHSL extends CSSColorValue
 		$this->lValue = self::normalizePercentChannel($l, 1.0);
 	}
 
-	public function toHSL(): CSSHSL
+	public function toHSL(bool $gamutMap = false): CSSHSL
 	{
+		if ($gamutMap && !$this->inGamut()) {
+			/** @var CSSHSL */
+			return CSSColorGamutMapper::map($this, 'hsl');
+		}
+
 		return $this->clone();
 	}
 
@@ -106,6 +111,12 @@ final class CSSHSL extends CSSColorValue
 	public function clone(): static
 	{
 		return clone $this;
+	}
+
+	/** @internal */
+	public function getSpaceNameInternal(): string
+	{
+		return 'hsl';
 	}
 
 	/** @internal */

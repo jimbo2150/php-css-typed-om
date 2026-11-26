@@ -9,8 +9,10 @@ use Jimbo2150\PhpCssTypedOm\Tests\WPT\Harness\WptAssertions;
 use Jimbo2150\PhpCssTypedOm\Tests\WPT\Harness\WptContractTestCase;
 use Jimbo2150\PhpCssTypedOm\Tests\WPT\Harness\WptFixtureCase;
 use Jimbo2150\PhpCssTypedOm\Tests\WPT\Harness\WptFixtureLoader;
+use Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColor;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 use LogicException;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -54,7 +56,8 @@ final class CssColorWptTest extends WptContractTestCase
 			throw new LogicException(sprintf('Case "%s" requires string input.cssText.', $case->id));
 		}
 
-		$color = CSSColorValue::parse($cssText);
+		$context = $this->buildContextFromInput($case->input);
+		$color = CSSColorValue::parse($cssText, null, null, $context);
 		$this->assertColorResult($case, $color);
 	}
 
@@ -65,10 +68,11 @@ final class CssColorWptTest extends WptContractTestCase
 			throw new LogicException(sprintf('Case "%s" requires string input.cssText.', $case->id));
 		}
 
+		$context = $this->buildContextFromInput($case->input);
 		WptAssertions::assertThrowsException(
 			InvalidArgumentException::class,
-			static function () use ($cssText): void {
-				CSSColorValue::parse($cssText);
+			static function () use ($cssText, $context): void {
+				CSSColorValue::parse($cssText, null, null, $context);
 			},
 			$case->id,
 		);
@@ -83,12 +87,14 @@ final class CssColorWptTest extends WptContractTestCase
 		}
 
 		$color = CSSColorValue::parse($cssText);
+		self::assertInstanceOf(CSSColorValue::class, $color, $case->id);
+		$gamutMap = (bool) ($case->input['gamutMap'] ?? false);
 		$targetSpaces = is_string($steps) ? [$steps] : $steps;
 		foreach ($targetSpaces as $space) {
 			if (!is_string($space)) {
 				throw new LogicException(sprintf('Case "%s" target space must be string.', $case->id));
 			}
-			$color = $color->to($space);
+			$color = $color->to($space, $gamutMap);
 		}
 
 		$this->assertColorResult($case, $color);
@@ -101,7 +107,8 @@ final class CssColorWptTest extends WptContractTestCase
 			throw new LogicException(sprintf('Case "%s" requires string input.cssText.', $case->id));
 		}
 
-		$val = CSSStyleValue::parse('color', $cssText);
+		$context = $this->buildContextFromInput($case->input);
+		$val = CSSStyleValue::parse('color', $cssText, null, $context);
 		if (array_key_exists('class', $case->expected)) {
 			self::assertSame((string) $case->expected['class'], (new ReflectionClass($val))->getShortName(), $case->id);
 		}
@@ -110,7 +117,28 @@ final class CssColorWptTest extends WptContractTestCase
 		}
 	}
 
-	private function assertColorResult(WptFixtureCase $case, CSSColorValue $color): void
+	/**
+	 * @param array<string, mixed> $input
+	 */
+	private function buildContextFromInput(array $input): ?CSSContext
+	{
+		$hasScheme = array_key_exists('colorScheme', $input);
+		$hasCurrent = array_key_exists('currentColor', $input);
+		if (!$hasScheme && !$hasCurrent) {
+			return null;
+		}
+		$scheme = $hasScheme && is_string($input['colorScheme']) ? $input['colorScheme'] : 'light';
+		$current = null;
+		if ($hasCurrent && is_string($input['currentColor'])) {
+			$parsed = CSSColorValue::parse($input['currentColor']);
+			self::assertInstanceOf(CSSColorValue::class, $parsed);
+			$current = $parsed;
+		}
+
+		return new CSSContext(colorScheme: $scheme, currentColor: $current);
+	}
+
+	private function assertColorResult(WptFixtureCase $case, CSSColorValue|CSSKeywordValue $color): void
 	{
 		$expected = $case->expected;
 		if (array_key_exists('class', $expected)) {
@@ -124,6 +152,7 @@ final class CssColorWptTest extends WptContractTestCase
 			self::assertSame((string) $expected['cssText'], (string) $color, $case->id);
 		}
 		if (isset($expected['channels']) && is_array($expected['channels'])) {
+			self::assertInstanceOf(CSSColorValue::class, $color, $case->id);
 			/** @var array<string, mixed> $channels */
 			$channels = $expected['channels'];
 			WptAssertions::assertColorChannels($channels, $color, $case->tolerance ?? 1e-4, $case->id);

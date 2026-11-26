@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\Tests\TypedOM\Values;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColor;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSOKLCH;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSRGB;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSImageValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSKeywordValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSPositionValue;
@@ -30,7 +33,10 @@ final class CSSStyleValueParsingTest extends TestCase
 		self::assertInstanceOf(CSSUnitValue::class, CSSNumericValue::parse('width', '12px'));
 		self::assertInstanceOf(CSSKeywordValue::class, CSSStyleValue::parse('display', 'block'));
 		self::assertInstanceOf(CSSOKLCH::class, CSSStyleValue::parse('color', 'oklch(50% 0.2 30)'));
-		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('color', 'color-mix(in srgb, red, blue)'));
+		self::assertInstanceOf(CSSColor::class, CSSStyleValue::parse('color', 'color-mix(in srgb, red, blue)'));
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('color', 'color-mix(in srgb, currentcolor, blue)'));
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('color', 'light-dark(red, blue)'));
+		self::assertInstanceOf(CSSRGB::class, CSSStyleValue::parse('color', 'light-dark(red, blue)', null, new CSSContext(colorScheme: 'dark')));
 		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('--custom', '12px'));
 		self::assertInstanceOf(CSSKeywordValue::class, CSSStyleValue::parse('background-image', 'inherit'));
 		self::assertInstanceOf(CSSKeywordValue::class, CSSStyleValue::parse('background-image', 'none'));

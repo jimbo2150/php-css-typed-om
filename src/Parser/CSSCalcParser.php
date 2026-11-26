@@ -174,6 +174,7 @@ class CSSCalcParser
 
 	/**
 	 * @internal Iterative slice-based entry point for unit values, `calc()`, `min()`, `max()`, and `clamp()`.
+	 * @param ?array<string, float> $channelSymbols Finite numeric bindings for relative-color channel keywords
 	 * @throws CSSParserLimitException When resource limits are exceeded
 	 */
 	public static function parseUnitOrMathSlice(
@@ -183,20 +184,44 @@ class CSSCalcParser
 		CSSParserOptions $options,
 		int $depth,
 		bool $throwOnInvalid,
+		?array $channelSymbols = null,
+		int &$sharedNodeBudget = 0,
 	): ?CSSNumericValue {
 		if ($depth < 0 || $depth === PHP_INT_MAX) {
 			throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
 		}
+		$normalizedSymbols = self::normalizeChannelSymbols($channelSymbols);
 		if ($throwOnInvalid) {
-			return self::parseSliceIterative($source, $start, $end, $options, $depth, 0, true);
+			return self::parseSliceIterative($source, $start, $end, $options, $depth, 0, true, $normalizedSymbols, $sharedNodeBudget);
 		}
 		try {
-			return self::parseSliceIterative($source, $start, $end, $options, $depth, 0, false);
+			return self::parseSliceIterative($source, $start, $end, $options, $depth, 0, false, $normalizedSymbols, $sharedNodeBudget);
 		} catch (CSSParserLimitException $e) {
 			throw $e;
 		} catch (InvalidArgumentException) {
 			return null;
 		}
+	}
+
+	/**
+	 * @param ?array<string, float> $channelSymbols
+	 * @return ?array<string, float>
+	 */
+	private static function normalizeChannelSymbols(?array $channelSymbols): ?array
+	{
+		if ($channelSymbols === null || $channelSymbols === []) {
+			return null;
+		}
+
+		$normalized = [];
+		foreach ($channelSymbols as $name => $value) {
+			if (!is_finite($value)) {
+				throw new InvalidArgumentException(sprintf('Relative color channel "%s" value must be finite.', $name));
+			}
+			$normalized[strtolower($name)] = $value;
+		}
+
+		return $normalized;
 	}
 
 	/**
@@ -209,6 +234,8 @@ class CSSCalcParser
 
 	/**
 	 * Modes: 0 = auto (unit or math function), 2 = inner calc expression.
+	 *
+	 * @param ?array<string, float> $channelSymbols
 	 */
 	private static function parseSliceIterative(
 		string $source,
@@ -218,10 +245,13 @@ class CSSCalcParser
 		int $rootDepth,
 		int $rootMode,
 		bool $throwOnInvalid,
+		?array $channelSymbols = null,
+		int &$sharedNodeBudget = 0,
 	): ?CSSNumericValue {
 		$mathIndex = null;
-		$totalTokens = 0;
-		$totalNodes = 0;
+		$baseBudget = $sharedNodeBudget;
+		$totalTokens = $baseBudget;
+		$totalNodes = $baseBudget;
 		$slots = [];
 		$nextSlot = 1;
 		$parsedMathFunction = $rootMode === 2;
@@ -440,6 +470,27 @@ class CSSCalcParser
 						$slots[$targetSlot] = new CSSMathConstant($constEnum);
 						continue;
 					}
+					if ($channelSymbols !== null) {
+						$symIdent = null;
+						if (($c0 >= 'a' && $c0 <= 'z') || ($c0 >= 'A' && $c0 <= 'Z')) {
+							if ($sliceLen <= 16 && !str_contains($rawSlice = substr($source, $start, $sliceLen), '\\')) {
+								$symIdent = strtolower($rawSlice);
+							}
+						}
+						if ($symIdent === null && ($c0 === '\\' || ($c0 >= 'a' && $c0 <= 'z') || ($c0 >= 'A' && $c0 <= 'Z'))) {
+							$ident = CSSSyntaxScanner::decodeIdentAt($source, $start, $end);
+							if ($ident !== null && $ident['end'] === $end) {
+								$symIdent = strtolower($ident['ident']);
+							}
+						}
+						if ($symIdent !== null && isset($channelSymbols[$symIdent])) {
+							if (++$totalNodes > CSSNumericValue::MAX_MATH_NODES) {
+								throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
+							}
+							$slots[$targetSlot] = new CSSUnitValue($channelSymbols[$symIdent], CSSUnitEnum::NUMBER);
+							continue;
+						}
+					}
 				}
 
 				$fnName = null;
@@ -466,7 +517,7 @@ class CSSCalcParser
 				}
 
 				if ($fnName === 'calc') {
-					$mathIndex ??= self::buildMathIndex($source, $rootStart, $rootEnd, $options, $rootDepth, $rootMode === 0);
+					$mathIndex ??= self::buildMathIndex($source, $rootStart, $rootEnd, $options, $rootDepth, $rootMode === 0, $totalNodes);
 					$close = $mathIndex['matchingParens'][$openOffset] ?? null;
 					if ($close !== $end - 1) {
 						if ($throwOnInvalid) {
@@ -491,7 +542,7 @@ class CSSCalcParser
 					$mode = 2;
 					$allowConstants = true;
 				} elseif ($fnName !== null) {
-					$mathIndex ??= self::buildMathIndex($source, $rootStart, $rootEnd, $options, $rootDepth, $rootMode === 0);
+					$mathIndex ??= self::buildMathIndex($source, $rootStart, $rootEnd, $options, $rootDepth, $rootMode === 0, $totalNodes);
 					$close = $mathIndex['matchingParens'][$openOffset] ?? null;
 					if ($close !== $end - 1) {
 						if ($throwOnInvalid) {
@@ -608,7 +659,7 @@ class CSSCalcParser
 			}
 
 			// mode === 2: inner <calc-sum> expression
-			$tokens = self::tokenizeSlice($source, $start, $end, $options, $depth, $totalTokens, $mathIndex, $rootStart, $rootEnd, $rootDepth, $rootMode === 0);
+			$tokens = self::tokenizeSlice($source, $start, $end, $options, $depth, $totalTokens, $mathIndex, $rootStart, $rootEnd, $rootDepth, $rootMode === 0, $channelSymbols, $totalNodes);
 			$outputQueue = [];
 			$operatorStack = [];
 			$parenDepth = 0;
@@ -683,9 +734,17 @@ class CSSCalcParser
 		}
 
 		$result = $slots[0] ?? null;
+		$indexedNodes = $mathIndex['indexedNodes'] ?? $baseBudget;
+		$usedBudget = max($totalTokens, $totalNodes, $indexedNodes);
 		if ($result !== null && $parsedMathFunction) {
-			return CSSMathSimplifier::simplify($result);
+			$visits = $usedBudget;
+			$allocated = $usedBudget;
+			$result = CSSMathSimplifier::simplifyWithBudget($result, null, $visits, $allocated);
+			$sharedNodeBudget = max($usedBudget, $visits, $allocated);
+
+			return $result;
 		}
+		$sharedNodeBudget = $usedBudget;
 
 		return $result;
 	}
@@ -760,7 +819,8 @@ class CSSCalcParser
 	 *   commasByOpen: array<int, list<int>>,
 	 *   argMetaByOpen: array<int, list<array{opCount: int, hasChildParen: bool}>>,
 	 *   commentEndByStart: array<int, int>,
-	 *   commentStartByEnd: array<int, int>
+	 *   commentStartByEnd: array<int, int>,
+	 *   indexedNodes: int
 	 * }
 	 */
 	private static function buildMathIndex(
@@ -770,13 +830,14 @@ class CSSCalcParser
 		CSSParserOptions $options,
 		int $rootDepth,
 		bool $hasOuterWrapper,
+		int $initialIndexedNodes = 0,
 	): array {
 		$matchingParens = [];
 		$commasByOpen = [];
 		$argMetaByOpen = [];
 		$commentEndByStart = [];
 		$commentStartByEnd = [];
-		$indexedNodes = 0;
+		$indexedNodes = $initialIndexedNodes;
 		$maxParenStack = $options->maxMathDepth !== null
 			? ($hasOuterWrapper && $options->maxMathDepth < PHP_INT_MAX ? $options->maxMathDepth + 1 : $options->maxMathDepth)
 			: null;
@@ -851,11 +912,13 @@ class CSSCalcParser
 			'argMetaByOpen' => $argMetaByOpen,
 			'commentEndByStart' => $commentEndByStart,
 			'commentStartByEnd' => $commentStartByEnd,
+			'indexedNodes' => $indexedNodes,
 		];
 	}
 
 	/**
-	 * @param ?array{matchingParens: array<int, int>, commasByOpen: array<int, list<int>>, argMetaByOpen: array<int, list<array{opCount: int, hasChildParen: bool}>>, commentEndByStart: array<int, int>, commentStartByEnd: array<int, int>} $mathIndex
+	 * @param ?array{matchingParens: array<int, int>, commasByOpen: array<int, list<int>>, argMetaByOpen: array<int, list<array{opCount: int, hasChildParen: bool}>>, commentEndByStart: array<int, int>, commentStartByEnd: array<int, int>, indexedNodes: int} $mathIndex
+	 * @param ?array<string, float> $channelSymbols
 	 * @return list<array{0: int, 1: mixed, 2?: mixed, 3?: CSSUnitEnum}>
 	 */
 	private static function tokenizeSlice(
@@ -870,6 +933,8 @@ class CSSCalcParser
 		int $rootEnd,
 		int $rootDepth,
 		bool $hasOuterWrapper,
+		?array $channelSymbols = null,
+		int $initialIndexedNodes = 0,
 	): array {
 		$tokens = [];
 		$offset = $sliceStart;
@@ -999,7 +1064,8 @@ class CSSCalcParser
 						$afterUnaryIdent = CSSSyntaxScanner::decodeIdentAt($expression, $look, $sliceEnd);
 						if ($afterUnaryIdent !== null
 							&& ($afterUnaryIdent['end'] >= $sliceEnd || $expression[$afterUnaryIdent['end']] !== '(')
-							&& CSSMathConstantEnum::tryFromKeyword($afterUnaryIdent['ident']) !== null
+							&& (CSSMathConstantEnum::tryFromKeyword($afterUnaryIdent['ident']) !== null
+								|| ($channelSymbols !== null && isset($channelSymbols[strtolower($afterUnaryIdent['ident'])])))
 						) {
 							throw new InvalidArgumentException('Invalid unary operator before CSS math constant.');
 						}
@@ -1060,7 +1126,7 @@ class CSSCalcParser
 				$name = $identifier[0];
 				$afterName = $offset + strlen($name);
 				if ($afterName < $sliceEnd && $expression[$afterName] === '(') {
-					$mathIndex ??= self::buildMathIndex($expression, $rootStart, $rootEnd, $options, $rootDepth, $hasOuterWrapper);
+					$mathIndex ??= self::buildMathIndex($expression, $rootStart, $rootEnd, $options, $rootDepth, $hasOuterWrapper, $initialIndexedNodes);
 					$close = $mathIndex['matchingParens'][$afterName] ?? null;
 					if ($close === null || $close >= $sliceEnd) {
 						throw new InvalidArgumentException('Mismatched parentheses.');
@@ -1074,7 +1140,13 @@ class CSSCalcParser
 				}
 				if ($afterName >= $sliceEnd || $expression[$afterName] !== '\\') {
 					$constEnum = CSSMathConstantEnum::tryFromKeyword($name);
-					$tokens[] = $constEnum !== null ? [self::T_CONST, $constEnum] : [self::T_UNKNOWN, $name];
+					if ($constEnum !== null) {
+						$tokens[] = [self::T_CONST, $constEnum];
+					} elseif ($channelSymbols !== null && isset($channelSymbols[strtolower($name)])) {
+						$tokens[] = [self::T_NUMBER, $name, $channelSymbols[strtolower($name)], CSSUnitEnum::NUMBER];
+					} else {
+						$tokens[] = [self::T_UNKNOWN, $name];
+					}
 					$offset = $afterName;
 					$expectsOperand = false;
 					$hadWhitespace = false;
@@ -1087,7 +1159,7 @@ class CSSCalcParser
 				if ($ident !== null) {
 					$afterName = $ident['end'];
 					if ($afterName < $sliceEnd && $expression[$afterName] === '(') {
-						$mathIndex ??= self::buildMathIndex($expression, $rootStart, $rootEnd, $options, $rootDepth, $hasOuterWrapper);
+						$mathIndex ??= self::buildMathIndex($expression, $rootStart, $rootEnd, $options, $rootDepth, $hasOuterWrapper, $initialIndexedNodes);
 						$close = $mathIndex['matchingParens'][$afterName] ?? null;
 						if ($close === null || $close >= $sliceEnd) {
 							throw new InvalidArgumentException('Mismatched parentheses.');
@@ -1100,7 +1172,13 @@ class CSSCalcParser
 						continue;
 					}
 					$constEnum = CSSMathConstantEnum::tryFromKeyword($ident['ident']);
-					$tokens[] = $constEnum !== null ? [self::T_CONST, $constEnum] : [self::T_UNKNOWN, $ident['ident']];
+					if ($constEnum !== null) {
+						$tokens[] = [self::T_CONST, $constEnum];
+					} elseif ($channelSymbols !== null && isset($channelSymbols[strtolower($ident['ident'])])) {
+						$tokens[] = [self::T_NUMBER, $ident['ident'], $channelSymbols[strtolower($ident['ident'])], CSSUnitEnum::NUMBER];
+					} else {
+						$tokens[] = [self::T_UNKNOWN, $ident['ident']];
+					}
 					$offset = $afterName;
 					$expectsOperand = false;
 					$hadWhitespace = false;

@@ -90,8 +90,13 @@ final class CSSHWB extends CSSColorValue
 		$this->bValue = self::normalizePercentChannel($b, 1.0);
 	}
 
-	public function toHWB(): CSSHWB
+	public function toHWB(bool $gamutMap = false): CSSHWB
 	{
+		if ($gamutMap && !$this->inGamut()) {
+			/** @var CSSHWB */
+			return CSSColorGamutMapper::map($this, 'hwb');
+		}
+
 		return $this->clone();
 	}
 
@@ -106,6 +111,12 @@ final class CSSHWB extends CSSColorValue
 	public function clone(): static
 	{
 		return clone $this;
+	}
+
+	/** @internal */
+	public function getSpaceNameInternal(): string
+	{
+		return 'hwb';
 	}
 
 	/** @internal */

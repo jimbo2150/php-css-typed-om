@@ -71,8 +71,10 @@ abstract class CSSNumericValue extends CSSStyleValue
 		string $propertyOrCssText,
 		?string $cssText = null,
 		?CSSParserOptions $options = null,
-		int $depth = 0,
+		CSSContext|int|null $contextOrDepth = null,
 	): self {
+		$depth = is_int($contextOrDepth) ? $contextOrDepth : 0;
+		$context = $contextOrDepth instanceof CSSContext ? $contextOrDepth : null;
 		if ($depth < 0 || $depth === PHP_INT_MAX) {
 			throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
 		}
@@ -81,7 +83,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 			if ($options->maxMathDepth !== null && $depth > $options->maxMathDepth) {
 				throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $options->maxMathDepth));
 			}
-			$value = CSSStyleValue::parseWithMathDepthInternal($propertyOrCssText, $cssText, $options, $depth);
+			$value = CSSStyleValue::parseWithMathDepthInternal($propertyOrCssText, $cssText, $options, $depth, $context);
 			if (!$value instanceof self) {
 				throw new InvalidArgumentException('CSS property value is not numeric.');
 			}
@@ -694,8 +696,12 @@ abstract class CSSNumericValue extends CSSStyleValue
 	 * @internal Fast path for already limit-checked, control-byte-free, whitespace-trimmed strings.
 	 * @throws CSSParserLimitException When resource limits are exceeded
 	 */
-	public static function tryParseValidated(string $trimmedCssText, ?CSSParserOptions $options = null, int $depth = 0): ?self
-	{
+	public static function tryParseValidated(
+		string $trimmedCssText,
+		?CSSParserOptions $options = null,
+		int $depth = 0,
+		int &$sharedNodeBudget = 0,
+	): ?self {
 		if ($depth < 0 || $depth === PHP_INT_MAX) {
 			throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
 		}
@@ -707,11 +713,16 @@ abstract class CSSNumericValue extends CSSStyleValue
 			throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $options->maxMathDepth));
 		}
 
-		return self::tryParseTrimmed($trimmedCssText, $options, $depth, false);
+		return self::tryParseTrimmed($trimmedCssText, $options, $depth, false, $sharedNodeBudget);
 	}
 
-	private static function tryParseTrimmed(string $cssText, CSSParserOptions $options, int $depth, bool $throwOnInvalid): ?self
-	{
+	private static function tryParseTrimmed(
+		string $cssText,
+		CSSParserOptions $options,
+		int $depth,
+		bool $throwOnInvalid,
+		int &$sharedNodeBudget = 0,
+	): ?self {
 		if ($cssText !== '') {
 			$c0 = $cssText[0];
 			if ((($c0 >= '0' && $c0 <= '9') || $c0 === '.' || $c0 === '+' || $c0 === '-')
@@ -744,7 +755,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 			}
 		}
 
-		return CSSCalcParser::parseUnitOrMathSlice($cssText, 0, strlen($cssText), $options, $depth, $throwOnInvalid);
+		return CSSCalcParser::parseUnitOrMathSlice($cssText, 0, strlen($cssText), $options, $depth, $throwOnInvalid, null, $sharedNodeBudget);
 	}
 
 	private static function baseTypeForUnitCategory(?string $category): CSSNumericType

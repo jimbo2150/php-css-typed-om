@@ -8,4 +8,4 @@
 ## Properties & Methods
 
 - Channels (`CSSNumericValue|CSSKeywordValue`): property hooks `$h`, `$w`, `$b`, `$alpha` (cloning returned `CSSKeywordValue` instances) and methods `getH()`/`setH()`, `getW()`/`setW()`, `getB()`/`setB()`, `getAlpha()`/`setAlpha()`.
-- `__construct($h, $w, $b, $alpha = 1.0)`, `toHWB(): CSSHWB`, `clone(): static`, `__toString(): string`.
+- `__construct($h, $w, $b, $alpha = 1.0)`, `toHWB(bool $gamutMap = false): CSSHWB`, `clone(): static`, `__toString(): string`.

@@ -176,6 +176,12 @@ final class CSSColor extends CSSColorValue
 	}
 
 	/** @internal */
+	public function getSpaceNameInternal(): string
+	{
+		return $this->colorSpaceValue->getValue();
+	}
+
+	/** @internal */
 	public function getComponentValuesInternal(): array
 	{
 		$components = $this->channelsValue ?? [];

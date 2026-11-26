@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Jimbo2150\PhpCssTypedOm\Tests\TypedOM;
 
+use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSRGB;
 use PHPUnit\Framework\TestCase;
 
 class CSSContextTest extends TestCase
@@ -83,5 +85,33 @@ class CSSContextTest extends TestCase
 		$this->assertEquals(16.0, $context->getToPxFactor('em'));
 		$context->setFontSize(20.0);
 		$this->assertEquals(20.0, $context->getToPxFactor('em'));
+	}
+
+	public function testColorSchemeAndCurrentColorAreValidatedAndIsolated(): void
+	{
+		$red = new CSSRGB(1, 0, 0);
+		$context = new CSSContext(16.0, 960.0, 540.0, 'DARK', $red);
+		self::assertSame('dark', $context->getColorScheme());
+
+		$retrieved = $context->getCurrentColor();
+		self::assertInstanceOf(CSSRGB::class, $retrieved);
+		self::assertNotSame($red, $retrieved);
+		$red->setR(0);
+		$currentAfterMutation = $context->getCurrentColor();
+		self::assertInstanceOf(CSSRGB::class, $currentAfterMutation);
+		self::assertEqualsWithDelta(100.0, $currentAfterMutation->r->value, 1e-9);
+
+		$cloned = clone $context;
+		$clonedColor = $cloned->getCurrentColor();
+		self::assertInstanceOf(CSSRGB::class, $clonedColor);
+		self::assertNotSame($retrieved, $clonedColor);
+
+		$fluent = $context->setColorScheme('Light')->setCurrentColor(null);
+		self::assertSame($context, $fluent);
+		self::assertSame('light', $context->getColorScheme());
+		self::assertNull($context->getCurrentColor());
+
+		$this->expectException(InvalidArgumentException::class);
+		$context->setColorScheme('sepia');
 	}
 }

@@ -130,8 +130,9 @@ final class CSSColorValueTest extends TestCase
 
 	public function testRejectsInvalidSyntaxAndFallsBackInStyleValueParse(): void
 	{
-		// Relative color syntax & var() fall back to CSSUnparsedValue in CSSStyleValue::parse()
-		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('color', 'rgb(from red r g b / 50%)'));
+		// Relative color syntax resolves when concrete, and var() falls back to CSSUnparsedValue in CSSStyleValue::parse()
+		self::assertInstanceOf(CSSRGB::class, CSSStyleValue::parse('color', 'rgb(from red r g b / 50%)'));
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('color', 'rgb(from var(--c) r g b / 50%)'));
 		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('color', 'rgb(var(--r) 0 0)'));
 
 		// Legacy comma rgb() rejects mixing numbers & percentages and rejects `none`

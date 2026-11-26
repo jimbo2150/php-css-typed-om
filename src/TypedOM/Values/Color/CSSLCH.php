@@ -127,6 +127,12 @@ final class CSSLCH extends CSSColorValue
 	}
 
 	/** @internal */
+	public function getSpaceNameInternal(): string
+	{
+		return 'lch';
+	}
+
+	/** @internal */
 	public function getComponentValuesInternal(): array
 	{
 		return [$this->lValue, $this->cValue, $this->hValue, $this->alphaValue];

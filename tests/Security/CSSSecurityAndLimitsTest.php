@@ -3575,5 +3575,117 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		} catch (CSSParserLimitException $e) {
 			self::assertStringContainsString('node count', strtolower($e->getMessage()));
 		}
+
+		$this->assertColor4And5SecurityRegressions();
+	}
+
+	private function assertColor4And5SecurityRegressions(): void
+	{
+		// 1. Deeply nested Color 5 expressions enforce maxDepth & MAX_COLOR_NODES deterministically
+		$deepMix = 'red';
+		for ($i = 0; $i < 20; $i++) {
+			$deepMix = 'color-mix(in srgb, ' . $deepMix . ', blue)';
+		}
+		try {
+			CSSColorValue::parse($deepMix, null, new CSSParserOptions(maxDepth: 8));
+			self::fail('Expected deep nested color-mix() to hit maxDepth.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		// Deeply nested valid Color 5 tree > 512 depth executes iteratively without stack overflow and hits MAX_COLOR_NODES
+		$hugeMix = 'red';
+		for ($i = 0; $i < 1100; $i++) {
+			$hugeMix = 'light-dark(' . $hugeMix . ', blue)';
+		}
+		try {
+			CSSColorValue::parse($hugeMix, null, CSSParserOptions::unlimited());
+			self::fail('Expected > MAX_COLOR_NODES light-dark() chain to hit CSSParserLimitException.');
+		} catch (CSSParserLimitException $e) {
+			self::assertStringContainsString('node count', strtolower($e->getMessage()));
+		}
+
+		// 2. Comment-packed adversarial pre-scan hits index node cap quickly
+		$commentFlood = 'light-dark(' . str_repeat('/**/', 100_005) . 'red, blue)';
+		try {
+			CSSColorValue::parse($commentFlood, null, CSSParserOptions::unlimited());
+			self::fail('Expected comment-packed Color 5 input to hit index node limit.');
+		} catch (CSSParserLimitException $e) {
+			self::assertStringContainsString('node count', strtolower($e->getMessage()));
+		}
+
+		// 3. Shared MAX_MATH_NODES budget across Color 5 children blocks multiplicative math-node amplification
+		$bigCalc = 'calc(' . implode(' + ', array_fill(0, 12_000, '1')) . ')';
+		$multiMix = 'color-mix(in srgb, rgb(from red ' . $bigCalc . ' ' . $bigCalc . ' ' . $bigCalc . '), rgb(from blue ' . $bigCalc . ' ' . $bigCalc . ' 0))';
+		try {
+			CSSColorValue::parse($multiMix, null, CSSParserOptions::unlimited());
+			self::fail('Expected shared math node budget across Color 5 channels to throw.');
+		} catch (CSSParserLimitException $e) {
+			self::assertStringContainsString('node count', strtolower($e->getMessage()));
+		}
+
+		// 4. Comment token-smuggling boundaries never merge keywords or percentages
+		foreach ([
+			'curr/**/entcolor',
+			'rgb(fr/**/om red r g b)',
+			'color-mix(in srgb, red 50/**/% , blue)',
+		] as $smuggled) {
+			try {
+				CSSColorValue::parse($smuggled);
+				self::fail('Expected comment-split token to be rejected: ' . $smuggled);
+			} catch (InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
+
+		// 5. Deferred-branch validation: invalid sibling/percentage/outer channel throws InvalidArgumentException (not CSSDeferredColorException)
+		foreach ([
+			'color-mix(in srgb, currentcolor, INVALID_COLOR)',
+			'color-mix(in srgb, currentcolor 0%, blue 0%)',
+			'light-dark(red, INVALID_COLOR)',
+		] as $invalidDeferred) {
+			try {
+				CSSStyleValue::parse('color', $invalidDeferred);
+				self::fail('Expected invalid deferred Color 5 expression to throw: ' . $invalidDeferred);
+			} catch (InvalidArgumentException $e) {
+				self::assertNotInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSDeferredColorException::class, $e);
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
+		try {
+			CSSColorValue::parse('rgb(from currentcolor invalid_kw 0 0)');
+			self::fail('Expected invalid outer channel in deferred relative color to throw.');
+		} catch (InvalidArgumentException $e) {
+			self::assertNotInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSDeferredColorException::class, $e);
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		// 6. Degenerate calc(infinity) / calc(NaN) & extreme 1e308 channels stay finite
+		$infRgb = CSSColorValue::parse('rgb(from red calc(1 / 0) calc(-1 / 0) calc(infinity - infinity) / calc(1 / 0))');
+		self::assertSame('rgb(100% 0% 0%)', (string) $infRgb);
+		self::assertTrue(CSSColorValue::parse('oklch(50% 1e308 120deg)')->toGamut('srgb')->inGamut());
+
+		try {
+			CSSColorValue::parse('oklch(from red calc(l * 1e308) c h)');
+			self::fail('Expected 1e308 * 100.0 overflow in oklch relative lightness to throw cleanly.');
+		} catch (InvalidArgumentException $e) {
+			self::assertStringContainsString('non-finite', strtolower($e->getMessage()));
+		}
+
+		// 7. CSSContext invalid colorScheme / control byte rejection & non-convertible currentColor isolation
+		$ctx = new CSSContext(currentColor: new CSSColor('--custom', [0.1, 0.2, 0.3]));
+		self::assertInstanceOf(CSSColor::class, CSSColorValue::parse('currentcolor', null, null, $ctx));
+		try {
+			CSSColorValue::parse('color-mix(in srgb, currentcolor, blue)', null, null, $ctx);
+			self::fail('Expected mixing custom-space currentColor to throw.');
+		} catch (InvalidArgumentException $e) {
+			self::assertStringContainsString('custom color space', strtolower($e->getMessage()));
+		}
+		try {
+			$ctx->setColorScheme("light\x00");
+			self::fail('Expected control byte in colorScheme to throw.');
+		} catch (InvalidArgumentException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
 	}
 }

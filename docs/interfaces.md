@@ -82,7 +82,7 @@ The documented names and signatures follow the PHP source. Trait pages describe 
 
 ### Property maps and context
 
-- [`CSSContext`](interfaces/TypedOM/CSSContext.md) — environment values used for relative-unit conversion.
+- [`CSSContext`](interfaces/TypedOM/CSSContext.md) — environment values (`fontSize`, viewport, `colorScheme`, `currentColor`) used for unit and Color 5 resolution.
 - [`StylePropertyMap`](interfaces/TypedOM/StylePropertyMap.md) — mutable property-to-value map.
 - [`StylePropertyMapReadOnly`](interfaces/TypedOM/StylePropertyMapReadOnly.md) — read-only property-to-value map API.
 
@@ -107,7 +107,7 @@ The documented names and signatures follow the PHP source. Trait pages describe 
 
 ### Color values
 
-- [`CSSColorValue`](interfaces/TypedOM/Color/CSSColorValue.md) — abstract base class for CSS Typed OM colors, parsing, and CSS Color 4 conversions.
+- [`CSSColorValue`](interfaces/TypedOM/Color/CSSColorValue.md) — abstract base class for CSS Typed OM colors, Color 4/5 parsing, gamut mapping, and conversions.
 - [`CSSRGB`](interfaces/TypedOM/Color/CSSRGB.md) — sRGB color value using W3C CSS Color 5 percentage channels.
 - [`CSSHSL`](interfaces/TypedOM/Color/CSSHSL.md) — HSL color value.
 - [`CSSHWB`](interfaces/TypedOM/Color/CSSHWB.md) — HWB color value.

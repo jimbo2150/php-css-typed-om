@@ -109,6 +109,12 @@ final class CSSLab extends CSSColorValue
 	}
 
 	/** @internal */
+	public function getSpaceNameInternal(): string
+	{
+		return 'lab';
+	}
+
+	/** @internal */
 	public function getComponentValuesInternal(): array
 	{
 		return [$this->lValue, $this->aValue, $this->bValue, $this->alphaValue];

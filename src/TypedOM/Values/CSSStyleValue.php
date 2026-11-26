@@ -10,7 +10,9 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSDeferredColorException;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Stringable;
 
@@ -163,6 +165,8 @@ abstract class CSSStyleValue implements Stringable
 		'oklab' => true,
 		'oklch' => true,
 		'color' => true,
+		'color-mix' => true,
+		'light-dark' => true,
 	];
 
 	public function __construct()
@@ -175,8 +179,12 @@ abstract class CSSStyleValue implements Stringable
 	 *
 	 * @throws InvalidArgumentException When the value is empty, unbalanced, or contains disallowed control/delimiter bytes
 	 */
-	public static function parse(string $propertyOrCssText, ?string $cssText = null, ?CSSParserOptions $options = null): CSSStyleValue
-	{
+	public static function parse(
+		string $propertyOrCssText,
+		?string $cssText = null,
+		?CSSParserOptions $options = null,
+		?CSSContext $context = null,
+	): CSSStyleValue {
 		$options ??= CSSParserOptions::default();
 		if ($cssText !== null) {
 			if ($options->maxBytes !== null && strlen($propertyOrCssText) > $options->maxBytes) {
@@ -201,7 +209,7 @@ abstract class CSSStyleValue implements Stringable
 			throw new InvalidArgumentException('CSS value cannot be empty.');
 		}
 
-		return self::parseValidated($property, $trimmed, $options);
+		return self::parseValidated($property, $trimmed, $options, 0, $context);
 	}
 
 	/**
@@ -210,8 +218,12 @@ abstract class CSSStyleValue implements Stringable
 	 * @return list<CSSStyleValue>
 	 * @throws InvalidArgumentException When the list is empty or malformed
 	 */
-	public static function parseAll(string $property, string $cssText, ?CSSParserOptions $options = null): array
-	{
+	public static function parseAll(
+		string $property,
+		string $cssText,
+		?CSSParserOptions $options = null,
+		?CSSContext $context = null,
+	): array {
 		$options ??= CSSParserOptions::default();
 		if ($options->maxBytes !== null && strlen($property) > $options->maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS property name exceeds maximum size of %d bytes.', $options->maxBytes));
@@ -222,7 +234,7 @@ abstract class CSSStyleValue implements Stringable
 		$normalizedProp = CSSStyleDeclaration::normalizePropertyName($property);
 		CSSSyntaxScanner::assertValidFragment($cssText, 'CSS value list', [';', '{', '}']);
 
-		return self::parseAllValidated($normalizedProp, $cssText, $options);
+		return self::parseAllValidated($normalizedProp, $cssText, $options, $context);
 	}
 
 	/**
@@ -230,14 +242,18 @@ abstract class CSSStyleValue implements Stringable
 	 * @return list<CSSStyleValue>
 	 * @throws InvalidArgumentException When the value list is empty or invalid
 	 */
-	public static function parseAllValidated(string $normalizedProperty, string $validatedCssText, CSSParserOptions $options): array
-	{
+	public static function parseAllValidated(
+		string $normalizedProperty,
+		string $validatedCssText,
+		CSSParserOptions $options,
+		?CSSContext $context = null,
+	): array {
 		if (str_starts_with($normalizedProperty, '--')) {
 			$trimmed = CSSSyntaxScanner::trimCssWhitespace($validatedCssText);
 			if ($trimmed === '') {
 				throw new InvalidArgumentException('CSS value list cannot be empty.');
 			}
-			return [self::parseValidated($normalizedProperty, $trimmed, $options)];
+			return [self::parseValidated($normalizedProperty, $trimmed, $options, 0, $context)];
 		}
 
 		$values = [];
@@ -247,7 +263,7 @@ abstract class CSSStyleValue implements Stringable
 				if (count($values) >= self::MAX_LIST_ITEMS) {
 					throw new CSSParserLimitException(sprintf('CSS value list exceeds maximum limit of %d items.', self::MAX_LIST_ITEMS));
 				}
-				$values[] = self::parseValidated($normalizedProperty, $value, $options);
+				$values[] = self::parseValidated($normalizedProperty, $value, $options, 0, $context);
 			}
 		}
 
@@ -266,6 +282,7 @@ abstract class CSSStyleValue implements Stringable
 		string $cssText,
 		?CSSParserOptions $options,
 		int $mathDepth,
+		?CSSContext $context = null,
 	): self {
 		$options ??= CSSParserOptions::default();
 		if ($options->maxBytes !== null && strlen($property) > $options->maxBytes) {
@@ -285,7 +302,7 @@ abstract class CSSStyleValue implements Stringable
 			throw new InvalidArgumentException('CSS value cannot be empty.');
 		}
 
-		return self::parseValidated($normalized, $trimmed, $options, $mathDepth);
+		return self::parseValidated($normalized, $trimmed, $options, $mathDepth, $context);
 	}
 
 	/**
@@ -296,6 +313,7 @@ abstract class CSSStyleValue implements Stringable
 		string $trimmedValue,
 		CSSParserOptions $options,
 		int $mathDepth = 0,
+		?CSSContext $context = null,
 	): CSSStyleValue {
 		$lower = strtolower($trimmedValue);
 		if (isset(self::GLOBAL_KEYWORDS[$lower])) {
@@ -345,27 +363,40 @@ abstract class CSSStyleValue implements Stringable
 
 		$c0 = $trimmedValue[0];
 		$isColorProp = isset(self::SINGLE_COLOR_PROPERTIES[$normalizedProperty]) || isset(self::MULTI_COLOR_PROPERTIES[$normalizedProperty]);
-		if ($c0 === '#' || ($fn !== null && preg_match('/^(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)$/D', $fn) === 1)) {
+		$isDisallowedColorProp = isset(self::SIZING_PROPERTIES[$normalizedProperty])
+			|| $normalizedProperty === 'opacity'
+			|| isset(self::SINGLE_KEYWORD_PROPERTIES[$normalizedProperty])
+			|| isset(self::MULTI_KEYWORD_PROPERTIES[$normalizedProperty]);
+		$isColorFunction = $fn !== null && preg_match('/^(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark)$/D', $fn) === 1;
+		if ($c0 === '#' || $isColorFunction) {
+			$color = null;
+			$isDeferredColor = false;
 			try {
-				$color = CSSColorValue::parse($trimmedValue, null, $options);
-				if (isset(self::SIZING_PROPERTIES[$normalizedProperty])
-					|| $normalizedProperty === 'opacity'
-					|| isset(self::SINGLE_KEYWORD_PROPERTIES[$normalizedProperty])
-					|| isset(self::MULTI_KEYWORD_PROPERTIES[$normalizedProperty])
-				) {
-					throw new InvalidArgumentException(sprintf('Color value is not valid for property "%s".', $normalizedProperty));
-				}
-				return $color;
+				$color = CSSColorValue::parseInternal($trimmedValue, null, $options, $context, $context === null);
 			} catch (CSSParserLimitException $e) {
 				throw $e;
+			} catch (CSSDeferredColorException) {
+				$isDeferredColor = true;
 			} catch (InvalidArgumentException) {
-				// Unsupported/relative/var() color syntax falls through to unparsed value below.
+				// Unsupported/var() color syntax falls through to unparsed validation below.
+			}
+
+			if ($color !== null || $isDeferredColor) {
+				if ($isDisallowedColorProp) {
+					throw new InvalidArgumentException(sprintf('Color value is not valid for property "%s".', $normalizedProperty));
+				}
+				if ($color !== null) {
+					return $color;
+				}
+
+				return CSSUnparsedValue::fromCssText($trimmedValue, $options);
 			}
 		}
 
 		if ($isColorProp && $fn === null) {
-			if ($lower === 'currentcolor') {
-				return new CSSKeywordValue('currentcolor');
+			$current = CSSColorValue::tryParseCurrentColorInternal($trimmedValue, $context);
+			if ($current !== null) {
+				return $current;
 			}
 			$namedColor = CSSColorValue::tryParseNamedColor($trimmedValue);
 			if ($namedColor !== null) {
@@ -440,8 +471,11 @@ abstract class CSSStyleValue implements Stringable
 				$hasTrailingTokens = CSSSyntaxScanner::trimCssWhitespace($trailingSlice) !== '';
 			}
 			if (isset(self::KNOWN_MATH_OR_COLOR_FUNCTIONS[$leadingFunction])) {
-				// On color properties, unmodeled relative color syntax and extra-arg fallback tests fall back when appropriate;
-				// on sizing/opacity/keyword properties, failed known math/color functions are invalid.
+				if ($isMultiColor && $hasTrailingTokens) {
+					return;
+				}
+				// On color properties, keep legacy 10-function fallback (e.g. rgb(1,2,3,4,5)),
+				// while rejecting syntactically invalid color-mix() / light-dark() on single color properties.
 				if (($isSingleColor || $isMultiColor) && in_array($leadingFunction, ['rgb', 'rgba', 'hsl', 'hsla', 'hwb', 'lab', 'lch', 'oklab', 'oklch', 'color'], true)) {
 					return;
 				}

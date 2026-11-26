@@ -127,6 +127,12 @@ final class CSSOKLCH extends CSSColorValue
 	}
 
 	/** @internal */
+	public function getSpaceNameInternal(): string
+	{
+		return 'oklch';
+	}
+
+	/** @internal */
 	public function getComponentValuesInternal(): array
 	{
 		return [$this->lValue, $this->cValue, $this->hValue, $this->alphaValue];
@@ -136,6 +142,16 @@ final class CSSOKLCH extends CSSColorValue
 	public function toBoundedCssTextInternal(?int $maxBytes): string
 	{
 		return $this->serializeFunctionChannelsBounded('oklch', [$this->lValue, $this->cValue, $this->hValue], $maxBytes);
+	}
+
+	/** @internal */
+	public function toOklchFloatsInternal(): array
+	{
+		$l = self::resolvePercentUnit($this->lValue);
+		$c = self::resolveLinearChannel($this->cValue, 0.4);
+		$h = fmod(fmod(self::resolveAngleDegrees($this->hValue), 360.0) + 360.0, 360.0);
+
+		return [$l, $c, $h === 0.0 ? 0.0 : $h, $this->alphaValue->clone()];
 	}
 
 	protected function toXyzD65(): array

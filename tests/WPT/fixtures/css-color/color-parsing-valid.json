@@ -11,7 +11,8 @@
     "css/css-color/parsing/color-valid-color-function.html",
     "css/css-color/parsing/color-computed-hex-color.html",
     "css/css-color/parsing/color-computed-named-color.html",
-    "css/css-color/parsing/color-computed-none.html"
+    "css/css-color/parsing/color-computed-none.html",
+    "css/css-color/parsing/color-computed-color-mix-function.html"
   ],
   "cases": [
     {
@@ -187,12 +188,61 @@
       "specRef": "https://drafts.csswg.org/css-color-4/#named-colors"
     },
     {
-      "id": "css-color/valid/relative-color-syntax-via-stylevalue-unparsed",
+      "id": "css-color/valid/relative-color-var-via-stylevalue-unparsed",
       "upstream": "css/css-color/parsing/color-valid.html",
       "category": "canonicalization",
       "operation": "color.stylevalue.parse",
+      "input": { "cssText": "rgb(from var(--c) r g b / 50%)" },
+      "expected": { "class": "CSSUnparsedValue", "cssText": "rgb(from var(--c) r g b / 50%)" },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/relative-color-rgb-from-red-alpha",
+      "upstream": "css/css-color/parsing/color-valid.html",
+      "category": "canonicalization",
+      "operation": "color.parse.valid",
       "input": { "cssText": "rgb(from red r g b / 50%)" },
-      "expected": { "class": "CSSUnparsedValue", "cssText": "rgb(from red r g b / 50%)" },
+      "expected": { "class": "CSSRGB", "cssText": "rgb(100% 0% 0% / 50%)" },
+      "status": "pass",
+      "specRef": "https://drafts.csswg.org/css-color-5/#relative-colors"
+    },
+    {
+      "id": "css-color/valid/currentcolor-keyword-without-context",
+      "upstream": "css/css-color/parsing/color-computed-named-color.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "currentcolor" },
+      "expected": { "class": "CSSKeywordValue", "cssText": "currentcolor" },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/color-mix-hsl-white-blue-powerless-hue",
+      "upstream": "css/css-color/parsing/color-computed-color-mix-function.html",
+      "category": "canonicalization",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "color-mix(in hsl, white, blue)" },
+      "tolerance": 1e-4,
+      "expected": { "class": "CSSColor", "colorSpace": "srgb", "channels": { "0": 0.625, "1": 0.625, "2": 0.875 } },
+      "status": "pass",
+      "specRef": "https://drafts.csswg.org/css-color-5/#color-mix"
+    },
+    {
+      "id": "css-color/valid/light-dark-dark-scheme-context",
+      "upstream": "css/css-color/parsing/color-valid.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "light-dark(white, black)", "colorScheme": "dark" },
+      "expected": { "class": "CSSRGB", "cssText": "rgb(0% 0% 0%)" },
+      "status": "pass",
+      "specRef": "https://drafts.csswg.org/css-color-5/#light-dark"
+    },
+    {
+      "id": "css-color/valid/light-dark-deferred-in-stylevalue",
+      "upstream": "css/css-color/parsing/color-valid.html",
+      "category": "canonicalization",
+      "operation": "color.stylevalue.parse",
+      "input": { "cssText": "light-dark(white, black)" },
+      "expected": { "class": "CSSUnparsedValue", "cssText": "light-dark(white, black)" },
       "status": "pass"
     },
     {

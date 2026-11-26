@@ -5,15 +5,20 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
 
 /**
- * Runtime context for CSS unit conversions (font size and viewport dimensions in pixels).
+ * Runtime context for CSS unit conversions (font size and viewport dimensions in pixels)
+ * and dynamic color resolution (`colorScheme`, `currentColor`).
  */
 class CSSContext
 {
 	private float $fontSize;
 	private float $viewportWidth;
 	private float $viewportHeight;
+	private string $colorScheme;
+	private ?CSSColorValue $currentColor;
 
 	/** @var array<string, float> Cache for valid length unit to-px conversion factors */
 	private array $toPxFactors = [];
@@ -22,13 +27,54 @@ class CSSContext
 	private array $fromPxFactors = [];
 
 	/**
-	 * @throws InvalidArgumentException When any context dimension is non-finite or <= 0
+	 * @throws InvalidArgumentException When any context dimension is non-finite or <= 0, or colorScheme is invalid
 	 */
-	public function __construct(float $fontSize = 16.0, float $viewportWidth = 960.0, float $viewportHeight = 540.0)
-	{
+	public function __construct(
+		float $fontSize = 16.0,
+		float $viewportWidth = 960.0,
+		float $viewportHeight = 540.0,
+		string $colorScheme = 'light',
+		?CSSColorValue $currentColor = null,
+	) {
 		$this->fontSize = self::validateDimension($fontSize, 'fontSize');
 		$this->viewportWidth = self::validateDimension($viewportWidth, 'viewportWidth');
 		$this->viewportHeight = self::validateDimension($viewportHeight, 'viewportHeight');
+		$this->colorScheme = self::validateColorScheme($colorScheme);
+		$this->currentColor = $currentColor?->clone();
+	}
+
+	public function __clone(): void
+	{
+		if ($this->currentColor !== null) {
+			$this->currentColor = $this->currentColor->clone();
+		}
+	}
+
+	public function getColorScheme(): string
+	{
+		return $this->colorScheme;
+	}
+
+	/**
+	 * @throws InvalidArgumentException When $colorScheme is not 'light' or 'dark'
+	 */
+	public function setColorScheme(string $colorScheme): self
+	{
+		$this->colorScheme = self::validateColorScheme($colorScheme);
+
+		return $this;
+	}
+
+	public function getCurrentColor(): ?CSSColorValue
+	{
+		return $this->currentColor?->clone();
+	}
+
+	public function setCurrentColor(?CSSColorValue $currentColor): self
+	{
+		$this->currentColor = $currentColor?->clone();
+
+		return $this;
 	}
 
 	public function getFontSize(): float
@@ -145,5 +191,18 @@ class CSSContext
 		}
 
 		return $value;
+	}
+
+	private static function validateColorScheme(string $scheme): string
+	{
+		if (CSSSyntaxScanner::hasControlCharacters($scheme)) {
+			throw new InvalidArgumentException('CSSContext colorScheme contains disallowed control characters.');
+		}
+		$normalized = strtolower(CSSSyntaxScanner::trimCssWhitespace($scheme));
+		if ($normalized !== 'light' && $normalized !== 'dark') {
+			throw new InvalidArgumentException('CSSContext colorScheme must be "light" or "dark".');
+		}
+
+		return $normalized;
 	}
 }

@@ -92,8 +92,13 @@ final class CSSRGB extends CSSColorValue
 		$this->bValue = self::normalizePercentChannel($b, 100.0);
 	}
 
-	public function toRGB(): CSSRGB
+	public function toRGB(bool $gamutMap = false): CSSRGB
 	{
+		if ($gamutMap && !$this->inGamut()) {
+			/** @var CSSRGB */
+			return CSSColorGamutMapper::map($this, 'rgb');
+		}
+
 		return $this->clone();
 	}
 
@@ -108,6 +113,12 @@ final class CSSRGB extends CSSColorValue
 	public function clone(): static
 	{
 		return clone $this;
+	}
+
+	/** @internal */
+	public function getSpaceNameInternal(): string
+	{
+		return 'rgb';
 	}
 
 	/** @internal */

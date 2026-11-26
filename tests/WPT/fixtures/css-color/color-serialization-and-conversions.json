@@ -139,14 +139,47 @@
       "status": "pass"
     },
     {
-      "id": "css-color/convert/black-to-hsl-zero-saturation",
+      "id": "css-color/convert/black-to-hsl-powerless-hue",
       "upstream": "css/css-color/parsing/color-computed-hsl.html",
       "category": "canonicalization",
       "operation": "color.convert",
       "input": { "cssText": "#000000", "to": "hsl" },
       "tolerance": 1e-6,
-      "expected": { "class": "CSSHSL", "channels": { "h": 0.0, "s": 0.0, "l": 0.0 } },
+      "expected": { "class": "CSSHSL", "channels": { "h": "none", "s": 0.0, "l": 0.0 } },
+      "status": "pass",
+      "specRef": "https://drafts.csswg.org/css-color-4/#hsl-to-rgb"
+    },
+    {
+      "id": "css-color/convert/missing-hue-carries-forward-hsl-to-oklch",
+      "upstream": "css/css-color/parsing/color-computed-none.html",
+      "category": "canonicalization",
+      "operation": "color.convert",
+      "input": { "cssText": "hsl(none 50% 50%)", "to": "oklch" },
+      "tolerance": 1e-4,
+      "expected": { "class": "CSSOKLCH", "channels": { "h": "none" } },
+      "status": "pass",
+      "specRef": "https://drafts.csswg.org/css-color-4/#interpolation-missing"
+    },
+    {
+      "id": "css-color/convert/missing-red-carries-forward-rgb-to-display-p3",
+      "upstream": "css/css-color/parsing/color-computed-none.html",
+      "category": "canonicalization",
+      "operation": "color.convert",
+      "input": { "cssText": "rgb(none 100% 0%)", "to": "display-p3" },
+      "tolerance": 1e-4,
+      "expected": { "class": "CSSColor", "colorSpace": "display-p3", "channels": { "0": "none" } },
       "status": "pass"
+    },
+    {
+      "id": "css-color/convert/gamut-map-display-p3-red-to-srgb",
+      "upstream": "css/css-color/parsing/color-computed-color-function.html",
+      "category": "canonicalization",
+      "operation": "color.convert",
+      "input": { "cssText": "color(display-p3 1 0 0)", "to": "srgb", "gamutMap": true },
+      "tolerance": 0.05,
+      "expected": { "class": "CSSColor", "colorSpace": "srgb", "channels": { "0": 1.0, "1": 0.0, "2": 0.0 } },
+      "status": "pass",
+      "specRef": "https://drafts.csswg.org/css-color-4/#css-gamut-mapping"
     }
   ]
 }

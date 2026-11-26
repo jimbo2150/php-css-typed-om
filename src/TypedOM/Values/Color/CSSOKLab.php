@@ -109,6 +109,12 @@ final class CSSOKLab extends CSSColorValue
 	}
 
 	/** @internal */
+	public function getSpaceNameInternal(): string
+	{
+		return 'oklab';
+	}
+
+	/** @internal */
 	public function getComponentValuesInternal(): array
 	{
 		return [$this->lValue, $this->aValue, $this->bValue, $this->alphaValue];
