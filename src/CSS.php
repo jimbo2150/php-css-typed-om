@@ -720,7 +720,9 @@ abstract class CSS
 		// 0 = EVAL_CONDITION(start, end, depth, targetKind, targetIdx)
 		// 1 = COMBINATOR_STEP(operator: 'and'|'or', clauses: list<array{int,int}>, nextIndex, depth, targetKind, targetIdx)
 		// 2 = APPLY_NOT(sourceValIdx, targetKind, targetIdx)
+		/** @var array<int, ?bool> $slots */
 		$slots = [null]; // index 0 = root result (?bool)
+		/** @var list<array<int, mixed>> $stack */
 		$stack = [[0, 0, strlen($source), 0, 0]]; // mode, start, end, depth, slotIdx
 
 		while ($stack !== []) {
@@ -728,14 +730,28 @@ abstract class CSS
 			$mode = $frame[0];
 
 			if ($mode === 2) {
-				[, $srcSlot, $destSlot] = $frame;
+				/** @var int $srcSlot */
+				$srcSlot = $frame[1];
+				/** @var int $destSlot */
+				$destSlot = $frame[2];
 				$val = $slots[$srcSlot];
 				$slots[$destSlot] = $val === null ? null : !$val;
 				continue;
 			}
 
 			if ($mode === 1) {
-				[, $op, $clauses, $idx, $depth, $childSlot, $destSlot] = $frame;
+				/** @var string $op */
+				$op = $frame[1];
+				/** @var list<array{0: int, 1: int}> $clauses */
+				$clauses = $frame[2];
+				/** @var int $idx */
+				$idx = $frame[3];
+				/** @var int $depth */
+				$depth = $frame[4];
+				/** @var int $childSlot */
+				$childSlot = $frame[5];
+				/** @var int $destSlot */
+				$destSlot = $frame[6];
 				$childVal = $slots[$childSlot];
 				if ($childVal === null) {
 					$slots[$destSlot] = null;
@@ -762,7 +778,14 @@ abstract class CSS
 			}
 
 			// mode === 0: EVAL_CONDITION
-			[, $start, $end, $depth, $destSlot] = $frame;
+			/** @var int $start */
+			$start = $frame[1];
+			/** @var int $end */
+			$end = $frame[2];
+			/** @var int $depth */
+			$depth = $frame[3];
+			/** @var int $destSlot */
+			$destSlot = $frame[4];
 			if ($maxDepth !== null && $depth > $maxDepth) {
 				$slots[$destSlot] = null;
 				continue;
