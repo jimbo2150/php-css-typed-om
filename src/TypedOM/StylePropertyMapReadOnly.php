@@ -12,6 +12,7 @@ use IteratorAggregate;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
+use Jimbo2150\PhpCssTypedOm\CSSOM\Shorthand\CSSShorthandRegistry;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSUnparsedValue;
@@ -87,35 +88,25 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 	{
 		$options = $this->resolveSheetParserOptions();
 		$normalized = $this->normalizeBoundedPropertyName($property, $options);
+		if ($this->style->shouldExpandShorthandsInternal() && CSSShorthandRegistry::isShorthand($normalized)) {
+			$value = $this->style->getPropertyValue($normalized);
+			if ($value === '') {
+				return null;
+			}
+
+			return $this->parseFirstDeclarationValue($normalized, $value, $options);
+		}
+
 		$declaration = $this->style->getDeclarationsRaw()[$normalized] ?? null;
 		if ($declaration === null) {
 			return null;
 		}
 		$value = $declaration['value'];
 		if ($value === '') {
-			return new CSSUnparsedValue([], $options);
+			return str_starts_with($normalized, '--') ? new CSSUnparsedValue([], $options) : null;
 		}
 
-		if (str_starts_with($normalized, '--')) {
-			return CSSStyleValue::parseValidated($normalized, $value, $options, 0, null, false);
-		}
-		$length = strlen($value);
-		$offset = 0;
-		$segmentCount = 0;
-		while ($offset < $length) {
-			if (++$segmentCount > CSSStyleValue::MAX_LIST_ITEMS) {
-				throw new CSSParserLimitException(sprintf('CSS value list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
-			}
-			$comma = CSSSyntaxScanner::findTopLevel($value, ',', $offset, $length);
-			$segmentEnd = $comma ?? $length;
-			$first = CSSSyntaxScanner::trimCssWhitespace(substr($value, $offset, $segmentEnd - $offset));
-			if ($first !== '' && (!str_contains($first, '/*') || CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($first)) !== '')) {
-				return CSSStyleValue::parseValidated($normalized, $first, $options, 0, null, false);
-			}
-			$offset = $segmentEnd + 1;
-		}
-
-		return null;
+		return $this->parseFirstDeclarationValue($normalized, $value, $options);
 	}
 
 	/** @return list<CSSStyleValue> */
@@ -123,6 +114,15 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 	{
 		$options = $this->resolveSheetParserOptions();
 		$normalized = $this->normalizeBoundedPropertyName($property, $options);
+		if ($this->style->shouldExpandShorthandsInternal() && CSSShorthandRegistry::isShorthand($normalized)) {
+			$value = $this->style->getPropertyValue($normalized);
+			if ($value === '') {
+				return [];
+			}
+
+			return $this->parseAllDeclarationValues($normalized, $value, $options);
+		}
+
 		$declaration = $this->style->getDeclarationsRaw()[$normalized] ?? null;
 		if ($declaration === null) {
 			return [];
@@ -135,6 +135,9 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 	{
 		$options = $this->resolveSheetParserOptions();
 		$normalized = $this->normalizeBoundedPropertyName($property, $options);
+		if ($this->style->shouldExpandShorthandsInternal() && CSSShorthandRegistry::isShorthand($normalized)) {
+			return $this->style->getPropertyValue($normalized) !== '';
+		}
 
 		return isset($this->style->getDeclarationsRaw()[$normalized]);
 	}
@@ -204,11 +207,35 @@ class StylePropertyMapReadOnly implements Countable, IteratorAggregate
 		})();
 	}
 
+	private function parseFirstDeclarationValue(string $normalized, string $value, CSSParserOptions $options): ?CSSStyleValue
+	{
+		if (str_starts_with($normalized, '--')) {
+			return CSSStyleValue::parseValidated($normalized, $value, $options, 0, null, false);
+		}
+		$length = strlen($value);
+		$offset = 0;
+		$segmentCount = 0;
+		while ($offset < $length) {
+			if (++$segmentCount > CSSStyleValue::MAX_LIST_ITEMS) {
+				throw new CSSParserLimitException(sprintf('CSS value list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
+			}
+			$comma = CSSSyntaxScanner::findTopLevel($value, ',', $offset, $length);
+			$segmentEnd = $comma ?? $length;
+			$first = CSSSyntaxScanner::trimCssWhitespace(substr($value, $offset, $segmentEnd - $offset));
+			if ($first !== '' && (!str_contains($first, '/*') || CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($first)) !== '')) {
+				return CSSStyleValue::parseValidated($normalized, $first, $options, 0, null, false);
+			}
+			$offset = $segmentEnd + 1;
+		}
+
+		return null;
+	}
+
 	/** @return list<CSSStyleValue> */
 	private function parseAllDeclarationValues(string $property, string $value, CSSParserOptions $options): array
 	{
 		if ($value === '') {
-			return [new CSSUnparsedValue([], $options)];
+			return str_starts_with($property, '--') ? [new CSSUnparsedValue([], $options)] : [];
 		}
 		if (!str_starts_with($property, '--') && preg_match('/^[,\s\t\n\r\f]+$/D', $value) === 1) {
 			return [];

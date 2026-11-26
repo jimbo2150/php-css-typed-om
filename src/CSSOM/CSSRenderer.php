@@ -447,23 +447,26 @@ final class CSSRenderer
 		int $depth,
 		bool $leadingNewline,
 	): string {
-		$declarations = $style->getDeclarationsRaw();
-		if ($declarations === []) {
+		$entries = $style->getSerializedDeclarationsInternal();
+		if ($entries === []) {
 			return '';
 		}
 
 		$out = '';
 		if (!$pretty) {
-			foreach ($declarations as $property => $declaration) {
-				if ($declaration['value'] === '' && str_starts_with($property, '--')) {
-					$out .= $declaration['priority'] === ''
+			foreach ($entries as $entry) {
+				$property = $entry['property'];
+				$value = $entry['value'];
+				$priority = $entry['priority'];
+				if ($value === '' && str_starts_with($property, '--')) {
+					$out .= $priority === ''
 						? $property . ': ;'
 						: $property . ': !important;';
 					continue;
 				}
-				$out .= $declaration['priority'] === ''
-					? $property . ':' . $declaration['value'] . ';'
-					: $property . ':' . $declaration['value'] . '!important;';
+				$out .= $priority === ''
+					? $property . ':' . $value . ';'
+					: $property . ':' . $value . '!important;';
 			}
 			return $out;
 		}
@@ -471,21 +474,21 @@ final class CSSRenderer
 		$indent = self::indent($depth);
 		$linePrefix = "\n" . $indent;
 		if ($leadingNewline) {
-			foreach ($declarations as $property => $declaration) {
-				$out .= $declaration['priority'] === ''
-					? $linePrefix . $property . ': ' . $declaration['value'] . ';'
-					: $linePrefix . $property . ': ' . $declaration['value'] . ' !important;';
+			foreach ($entries as $entry) {
+				$out .= $entry['priority'] === ''
+					? $linePrefix . $entry['property'] . ': ' . $entry['value'] . ';'
+					: $linePrefix . $entry['property'] . ': ' . $entry['value'] . ' !important;';
 			}
 			return $out;
 		}
 
 		$first = true;
-		foreach ($declarations as $property => $declaration) {
+		foreach ($entries as $entry) {
 			$prefix = $first ? $indent : $linePrefix;
 			$first = false;
-			$out .= $declaration['priority'] === ''
-				? $prefix . $property . ': ' . $declaration['value'] . ';'
-				: $prefix . $property . ': ' . $declaration['value'] . ' !important;';
+			$out .= $entry['priority'] === ''
+				? $prefix . $entry['property'] . ': ' . $entry['value'] . ';'
+				: $prefix . $entry['property'] . ': ' . $entry['value'] . ' !important;';
 		}
 
 		return $out;

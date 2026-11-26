@@ -9,6 +9,7 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStandardProperties;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
+use Jimbo2150\PhpCssTypedOm\CSSOM\Shorthand\CSSShorthandRegistry;
 use Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
@@ -75,9 +76,14 @@ final class StylePropertyMap extends StylePropertyMapReadOnly
 			throw new InvalidArgumentException(sprintf('CSS property "%s" does not support list values.', $normalized));
 		}
 		$parts = [];
-		$existing = $this->style->getDeclarationsRaw()[$normalized] ?? null;
-		$current = $existing['value'] ?? '';
-		$priority = $existing['priority'] ?? '';
+		if ($this->style->shouldExpandShorthandsInternal() && CSSShorthandRegistry::isShorthand($normalized)) {
+			$current = $this->style->getPropertyValue($normalized);
+			$priority = $this->style->getPropertyPriority($normalized);
+		} else {
+			$existing = $this->style->getDeclarationsRaw()[$normalized] ?? null;
+			$current = $existing['value'] ?? '';
+			$priority = $existing['priority'] ?? '';
+		}
 		$runningBytes = $current === '' ? 0 : strlen($current);
 		$itemCount = $current === '' ? 0 : (CSSSyntaxScanner::countTopLevelDelimiters($current, ',') + 1);
 		foreach ($values as $item) {

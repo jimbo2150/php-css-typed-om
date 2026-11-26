@@ -11,6 +11,9 @@ use Error;
 use InvalidArgumentException;
 use IteratorAggregate;
 use Jimbo2150\PhpCssTypedOm\CSS;
+use Jimbo2150\PhpCssTypedOm\CSSOM\Shorthand\CSSShorthandExpander;
+use Jimbo2150\PhpCssTypedOm\CSSOM\Shorthand\CSSShorthandRegistry;
+use Jimbo2150\PhpCssTypedOm\CSSOM\Shorthand\CSSShorthandSerializer;
 use Jimbo2150\PhpCssTypedOm\Grammar\CSSValueComponentParser;
 use Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSInputPreprocessor;
@@ -43,6 +46,15 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 
 	/** @var array<string, array{value: string, priority: string}> */
 	private array $declarations = [];
+
+	/** @var array<string, array{shorthand: string, value: string, id: int, kind: 'substitution'|'system-font'}> */
+	private array $pendingShorthands = [];
+
+	/** @var array<int, array{bytes: int, refs: int}> */
+	private array $pendingPayloadAccounting = [];
+
+	private int $nextPendingId = 1;
+	private bool $hasShorthandLonghand = false;
 
 	/** @var ?list<string> */
 	private ?array $cachedKeys = null;
@@ -313,6 +325,114 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		return true;
 	}
 
+	/** @internal */
+	public function shouldExpandShorthandsInternal(): bool
+	{
+		return $this->shouldValidatePropertyValuesInternal();
+	}
+
+	/**
+	 * @internal
+	 * @return list<array{property: string, value: string, priority: string}>
+	 */
+	public function getSerializedDeclarationsInternal(): array
+	{
+		if ($this->declarations === []) {
+			return [];
+		}
+
+		if (!$this->shouldExpandShorthandsInternal()) {
+			$out = [];
+			foreach ($this->declarations as $property => $declaration) {
+				$out[] = [
+					'property' => $property,
+					'value' => $declaration['value'],
+					'priority' => $declaration['priority'],
+				];
+			}
+
+			return $out;
+		}
+
+		return CSSShorthandSerializer::serializeDeclarationBlock(
+			$this->declarations,
+			$this->pendingShorthands,
+			$this->hasShorthandLonghand,
+			$this->resolveValidationOptionsInternal(),
+		);
+	}
+
+	/**
+	 * @internal Copies declarations and pending shorthand metadata while enforcing descriptor/important policies.
+	 */
+	public function copyDeclarationsFromInternal(self $source): void
+	{
+		if ($source->declarations === []) {
+			return;
+		}
+
+		$pendingIdMap = [];
+		$pendingCommit = [];
+
+		foreach ($source->declarations as $property => $declaration) {
+			$pending = $source->pendingShorthands[$property] ?? null;
+			if ($pending !== null && $this->shouldExpandShorthandsInternal()) {
+				$oldId = $pending['id'];
+				if (!isset($pendingIdMap[$oldId])) {
+					$pendingIdMap[$oldId] = $this->nextPendingId++;
+				}
+				$newId = $pendingIdMap[$oldId];
+				$pendingCommit[$newId] ??= [
+					'shorthand' => $pending['shorthand'],
+					'value' => $pending['value'],
+					'kind' => $pending['kind'],
+					'priority' => $declaration['priority'],
+					'longhands' => [],
+				];
+				$pendingCommit[$newId]['longhands'][] = $property;
+				continue;
+			}
+
+			$this->setValidatedProperty($property, $declaration['value'], $declaration['priority']);
+		}
+
+		foreach ($pendingCommit as $group) {
+			$this->commitExpandedResult(
+				[
+					'kind' => 'pending',
+					'pendingKind' => $group['kind'],
+					'shorthand' => $group['shorthand'],
+					'value' => $group['value'],
+					'longhands' => $group['longhands'],
+				],
+				$group['priority'],
+				false,
+				true,
+				null,
+			);
+		}
+	}
+
+	private function resolveValidationOptionsInternal(): ?CSSParserOptions
+	{
+		$maxBytes = $this->resolveMaxBytesInternal();
+		$maxDepth = $this->resolveMaxDepthInternal();
+		$maxMathDepth = $this->resolveMaxMathDepthInternal();
+		if ($maxDepth === CSSParserOptions::DEFAULT_MAX_DEPTH
+			&& $maxMathDepth === CSSParserOptions::DEFAULT_MAX_MATH_DEPTH
+			&& $maxBytes === CSSParserOptions::DEFAULT_MAX_BYTES
+		) {
+			return null;
+		}
+
+		return new CSSParserOptions(
+			maxBytes: $maxBytes,
+			maxDepth: $maxDepth,
+			maxMathDepth: $maxMathDepth,
+			maxDeclarations: $this->resolveMaxDeclarationsInternal(),
+		);
+	}
+
 	/**
 	 * @throws InvalidArgumentException When $name is not permitted on this declaration block
 	 */
@@ -360,6 +480,14 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	public function getPropertyValue(string $property): string
 	{
 		$name = self::normalizePropertyName($property);
+		if ($this->shouldExpandShorthandsInternal() && CSSShorthandRegistry::isShorthand($name)) {
+			return CSSShorthandSerializer::serializeShorthand(
+				$name,
+				$this->declarations,
+				$this->pendingShorthands,
+				$this->resolveValidationOptionsInternal(),
+			);
+		}
 
 		return $this->declarations[$name]['value'] ?? '';
 	}
@@ -367,6 +495,19 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	public function getPropertyPriority(string $property): string
 	{
 		$name = self::normalizePropertyName($property);
+		if ($this->shouldExpandShorthandsInternal() && CSSShorthandRegistry::isShorthand($name)) {
+			$longhands = CSSShorthandRegistry::getLonghands($name);
+			if ($longhands === null || $longhands === []) {
+				return '';
+			}
+			foreach ($longhands as $lh) {
+				if (!isset($this->declarations[$lh]) || $this->declarations[$lh]['priority'] !== 'important') {
+					return '';
+				}
+			}
+
+			return 'important';
+		}
 
 		return $this->declarations[$name]['priority'] ?? '';
 	}
@@ -408,23 +549,14 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		$value = str_contains($value, '\\')
 			? CSSSyntaxScanner::trimCssWhitespace($value)
 			: trim($value, self::CSS_WHITESPACE);
+		$expandShorthand = $this->shouldExpandShorthandsInternal() && CSSShorthandRegistry::isShorthand($name);
 		if ($value === '') {
-			$oldEntry = $this->declarations[$name] ?? null;
-			$delta = $oldEntry !== null ? -1 : 0;
-			if ($oldEntry !== null) {
-				$this->contentBytes -= strlen($name) + strlen($oldEntry['value']);
-				unset($this->declarations[$name]);
+			if ($expandShorthand) {
+				$this->removeShorthandLonghandsInternal($name);
+				return;
 			}
-			$this->cachedKeys = null;
-			$this->notifySheetMutation($delta, $name === 'initial-value');
+			$this->removeSingleLonghandInternal($name);
 			return;
-		}
-		$oldEntry = $this->declarations[$name] ?? null;
-		$oldBytes = $oldEntry !== null ? strlen($name) + strlen($oldEntry['value']) : 0;
-		$newBytes = strlen($name) + strlen($value);
-		$nextContentBytes = $this->contentBytes - $oldBytes + $newBytes;
-		if ($maxBytes !== null && ($newBytes > $maxBytes || $nextContentBytes > $maxBytes)) {
-			throw new CSSParserLimitException(sprintf('CSS property declaration exceeds maximum size of %d bytes.', $maxBytes));
 		}
 
 		self::validatePropertyValue($value);
@@ -432,18 +564,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			throw new InvalidArgumentException('CSS property value cannot be empty.');
 		}
 		if ($this->shouldValidatePropertyValuesInternal()) {
-			$maxDepth = $this->resolveMaxDepthInternal();
-			$maxMathDepth = $this->resolveMaxMathDepthInternal();
-			$validationOptions = ($maxDepth === CSSParserOptions::DEFAULT_MAX_DEPTH
-				&& $maxMathDepth === CSSParserOptions::DEFAULT_MAX_MATH_DEPTH
-				&& $maxBytes === CSSParserOptions::DEFAULT_MAX_BYTES)
-				? null
-				: new CSSParserOptions(
-					maxBytes: $maxBytes,
-					maxDepth: $maxDepth,
-					maxMathDepth: $maxMathDepth,
-					maxDeclarations: $this->resolveMaxDeclarationsInternal(),
-				);
+			$validationOptions = $this->resolveValidationOptionsInternal();
 			if (CSSStandardProperties::isKnown($name)) {
 				if (!CSSValueValidator::validateStandardProperty($name, $value, $validationOptions)) {
 					throw new InvalidArgumentException(sprintf('Invalid value "%s" for CSS property "%s".', $value, $name));
@@ -456,9 +577,34 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				throw new InvalidArgumentException(sprintf('Invalid value "%s" for CSS property "%s".', $value, $name));
 			}
 		}
+
+		if ($expandShorthand) {
+			$expanded = CSSShorthandExpander::expand($name, $value, $this->resolveValidationOptionsInternal());
+			if ($expanded === null) {
+				throw new InvalidArgumentException(sprintf('Invalid value "%s" for CSS property "%s".', $value, $name));
+			}
+			$this->commitExpandedResult($expanded, $priority, false, true, null);
+			return;
+		}
+
+		$oldEntry = $this->declarations[$name] ?? null;
+		$oldBytes = $this->computeRemovedEntryBytes($name);
+		$newBytes = strlen($name) + strlen($value);
+		$nextContentBytes = $this->contentBytes - $oldBytes + $newBytes;
+		if ($maxBytes !== null && ($newBytes > $maxBytes || $nextContentBytes > $maxBytes)) {
+			throw new CSSParserLimitException(sprintf('CSS property declaration exceeds maximum size of %d bytes.', $maxBytes));
+		}
+
 		$delta = $oldEntry !== null ? 0 : 1;
 		$this->assertSheetDeclarationGrowth($delta, null);
+		$this->clearPendingEntryInternal($name);
+		if ($oldEntry !== null && $this->shouldReappendSingleLonghand($name)) {
+			unset($this->declarations[$name]);
+		}
 		$this->declarations[$name] = ['value' => $value, 'priority' => $priority];
+		if (CSSShorthandRegistry::isShorthandLonghand($name)) {
+			$this->hasShorthandLonghand = true;
+		}
 		$this->contentBytes = $nextContentBytes;
 		$this->cachedKeys = null;
 		$this->notifySheetMutation($delta, $name === 'initial-value');
@@ -478,23 +624,30 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		if ($priority === 'important' && !static::allowsImportant()) {
 			throw new InvalidArgumentException(sprintf('!important is not allowed in %s.', static::class));
 		}
+		$expandShorthand = $this->shouldExpandShorthandsInternal() && CSSShorthandRegistry::isShorthand($normalizedName);
 		if ($trimmedValue === '' && !str_starts_with($normalizedName, '--')) {
-			$oldEntry = $this->declarations[$normalizedName] ?? null;
-			$delta = $oldEntry !== null ? -1 : 0;
-			if ($oldEntry !== null) {
-				$this->contentBytes -= strlen($normalizedName) + strlen($oldEntry['value']);
-				unset($this->declarations[$normalizedName]);
+			if ($expandShorthand) {
+				$this->removeShorthandLonghandsInternal($normalizedName);
+				return;
 			}
-			$this->cachedKeys = null;
-			$this->notifySheetMutation($delta, $normalizedName === 'initial-value');
+			$this->removeSingleLonghandInternal($normalizedName);
 			return;
 		}
+		if ($expandShorthand) {
+			$expanded = CSSShorthandExpander::expand($normalizedName, $trimmedValue, $this->resolveValidationOptionsInternal());
+			if ($expanded === null) {
+				throw new InvalidArgumentException(sprintf('Invalid value "%s" for CSS property "%s".', $trimmedValue, $normalizedName));
+			}
+			$this->commitExpandedResult($expanded, $priority, $respectExistingImportant, $enforceMaxBytes, null);
+			return;
+		}
+
 		$current = $this->declarations[$normalizedName] ?? null;
 		if ($respectExistingImportant && $current !== null && $current['priority'] === 'important' && $priority !== 'important') {
 			return;
 		}
 
-		$oldBytes = $current !== null ? strlen($normalizedName) + strlen($current['value']) : 0;
+		$oldBytes = $this->computeRemovedEntryBytes($normalizedName);
 		$newBytes = strlen($normalizedName) + strlen($trimmedValue);
 		$nextContentBytes = $this->contentBytes - $oldBytes + $newBytes;
 		if ($enforceMaxBytes) {
@@ -506,7 +659,14 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 
 		$delta = $current !== null ? 0 : 1;
 		$this->assertSheetDeclarationGrowth($delta, null);
+		$this->clearPendingEntryInternal($normalizedName);
+		if ($current !== null && $this->shouldReappendSingleLonghand($normalizedName)) {
+			unset($this->declarations[$normalizedName]);
+		}
 		$this->declarations[$normalizedName] = ['value' => $trimmedValue, 'priority' => $priority];
+		if (CSSShorthandRegistry::isShorthandLonghand($normalizedName)) {
+			$this->hasShorthandLonghand = true;
+		}
 		$this->contentBytes = $nextContentBytes;
 		$this->cachedKeys = null;
 		$this->notifySheetMutation($delta, $normalizedName === 'initial-value');
@@ -515,15 +675,14 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	public function removeProperty(string $property): string
 	{
 		$name = self::normalizePropertyName($property);
+		if ($this->shouldExpandShorthandsInternal() && CSSShorthandRegistry::isShorthand($name)) {
+			$old = $this->getPropertyValue($name);
+			$this->removeShorthandLonghandsInternal($name);
+			return $old;
+		}
 		$oldEntry = $this->declarations[$name] ?? null;
 		$value = $oldEntry['value'] ?? '';
-		$delta = $oldEntry !== null ? -1 : 0;
-		if ($oldEntry !== null) {
-			$this->contentBytes -= strlen($name) + strlen($oldEntry['value']);
-			unset($this->declarations[$name]);
-		}
-		$this->cachedKeys = null;
-		$this->notifySheetMutation($delta, $name === 'initial-value');
+		$this->removeSingleLonghandInternal($name);
 
 		return $value;
 	}
@@ -532,6 +691,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	{
 		$delta = -count($this->declarations);
 		$this->declarations = [];
+		$this->pendingShorthands = [];
+		$this->pendingPayloadAccounting = [];
+		$this->hasShorthandLonghand = false;
 		$this->contentBytes = 0;
 		$this->cachedKeys = null;
 		$this->notifySheetMutation($delta, true);
@@ -543,11 +705,16 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			return '';
 		}
 
+		$entries = $this->getSerializedDeclarationsInternal();
+		if ($entries === []) {
+			return '';
+		}
+
 		$serialized = [];
-		foreach ($this->declarations as $property => $declaration) {
-			$serialized[] = $declaration['priority'] === ''
-				? $property . ': ' . $declaration['value'] . ';'
-				: $property . ': ' . $declaration['value'] . ' !important;';
+		foreach ($entries as $entry) {
+			$serialized[] = $entry['priority'] === ''
+				? $entry['property'] . ': ' . $entry['value'] . ';'
+				: $entry['property'] . ': ' . $entry['value'] . ' !important;';
 		}
 
 		return implode(' ', $serialized);
@@ -602,6 +769,10 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		$delta = count($replacement->declarations) - count($this->declarations);
 		$this->assertSheetDeclarationGrowth($delta, $effectiveOptions);
 		$this->declarations = $replacement->declarations;
+		$this->pendingShorthands = $replacement->pendingShorthands;
+		$this->pendingPayloadAccounting = $replacement->pendingPayloadAccounting;
+		$this->hasShorthandLonghand = $replacement->hasShorthandLonghand;
+		$this->nextPendingId = $replacement->nextPendingId;
 		$this->contentBytes = $replacement->contentBytes;
 		$this->cachedKeys = null;
 		$this->notifySheetMutation($delta, true);
@@ -661,7 +832,15 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 
 	public function offsetExists(mixed $offset): bool
 	{
-		return is_string($offset) && isset($this->declarations[self::normalizePropertyName($offset)]);
+		if (!is_string($offset)) {
+			return false;
+		}
+		$name = self::normalizePropertyName($offset);
+		if ($this->shouldExpandShorthandsInternal() && CSSShorthandRegistry::isShorthand($name)) {
+			return $this->getPropertyValue($name) !== '';
+		}
+
+		return isset($this->declarations[$name]);
 	}
 
 	public function offsetGet(mixed $offset): string
@@ -702,11 +881,18 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 
 	public function __isset(string $name): bool
 	{
-		return match ($name) {
-			'cssText', 'length' => true,
-			'parentRule' => $this->ownerRule !== null,
-			default => isset($this->declarations[self::normalizePropertyName(self::propertyNameFromAccessor($name))]),
-		};
+		if ($name === 'cssText' || $name === 'length') {
+			return true;
+		}
+		if ($name === 'parentRule') {
+			return $this->ownerRule !== null;
+		}
+		$propName = self::normalizePropertyName(self::propertyNameFromAccessor($name));
+		if ($this->shouldExpandShorthandsInternal() && CSSShorthandRegistry::isShorthand($propName)) {
+			return $this->getPropertyValue($propName) !== '';
+		}
+
+		return isset($this->declarations[$propName]);
 	}
 
 	public function __set(string $name, mixed $value): void
@@ -1290,6 +1476,33 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			}
 		}
 
+		if ($validatePropertyGrammar && CSSShorthandRegistry::isShorthand($name)) {
+			$expanded = CSSShorthandExpander::expand($name, $value, $options);
+			if ($expanded === null) {
+				self::handleInvalidDeclaration(
+					sprintf('Invalid value "%s" for CSS property "%s".', $value, $name),
+					$segmentOffset,
+					$strict,
+					$diagnostics,
+					$options,
+					$allowSentinelSlot,
+				);
+				return true;
+			}
+
+			return $this->commitParsedExpandedDeclaration(
+				$expanded,
+				$priority,
+				$segmentOffset,
+				$strict,
+				$diagnostics,
+				$options,
+				$declarationCount,
+				$throwOnLimit,
+				$allowSentinelSlot,
+			);
+		}
+
 		if ($options !== null && $options->maxDeclarations !== null && $declarationCount >= $options->maxDeclarations) {
 			$message = sprintf('Maximum CSS declaration limit of %d exceeded.', $options->maxDeclarations);
 			if ($strict || $throwOnLimit) {
@@ -1311,12 +1524,360 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		if ($name === 'initial-value') {
 			$sawEmptyInitialValue = false;
 		}
-		$oldBytes = $current !== null ? strlen($name) + strlen($current['value']) : 0;
+		$oldBytes = $this->computeRemovedEntryBytes($name);
+		$this->clearPendingEntryInternal($name);
+		if ($current !== null) {
+			unset($this->declarations[$name]);
+		}
 		$this->contentBytes += strlen($name) + strlen($value) - $oldBytes;
 		$this->declarations[$name] = ['value' => $value, 'priority' => $priority];
+		if (CSSShorthandRegistry::isShorthandLonghand($name)) {
+			$this->hasShorthandLonghand = true;
+		}
 		$this->cachedKeys = null;
 
 		return true;
+	}
+
+	/**
+	 * @param array{kind: 'expanded', longhands: array<string, string>}|array{kind: 'pending', pendingKind: 'substitution'|'system-font', shorthand: string, value: string, longhands: list<string>} $expanded
+	 * @param list<array{message: string, offset: int}> $diagnostics
+	 */
+	private function commitParsedExpandedDeclaration(
+		array $expanded,
+		string $priority,
+		int $segmentOffset,
+		bool $strict,
+		array &$diagnostics,
+		?CSSParserOptions $options,
+		int &$declarationCount,
+		bool $throwOnLimit,
+		bool $allowSentinelSlot,
+	): bool {
+		$isPending = $expanded['kind'] === 'pending';
+		$longhandMap = $isPending
+			? array_fill_keys($expanded['longhands'], '')
+			: $expanded['longhands'];
+		$expandedCount = count($longhandMap);
+
+		if ($options !== null && $options->maxDeclarations !== null && ($declarationCount + $expandedCount) > $options->maxDeclarations) {
+			$message = sprintf('Maximum CSS declaration limit of %d exceeded.', $options->maxDeclarations);
+			if ($strict || $throwOnLimit) {
+				throw new CSSParserLimitException($message);
+			}
+			self::recordDiagnostic($message, $segmentOffset, $diagnostics, $options, $allowSentinelSlot);
+			return false;
+		}
+
+		foreach ($longhandMap as $lh => $_val) {
+			try {
+				static::assertAllowedDescriptor($lh);
+			} catch (InvalidArgumentException $exception) {
+				self::handleInvalidDeclaration($exception->getMessage(), $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
+				return true;
+			}
+		}
+
+		$planned = $this->planExpandedCommit($expanded, $longhandMap, $priority, true);
+		if ($options !== null && $options->maxBytes !== null && $planned['nextContentBytes'] > $options->maxBytes) {
+			$message = sprintf('CSS declaration block exceeds maximum size of %d bytes.', $options->maxBytes);
+			if ($strict || $throwOnLimit) {
+				throw new CSSParserLimitException($message);
+			}
+			self::recordDiagnostic($message, $segmentOffset, $diagnostics, $options, $allowSentinelSlot);
+			return false;
+		}
+
+		if ($declarationCount > PHP_INT_MAX - $expandedCount) {
+			throw new InvalidArgumentException('CSS declaration count overflows integer bounds.');
+		}
+		$declarationCount += $expandedCount;
+
+		if ($planned['toCommit'] === []) {
+			return true;
+		}
+
+		$this->applyPlannedCommit($expanded, $planned['toCommit'], $priority, $planned['nextContentBytes'], true);
+
+		return true;
+	}
+
+	/**
+	 * @param array{kind: 'expanded', longhands: array<string, string>}|array{kind: 'pending', pendingKind: 'substitution'|'system-font', shorthand: string, value: string, longhands: list<string>} $expanded
+	 */
+	private function commitExpandedResult(
+		array $expanded,
+		string $priority,
+		bool $respectExistingImportant,
+		bool $enforceMaxBytes,
+		?CSSParserOptions $overrideOptions,
+	): void {
+		$isPending = $expanded['kind'] === 'pending';
+		$longhandMap = $isPending
+			? array_fill_keys($expanded['longhands'], '')
+			: $expanded['longhands'];
+
+		foreach ($longhandMap as $lh => $_val) {
+			static::assertAllowedDescriptor($lh);
+		}
+
+		$planned = $this->planExpandedCommit($expanded, $longhandMap, $priority, $respectExistingImportant);
+		if ($enforceMaxBytes) {
+			$maxBytes = $overrideOptions !== null ? $overrideOptions->maxBytes : $this->resolveMaxBytesInternal();
+			if ($maxBytes !== null && $planned['nextContentBytes'] > $maxBytes) {
+				throw new CSSParserLimitException(sprintf('CSS declaration block exceeds maximum size of %d bytes.', $maxBytes));
+			}
+		}
+
+		$delta = $planned['newKeysCount'];
+		$this->assertSheetDeclarationGrowth($delta, $overrideOptions);
+		if ($planned['toCommit'] === []) {
+			return;
+		}
+
+		$reappendAll = $delta > 0 || $this->shouldReappendTargetLonghands($planned['toCommit']);
+		$this->applyPlannedCommit($expanded, $planned['toCommit'], $priority, $planned['nextContentBytes'], $reappendAll);
+		$this->notifySheetMutation($delta, false);
+	}
+
+	/**
+	 * @param array{kind: 'expanded', longhands: array<string, string>}|array{kind: 'pending', pendingKind: 'substitution'|'system-font', shorthand: string, value: string, longhands: list<string>} $expanded
+	 * @param array<string, string> $longhandMap
+	 * @return array{toCommit: array<string, string>, newKeysCount: int, nextContentBytes: int}
+	 */
+	private function planExpandedCommit(
+		array $expanded,
+		array $longhandMap,
+		string $priority,
+		bool $respectExistingImportant,
+	): array {
+		$isPending = $expanded['kind'] === 'pending';
+		$nextContentBytes = $this->contentBytes;
+		$tempRefDecrements = [];
+		$toCommit = [];
+		$newKeysCount = 0;
+
+		foreach ($longhandMap as $lh => $val) {
+			$current = $this->declarations[$lh] ?? null;
+			if ($respectExistingImportant && $current !== null && $current['priority'] === 'important' && $priority !== 'important') {
+				continue;
+			}
+			$toCommit[$lh] = $val;
+			if ($current === null) {
+				$newKeysCount++;
+			} else {
+				$oldPending = $this->pendingShorthands[$lh] ?? null;
+				if ($oldPending !== null) {
+					$nextContentBytes -= strlen($lh);
+					$oldId = $oldPending['id'];
+					$tempRefDecrements[$oldId] = ($tempRefDecrements[$oldId] ?? 0) + 1;
+					if ($tempRefDecrements[$oldId] === $this->pendingPayloadAccounting[$oldId]['refs']) {
+						$nextContentBytes -= $this->pendingPayloadAccounting[$oldId]['bytes'];
+					}
+				} else {
+					$nextContentBytes -= strlen($lh) + strlen($current['value']);
+				}
+			}
+			$nextContentBytes += $isPending ? strlen($lh) : (strlen($lh) + strlen($val));
+		}
+
+		if ($isPending && $toCommit !== []) {
+			$nextContentBytes += strlen($expanded['shorthand']) + strlen($expanded['value']);
+		}
+
+		return [
+			'toCommit' => $toCommit,
+			'newKeysCount' => $newKeysCount,
+			'nextContentBytes' => $nextContentBytes,
+		];
+	}
+
+	/**
+	 * @param array{kind: 'expanded', longhands: array<string, string>}|array{kind: 'pending', pendingKind: 'substitution'|'system-font', shorthand: string, value: string, longhands: list<string>} $expanded
+	 * @param array<string, string> $toCommit
+	 */
+	private function applyPlannedCommit(
+		array $expanded,
+		array $toCommit,
+		string $priority,
+		int $nextContentBytes,
+		bool $reappendAll,
+	): void {
+		$isPending = $expanded['kind'] === 'pending';
+		$newPendingId = null;
+		if ($isPending) {
+			$newPendingId = $this->nextPendingId++;
+			$this->pendingPayloadAccounting[$newPendingId] = [
+				'bytes' => strlen($expanded['shorthand']) + strlen($expanded['value']),
+				'refs' => count($toCommit),
+			];
+		}
+
+		if ($reappendAll) {
+			foreach ($toCommit as $lh => $_val) {
+				$this->clearPendingEntryInternal($lh);
+				unset($this->declarations[$lh]);
+			}
+		}
+
+		foreach ($toCommit as $lh => $val) {
+			if (!$reappendAll) {
+				$this->clearPendingEntryInternal($lh);
+			}
+			$this->declarations[$lh] = ['value' => $val, 'priority' => $priority];
+			if ($isPending && $newPendingId !== null) {
+				$this->pendingShorthands[$lh] = [
+					'shorthand' => $expanded['shorthand'],
+					'value' => $expanded['value'],
+					'id' => $newPendingId,
+					'kind' => $expanded['pendingKind'],
+				];
+			}
+			if (CSSShorthandRegistry::isShorthandLonghand($lh)) {
+				$this->hasShorthandLonghand = true;
+			}
+		}
+
+		$this->contentBytes = $nextContentBytes;
+		$this->cachedKeys = null;
+	}
+
+	private function removeSingleLonghandInternal(string $name): void
+	{
+		$oldEntry = $this->declarations[$name] ?? null;
+		$delta = $oldEntry !== null ? -1 : 0;
+		if ($oldEntry !== null) {
+			$this->contentBytes -= $this->computeRemovedEntryBytes($name);
+			$this->clearPendingEntryInternal($name);
+			unset($this->declarations[$name]);
+		}
+		$this->cachedKeys = null;
+		$this->notifySheetMutation($delta, $name === 'initial-value');
+	}
+
+	private function removeShorthandLonghandsInternal(string $shorthand): void
+	{
+		$longhands = CSSShorthandRegistry::getLonghands($shorthand);
+		if ($longhands === null || $longhands === []) {
+			return;
+		}
+
+		$delta = 0;
+		foreach ($longhands as $lh) {
+			if (!isset($this->declarations[$lh])) {
+				continue;
+			}
+			$delta--;
+			$this->contentBytes -= $this->computeRemovedEntryBytes($lh);
+			$this->clearPendingEntryInternal($lh);
+			unset($this->declarations[$lh]);
+		}
+		if ($delta === 0) {
+			return;
+		}
+		$this->cachedKeys = null;
+		$this->notifySheetMutation($delta, false);
+	}
+
+	private function computeRemovedEntryBytes(string $name): int
+	{
+		$current = $this->declarations[$name] ?? null;
+		if ($current === null) {
+			return 0;
+		}
+		$oldPending = $this->pendingShorthands[$name] ?? null;
+		if ($oldPending === null) {
+			return strlen($name) + strlen($current['value']);
+		}
+
+		$bytes = strlen($name);
+		$id = $oldPending['id'];
+		if (($this->pendingPayloadAccounting[$id]['refs'] ?? 0) === 1) {
+			$bytes += $this->pendingPayloadAccounting[$id]['bytes'];
+		}
+
+		return $bytes;
+	}
+
+	private function clearPendingEntryInternal(string $name): void
+	{
+		$oldPending = $this->pendingShorthands[$name] ?? null;
+		if ($oldPending === null) {
+			return;
+		}
+		$id = $oldPending['id'];
+		unset($this->pendingShorthands[$name]);
+		if (isset($this->pendingPayloadAccounting[$id])) {
+			$this->pendingPayloadAccounting[$id]['refs']--;
+			if ($this->pendingPayloadAccounting[$id]['refs'] <= 0) {
+				unset($this->pendingPayloadAccounting[$id]);
+			}
+		}
+	}
+
+	private function shouldReappendSingleLonghand(string $name): bool
+	{
+		$groupInfo = CSSShorthandRegistry::getLogicalGroup($name);
+		if ($groupInfo === null) {
+			return false;
+		}
+
+		$seenSelf = false;
+		foreach ($this->declarations as $prop => $_entry) {
+			if ($prop === $name) {
+				$seenSelf = true;
+				continue;
+			}
+			if (!$seenSelf) {
+				continue;
+			}
+			$otherGroup = CSSShorthandRegistry::getLogicalGroup($prop);
+			if ($otherGroup !== null
+				&& $otherGroup['group'] === $groupInfo['group']
+				&& $otherGroup['logical'] !== $groupInfo['logical']
+			) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * @param array<string, string> $targetLonghands
+	 */
+	private function shouldReappendTargetLonghands(array $targetLonghands): bool
+	{
+		$targetGroups = [];
+		foreach ($targetLonghands as $lh => $_val) {
+			$info = CSSShorthandRegistry::getLogicalGroup($lh);
+			if ($info !== null) {
+				$targetGroups[$info['group']] = $info['logical'];
+			}
+		}
+		if ($targetGroups === []) {
+			return false;
+		}
+
+		$seenFirstTarget = false;
+		foreach ($this->declarations as $prop => $_entry) {
+			if (isset($targetLonghands[$prop])) {
+				$seenFirstTarget = true;
+				continue;
+			}
+			if (!$seenFirstTarget) {
+				continue;
+			}
+			$otherGroup = CSSShorthandRegistry::getLogicalGroup($prop);
+			if ($otherGroup !== null
+				&& isset($targetGroups[$otherGroup['group']])
+				&& $targetGroups[$otherGroup['group']] !== $otherGroup['logical']
+			) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	private static function propertyNameFromAccessor(string $name): string
@@ -1373,6 +1934,10 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		}
 
 		$this->declarations = [];
+		$this->pendingShorthands = [];
+		$this->pendingPayloadAccounting = [];
+		$this->hasShorthandLonghand = false;
+		$this->nextPendingId = 1;
 		$this->contentBytes = 0;
 		$this->cachedKeys = null;
 		$length = strlen($source);

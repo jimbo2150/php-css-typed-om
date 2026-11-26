@@ -351,7 +351,7 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		self::assertCount(4, $errSheet->getParseErrors());
 
 		// maxDeclarations limit
-		$declsSheet = CSSStyleSheet::parse('a { color: red; background: blue; margin: 0; }', new CSSParserOptions(maxDeclarations: 2));
+		$declsSheet = CSSStyleSheet::parse('a { color: red; background-color: blue; width: 10px; }', new CSSParserOptions(maxDeclarations: 2));
 		self::assertInstanceOf(CSSStyleRule::class, $declsSheet->cssRules[0]);
 		self::assertCount(2, $declsSheet->cssRules[0]->style);
 		self::assertNotEmpty($declsSheet->getParseErrors());
@@ -2288,7 +2288,7 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		// 2. WS2: Policy B3 detached/cloned/GC $maxBytes completeness
 		$detachedStyleRule = new CSSStyleRule('a', null, 32);
 		$detachedStyleRule->style->setProperty('color', 'red');
-		$detachedStyleRule->styleMap->set('margin', '10px');
+		$detachedStyleRule->styleMap->set('width', '10px');
 		foreach ([
 			static fn () => $detachedStyleRule->style->setProperty('color', str_repeat('a', 40)),
 			static fn () => $detachedStyleRule->style->setCssText('color: ' . str_repeat('b', 40) . ';'),
@@ -3961,5 +3961,57 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		$tDup = hrtime(true);
 		self::assertFalse(\Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator::validateRegisteredCustomProperty($dupSyntax, 'red', false));
 		self::assertLessThan(50.0, (hrtime(true) - $tDup) / 1_000_000);
+	}
+
+	public function testShorthandExpansionEnforcesAtomicMaxDeclarationsAndMaxBytes(): void
+	{
+		// Atomic maxDeclarations rejection on margin (4), border (17), and all (~393)
+		$decl = new CSSStyleDeclaration('color: red;', new CSSParserOptions(maxDeclarations: 4));
+		try {
+			$decl->setProperty('margin', '10px');
+			self::fail('Expected maxDeclarations=4 to reject expanding margin when color already exists.');
+		} catch (CSSParserLimitException) {
+			self::assertSame(1, $decl->getLength());
+			self::assertSame('color: red;', $decl->getCssText());
+		}
+
+		$borderDecl = new CSSStyleDeclaration('color: red;', new CSSParserOptions(maxDeclarations: 17));
+		try {
+			$borderDecl->setProperty('border', '1px solid red');
+			self::fail('Expected maxDeclarations=17 to reject expanding 17-longhand border atomically.');
+		} catch (CSSParserLimitException) {
+			self::assertSame(1, $borderDecl->getLength());
+			self::assertSame('', $borderDecl->getPropertyValue('border-top-width'));
+		}
+
+		$allDecl = new CSSStyleDeclaration('color: red;', new CSSParserOptions(maxDeclarations: 50));
+		try {
+			$allDecl->setProperty('all', 'inherit');
+			self::fail('Expected maxDeclarations=50 to reject expanding all.');
+		} catch (CSSParserLimitException) {
+			self::assertSame(1, $allDecl->getLength());
+			self::assertSame('red', $allDecl->getPropertyValue('color'));
+		}
+
+		// Non-strict maxBytes breach during `all: initial` records diagnostic without throwing
+		$nonStrictAll = CSSStyleSheet::parse('a { color: red; all: initial; }', new CSSParserOptions(maxBytes: 256));
+		self::assertNotEmpty($nonStrictAll->getParseErrors());
+		self::assertInstanceOf(CSSStyleRule::class, $nonStrictAll->cssRules[0]);
+		self::assertSame('red', $nonStrictAll->cssRules[0]->style->getPropertyValue('color'));
+
+		// Pending-substitution deduplicated byte accounting allows `all: var(--payload)` without 393x multiplication
+		$payload = 'var(--' . str_repeat('a', 512) . ')';
+		$dedupDecl = new CSSStyleDeclaration('', new CSSParserOptions(maxBytes: 16_384));
+		$dedupDecl->setProperty('all', $payload);
+		self::assertSame($payload, $dedupDecl->getPropertyValue('all'));
+
+		// Exceeding maxBytes even with deduplication rejects atomically
+		$tightDecl = new CSSStyleDeclaration('', new CSSParserOptions(maxBytes: 512));
+		try {
+			$tightDecl->setProperty('all', 'var(--x)');
+			self::fail('Expected maxBytes=512 to reject all: var(--x) longhand keys.');
+		} catch (CSSParserLimitException) {
+			self::assertSame(0, $tightDecl->getLength());
+		}
 	}
 }

@@ -31,9 +31,7 @@ final class CSSFontFaceRule extends CSSAtRule
 					$style->resolveMaxMathDepthInternal(),
 					true,
 				);
-				foreach ($style->getDeclarationsRaw() as $property => $declaration) {
-					$descriptors->setValidatedProperty($property, $declaration['value'], $declaration['priority']);
-				}
+				$descriptors->copyDeclarationsFromInternal($style);
 			}
 		}
 		parent::__construct('font-face', '', $descriptors, true, $maxBytes);

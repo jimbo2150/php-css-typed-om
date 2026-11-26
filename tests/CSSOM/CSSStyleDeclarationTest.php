@@ -14,7 +14,7 @@ final class CSSStyleDeclarationTest extends TestCase
 	{
 		$style = CSSStyleDeclaration::parse('color: red; margin: 0 !important; --x: fn(a;b);');
 
-		self::assertSame(3, $style->getLength());
+		self::assertSame(6, $style->getLength());
 		self::assertSame('red', $style->getPropertyValue('COLOR'));
 		self::assertSame('important', $style->getPropertyPriority('margin'));
 		self::assertSame('fn(a;b)', $style->getPropertyValue('--x'));

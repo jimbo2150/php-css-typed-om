@@ -71,9 +71,7 @@ final class CSSPageRule extends CSSGroupingRule
 					$style->resolveMaxMathDepthInternal(),
 					true,
 				);
-				foreach ($style->getDeclarationsRaw() as $property => $declaration) {
-					$descriptors->setValidatedProperty($property, $declaration['value'], $declaration['priority']);
-				}
+				$descriptors->copyDeclarationsFromInternal($style);
 			}
 		}
 		$descriptors->clampLimitsInternal($maxBytes, null, null, null, false);

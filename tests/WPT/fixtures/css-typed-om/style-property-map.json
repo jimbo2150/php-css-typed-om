@@ -24,7 +24,7 @@
         ]
       },
       "expected": {
-        "size": 1,
+        "size": 4,
         "declCssText": "margin: 10px 20px;",
         "has": { "margin": true, "padding": false },
         "get": { "margin": "10px 20px", "padding": null }

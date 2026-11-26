@@ -28,9 +28,7 @@ final class CSSStyleProperties extends CSSStyleDeclaration
 				$style->resolveMaxMathDepthInternal(),
 				true,
 			);
-			foreach ($style->getDeclarationsRaw() as $property => $declaration) {
-				$properties->setValidatedProperty($property, $declaration['value'], $declaration['priority']);
-			}
+			$properties->copyDeclarationsFromInternal($style);
 		}
 
 		return $properties;

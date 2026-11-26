@@ -160,15 +160,21 @@ final class TypedOMAdvancedTest extends TestCase
 		$map->append('background-image', 'url("a.png")', 'url("b.png")');
 
 		self::assertSame('10px 20px', $map->getStyleDeclaration()->getPropertyValue('margin'));
-		self::assertSame(['margin', 'background-image'], $map->keys());
-		self::assertCount(2, $map->entries());
-		self::assertCount(2, $map->values());
+		self::assertSame(['margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'background-image'], $map->keys());
+		self::assertCount(5, $map->entries());
+		self::assertCount(5, $map->values());
 
 		$visited = [];
 		$map->forEach(static function (array $values, string $property) use (&$visited): void {
 			$visited[$property] = count($values);
 		});
-		self::assertSame(['margin' => 1, 'background-image' => 2], $visited);
+		self::assertSame([
+			'margin-top' => 1,
+			'margin-right' => 1,
+			'margin-bottom' => 1,
+			'margin-left' => 1,
+			'background-image' => 2,
+		], $visited);
 
 		$unparsed = CSSUnparsedValue::fromCssText('myvar(--x) + var(--y, 1px)');
 		self::assertCount(2, $unparsed);

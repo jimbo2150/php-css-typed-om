@@ -44,9 +44,7 @@ final class CSSPositionTryRule extends CSSAtRule
 					$style->resolveMaxMathDepthInternal(),
 					true,
 				);
-				foreach ($style->getDeclarationsRaw() as $property => $declaration) {
-					$descriptors->setValidatedProperty($property, $declaration['value'], $declaration['priority']);
-				}
+				$descriptors->copyDeclarationsFromInternal($style);
 			}
 		}
 		parent::__construct('position-try', $normalized, $descriptors, true, $maxBytes);

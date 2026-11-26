@@ -17,7 +17,7 @@
       "category": "serialization",
       "operation": "cssom.declaration.cssText",
       "input": { "cssText": "color: red; margin: 10px" },
-      "expected": { "cssText": "color: red; margin: 10px;", "length": 2 },
+      "expected": { "cssText": "color: red; margin: 10px;", "length": 5 },
       "status": "pass"
     },
     {
@@ -26,7 +26,7 @@
       "category": "serialization",
       "operation": "cssom.declaration.cssText",
       "input": { "cssText": "color: green !IMPORTANT; padding: 4px" },
-      "expected": { "cssText": "color: green !important; padding: 4px;", "length": 2 },
+      "expected": { "cssText": "color: green !important; padding: 4px;", "length": 5 },
       "status": "pass"
     },
     {
@@ -71,7 +71,7 @@
       "category": "canonicalization",
       "operation": "cssom.declaration.setProperty",
       "input": { "initialCss": "color: red; margin: 5px;", "property": "color", "value": "" },
-      "expected": { "cssText": "margin: 5px;", "propertyValue": "", "length": 1 },
+      "expected": { "cssText": "margin: 5px;", "propertyValue": "", "length": 4 },
       "status": "pass"
     },
     {
@@ -126,6 +126,41 @@
       "operation": "cssom.declaration.cssText",
       "input": { "cssText": "content: \"a; b\"; color: purple;" },
       "expected": { "cssText": "content: \"a; b\"; color: purple;", "length": 2, "parentRuleFromSheet": true },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/decl/shorthand-margin-expand-and-collapse",
+      "upstream": "css/cssom/cssom-cssText-serialize.html",
+      "category": "serialization",
+      "operation": "cssom.declaration.cssText",
+      "input": { "cssText": "margin: 10px 20px 10px 20px;" },
+      "expected": {
+        "cssText": "margin: 10px 20px;",
+        "length": 4,
+        "properties": { "margin": "10px 20px", "margin-top": "10px", "margin-right": "20px", "margin-bottom": "10px", "margin-left": "20px" }
+      },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/decl/shorthand-priority-conflict-returns-empty",
+      "upstream": "css/cssom/cssstyledeclaration-csstext-important.html",
+      "category": "serialization",
+      "operation": "cssom.declaration.cssText",
+      "input": { "cssText": "margin-top: 10px !important; margin-right: 10px; margin-bottom: 10px; margin-left: 10px;" },
+      "expected": {
+        "cssText": "margin-top: 10px !important; margin-right: 10px; margin-bottom: 10px; margin-left: 10px;",
+        "length": 4,
+        "properties": { "margin": "" }
+      },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/decl/shorthand-pending-substitution-var",
+      "upstream": "css/cssom/cssstyledeclaration-custom-properties.html",
+      "category": "canonicalization",
+      "operation": "cssom.declaration.setProperty",
+      "input": { "initialCss": "", "property": "margin", "value": "var(--space)", "lookup": "margin" },
+      "expected": { "cssText": "margin: var(--space);", "propertyValue": "var(--space)", "length": 4 },
       "status": "pass"
     }
   ]

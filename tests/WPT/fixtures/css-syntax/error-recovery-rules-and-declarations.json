@@ -35,7 +35,7 @@
       "category": "error-recovery",
       "operation": "syntax.declaration.recover",
       "input": { "css": "broken-decl; color: green; invalid-name!: 1; margin: 4px;", "strict": false },
-      "expected": { "cssText": "color: green; margin: 4px;", "length": 2, "hasDiagnostics": true },
+      "expected": { "cssText": "color: green; margin: 4px;", "length": 5, "hasDiagnostics": true },
       "status": "pass"
     },
     {
