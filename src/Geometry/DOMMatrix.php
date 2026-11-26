@@ -321,9 +321,8 @@ class DOMMatrix extends DOMMatrixReadOnly
 	}
 
 	/**
-	 * Atomically inverts this matrix in place.
-	 *
-	 * @throws InvalidArgumentException When the matrix is singular (non-invertible)
+	 * Inverts this matrix in place per W3C Geometry Interfaces Level 1.
+	 * Singular or non-invertible matrices become all-`NaN` with `is2D = false`.
 	 */
 	public function invertSelf(): self
 	{
@@ -337,17 +336,29 @@ class DOMMatrix extends DOMMatrixReadOnly
 
 			$det = $a * $d - $b * $c;
 			if (!is_finite($det) || $det === 0.0) {
-				throw new InvalidArgumentException('Matrix is singular and cannot be inverted.');
+				$this->elements = array_fill(0, 16, NAN);
+				$this->is2D = false;
+				return $this;
 			}
 
 			$invDet = 1.0 / $det;
 			$next = self::identityElements();
-			$next[0] = self::assertFinite($d * $invDet, 'inverse.a');
-			$next[1] = self::assertFinite(-$b * $invDet, 'inverse.b');
-			$next[4] = self::assertFinite(-$c * $invDet, 'inverse.c');
-			$next[5] = self::assertFinite($a * $invDet, 'inverse.d');
-			$next[12] = self::assertFinite(($c * $f - $d * $e) * $invDet, 'inverse.e');
-			$next[13] = self::assertFinite(($b * $e - $a * $f) * $invDet, 'inverse.f');
+			$candidates = [
+				0 => $d * $invDet,
+				1 => -$b * $invDet,
+				4 => -$c * $invDet,
+				5 => $a * $invDet,
+				12 => ($c * $f - $d * $e) * $invDet,
+				13 => ($b * $e - $a * $f) * $invDet,
+			];
+			foreach ($candidates as $idx => $val) {
+				if (!is_finite($val)) {
+					$this->elements = array_fill(0, 16, NAN);
+					$this->is2D = false;
+					return $this;
+				}
+				$next[$idx] = $val === 0.0 ? 0.0 : $val;
+			}
 
 			$this->elements = $next;
 			return $this;
@@ -394,13 +405,21 @@ class DOMMatrix extends DOMMatrixReadOnly
 
 		$det = $m[0] * $inv[0] + $m[1] * $inv[4] + $m[2] * $inv[8] + $m[3] * $inv[12];
 		if (!is_finite($det) || $det === 0.0) {
-			throw new InvalidArgumentException('Matrix is singular and cannot be inverted.');
+			$this->elements = array_fill(0, 16, NAN);
+			$this->is2D = false;
+			return $this;
 		}
 
 		$invDet = 1.0 / $det;
 		$next = [];
 		for ($i = 0; $i < 16; $i++) {
-			$next[] = self::assertFinite($inv[$i] * $invDet, 'inverse[' . $i . ']');
+			$val = $inv[$i] * $invDet;
+			if (!is_finite($val)) {
+				$this->elements = array_fill(0, 16, NAN);
+				$this->is2D = false;
+				return $this;
+			}
+			$next[] = $val === 0.0 ? 0.0 : $val;
 		}
 
 		$this->elements = $next;

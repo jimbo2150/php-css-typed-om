@@ -112,14 +112,19 @@ final class DOMMatrixTest extends TestCase
 		self::assertEqualsWithDelta(0.0, $prod->m43, 1e-9);
 		self::assertStringStartsWith('matrix3d(', (string) $m3d);
 
-		// Singular matrix invertSelf is atomic
+		// Singular matrix invertSelf sets all 16 elements to NaN, clears is2D, and blocks serialization
 		$singular = new DOMMatrix([0, 0, 0, 0, 5, 6]);
+		$invertedSingular = $singular->invertSelf();
+		self::assertSame($singular, $invertedSingular);
+		self::assertFalse($singular->is2D);
+		self::assertFalse($singular->isIdentity);
+		foreach ($singular->toFloat64Array() as $entry) {
+			self::assertNan($entry);
+		}
 		try {
-			$singular->invertSelf();
-			self::fail('Expected singular matrix inversion to throw.');
+			(string) $singular;
+			self::fail('Expected serializing NaN DOMMatrix to throw InvalidArgumentException.');
 		} catch (InvalidArgumentException) {
-			self::assertSame(5.0, $singular->e);
-			self::assertSame(6.0, $singular->f);
 		}
 	}
 

@@ -106,6 +106,7 @@ final class CSSParser
 			false,
 			null,
 			$declLimitRecorded,
+			true,
 		);
 
 		return $sheet;
@@ -379,6 +380,7 @@ final class CSSParser
 		bool $stopOnClosingBrace = false,
 		?int $openBraceOffset = null,
 		bool &$declLimitRecorded = false,
+		bool $allowEofClose = false,
 	): bool {
 		if ($options->maxDepth !== null && $depth > $options->maxDepth) {
 			$message = sprintf('Maximum CSS nesting depth of %d exceeded.', $options->maxDepth);
@@ -403,7 +405,7 @@ final class CSSParser
 				if ($stopOnClosingBrace) {
 					$sheet->recordParseError('Unclosed CSS rule block.', $openBraceOffset ?? $offset);
 					$offset = $end;
-					return false;
+					return $allowEofClose;
 				}
 				$sheet->recordParseError('Unterminated CSS rule.', $offset);
 				$offset = $end;
@@ -438,7 +440,7 @@ final class CSSParser
 					if ($stopOnClosingBrace) {
 						$sheet->recordParseError('Unclosed CSS rule block.', $openBraceOffset ?? $delimOffset);
 						$offset = $end;
-						return false;
+						return $allowEofClose;
 					}
 					$offset = $end;
 					return true;
@@ -502,7 +504,7 @@ final class CSSParser
 				if ($close === null || $close >= $end) {
 					$sheet->recordParseError('Unclosed CSS rule block.', $delimOffset);
 					$offset = $end;
-					return !$stopOnClosingBrace;
+					return $stopOnClosingBrace ? $allowEofClose : true;
 				}
 				$offset = $close + 1;
 				continue;
@@ -514,7 +516,7 @@ final class CSSParser
 				if ($close === null || $close >= $end) {
 					$sheet->recordParseError('Unclosed CSS rule block.', $delimOffset);
 					$offset = $end;
-					return !$stopOnClosingBrace;
+					return $stopOnClosingBrace ? $allowEofClose : true;
 				}
 				$offset = $close + 1;
 				continue;
@@ -537,6 +539,8 @@ final class CSSParser
 					$declarationCount,
 					$throwOnLimit,
 					$declLimitRecorded,
+					false,
+					$allowEofClose,
 				);
 				if ($prepared !== null) {
 					$mode = $prepared['mode'];
@@ -564,6 +568,7 @@ final class CSSParser
 							$prepared['functionMode'] ?? false,
 							$delimOffset,
 							$declLimitRecorded,
+							allowEofClose: $allowEofClose,
 						);
 					} elseif ($mode === 'ffv') {
 						/** @var CSSFontFeatureValuesRule $rule */
@@ -580,6 +585,7 @@ final class CSSParser
 							$throwOnLimit,
 							$delimOffset,
 							$declLimitRecorded,
+							$allowEofClose,
 						);
 					} else {
 						/** @var CSSGroupingRule $rule */
@@ -598,6 +604,7 @@ final class CSSParser
 							true,
 							$delimOffset,
 							$declLimitRecorded,
+							$allowEofClose,
 						);
 					}
 					if ($closed) {
@@ -617,7 +624,7 @@ final class CSSParser
 				$close = CSSSyntaxScanner::findMatchingBlockEnd($source, $delimOffset, $end);
 				if ($close === null || $close >= $end) {
 					$offset = $end;
-					return !$stopOnClosingBrace;
+					return $stopOnClosingBrace ? $allowEofClose : true;
 				}
 				$offset = $close + 1;
 				continue;
@@ -641,7 +648,7 @@ final class CSSParser
 				if ($close === null || $close >= $end) {
 					$sheet->recordParseError('Unclosed CSS rule block.', $delimOffset);
 					$offset = $end;
-					return !$stopOnClosingBrace;
+					return $stopOnClosingBrace ? $allowEofClose : true;
 				}
 				$offset = $close + 1;
 				continue;
@@ -667,6 +674,7 @@ final class CSSParser
 				false,
 				$delimOffset,
 				$declLimitRecorded,
+				allowEofClose: $allowEofClose,
 			);
 			if ($closed) {
 				$stopOnClosingBrace ? $rules->appendDetached($rule) : $rules->appendParsedInternal($rule);
@@ -675,7 +683,7 @@ final class CSSParser
 
 		if ($stopOnClosingBrace) {
 			$sheet->recordParseError('Unclosed CSS rule block.', $openBraceOffset ?? $offset);
-			return false;
+			return $allowEofClose;
 		}
 
 		return true;
@@ -715,6 +723,7 @@ final class CSSParser
 		bool $throwOnLimit,
 		bool &$declLimitRecorded = false,
 		bool $functionMode = false,
+		bool $allowEofClose = false,
 	): ?array {
 		try {
 			[$name, $condition] = self::splitAtRulePrelude($prelude);
@@ -879,6 +888,7 @@ final class CSSParser
 			$declLimitRecorded,
 			$name === 'property',
 			$sawEmptyInitialValue,
+			allowEofClose: $allowEofClose,
 		);
 		if (!$closed) {
 			return null;
@@ -1017,6 +1027,7 @@ final class CSSParser
 		bool &$declLimitRecorded = false,
 		bool $allowEmptyInitialValue = false,
 		bool &$sawEmptyInitialValue = false,
+		bool $allowEofClose = false,
 	): bool {
 		if ($options->maxDepth !== null && $depth > $options->maxDepth) {
 			$message = sprintf('Maximum CSS nesting depth of %d exceeded.', $options->maxDepth);
@@ -1057,9 +1068,24 @@ final class CSSParser
 					);
 				}
 				self::flushDiagnostics($sheet, $diagnostics);
+				if ($allowEofClose) {
+					self::flushTrailingNestedDeclarations(
+						$currentStyle,
+						$ownerRule,
+						$sheet,
+						$options,
+						$ruleCount,
+						$throwOnLimit,
+						$pageMode,
+						$functionMode,
+						$hasNestedRule,
+						$isGroupingWithDecls,
+						$end,
+					);
+				}
 				$sheet->recordParseError('Unclosed CSS rule block.', $openBraceOffset);
 				$offset = $end;
-				return false;
+				return $allowEofClose;
 			}
 
 			$delimChar = $delimiter['delimiter'];
@@ -1102,22 +1128,19 @@ final class CSSParser
 					);
 				}
 				self::flushDiagnostics($sheet, $diagnostics);
-				if ($ownerRule !== null && !$pageMode && ($hasNestedRule || $isGroupingWithDecls) && count($currentStyle) > 0) {
-					if (self::canRecordRule($options, $ruleCount, $sheet, $delimOffset, $throwOnLimit)) {
-						try {
-							$declarations = $functionMode && $currentStyle instanceof CSSFunctionDescriptors
-								? new CSSFunctionDeclarations($currentStyle, $options->maxBytes)
-								: new CSSNestedDeclarations($currentStyle, $options->maxBytes);
-							$ownerRule->getCssRules()->appendDetached($declarations);
-							self::incrementCounter($ruleCount, 'CSS rule count');
-						} catch (InvalidArgumentException $exception) {
-							if ($throwOnLimit && $exception instanceof CSSParserLimitException) {
-								throw $exception;
-							}
-							$sheet->recordParseError($exception->getMessage(), $delimOffset);
-						}
-					}
-				}
+				self::flushTrailingNestedDeclarations(
+					$currentStyle,
+					$ownerRule,
+					$sheet,
+					$options,
+					$ruleCount,
+					$throwOnLimit,
+					$pageMode,
+					$functionMode,
+					$hasNestedRule,
+					$isGroupingWithDecls,
+					$delimOffset,
+				);
 				$offset = $delimOffset + 1;
 				return true;
 			}
@@ -1135,7 +1158,7 @@ final class CSSParser
 					$sheet->recordParseError('Unclosed CSS rule block.', $delimOffset);
 					self::flushDiagnostics($sheet, $diagnostics);
 					$offset = $end;
-					return false;
+					return $allowEofClose;
 				}
 				$offset = $close + 1;
 				continue;
@@ -1170,6 +1193,7 @@ final class CSSParser
 					false,
 					$delimOffset,
 					$declLimitRecorded,
+					allowEofClose: $allowEofClose,
 				);
 				if ($closed) {
 					try {
@@ -1190,22 +1214,19 @@ final class CSSParser
 			}
 
 			// Style rule / grouping rule / @function nested rule
-			if ($ownerRule !== null && ($hasNestedRule || $isGroupingWithDecls) && count($currentStyle) > 0) {
-				if (self::canRecordRule($options, $ruleCount, $sheet, $offset, $throwOnLimit)) {
-					try {
-						$declarations = $functionMode && $currentStyle instanceof CSSFunctionDescriptors
-							? new CSSFunctionDeclarations($currentStyle, $options->maxBytes)
-							: new CSSNestedDeclarations($currentStyle, $options->maxBytes);
-						$ownerRule->getCssRules()->appendDetached($declarations);
-						self::incrementCounter($ruleCount, 'CSS rule count');
-					} catch (InvalidArgumentException $exception) {
-						if ($throwOnLimit && $exception instanceof CSSParserLimitException) {
-							throw $exception;
-						}
-						$sheet->recordParseError($exception->getMessage(), $offset);
-					}
-				}
-			}
+			self::flushTrailingNestedDeclarations(
+				$currentStyle,
+				$ownerRule,
+				$sheet,
+				$options,
+				$ruleCount,
+				$throwOnLimit,
+				$pageMode,
+				$functionMode,
+				$hasNestedRule,
+				$isGroupingWithDecls,
+				$offset,
+			);
 
 			$ruleStart = $offset;
 			$prelude = self::extractPrelude($source, $ruleStart, $delimOffset, $sheet);
@@ -1243,6 +1264,7 @@ final class CSSParser
 					$throwOnLimit,
 					$declLimitRecorded,
 					$functionMode,
+					$allowEofClose,
 				);
 				if ($prepared !== null) {
 					$mode = $prepared['mode'];
@@ -1270,6 +1292,7 @@ final class CSSParser
 							$prepared['functionMode'] ?? false,
 							$delimOffset,
 							$declLimitRecorded,
+							allowEofClose: $allowEofClose,
 						);
 					} elseif ($mode === 'ffv') {
 						/** @var CSSFontFeatureValuesRule $nested */
@@ -1286,6 +1309,7 @@ final class CSSParser
 							$throwOnLimit,
 							$delimOffset,
 							$declLimitRecorded,
+							$allowEofClose,
 						);
 					} else {
 						/** @var CSSGroupingRule $nested */
@@ -1304,6 +1328,7 @@ final class CSSParser
 							true,
 							$delimOffset,
 							$declLimitRecorded,
+							$allowEofClose,
 						);
 					}
 					if ($nestedClosed && $ownerRule !== null) {
@@ -1354,6 +1379,7 @@ final class CSSParser
 							false,
 							$delimOffset,
 							$declLimitRecorded,
+							allowEofClose: $allowEofClose,
 						);
 						if ($nestedClosed && $ownerRule !== null) {
 							$ownerRule->getCssRules()->appendDetached($nestedStyleRule);
@@ -1367,8 +1393,56 @@ final class CSSParser
 		}
 
 		self::flushDiagnostics($sheet, $diagnostics);
+		if ($allowEofClose) {
+			self::flushTrailingNestedDeclarations(
+				$currentStyle,
+				$ownerRule,
+				$sheet,
+				$options,
+				$ruleCount,
+				$throwOnLimit,
+				$pageMode,
+				$functionMode,
+				$hasNestedRule,
+				$isGroupingWithDecls,
+				$end,
+			);
+		}
 		$sheet->recordParseError('Unclosed CSS rule block.', $openBraceOffset);
-		return false;
+		return $allowEofClose;
+	}
+
+	private static function flushTrailingNestedDeclarations(
+		CSSStyleDeclaration $currentStyle,
+		?CSSGroupingRule $ownerRule,
+		CSSStyleSheet $sheet,
+		CSSParserOptions $options,
+		int &$ruleCount,
+		bool $throwOnLimit,
+		bool $pageMode,
+		bool $functionMode,
+		bool $hasNestedRule,
+		bool $isGroupingWithDecls,
+		int $offset,
+	): void {
+		if ($ownerRule === null || $pageMode || (!$hasNestedRule && !$isGroupingWithDecls) || count($currentStyle) === 0) {
+			return;
+		}
+		if (!self::canRecordRule($options, $ruleCount, $sheet, $offset, $throwOnLimit)) {
+			return;
+		}
+		try {
+			$declarations = $functionMode && $currentStyle instanceof CSSFunctionDescriptors
+				? new CSSFunctionDeclarations($currentStyle, $options->maxBytes)
+				: new CSSNestedDeclarations($currentStyle, $options->maxBytes);
+			$ownerRule->getCssRules()->appendDetached($declarations);
+			self::incrementCounter($ruleCount, 'CSS rule count');
+		} catch (InvalidArgumentException $exception) {
+			if ($throwOnLimit && $exception instanceof CSSParserLimitException) {
+				throw $exception;
+			}
+			$sheet->recordParseError($exception->getMessage(), $offset);
+		}
 	}
 
 	private static function parseFontFeatureValuesBody(
@@ -1384,6 +1458,7 @@ final class CSSParser
 		bool $throwOnLimit,
 		int $openBraceOffset,
 		bool &$declLimitRecorded = false,
+		bool $allowEofClose = false,
 	): bool {
 		while ($offset < $end) {
 			$offset = self::skipTrivia($source, $offset, $end, $sheet, false);
@@ -1396,7 +1471,7 @@ final class CSSParser
 			if ($delimiter === null) {
 				$sheet->recordParseError('Unterminated rule in @font-feature-values.', $offset);
 				$offset = $end;
-				return false;
+				return $allowEofClose;
 			}
 
 			$delimChar = $delimiter['delimiter'];
@@ -1567,7 +1642,7 @@ final class CSSParser
 		}
 
 		$sheet->recordParseError('Unclosed @font-feature-values block.', $openBraceOffset);
-		return false;
+		return $allowEofClose;
 	}
 
 	private static function parseSingleNestedRuleInternal(

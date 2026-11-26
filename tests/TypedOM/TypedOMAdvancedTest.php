@@ -71,9 +71,15 @@ final class TypedOMAdvancedTest extends TestCase
 		self::assertSame('calc(25px + 1em)', (string) $sum);
 
 		$product = $px->mul(2);
-		self::assertInstanceOf(CSSMathProduct::class, $product);
-		self::assertSame('product', $product->operator);
+		self::assertInstanceOf(CSSUnitValue::class, $product);
+		self::assertSame(50.0, $product->value);
+		self::assertSame('px', $product->unit);
 		self::assertSame(1, $product->type()->length);
+
+		$dimProduct = $px->mul(CSS::em(2));
+		self::assertInstanceOf(CSSMathProduct::class, $dimProduct);
+		self::assertSame('product', $dimProduct->operator);
+		self::assertSame(2, $dimProduct->type()->length);
 
 		$negate = new CSSMathNegate($px);
 		self::assertSame('negate', $negate->operator);
@@ -102,6 +108,18 @@ final class TypedOMAdvancedTest extends TestCase
 			self::fail('Expected unresolved relative math expression in CSSTranslate::toMatrix() to throw.');
 		} catch (\InvalidArgumentException $e) {
 			self::assertNotSame('', $e->getMessage());
+		}
+
+		foreach ([
+			new CSSTranslate(CSS::em(5), CSS::px(10)),
+			new CSSPerspective(CSS::vw(20)),
+		] as $relTransform) {
+			try {
+				$relTransform->toMatrix();
+				self::fail('Expected relative length unit in toMatrix() to throw.');
+			} catch (\InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
 		}
 
 		$rotateZ = CSSStyleValue::parse('transform', 'rotateZ(90deg)');
@@ -363,15 +381,22 @@ final class TypedOMAdvancedTest extends TestCase
 		self::assertInstanceOf(CSSPositionValue::class, $posWithRound);
 		self::assertSame('left round(up, 1em, 10px)', (string) $posWithRound);
 
-		// Invalid arity / incompatible unit types / bare constants fall back to CSSUnparsedValue
+		// Invalid arity / incompatible unit types / bare constants on modeled properties reject with InvalidArgumentException,
+		// while unmodeled properties fall back to CSSUnparsedValue
 		foreach ([
 			['width', 'sin()'],
 			['width', 'atan2(1px, 2s)'],
 			['width', 'pi'],
 			['opacity', 'e'],
 		] as [$prop, $raw]) {
-			self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse($prop, $raw));
+			try {
+				CSSStyleValue::parse($prop, $raw);
+				self::fail("Expected {$prop}: {$raw} to throw InvalidArgumentException.");
+			} catch (\InvalidArgumentException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
 		}
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('margin', 'sin()'));
 
 		// StylePropertyMap set/get/append round-trip with CSSMathFunction, CSSMathConstant & negated constant
 		$map = new StylePropertyMap(new CSSStyleDeclaration());

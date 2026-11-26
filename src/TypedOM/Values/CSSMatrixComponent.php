@@ -196,6 +196,9 @@ final class CSSMatrixComponent extends CSSTransformComponent
 
 		$result = [];
 		foreach ($elements as $value) {
+			if (!is_finite($value)) {
+				throw new InvalidArgumentException('Cannot serialize CSSMatrixComponent containing non-finite elements.');
+			}
 			$result[] = $value === 0.0 ? '0' : (string) $value;
 		}
 

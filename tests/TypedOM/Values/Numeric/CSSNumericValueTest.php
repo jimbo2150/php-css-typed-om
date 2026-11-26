@@ -198,7 +198,10 @@ class CSSNumericValueTest extends TestCase
 	public function testConvertsMathValuesWithoutDiscardingTheirStructure(): void
 	{
 		$sum = (new CSSMathSum([new CSSUnitValue(16, 'px'), new CSSUnitValue(16, 'px')]))->to('em');
-		$product = (new CSSUnitValue(16, 'px'))->div(new CSSUnitValue(2, 'number'))->to('em');
+		$product = (new CSSMathProduct([
+			new CSSUnitValue(16, 'px'),
+			new CSSMathInvert([new CSSUnitValue(2, 'number')]),
+		]))->to('em');
 
 		self::assertInstanceOf(CSSMathSum::class, $sum);
 		self::assertSame('calc(1em + 1em)', (string) $sum);
@@ -237,7 +240,8 @@ class CSSNumericValueTest extends TestCase
 		$value1 = new CSSUnitValue(16, 'px');
 		$value2 = new CSSUnitValue(1, 'em');
 
-		$this->assertTrue($value1->equals($value2));
+		$this->assertFalse($value1->equals($value2));
+		$this->assertFalse((new CSSUnitValue(96, 'px'))->equals(new CSSUnitValue(1, 'in')));
 	}
 
 	public function testEqualsDifferentConvertibleUnitsNotEqual(): void
@@ -412,14 +416,13 @@ class CSSNumericValueTest extends TestCase
 		$value2 = new CSSUnitValue(2, 'number');
 		$result = $value1->mul($value2);
 
-		$this->assertInstanceOf(CSSMathProduct::class, $result);
-		/** @var CSSMathProduct $result */
-		$this->assertEquals(2, $result->length);
-		$this->assertEquals(10, $result->inner_values[0]->value);
-		$this->assertEquals('px', $result->inner_values[0]->unit);
-		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[1]);
-		$this->assertEquals(2, $result->inner_values[1]->value);
-		$this->assertEquals('number', $result->inner_values[1]->unit);
+		$this->assertInstanceOf(CSSUnitValue::class, $result);
+		$this->assertSame(20.0, $result->value);
+		$this->assertSame('px', $result->unit);
+
+		$nonScalar = $value1->mul(new CSSUnitValue(2, 'em'));
+		$this->assertInstanceOf(CSSMathProduct::class, $nonScalar);
+		$this->assertSame('calc(10px * 2em)', (string) $nonScalar);
 	}
 
 	public function testMulMethodStringCast(): void
@@ -428,7 +431,7 @@ class CSSNumericValueTest extends TestCase
 		$value2 = new CSSUnitValue(2, 'number');
 		$result = $value1->mul($value2);
 
-		$this->assertEquals('calc(10px * 2)', (string)$result);
+		$this->assertSame('20px', (string) $result);
 	}
 
 	public function testDivMethod(): void
@@ -437,17 +440,14 @@ class CSSNumericValueTest extends TestCase
 		$value2 = new CSSUnitValue(2, 'number');
 		$result = $value1->div($value2);
 
-		$this->assertInstanceOf(CSSMathProduct::class, $result);
-		/** @var CSSMathProduct $result */
-		$this->assertEquals(2, $result->length);
-		$this->assertEquals(10, $result->inner_values[0]->value);
-		$this->assertEquals('px', $result->inner_values[0]->unit);
-		$this->assertInstanceOf(CSSMathInvert::class, $result->inner_values[1]);
-		/** @var CSSMathInvert $invert */
-		$invert = $result->inner_values[1];
-		$this->assertEquals(1, $invert->length);
-		$this->assertEquals(2, $invert->inner_values[0]->value);
-		$this->assertEquals('number', $invert->inner_values[0]->unit);
+		$this->assertInstanceOf(CSSUnitValue::class, $result);
+		$this->assertSame(5.0, $result->value);
+		$this->assertSame('px', $result->unit);
+
+		$nonScalar = $value1->div(new CSSUnitValue(2, 's'));
+		$this->assertInstanceOf(CSSMathProduct::class, $nonScalar);
+		$this->assertSame(2, $nonScalar->length);
+		$this->assertInstanceOf(CSSMathInvert::class, $nonScalar->inner_values[1]);
 	}
 
 	public function testDivMethodStringCast(): void
@@ -456,7 +456,7 @@ class CSSNumericValueTest extends TestCase
 		$value2 = new CSSUnitValue(2, 'number');
 		$result = $value1->div($value2);
 
-		$this->assertEquals('calc(10px / 2)', (string)$result);
+		$this->assertSame('5px', (string) $result);
 	}
 
 	public function testMinMethod(): void
@@ -673,13 +673,13 @@ class CSSNumericValueTest extends TestCase
 
 	public function testConcreteEvaluationAndPercentHintConsistency(): void
 	{
-		$converted = (new CSSUnitValue(2, 'number'))->mul(new CSSUnitValue(3, 'number'))->to('number');
+		$converted = (new CSSMathProduct([new CSSUnitValue(2, 'number'), new CSSUnitValue(3, 'number')]))->to('number');
 		$this->assertSame('calc(2 * 3)', (string) $converted);
 		$evaluatedNum = $converted->toSum('number');
 		$this->assertSame(6.0, $evaluatedNum->inner_values[0]->value);
 		$this->assertSame('number', $evaluatedNum->inner_values[0]->unit);
 
-		$sum = (new CSSUnitValue(10, 'px'))->mul(new CSSUnitValue(2, 'number'))->toSum('px');
+		$sum = (new CSSMathProduct([new CSSUnitValue(10, 'px'), new CSSUnitValue(2, 'number')]))->toSum('px');
 		$this->assertCount(1, $sum->inner_values);
 		$this->assertSame(20.0, $sum->inner_values[0]->value);
 		$this->assertSame('px', $sum->inner_values[0]->unit);
@@ -745,11 +745,13 @@ class CSSNumericValueTest extends TestCase
 			}
 		}
 
-		// Negative zero canonicalization prevents invalid `--0px` output
+		// Signed zero is preserved in CSSUnitValue and serialized safely inside negate/sum without emitting invalid `--0px`
 		$negZero = CSSNumericValue::parse('calc(-0px)');
 		self::assertInstanceOf(CSSUnitValue::class, $negZero);
-		self::assertSame('0px', (string) $negZero);
-		self::assertSame('0px', (string) (new CSSUnitValue(-0.0, 'px')));
+		self::assertSame('-0px', (string) $negZero);
+		self::assertSame('-0px', (string) (new CSSUnitValue(-0.0, 'px')));
+		self::assertSame('calc(-(-0px))', (string) (new CSSMathNegate(new CSSUnitValue(-0.0, 'px'))));
+		self::assertSame('calc(10px - 0px)', (string) (new CSSMathSum([new CSSUnitValue(10, 'px'), new CSSUnitValue(-0.0, 'px')])));
 
 		// Variadic operand caps enforce MAX_MATH_NODES even when bypassing constructor
 		$overflowTerms = array_fill(0, CSSNumericValue::MAX_MATH_NODES + 1, new CSSUnitValue(1, 'px'));

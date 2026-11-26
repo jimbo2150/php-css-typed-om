@@ -3032,7 +3032,7 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		}
 		$parsedAllColor = CSSStyleValue::parseAll('color', '/* a */, red');
 		self::assertCount(1, $parsedAllColor);
-		self::assertSame('red', (string) $parsedAllColor[0]);
+		self::assertSame('rgb(100% 0% 0%)', (string) $parsedAllColor[0]);
 
 		// 4. Workstream 4: CSSFunctionRule comments, CSSViewTransitionRule/CSSPropertyRule/CSS::registerProperty comments/escapes/raw limit, quote/url unwrapping, FontFace
 		$fnCommented = CSSFunctionRule::fromPrelude('--f(/*c*/--x /*c*/ <length> /*c*/: /*c*/ 1px) /*c*/ returns /*c*/ <length>');

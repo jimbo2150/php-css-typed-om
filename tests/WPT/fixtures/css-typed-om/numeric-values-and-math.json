@@ -114,9 +114,7 @@
       "operation": "typed-om.numeric.arithmetic",
       "input": { "base": "10px", "method": "mul", "args": [3] },
       "expected": { "class": "CSSUnitValue", "cssText": "30px" },
-      "status": "xfail",
-      "divergenceKind": "api-tradeoff",
-      "xfailReason": "CSSNumericValue::mul() constructs an unsimplified CSSMathProduct node rather than eagerly collapsing scalar CSSUnitValue products.",
+      "status": "pass",
       "specRef": "https://drafts.css-houdini.org/css-typed-om/#dom-cssnumericvalue-mul"
     },
     {
@@ -162,9 +160,7 @@
       "operation": "typed-om.numeric.equals",
       "input": { "left": "1in", "right": ["96px"] },
       "expected": { "equal": false },
-      "status": "xfail",
-      "divergenceKind": "api-tradeoff",
-      "xfailReason": "CSSNumericValue::equals() converts compatible units (1in == 96px) by design instead of requiring identical unit strings.",
+      "status": "pass",
       "specRef": "https://drafts.css-houdini.org/css-typed-om/#dom-cssnumericvalue-equals"
     },
     {

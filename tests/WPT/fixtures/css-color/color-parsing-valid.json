@@ -183,9 +183,7 @@
       "operation": "color.stylevalue.parse",
       "input": { "cssText": "rebeccapurple" },
       "expected": { "class": "CSSRGB", "cssText": "rgb(40% 20% 60%)" },
-      "status": "xfail",
-      "divergenceKind": "api-tradeoff",
-      "xfailReason": "Named CSS color keywords fall back to CSSUnparsedValue in CSSStyleValue::parse() instead of resolving a CSSRGB table.",
+      "status": "pass",
       "specRef": "https://drafts.csswg.org/css-color-4/#named-colors"
     },
     {

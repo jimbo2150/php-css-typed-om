@@ -151,9 +151,7 @@
         ]
       },
       "expected": { "is2D": false },
-      "status": "xfail",
-      "divergenceKind": "security-invariant",
-      "xfailReason": "DOMMatrix enforces strictly finite matrix elements and atomically throws InvalidArgumentException on singular inversion instead of writing NaN elements.",
+      "status": "pass",
       "specRef": "https://drafts.fxtf.org/geometry/#dom-dommatrix-invertself"
     }
   ]

@@ -30,7 +30,7 @@ class CSSUnitValue extends CSSNumericValue implements Stringable
 			if (!is_finite($float)) {
 				throw new InvalidArgumentException('CSSUnitValue::$value must be a finite number.');
 			}
-			$this->value = $float === 0.0 ? 0.0 : $float;
+			$this->value = $float;
 		}
 	}
 
@@ -116,6 +116,90 @@ class CSSUnitValue extends CSSNumericValue implements Stringable
 		}
 
 		return parent::sub(...$normalized);
+	}
+
+	public function mul(CSSNumericValue|int|float ...$values): CSSNumericValue
+	{
+		if ($values === []) {
+			return parent::mul(...$values);
+		}
+		if (count($values) >= self::MAX_MATH_NODES) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
+		}
+
+		$canCollapse = true;
+		$product = $this->value;
+		$resultUnit = $this->unitObj ?? CSSUnitEnum::NUMBER;
+		$hasDimension = $resultUnit !== CSSUnitEnum::NUMBER;
+		$normalized = [];
+
+		foreach ($values as $v) {
+			$nv = self::toNumericValue($v);
+			$normalized[] = $nv;
+			if ($canCollapse) {
+				if (!$nv instanceof self) {
+					$canCollapse = false;
+					continue;
+				}
+				$nvUnit = $nv->unitObj ?? CSSUnitEnum::NUMBER;
+				if ($nvUnit !== CSSUnitEnum::NUMBER) {
+					if ($hasDimension) {
+						$canCollapse = false;
+						continue;
+					}
+					$hasDimension = true;
+					$resultUnit = $nvUnit;
+				}
+				$product *= $nv->value;
+			}
+		}
+
+		if ($canCollapse) {
+			if (!is_finite($product)) {
+				throw new InvalidArgumentException('CSS numeric multiplication overflowed to a non-finite value.');
+			}
+			return new self($product, $resultUnit);
+		}
+
+		return parent::mul(...$normalized);
+	}
+
+	public function div(CSSNumericValue|int|float ...$values): CSSNumericValue
+	{
+		if ($values === []) {
+			return parent::div(...$values);
+		}
+		if (1 + (2 * count($values)) > self::MAX_MATH_NODES) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
+		}
+
+		$allNumberDivisors = true;
+		$normalized = [];
+
+		foreach ($values as $v) {
+			$nv = self::toNumericValue($v);
+			$normalized[] = $nv;
+			if ($allNumberDivisors && (!$nv instanceof self || ($nv->unitObj ?? CSSUnitEnum::NUMBER) !== CSSUnitEnum::NUMBER)) {
+				$allNumberDivisors = false;
+			}
+		}
+
+		if ($allNumberDivisors) {
+			$quotient = $this->value;
+			foreach ($normalized as $nv) {
+				/** @var self $nv */
+				if ($nv->value === 0.0) {
+					throw new InvalidArgumentException('Cannot divide CSS numeric value by zero.');
+				}
+				$quotient = fdiv($quotient, $nv->value);
+			}
+			if (!is_finite($quotient)) {
+				throw new InvalidArgumentException('CSS numeric division overflowed to a non-finite value.');
+			}
+			return new self($quotient, $this->unitObj ?? $this->unit);
+		}
+
+		return parent::div(...$normalized);
 	}
 
 	public function __toString(): string

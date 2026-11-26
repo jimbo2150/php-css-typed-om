@@ -246,7 +246,7 @@ final class CSSStyleSheet extends StyleSheet
 	 * Validates and inserts a single CSS rule at $index without mutating on failure.
 	 *
 	 * @throws OutOfBoundsException When $index is out of bounds
-	 * @throws InvalidArgumentException When $ruleText is malformed or exceeds parser limits
+	 * @throws InvalidArgumentException When $ruleText is malformed, violates CSSOM rule hierarchy, or exceeds parser limits
 	 */
 	public function insertRule(string $ruleText, int $index = 0, ?CSSParserOptions $options = null): int
 	{
@@ -262,9 +262,76 @@ final class CSSStyleSheet extends StyleSheet
 			$this->totalRuleCount,
 			$this->totalDeclarationCount,
 		);
+		$this->assertValidInsertHierarchy($rule, $index);
 		$this->cssRulesList->insertWithOptionsInternal($index, $rule, $effectiveOptions);
 
 		return $index;
+	}
+
+	private function assertValidInsertHierarchy(CSSRule $rule, int $index): void
+	{
+		if ($rule instanceof CSSCharsetRule) {
+			throw new InvalidArgumentException('@charset rules cannot be inserted via insertRule().');
+		}
+
+		$rules = $this->cssRulesList->getRulesRaw();
+		$count = count($rules);
+
+		if ($rule instanceof CSSImportRule) {
+			for ($i = 0; $i < $index; $i++) {
+				$existing = $rules[$i];
+				if (!$existing instanceof CSSCharsetRule
+					&& !$existing instanceof CSSImportRule
+					&& !$existing instanceof CSSLayerStatementRule
+				) {
+					throw new InvalidArgumentException('@import rule cannot be inserted after non-import rules.');
+				}
+			}
+			for ($i = $index; $i < $count; $i++) {
+				if ($rules[$i] instanceof CSSCharsetRule) {
+					throw new InvalidArgumentException('@import rule cannot be inserted before @charset.');
+				}
+			}
+			return;
+		}
+
+		if ($rule instanceof CSSNamespaceRule) {
+			foreach ($rules as $existing) {
+				if (!$existing instanceof CSSCharsetRule
+					&& !$existing instanceof CSSImportRule
+					&& !$existing instanceof CSSNamespaceRule
+					&& !$existing instanceof CSSLayerStatementRule
+				) {
+					throw new InvalidArgumentException('@namespace rule cannot be inserted when stylesheet contains non-prelude rules.');
+				}
+			}
+			for ($i = $index; $i < $count; $i++) {
+				$existing = $rules[$i];
+				if ($existing instanceof CSSCharsetRule || $existing instanceof CSSImportRule) {
+					throw new InvalidArgumentException('@namespace rule cannot be inserted before @charset or @import.');
+				}
+			}
+			return;
+		}
+
+		if ($rule instanceof CSSLayerStatementRule) {
+			for ($i = $index; $i < $count; $i++) {
+				if ($rules[$i] instanceof CSSCharsetRule) {
+					throw new InvalidArgumentException('@layer statement rule cannot be inserted before @charset.');
+				}
+			}
+			return;
+		}
+
+		for ($i = $index; $i < $count; $i++) {
+			$existing = $rules[$i];
+			if ($existing instanceof CSSCharsetRule
+				|| $existing instanceof CSSImportRule
+				|| $existing instanceof CSSNamespaceRule
+			) {
+				throw new InvalidArgumentException('CSS rule cannot be inserted before @charset, @import, or @namespace.');
+			}
+		}
 	}
 
 	/**

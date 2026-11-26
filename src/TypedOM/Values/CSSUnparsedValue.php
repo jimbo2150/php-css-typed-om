@@ -1084,14 +1084,12 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 							if ($isCustom && ($afterIdent === $close || ($afterIdent < $close && $source[$afterIdent] === ','))) {
 								$hasFallback = $afterIdent < $close && $source[$afterIdent] === ',';
 								if ($hasFallback && isset($parenHasForbidden[$pos])) {
-									$pos++;
-									continue;
+									throw new InvalidArgumentException('CSS var() fallback contains disallowed delimiter.');
 								}
 								try {
 									$normalizedVariable = CSSStyleDeclaration::normalizePropertyName($ident);
-								} catch (InvalidArgumentException) {
-									$pos++;
-									continue;
+								} catch (InvalidArgumentException $e) {
+									throw new InvalidArgumentException('Invalid custom property name in CSS var(): ' . $ident, 0, $e);
 								}
 								if (($depth + 1) > $effectiveMaxDepth) {
 									throw new CSSParserLimitException(sprintf('Maximum CSS var() nesting depth of %d exceeded.', $effectiveMaxDepth));
@@ -1138,8 +1136,7 @@ final class CSSUnparsedValue extends CSSStyleValue implements ArrayAccess, Count
 							}
 						}
 					}
-					$pos++;
-					continue;
+					throw new InvalidArgumentException('Invalid CSS var() reference.');
 				}
 
 				if (CSSSyntaxScanner::isUnquotedUrlStartInternal($source, $pos, $sliceStart, $sliceEnd, $lastEsc)) {

@@ -132,7 +132,7 @@ abstract class CSSMathValue extends CSSNumericValue
 					continue;
 				}
 				$needsParens = $inner instanceof CSSMathNegate
-					|| ($inner instanceof CSSUnitValue && $inner->value < 0.0)
+					|| ($inner instanceof CSSUnitValue && self::isNegativeFloat($inner->value))
 					|| $inner instanceof CSSMathConstant
 					|| $inner instanceof CSSMathFunction
 					|| $inner instanceof CSSMathMin
@@ -207,7 +207,7 @@ abstract class CSSMathValue extends CSSNumericValue
 								throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
 							}
 						} elseif ($operand instanceof CSSMathNegate
-							|| ($operand instanceof CSSUnitValue && $operand->value < 0.0)
+							|| ($operand instanceof CSSUnitValue && self::isNegativeFloat($operand->value))
 							|| $operand instanceof CSSMathConstant
 						) {
 							$stack[] = [$operand, $innerDepth + 1, $treeDepth + 2, false, 1];
@@ -319,7 +319,7 @@ abstract class CSSMathValue extends CSSNumericValue
 					continue;
 				}
 				$needsParens = $inner instanceof CSSMathNegate
-					|| ($inner instanceof CSSUnitValue && $inner->value < 0.0)
+					|| ($inner instanceof CSSUnitValue && self::isNegativeFloat($inner->value))
 					|| $inner instanceof CSSMathConstant
 					|| $inner instanceof CSSMathFunction
 					|| $inner instanceof CSSMathMin
@@ -451,15 +451,16 @@ abstract class CSSMathValue extends CSSNumericValue
 						$stack[] = [1, $child, 1, false, $depth + 1];
 						continue;
 					}
-					if ($child instanceof CSSUnitValue && $child->value < 0.0) {
+					if ($child instanceof CSSUnitValue && self::isNegativeFloat($child->value)) {
 						$symbol = $child->unitObj?->toString() ?? '';
-						$stack[] = [0, ' - ' . (-$child->value) . $symbol];
+						$mag = -$child->value;
+						$stack[] = [0, ' - ' . ($mag === 0.0 ? 0.0 : $mag) . $symbol];
 					} elseif ($child instanceof CSSMathNegate) {
 						$operand = $child->values->values[0] ?? null;
 						if ($operand === null) {
 							$stack[] = [0, ' - 0'];
 						} elseif ($operand instanceof CSSMathNegate
-							|| ($operand instanceof CSSUnitValue && $operand->value < 0.0)
+							|| ($operand instanceof CSSUnitValue && self::isNegativeFloat($operand->value))
 							|| $operand instanceof CSSMathConstant
 						) {
 							$stack[] = [0, ')'];
@@ -481,6 +482,11 @@ abstract class CSSMathValue extends CSSNumericValue
 		}
 
 		return count($parts) === 1 ? $parts[0] : implode('', $parts);
+	}
+
+	private static function isNegativeFloat(float $value): bool
+	{
+		return $value < 0.0 || ($value === 0.0 && fdiv(1.0, $value) < 0.0);
 	}
 
 	public function __clone(): void

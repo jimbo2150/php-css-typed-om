@@ -106,6 +106,14 @@ class CSSGroupingRule extends CSSRule
 				$sheet->getTotalRuleCount(),
 				$sheet->getTotalDeclarationCount(),
 			);
+		if ($rule instanceof CSSCharsetRule || $rule instanceof CSSImportRule || $rule instanceof CSSNamespaceRule) {
+			$ruleKind = match (true) {
+				$rule instanceof CSSCharsetRule => '@charset',
+				$rule instanceof CSSImportRule => '@import',
+				default => '@namespace',
+			};
+			throw new InvalidArgumentException(sprintf('%s rules cannot be inserted inside a grouping rule.', $ruleKind));
+		}
 		$this->cssRulesList->insertWithOptionsInternal($index, $rule, $effectiveOptions);
 
 		return $index;

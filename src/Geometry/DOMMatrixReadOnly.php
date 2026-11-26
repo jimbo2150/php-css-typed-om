@@ -294,7 +294,7 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 	}
 
 	/**
-	 * @throws InvalidArgumentException When the matrix is singular (non-invertible)
+	 * Returns an inverted copy of this matrix (all-`NaN` with `is2D = false` when singular).
 	 */
 	public function inverse(): DOMMatrix
 	{
@@ -646,6 +646,9 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 
 	private static function formatNumber(float $value): string
 	{
+		if (!is_finite($value)) {
+			throw new InvalidArgumentException('Cannot serialize DOMMatrix containing non-finite elements.');
+		}
 		if ($value === 0.0) {
 			return '0';
 		}

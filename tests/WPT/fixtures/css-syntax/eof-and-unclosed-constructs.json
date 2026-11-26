@@ -51,9 +51,7 @@
       "operation": "syntax.eof",
       "input": { "mode": "stylesheet", "source": "div { color: red;" },
       "expected": { "ruleCount": 1, "cssText": "div { color: red; }", "hasErrors": true },
-      "status": "xfail",
-      "divergenceKind": "security-invariant",
-      "xfailReason": "CSSParser enforces balanced delimiter integrity and discards unclosed rule blocks instead of auto-closing them at EOF.",
+      "status": "pass",
       "specRef": "https://drafts.csswg.org/css-syntax-3/#consume-qualified-rule"
     },
     {
@@ -63,9 +61,7 @@
       "operation": "syntax.eof",
       "input": { "mode": "stylesheet", "source": "@media screen { p { color: blue;" },
       "expected": { "ruleCount": 1, "hasErrors": true },
-      "status": "xfail",
-      "divergenceKind": "security-invariant",
-      "xfailReason": "CSSParser requires balanced closing braces for @media and nested blocks rather than synthesizing rules from unclosed blocks at EOF.",
+      "status": "pass",
       "specRef": "https://drafts.csswg.org/css-syntax-3/#consume-at-rule"
     },
     {

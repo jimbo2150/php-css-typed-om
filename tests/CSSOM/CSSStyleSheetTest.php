@@ -401,4 +401,108 @@ final class CSSStyleSheetTest extends TestCase
 		self::assertSame('screen', $origMedia->media->mediaText);
 		self::assertSame('screen, handheld', $sheetFromMedia->media->mediaText);
 	}
+
+	public function testInsertRuleEnforcesCssomHierarchyAndRejectsCharset(): void
+	{
+		$sheet = CSSStyleSheet::parse('@charset "utf-8";');
+		self::assertCount(1, $sheet->cssRules);
+
+		// @charset cannot be inserted via insertRule()
+		try {
+			$sheet->insertRule('@charset "utf-8";', 0);
+			self::fail('Expected insertRule(@charset) to throw InvalidArgumentException.');
+		} catch (InvalidArgumentException) {
+			self::assertCount(1, $sheet->cssRules);
+		}
+
+		// Cannot insert @import, @namespace, @layer statement, or style rule before @charset
+		foreach ([
+			'@import url("a.css");',
+			'@namespace svg url("urn:svg");',
+			'@layer base;',
+			'a { color: red; }',
+		] as $beforeCharset) {
+			try {
+				$sheet->insertRule($beforeCharset, 0);
+				self::fail('Expected inserting before @charset to throw: ' . $beforeCharset);
+			} catch (InvalidArgumentException) {
+				self::assertCount(1, $sheet->cssRules);
+			}
+		}
+
+		// Valid hierarchy order after @charset: @layer statement -> @import -> @namespace -> style rule
+		$sheet->insertRule('@layer base;', 1);
+		$sheet->insertRule('@import url("a.css");', 2);
+		$sheet->insertRule('@layer theme;', 3);
+		$sheet->insertRule('@namespace svg url("urn:svg");', 4);
+		$sheet->insertRule('a { color: red; }', 5);
+		self::assertCount(6, $sheet->cssRules);
+
+		// Cannot insert @namespace before @import or when style rule exists
+		try {
+			$sheet->insertRule('@namespace x url("urn:x");', 2);
+			self::fail('Expected inserting @namespace before @import to throw.');
+		} catch (InvalidArgumentException) {
+			self::assertCount(6, $sheet->cssRules);
+		}
+
+		try {
+			$sheet->insertRule('@import url("b.css");', 6);
+			self::fail('Expected inserting @import after style rule to throw.');
+		} catch (InvalidArgumentException) {
+			self::assertCount(6, $sheet->cssRules);
+		}
+
+		// Cannot insert style rule before @import or @namespace
+		$nsSheet = CSSStyleSheet::parse('@import url("a.css"); @namespace svg url("urn:svg");');
+		foreach ([0, 1] as $badIndex) {
+			try {
+				$nsSheet->insertRule('a { color: red; }', $badIndex);
+				self::fail('Expected inserting style rule before @import/@namespace to throw.');
+			} catch (InvalidArgumentException) {
+				self::assertCount(2, $nsSheet->cssRules);
+			}
+		}
+
+		// Grouping rules reject @charset, @import, and @namespace
+		$mediaSheet = CSSStyleSheet::parse('@media screen { a { color: red; } }');
+		$mediaRule = $mediaSheet->cssRules[0];
+		self::assertInstanceOf(CSSMediaRule::class, $mediaRule);
+		foreach ([
+			'@charset "utf-8";',
+			'@import url("a.css");',
+			'@namespace svg url("urn:svg");',
+		] as $disallowedInGrouping) {
+			try {
+				$mediaRule->insertRule($disallowedInGrouping, 0);
+				self::fail('Expected grouping rule insertRule to reject: ' . $disallowedInGrouping);
+			} catch (InvalidArgumentException) {
+				self::assertCount(1, $mediaRule->cssRules);
+			}
+		}
+	}
+
+	public function testStylesheetParsesUnclosedBlocksAtEofWhileInsertRuleRejectsThem(): void
+	{
+		$sheet = CSSStyleSheet::parse('div { color: red;');
+		self::assertCount(1, $sheet->cssRules);
+		self::assertSame('div { color: red; }', $sheet->getCssText());
+		self::assertNotEmpty($sheet->getParseErrors());
+
+		$media = CSSStyleSheet::parse('@media screen { p { color: blue;');
+		self::assertCount(1, $media->cssRules);
+		self::assertSame("@media screen { p { color: blue; } }", $media->getCssText());
+		self::assertNotEmpty($media->getParseErrors());
+
+		$nestedDecl = CSSStyleSheet::parse('article { &:hover { color: green; } color: black');
+		self::assertCount(1, $nestedDecl->cssRules);
+		self::assertSame('article { &:hover { color: green; } color: black; }', $nestedDecl->getCssText());
+
+		try {
+			$sheet->insertRule('p { color: green;', 1);
+			self::fail('Expected insertRule() to reject unclosed block.');
+		} catch (InvalidArgumentException) {
+			self::assertCount(1, $sheet->cssRules);
+		}
+	}
 }

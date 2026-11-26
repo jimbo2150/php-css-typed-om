@@ -146,9 +146,7 @@
       "operation": "values.calc.serialize",
       "input": { "expression": "calc(-1 / infinity)" },
       "expected": { "cssText": "-0", "value": -0.0, "isNegativeZero": true, "checkSignedZero": true },
-      "status": "xfail",
-      "divergenceKind": "api-tradeoff",
-      "xfailReason": "CSSUnitValue normalizes -0.0 to +0.0 on assignment per finite double canonicalization.",
+      "status": "pass",
       "specRef": "https://drafts.csswg.org/css-values-4/#calc-simplification"
     }
   ]

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric;
 
 use Error;
-use Exception;
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
@@ -416,7 +415,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 		return CSSMathSum::fromValidated($all, $merged);
 	}
 
-	public function mul(CSSNumericValue|int|float ...$values): CSSMathProduct
+	public function mul(CSSNumericValue|int|float ...$values): self
 	{
 		$operands = self::normalizeVariadicOperands($values);
 		if (1 + count($operands) > self::MAX_MATH_NODES) {
@@ -425,7 +424,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 		return new CSSMathProduct([$this, ...$operands]);
 	}
 
-	public function div(CSSNumericValue|int|float ...$values): CSSMathProduct
+	public function div(CSSNumericValue|int|float ...$values): self
 	{
 		$operands = self::normalizeVariadicOperands($values);
 		if (1 + (2 * count($operands)) > self::MAX_MATH_NODES) {
@@ -814,24 +813,10 @@ abstract class CSSNumericValue extends CSSStyleValue
 				continue;
 			}
 			if ($left instanceof CSSUnitValue && $right instanceof CSSUnitValue) {
-				if ($left->unitObj === $right->unitObj) {
-					if (!self::floatsNearlyEqual($left->value, $right->value)) {
-						return false;
-					}
-					continue;
+				if ($left->unitObj !== $right->unitObj || $left->value !== $right->value) {
+					return false;
 				}
-				if ($left->unitType() === $right->unitType()) {
-					try {
-						$converted = $right->to($left->unit);
-						if (!$converted instanceof CSSUnitValue || !self::floatsNearlyEqual($left->value, $converted->value)) {
-							return false;
-						}
-						continue;
-					} catch (Exception) {
-						return false;
-					}
-				}
-				return false;
+				continue;
 			}
 
 			if ($left instanceof CSSMathConstant && $right instanceof CSSMathConstant) {
@@ -938,15 +923,6 @@ abstract class CSSNumericValue extends CSSStyleValue
 		}
 
 		return false;
-	}
-
-	private static function floatsNearlyEqual(float $left, float $right): bool
-	{
-		if (!is_finite($left) || !is_finite($right)) {
-			return false;
-		}
-		$tolerance = max(1e-9, 1e-6 * max(abs($left), abs($right)));
-		return abs($left - $right) <= $tolerance;
 	}
 
 	private static function resolveUnit(string $unit): CSSUnitEnum

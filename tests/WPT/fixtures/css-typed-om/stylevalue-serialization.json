@@ -97,9 +97,7 @@
       "operation": "typed-om.stylevalue.parse",
       "input": { "property": "color", "cssText": "var(notcustom)" },
       "expected": { "throws": "InvalidArgumentException" },
-      "status": "xfail",
-      "divergenceKind": "api-tradeoff",
-      "xfailReason": "CSSUnparsedValue treats malformed var(notcustom) as an opaque unparsed string token rather than throwing.",
+      "status": "pass",
       "specRef": "https://drafts.css-houdini.org/css-typed-om/#dom-cssvariablereferencevalue-cssvariablereferencevalue"
     },
     {

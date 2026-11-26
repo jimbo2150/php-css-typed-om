@@ -84,9 +84,7 @@
       "operation": "typed-om.transform.toMatrix",
       "input": { "cssText": "translate(5em, 10px)" },
       "expected": { "throws": "InvalidArgumentException" },
-      "status": "xfail",
-      "divergenceKind": "api-tradeoff",
-      "xfailReason": "CSSTransformComponent resolves single relative CSSUnitValue lengths using the default CSSContext (16px/em) instead of throwing.",
+      "status": "pass",
       "specRef": "https://drafts.css-houdini.org/css-typed-om/#dom-csstransformcomponent-tomatrix"
     },
     {

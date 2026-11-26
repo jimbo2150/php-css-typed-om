@@ -36,7 +36,24 @@ final class CSSStyleValueParsingTest extends TestCase
 		self::assertInstanceOf(CSSKeywordValue::class, CSSStyleValue::parse('background-image', 'none'));
 		self::assertInstanceOf(CSSImageValue::class, CSSStyleValue::parse('background-image', 'url("a.png")'));
 		self::assertInstanceOf(CSSKeywordValue::class, CSSStyleValue::parse('width', 'auto'));
-		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('width', 'banana'));
+		self::assertInstanceOf(CSSUnitValue::class, CSSStyleValue::parse('width', '0'));
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('animation-name', 'banana'));
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('display', 'inline flow-root'));
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('border-color', 'red blue'));
+
+		foreach ([
+			['width', 'banana'],
+			['width', '10deg'],
+			['opacity', '10px'],
+			['display', 'banana'],
+			['color', 'banana'],
+		] as [$invalidProp, $invalidVal]) {
+			try {
+				CSSStyleValue::parse($invalidProp, $invalidVal);
+				self::fail("Expected {$invalidProp}: {$invalidVal} to throw InvalidArgumentException.");
+			} catch (InvalidArgumentException) {
+			}
+		}
 	}
 
 	public function testParseAllSplitsOnlyTopLevelCommas(): void
@@ -83,6 +100,27 @@ final class CSSStyleValueParsingTest extends TestCase
 	{
 		$this->expectException(InvalidArgumentException::class);
 		CSSStyleValue::parse('color', 'rgb(10, 20, 30');
+	}
+
+	public function testRejectsMalformedVarReferences(): void
+	{
+		foreach (['var(notcustom)', 'var()', 'var(--)', 'var(--a --b)'] as $badVar) {
+			try {
+				CSSStyleValue::parse('color', $badVar);
+				self::fail('Expected malformed var() to throw on property color: ' . $badVar);
+			} catch (InvalidArgumentException) {
+			}
+
+			try {
+				CSSUnparsedValue::fromCssText($badVar);
+				self::fail('Expected malformed var() to throw in CSSUnparsedValue: ' . $badVar);
+			} catch (InvalidArgumentException) {
+			}
+		}
+
+		// Prefixed/quoted/commented var(notcustom) are not CSS var() calls and remain unparsed strings
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSUnparsedValue::fromCssText('myvar(notcustom)'));
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSUnparsedValue::fromCssText('"var(notcustom)"'));
 	}
 
 	public function testKeywordValueRejectsNonIdentifiers(): void

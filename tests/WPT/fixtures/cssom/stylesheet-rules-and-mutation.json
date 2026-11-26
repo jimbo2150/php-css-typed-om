@@ -120,9 +120,7 @@
       "operation": "cssom.stylesheet.insertRule",
       "input": { "initialCss": "", "rule": "@charset \"utf-8\";", "index": 0 },
       "expected": { "throws": "InvalidArgumentException" },
-      "status": "xfail",
-      "divergenceKind": "api-tradeoff",
-      "xfailReason": "CSSStyleSheet::insertRule() delegates to CSSParser::parseSingleRule(), which permits @charset syntax rather than throwing SyntaxError like DOM insertRule.",
+      "status": "pass",
       "specRef": "https://drafts.csswg.org/cssom/#dom-cssstylesheet-insertrule"
     },
     {
@@ -132,9 +130,7 @@
       "operation": "cssom.stylesheet.insertRule",
       "input": { "initialCss": "a { color: red; }", "rule": "@import url(\"x.css\");", "index": 1 },
       "expected": { "throws": "InvalidArgumentException" },
-      "status": "xfail",
-      "divergenceKind": "api-tradeoff",
-      "xfailReason": "Standalone CSSStyleSheet::insertRule() validates rule syntax without enforcing CSSOM stylesheet-level @import/@namespace ordering hierarchy.",
+      "status": "pass",
       "specRef": "https://drafts.csswg.org/cssom/#dom-cssstylesheet-insertrule"
     },
     {
@@ -144,9 +140,7 @@
       "operation": "cssom.stylesheet.insertRule",
       "input": { "initialCss": "a { color: red; }", "rule": "@namespace svg url(\"http://www.w3.org/2000/svg\");", "index": 1 },
       "expected": { "throws": "InvalidArgumentException" },
-      "status": "xfail",
-      "divergenceKind": "api-tradeoff",
-      "xfailReason": "Standalone CSSStyleSheet::insertRule() does not enforce CSSOM @namespace post-style-rule HierarchyRequestError.",
+      "status": "pass",
       "specRef": "https://drafts.csswg.org/cssom/#dom-cssstylesheet-insertrule"
     },
     {

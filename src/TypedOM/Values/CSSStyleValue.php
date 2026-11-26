@@ -58,6 +58,111 @@ abstract class CSSStyleValue implements Stringable
 		'text-align' => ['center' => true, 'end' => true, 'justify' => true, 'left' => true, 'match-parent' => true, 'right' => true, 'start' => true],
 		'justify-content' => ['center' => true, 'end' => true, 'flex-end' => true, 'flex-start' => true, 'left' => true, 'normal' => true, 'right' => true, 'space-around' => true, 'space-between' => true, 'space-evenly' => true, 'start' => true, 'stretch' => true],
 		'align-items' => ['baseline' => true, 'center' => true, 'end' => true, 'flex-end' => true, 'flex-start' => true, 'normal' => true, 'self-end' => true, 'self-start' => true, 'start' => true, 'stretch' => true],
+		'caret-color' => ['auto' => true],
+		'accent-color' => ['auto' => true],
+		'outline-color' => ['auto' => true, 'invert' => true],
+		'fill' => ['context-fill' => true, 'context-stroke' => true, 'none' => true],
+		'stroke' => ['context-fill' => true, 'context-stroke' => true, 'none' => true],
+	];
+
+	/** @var array<string, true> */
+	private const array SIZING_PROPERTIES = [
+		'width' => true,
+		'height' => true,
+		'min-width' => true,
+		'max-width' => true,
+		'min-height' => true,
+		'max-height' => true,
+		'inline-size' => true,
+		'block-size' => true,
+	];
+
+	/** @var array<string, true> */
+	private const array SINGLE_COLOR_PROPERTIES = [
+		'color' => true,
+		'background-color' => true,
+		'border-top-color' => true,
+		'border-right-color' => true,
+		'border-bottom-color' => true,
+		'border-left-color' => true,
+		'border-block-start-color' => true,
+		'border-block-end-color' => true,
+		'border-inline-start-color' => true,
+		'border-inline-end-color' => true,
+		'outline-color' => true,
+		'text-decoration-color' => true,
+		'text-emphasis-color' => true,
+		'caret-color' => true,
+		'accent-color' => true,
+		'column-rule-color' => true,
+		'fill' => true,
+		'stroke' => true,
+		'stop-color' => true,
+		'flood-color' => true,
+		'lighting-color' => true,
+	];
+
+	/** @var array<string, true> */
+	private const array MULTI_COLOR_PROPERTIES = [
+		'border-color' => true,
+		'border-block-color' => true,
+		'border-inline-color' => true,
+	];
+
+	/** @var array<string, true> */
+	private const array SINGLE_KEYWORD_PROPERTIES = [
+		'position' => true,
+		'overflow-x' => true,
+		'overflow-y' => true,
+		'visibility' => true,
+		'float' => true,
+		'clear' => true,
+		'box-sizing' => true,
+		'text-align' => true,
+	];
+
+	/** @var array<string, true> */
+	private const array MULTI_KEYWORD_PROPERTIES = [
+		'border-style' => true,
+		'overflow' => true,
+		'display' => true,
+		'justify-content' => true,
+		'align-items' => true,
+	];
+
+	/** @var array<string, true> */
+	private const array KNOWN_MATH_OR_COLOR_FUNCTIONS = [
+		'calc' => true,
+		'min' => true,
+		'max' => true,
+		'clamp' => true,
+		'round' => true,
+		'mod' => true,
+		'rem' => true,
+		'sin' => true,
+		'cos' => true,
+		'tan' => true,
+		'asin' => true,
+		'acos' => true,
+		'atan' => true,
+		'atan2' => true,
+		'pow' => true,
+		'sqrt' => true,
+		'hypot' => true,
+		'log' => true,
+		'exp' => true,
+		'abs' => true,
+		'sign' => true,
+		'rgb' => true,
+		'rgba' => true,
+		'hsl' => true,
+		'hsla' => true,
+		'hwb' => true,
+		'lab' => true,
+		'lch' => true,
+		'oklab' => true,
+		'oklch' => true,
+		'color' => true,
 	];
 
 	public function __construct()
@@ -239,9 +344,18 @@ abstract class CSSStyleValue implements Stringable
 		}
 
 		$c0 = $trimmedValue[0];
+		$isColorProp = isset(self::SINGLE_COLOR_PROPERTIES[$normalizedProperty]) || isset(self::MULTI_COLOR_PROPERTIES[$normalizedProperty]);
 		if ($c0 === '#' || ($fn !== null && preg_match('/^(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)$/D', $fn) === 1)) {
 			try {
-				return CSSColorValue::parse($trimmedValue, null, $options);
+				$color = CSSColorValue::parse($trimmedValue, null, $options);
+				if (isset(self::SIZING_PROPERTIES[$normalizedProperty])
+					|| $normalizedProperty === 'opacity'
+					|| isset(self::SINGLE_KEYWORD_PROPERTIES[$normalizedProperty])
+					|| isset(self::MULTI_KEYWORD_PROPERTIES[$normalizedProperty])
+				) {
+					throw new InvalidArgumentException(sprintf('Color value is not valid for property "%s".', $normalizedProperty));
+				}
+				return $color;
 			} catch (CSSParserLimitException $e) {
 				throw $e;
 			} catch (InvalidArgumentException) {
@@ -249,12 +363,105 @@ abstract class CSSStyleValue implements Stringable
 			}
 		}
 
+		if ($isColorProp && $fn === null) {
+			if ($lower === 'currentcolor') {
+				return new CSSKeywordValue('currentcolor');
+			}
+			$namedColor = CSSColorValue::tryParseNamedColor($trimmedValue);
+			if ($namedColor !== null) {
+				return $namedColor;
+			}
+		}
+
 		$numeric = CSSNumericValue::tryParseValidated($trimmedValue, $options, $mathDepth);
 		if ($numeric !== null) {
+			if ($isColorProp
+				|| isset(self::SINGLE_KEYWORD_PROPERTIES[$normalizedProperty])
+				|| isset(self::MULTI_KEYWORD_PROPERTIES[$normalizedProperty])
+			) {
+				throw new InvalidArgumentException(sprintf('Numeric value is not valid for property "%s".', $normalizedProperty));
+			}
+			if (isset(self::SIZING_PROPERTIES[$normalizedProperty])) {
+				$type = $numeric->getNumericTypeInternal();
+				$category = $numeric->getNumericCategory();
+				$hint = $type->percentHint;
+				$isUnitlessZero = $numeric instanceof Numeric\CSSUnitValue && $numeric->unit === 'number' && $numeric->value === 0.0;
+				$isValidSizing = $isUnitlessZero
+					|| ($category === 'length' && ($hint === null || $hint === 'length'))
+					|| ($category === 'percent' && $hint === null);
+				if (!$isValidSizing) {
+					throw new InvalidArgumentException(sprintf('Numeric value is not valid for property "%s".', $normalizedProperty));
+				}
+			} elseif ($normalizedProperty === 'opacity') {
+				$type = $numeric->getNumericTypeInternal();
+				$category = $numeric->getNumericCategory();
+				if ($type->percentHint !== null || ($category !== 'number' && $category !== 'percent')) {
+					throw new InvalidArgumentException('Numeric value is not valid for property "opacity".');
+				}
+			}
 			return $numeric;
 		}
 
-		return CSSUnparsedValue::fromCssText($trimmedValue, $options);
+		$unparsed = CSSUnparsedValue::fromCssText($trimmedValue, $options);
+		self::assertAllowedUnparsedForModeledProperty($normalizedProperty, $trimmedValue, $fn);
+
+		return $unparsed;
+	}
+
+	private static function assertAllowedUnparsedForModeledProperty(
+		string $normalizedProperty,
+		string $trimmedValue,
+		?string $leadingFunction,
+	): void {
+		$isSizing = isset(self::SIZING_PROPERTIES[$normalizedProperty]);
+		$isOpacity = $normalizedProperty === 'opacity';
+		$isSingleColor = isset(self::SINGLE_COLOR_PROPERTIES[$normalizedProperty]);
+		$isMultiColor = isset(self::MULTI_COLOR_PROPERTIES[$normalizedProperty]);
+		$isSingleKeyword = isset(self::SINGLE_KEYWORD_PROPERTIES[$normalizedProperty]);
+		$isMultiKeyword = isset(self::MULTI_KEYWORD_PROPERTIES[$normalizedProperty]);
+
+		if (!$isSizing && !$isOpacity && !$isSingleColor && !$isMultiColor && !$isSingleKeyword && !$isMultiKeyword) {
+			return;
+		}
+
+		if (CSS::hasVarReference($trimmedValue) || stripos($trimmedValue, 'env(') !== false) {
+			return;
+		}
+
+		if ($leadingFunction !== null) {
+			$hasTrailingTokens = false;
+			$open = strpos($trimmedValue, '(');
+			if ($open !== false) {
+				$close = CSSSyntaxScanner::findMatchingDelimiter($trimmedValue, $open);
+				$trailingSlice = substr($trimmedValue, $close + 1);
+				if (str_contains($trailingSlice, '/*')) {
+					$trailingSlice = CSSSyntaxScanner::removeComments($trailingSlice);
+				}
+				$hasTrailingTokens = CSSSyntaxScanner::trimCssWhitespace($trailingSlice) !== '';
+			}
+			if (isset(self::KNOWN_MATH_OR_COLOR_FUNCTIONS[$leadingFunction])) {
+				// On color properties, unmodeled relative color syntax and extra-arg fallback tests fall back when appropriate;
+				// on sizing/opacity/keyword properties, failed known math/color functions are invalid.
+				if (($isSingleColor || $isMultiColor) && in_array($leadingFunction, ['rgb', 'rgba', 'hsl', 'hsla', 'hwb', 'lab', 'lch', 'oklab', 'oklch', 'color'], true)) {
+					return;
+				}
+				throw new InvalidArgumentException(sprintf('Invalid function value "%s" for property "%s".', $trimmedValue, $normalizedProperty));
+			}
+			if ($isSingleKeyword || $isOpacity) {
+				throw new InvalidArgumentException(sprintf('Function value "%s" is not valid for property "%s".', $trimmedValue, $normalizedProperty));
+			}
+			if ($isSizing && $hasTrailingTokens) {
+				throw new InvalidArgumentException(sprintf('Invalid sizing value "%s" for property "%s".', $trimmedValue, $normalizedProperty));
+			}
+			return;
+		}
+
+		$tokens = CSSSyntaxScanner::splitTopLevelWhitespace($trimmedValue);
+		if (count($tokens) > 1 && ($isMultiColor || $isMultiKeyword)) {
+			return;
+		}
+
+		throw new InvalidArgumentException(sprintf('Invalid value "%s" for property "%s".', $trimmedValue, $normalizedProperty));
 	}
 
 	abstract public function __toString(): string;

@@ -21,6 +21,17 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathValue;
  */
 abstract class CSSTransformComponent extends CSSStyleValue
 {
+	/** @var array<string, true> */
+	private const array ABSOLUTE_LENGTH_UNITS = [
+		'px' => true,
+		'cm' => true,
+		'mm' => true,
+		'q' => true,
+		'in' => true,
+		'pc' => true,
+		'pt' => true,
+	];
+
 	/** @var list<float> */
 	protected const array IDENTITY_MATRIX = [
 		1.0, 0.0, 0.0, 0.0,
@@ -218,8 +229,12 @@ abstract class CSSTransformComponent extends CSSStyleValue
 			throw new InvalidArgumentException('Transform component value has an incompatible unit.');
 		}
 
-		if ($expectedType === 'length' && $unit !== 'px') {
-			$result = $value->to('px')->value;
+		if ($expectedType === 'length') {
+			$lowerUnit = strtolower($unit);
+			if (!isset(self::ABSOLUTE_LENGTH_UNITS[$lowerUnit])) {
+				throw new InvalidArgumentException('Matrix conversion requires absolute length units; relative unit given: ' . $unit);
+			}
+			$result = $lowerUnit === 'px' ? $value->value : $value->to('px')->value;
 		} elseif ($expectedType === 'angle') {
 			$result = $value->value * match (strtolower($unit)) {
 				'rad' => 1.0,
@@ -236,6 +251,6 @@ abstract class CSSTransformComponent extends CSSStyleValue
 			throw new InvalidArgumentException('Transform component value must be finite.');
 		}
 
-		return $result;
+		return $result === 0.0 ? 0.0 : $result;
 	}
 }

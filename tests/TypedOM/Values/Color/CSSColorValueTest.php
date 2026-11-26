@@ -162,6 +162,28 @@ final class CSSColorValueTest extends TestCase
 		$mathRgb->toLab();
 	}
 
+	public function testParsesCssColor4NamedColorsAndTransparent(): void
+	{
+		$rebecca = CSSColorValue::parse('RebeccaPurple');
+		self::assertInstanceOf(CSSRGB::class, $rebecca);
+		self::assertSame('rgb(40% 20% 60%)', (string) $rebecca);
+
+		$viaStyle = CSSStyleValue::parse('color', 'rebeccapurple');
+		self::assertInstanceOf(CSSRGB::class, $viaStyle);
+		self::assertSame('rgb(40% 20% 60%)', (string) $viaStyle);
+
+		$transparent = CSSStyleValue::parse('background-color', 'transparent');
+		self::assertInstanceOf(CSSRGB::class, $transparent);
+		self::assertSame('rgb(0% 0% 0% / 0%)', (string) $transparent);
+
+		$current = CSSStyleValue::parse('color', 'CurrentColor');
+		self::assertInstanceOf(CSSKeywordValue::class, $current);
+		self::assertSame('currentcolor', (string) $current);
+
+		// Non-color property does not turn named color keywords into CSSRGB
+		self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse('animation-name', 'rebeccapurple'));
+	}
+
 	public function testScaledRgbMathChannelsColorSpaceValidationAndPropertyHooks(): void
 	{
 		$calcRgb = CSSColorValue::parse('rgb(calc(255 * 0.5) 0 0)');
