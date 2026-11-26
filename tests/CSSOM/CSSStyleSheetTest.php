@@ -505,4 +505,42 @@ final class CSSStyleSheetTest extends TestCase
 			self::assertCount(1, $sheet->cssRules);
 		}
 	}
+
+	public function testBrowserErrorRecoveryModePreprocessingQualifiedPreludeAndEofClosers(): void
+	{
+		$browserOpts = new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions(browserErrorRecovery: true);
+
+		// 1. §3.3 NUL -> U+FFFD, BOM, CRLF/FF normalization, surrogates -> U+FFFD
+		$sheet = CSSStyleSheet::parse("\xEF\xBB\xBF\x00a {\r\ncontent: \"x\x00y\";\f}", $browserOpts);
+		self::assertSame("\u{FFFD}a { content: \"x\u{FFFD}y\"; }", $sheet->getCssText());
+
+		// 2. §5.4.3 ';' does NOT terminate a qualified rule prelude in browser mode
+		$defaultSheet = CSSStyleSheet::parse('not a rule; p { color: green; }');
+		self::assertCount(1, $defaultSheet->cssRules);
+		$browserQual = CSSStyleSheet::parse('not a rule; p { color: green; }', $browserOpts);
+		self::assertCount(0, $browserQual->cssRules);
+
+		// 3. EOF-closed string (with trailing '\'), url(), and '(' materialize balanced closers & round-trip
+		foreach ([
+			'div { content: "hello\\',
+			'div { background: url(https://example.test/a.png',
+			'div { width: calc(10px + 20px',
+		] as $eofInput) {
+			$recovered = CSSStyleSheet::parse($eofInput, $browserOpts);
+			self::assertCount(1, $recovered->cssRules, $eofInput);
+			$serialized = $recovered->getCssText();
+			$roundTrip = CSSStyleSheet::parse($serialized, $browserOpts);
+			self::assertSame($serialized, $roundTrip->getCssText(), $eofInput);
+		}
+
+		// 4. replaceSync inherits browserErrorRecovery while insertRule stays strict
+		$sheet->replaceSync("p { content: \"ok\x00\"; }");
+		self::assertSame("p { content: \"ok\u{FFFD}\"; }", $sheet->getCssText());
+		try {
+			$sheet->insertRule("a { color: \x00red; }", 0);
+			self::fail('Expected insertRule() to stay strict and reject control bytes.');
+		} catch (InvalidArgumentException) {
+			self::assertCount(1, $sheet->cssRules);
+		}
+	}
 }

@@ -21,11 +21,12 @@
 | `$maxMathDepth` | `?int`, default `DEFAULT_MAX_MATH_DEPTH` | Maximum math nesting depth; `null` disables this limit. |
 | `$maxErrors` | `?int`, default `DEFAULT_MAX_ERRORS` | Maximum parse-error diagnostics retained before truncation; `null` disables this limit. |
 | `$maxDeclarations` | `?int`, default `DEFAULT_MAX_DECLARATIONS` | Maximum parsed declarations accepted across a stylesheet or block; `null` disables this limit. |
+| `$browserErrorRecovery` | `bool`, default `false` | Enables opt-in CSS Syntax Level 3 §3.3 preprocessing (`NUL` / surrogates / invalid UTF-8 → `U+FFFD`, BOM/line-ending normalization) and §5 browser error recovery on lenient stylesheet/declaration parsing. |
 
 ## Public Methods
 
 | Signature | Parameters / behavior | Example |
 |---|---|---|
-| `__construct(?int $maxBytes = self::DEFAULT_MAX_BYTES, ?int $maxDepth = self::DEFAULT_MAX_DEPTH, ?int $maxRules = self::DEFAULT_MAX_RULES, ?int $maxMathDepth = self::DEFAULT_MAX_MATH_DEPTH, ?int $maxErrors = self::DEFAULT_MAX_ERRORS, ?int $maxDeclarations = self::DEFAULT_MAX_DECLARATIONS)` | Accepts positive integers or `null` for each limit. Throws `InvalidArgumentException` if a provided value is less than 1. | `$options = new CSSParserOptions(maxRules: 500);` |
+| `__construct(?int $maxBytes = self::DEFAULT_MAX_BYTES, ?int $maxDepth = self::DEFAULT_MAX_DEPTH, ?int $maxRules = self::DEFAULT_MAX_RULES, ?int $maxMathDepth = self::DEFAULT_MAX_MATH_DEPTH, ?int $maxErrors = self::DEFAULT_MAX_ERRORS, ?int $maxDeclarations = self::DEFAULT_MAX_DECLARATIONS, bool $browserErrorRecovery = false)` | Accepts positive integers or `null` for each limit, plus `$browserErrorRecovery`. Throws `InvalidArgumentException` if a numeric limit is less than 1. | `$options = new CSSParserOptions(maxRules: 500);` |
 | `default(): self` (static) | Returns the shared immutable default `CSSParserOptions` instance. | `$options = CSSParserOptions::default();` |
-| `unlimited(): self` (static) | Creates options with all six limits set to `null`. | `$options = CSSParserOptions::unlimited();` |
+| `unlimited(bool $browserErrorRecovery = false): self` (static) | Creates options with all six limits set to `null`. | `$options = CSSParserOptions::unlimited();` |

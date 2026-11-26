@@ -55,7 +55,9 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\StyleSheetList;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrixReadOnly;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSInputPreprocessor;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSTokenizer;
 use Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext;
 use Jimbo2150\PhpCssTypedOm\TypedOM\StylePropertyMap;
 use Jimbo2150\PhpCssTypedOm\TypedOM\StylePropertyMapReadOnly;
@@ -3686,6 +3688,79 @@ final class CSSSecurityAndLimitsTest extends TestCase
 			self::fail('Expected control byte in colorScheme to throw.');
 		} catch (InvalidArgumentException $e) {
 			self::assertNotSame('', $e->getMessage());
+		}
+	}
+
+	public function testEnforcesCssSyntaxLevel3TokenizerPreprocessorAndIterativeLimits(): void
+	{
+		// 1. 3x NUL byte amplification against maxBytes (both throwing and non-throwing paths)
+		$ampOpts = new CSSParserOptions(maxBytes: 24, browserErrorRecovery: true);
+		$nulPayload = str_repeat("\x00", 10); // 10 bytes raw -> 30 bytes after U+FFFD expansion
+		try {
+			CSSInputPreprocessor::preprocess($nulPayload, $ampOpts);
+			self::fail('Expected 3x NUL expansion to throw CSSParserLimitException.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		$nonThrowSheet = CSSStyleSheet::parse($nulPayload, $ampOpts);
+		self::assertCount(0, $nonThrowSheet->cssRules);
+		self::assertNotEmpty($nonThrowSheet->getParseErrors());
+
+		try {
+			CSSParser::parseStylesheet($nulPayload, $ampOpts, true);
+			self::fail('Expected throwOnLimit=true to throw on 3x NUL expansion.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		$declDiags = [];
+		$nonThrowDecl = CSSStyleDeclaration::parse($nulPayload, false, $declDiags, $ampOpts);
+		self::assertCount(0, $nonThrowDecl);
+		self::assertNotEmpty($declDiags);
+
+		// 2. CSSTokenizer maxTokens DoS cap
+		try {
+			CSSTokenizer::tokenize(str_repeat('a;', 100), null, false, 50);
+			self::fail('Expected maxTokens cap to throw CSSParserLimitException.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		// 3. <bad-url-token> escape remnants & <bad-string-token> recovery cannot break out into sibling rules
+		$badUrlSheet = CSSStyleSheet::parse(
+			'a { bg: url(x y \) ); color: red; } b { color: blue; }',
+			$ampOpts->unlimited(true),
+		);
+		self::assertCount(2, $badUrlSheet->cssRules);
+		self::assertInstanceOf(CSSStyleRule::class, $badUrlSheet->cssRules[0]);
+		self::assertSame('red', $badUrlSheet->cssRules[0]->style->getPropertyValue('color'));
+		self::assertSame('', $badUrlSheet->cssRules[0]->style->getPropertyValue('bg'));
+
+		$badStrSheet = CSSStyleSheet::parse("a { content: \"unclosed\n; color: red; } b { color: blue; }");
+		self::assertCount(2, $badStrSheet->cssRules);
+		self::assertInstanceOf(CSSStyleRule::class, $badStrSheet->cssRules[0]);
+		self::assertSame('', $badStrSheet->cssRules[0]->style->getPropertyValue('content'));
+		self::assertSame('red', $badStrSheet->cssRules[0]->style->getPropertyValue('color'));
+
+		// 4. Browser-mode EOF string ending with trailing '\' strips trailing '\' before appending closing quote
+		$eofSlashSheet = CSSStyleSheet::parse('a { content: "safe\\', new CSSParserOptions(browserErrorRecovery: true));
+		self::assertSame('a { content: "safe"; }', $eofSlashSheet->getCssText());
+
+		// 5. 600-deep nested stylesheet parses iteratively under unlimited() with xdebug.max_nesting_level=512
+		$deepCss = str_repeat('@media all { ', 600) . 'a { color: red; }' . str_repeat(' }', 600);
+		$prevNesting = ini_get('xdebug.max_nesting_level');
+		if ($prevNesting !== false) {
+			@ini_set('xdebug.max_nesting_level', '512');
+		}
+		try {
+			$deepParsed = CSSStyleSheet::parse($deepCss, CSSParserOptions::unlimited());
+			self::assertSame([], $deepParsed->getParseErrors());
+			self::assertSame(601, $deepParsed->getTotalRuleCount());
+		} finally {
+			if ($prevNesting !== false) {
+				@ini_set('xdebug.max_nesting_level', $prevNesting);
+			}
 		}
 	}
 }

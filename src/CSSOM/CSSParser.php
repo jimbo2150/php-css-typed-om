@@ -5,11 +5,14 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSInputPreprocessor;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSTokenizer;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSTokenType;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 
 /**
- * Single-pass cursor-driven parser for standalone CSS stylesheets, rules, and declaration blocks.
+ * Iterative, token-driven CSS Syntax Level 3 parser for standalone stylesheets, rules, and declaration blocks.
  *
  * `parseStylesheet()` recovers from malformed sections and reports byte-offset diagnostics,
  * whereas `parseSingleRule()`, `parseSingleNestedRule()`, `parseSingleKeyframeRule()`,
@@ -18,6 +21,13 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
  */
 final class CSSParser
 {
+	private const int FRAME_RULE_LIST = 1;
+	private const int FRAME_STYLE_BLOCK = 2;
+	private const int FRAME_FFV_BODY = 3;
+
+	private const string FAST_DECL_UNSAFE_BYTES = "\\\"'[]{}<;\r\f\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0B\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x7F";
+	private const string CONTROL_BYTES = "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0B\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x7F";
+
 	/** @var array<string, true> */
 	private const array GROUPING_AT_RULES = [
 		'container' => true,
@@ -77,36 +87,66 @@ final class CSSParser
 		$sheet->configureLimitsInternal($options);
 		$sheet->configureErrorLimit($options->maxErrors);
 
-		$length = strlen($cssText);
-		if ($options->maxBytes !== null && $length > $options->maxBytes) {
-			$message = sprintf('CSS input exceeds maximum size of %d bytes.', $options->maxBytes);
-			if ($throwOnLimit) {
-				throw new CSSParserLimitException($message);
+		$browserMode = $options->browserErrorRecovery;
+		if ($browserMode) {
+			try {
+				$source = CSSInputPreprocessor::preprocess($cssText, $options);
+			} catch (CSSParserLimitException $exception) {
+				if ($throwOnLimit) {
+					throw $exception;
+				}
+				$sheet->recordParseError($exception->getMessage(), 0);
+				return $sheet;
 			}
-			$sheet->recordParseError($message, 0);
-			return $sheet;
+			$startOffset = 0;
+			$checkControlBytes = false;
+		} else {
+			$length = strlen($cssText);
+			if ($options->maxBytes !== null && $length > $options->maxBytes) {
+				$message = sprintf('CSS input exceeds maximum size of %d bytes.', $options->maxBytes);
+				if ($throwOnLimit) {
+					throw new CSSParserLimitException($message);
+				}
+				$sheet->recordParseError($message, 0);
+				return $sheet;
+			}
+			$source = $cssText;
+			$startOffset = str_starts_with($source, "\xEF\xBB\xBF") ? 3 : 0;
+			$checkControlBytes = true;
 		}
 
-		$offset = str_starts_with($cssText, "\xEF\xBB\xBF") ? 3 : 0;
+		$tokenizer = CSSTokenizer::forParserInternal($source, $options, false, $checkControlBytes, $startOffset);
 		$ruleCount = 0;
 		$declarationCount = 0;
 		$declLimitRecorded = false;
-		self::parseRuleList(
-			$cssText,
-			$offset,
-			$length,
-			$sheet->getCssRules(),
+
+		$rootFrame = [
+			'kind' => self::FRAME_RULE_LIST,
+			'rules' => $sheet->getCssRules(),
+			'keyframes' => false,
+			'depth' => 0,
+			'stopOnClosingBrace' => false,
+			'openBraceOffset' => null,
+			'allowEofClose' => true,
+			'allowCdoCdc' => true,
+			'limitReached' => false,
+			'pendingRule' => null,
+			'parentRules' => null,
+			'parentStopOnBrace' => false,
+		];
+
+		self::runIterativeEngine(
+			$source,
+			$tokenizer,
+			$rootFrame,
 			$sheet,
-			false,
-			0,
 			$options,
 			$ruleCount,
 			$declarationCount,
 			$throwOnLimit,
-			false,
-			null,
 			$declLimitRecorded,
-			true,
+			$browserMode,
+			$checkControlBytes,
 		);
 
 		return $sheet;
@@ -142,22 +182,38 @@ final class CSSParser
 
 		$sheet = new CSSStyleSheet();
 		$sheet->configureLimitsInternal($options);
-		$length = strlen($cssText);
-		$offset = str_starts_with($cssText, "\xEF\xBB\xBF") ? 3 : 0;
+		$startOffset = str_starts_with($cssText, "\xEF\xBB\xBF") ? 3 : 0;
+		$tokenizer = CSSTokenizer::forParserInternal($cssText, $options, false, true, $startOffset);
 		$ruleCount = $initialRuleCount;
 		$declarationCount = $initialDeclarationCount;
+		$declLimitRecorded = false;
 
-		self::parseRuleList(
+		$rootFrame = [
+			'kind' => self::FRAME_RULE_LIST,
+			'rules' => $sheet->getCssRules(),
+			'keyframes' => false,
+			'depth' => $initialDepth,
+			'stopOnClosingBrace' => false,
+			'openBraceOffset' => null,
+			'allowEofClose' => false,
+			'allowCdoCdc' => $initialDepth === 0,
+			'limitReached' => false,
+			'pendingRule' => null,
+			'parentRules' => null,
+			'parentStopOnBrace' => false,
+		];
+
+		self::runIterativeEngine(
 			$cssText,
-			$offset,
-			$length,
-			$sheet->getCssRules(),
+			$tokenizer,
+			$rootFrame,
 			$sheet,
-			false,
-			$initialDepth,
 			$options,
 			$ruleCount,
 			$declarationCount,
+			true,
+			$declLimitRecorded,
+			false,
 			true,
 		);
 
@@ -190,36 +246,165 @@ final class CSSParser
 		if ($options->maxBytes !== null && strlen($cssText) > $options->maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS rule exceeds maximum size of %d bytes.', $options->maxBytes));
 		}
+		if ($options->maxDepth !== null && $initialDepth > $options->maxDepth) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS nesting depth of %d exceeded.', $options->maxDepth));
+		}
 
 		$sheet = new CSSStyleSheet();
 		$sheet->configureLimitsInternal($options);
 		$ruleCount = $initialRuleCount;
 		$declarationCount = $initialDeclarationCount;
-		$length = strlen($cssText);
-		$offset = self::skipTrivia($cssText, str_starts_with($cssText, "\xEF\xBB\xBF") ? 3 : 0, $length, $sheet, false);
-		if ($sheet->getParseErrors() !== []) {
-			throw new InvalidArgumentException($sheet->getParseErrors()[0]['message']);
-		}
-		if ($offset >= $length) {
+		$startOffset = str_starts_with($cssText, "\xEF\xBB\xBF") ? 3 : 0;
+		$tokenizer = CSSTokenizer::forParserInternal($cssText, $options, false, true, $startOffset);
+
+		$firstType = self::advanceNonTrivia($tokenizer, $sheet, true, false);
+		self::assertNoSheetParseErrors($sheet);
+		if ($firstType === CSSTokenType::Eof) {
 			throw new InvalidArgumentException('Exactly one valid nested CSS rule is required.');
 		}
 
-		$rule = self::parseSingleNestedRuleInternal(
-			$cssText,
-			$offset,
-			$length,
-			$sheet,
-			$initialDepth,
-			$options,
-			$ruleCount,
-			$declarationCount,
-			$functionMode,
-		);
-		$trailing = self::skipTrivia($cssText, $offset, $length, $sheet, false);
-		if ($trailing < $length) {
+		$collector = new CSSRuleList(null);
+		$ruleStart = $tokenizer->tokenStart;
+		$end = strlen($cssText);
+		$declLimitRecorded = false;
+
+		$stmt = self::consumeStatementOrPrelude($cssText, $tokenizer, $firstType, false, true, false);
+		if ($stmt['controlOffset'] !== null) {
+			throw new InvalidArgumentException('CSS rule prelude contains disallowed control characters.');
+		}
+		if ($stmt['unclosedCommentOffset'] !== null) {
+			throw new InvalidArgumentException('Unclosed CSS comment.');
+		}
+		if ($stmt['badTokenMessage'] !== null) {
+			throw new InvalidArgumentException($stmt['badTokenMessage']);
+		}
+		if ($stmt['delimiter'] === CSSTokenType::Eof) {
+			throw new InvalidArgumentException('Unterminated nested CSS rule.');
+		}
+
+		$delimOffset = $stmt['delimOffset'];
+		$prelude = self::buildCleanPrelude($cssText, $ruleStart, $delimOffset, $stmt['hasComments'], $sheet);
+		if ($prelude === null) {
+			self::assertNoSheetParseErrors($sheet);
+			throw new InvalidArgumentException('CSS rule prelude contains disallowed control characters.');
+		}
+
+		if ($stmt['delimiter'] === CSSTokenType::Semicolon) {
+			if ($firstType !== CSSTokenType::AtKeyword) {
+				throw new InvalidArgumentException('A qualified rule requires a block.');
+			}
+			[$name] = self::splitAtRulePrelude($prelude);
+			if (isset(self::STATEMENT_AT_RULES[$name])) {
+				throw new InvalidArgumentException(sprintf('Statement @%s rule is not allowed inside a nested rule.', $name));
+			}
+			$rule = self::parseSingleRule(substr($cssText, $ruleStart, $delimOffset - $ruleStart + 1), $options, $initialDepth, $ruleCount);
+		} elseif ($stmt['delimiter'] === CSSTokenType::LeftCurlyBracket) {
+			if ($prelude === '') {
+				throw new InvalidArgumentException('CSS rule prelude cannot be empty.');
+			}
+			if ($options->maxRules !== null && $ruleCount >= $options->maxRules) {
+				throw new CSSParserLimitException(sprintf('Maximum CSS rule limit of %d exceeded.', $options->maxRules));
+			}
+
+			if ($firstType === CSSTokenType::AtKeyword) {
+				$childDepth = self::nextDepth($initialDepth);
+				$atKeywordEnd = $stmt['atKeywordEnd'];
+				$frame = self::prepareBlockAtRuleFrame(
+					$prelude,
+					$cssText,
+					$ruleStart,
+					$atKeywordEnd,
+					$delimOffset,
+					$tokenizer,
+					$sheet,
+					true,
+					$childDepth,
+					$options,
+					$ruleCount,
+					true,
+					$functionMode,
+					false,
+					$collector,
+					true,
+				);
+				if ($frame === null) {
+					self::assertNoSheetParseErrors($sheet);
+					throw new InvalidArgumentException('Malformed nested CSS rule.');
+				}
+				if ($frame !== true) {
+					self::runIterativeEngine(
+						$cssText,
+						$tokenizer,
+						$frame,
+						$sheet,
+						$options,
+						$ruleCount,
+						$declarationCount,
+						true,
+						$declLimitRecorded,
+						false,
+						true,
+					);
+				}
+			} else {
+				$childDepth = self::nextDepth($initialDepth);
+				if ($options->maxDepth !== null && $childDepth > $options->maxDepth) {
+					throw new CSSParserLimitException(sprintf('Maximum CSS nesting depth of %d exceeded.', $options->maxDepth));
+				}
+				$nonDefaultDeclLimits = self::hasNonDefaultDeclLimits($options);
+				$nestedStyleRule = new CSSStyleRule($prelude, $nonDefaultDeclLimits ? new CSSStyleProperties('', $options) : null, $options->maxBytes);
+				self::incrementCounter($ruleCount, 'CSS rule count');
+				$frame = [
+					'kind' => self::FRAME_STYLE_BLOCK,
+					'currentStyle' => $nestedStyleRule->getStyle(),
+					'ownerRule' => $nestedStyleRule,
+					'depth' => $childDepth,
+					'openBraceOffset' => $delimOffset,
+					'ruleStartOffset' => $ruleStart,
+					'allowNestedRules' => true,
+					'pageMode' => false,
+					'functionMode' => false,
+					'hasNestedRule' => false,
+					'isGroupingWithDecls' => false,
+					'allowEmptyInitialValue' => false,
+					'sawEmptyInitialValue' => false,
+					'allowEofClose' => false,
+					'diagnostics' => [],
+					'pendingRule' => $nestedStyleRule,
+					'declAtRuleName' => null,
+					'declAtRuleCondition' => null,
+					'parentRules' => $collector,
+					'parentStopOnBrace' => true,
+				];
+				self::runIterativeEngine(
+					$cssText,
+					$tokenizer,
+					$frame,
+					$sheet,
+					$options,
+					$ruleCount,
+					$declarationCount,
+					true,
+					$declLimitRecorded,
+					false,
+					true,
+				);
+			}
+
+			self::assertNoSheetParseErrors($sheet);
+			if (count($collector) !== 1) {
+				throw new InvalidArgumentException('Malformed nested CSS rule block.');
+			}
+			$rule = $collector->getRulesRaw()[0];
+		} else {
+			throw new InvalidArgumentException('Invalid nested CSS rule.');
+		}
+
+		$trailing = self::advanceNonTrivia($tokenizer, $sheet, true, false);
+		self::assertNoSheetParseErrors($sheet);
+		if ($trailing !== CSSTokenType::Eof) {
 			throw new InvalidArgumentException('Unexpected trailing content in nested CSS rule.');
 		}
-		self::assertNoSheetParseErrors($sheet);
 
 		$rule->attach($sheet, null);
 		$rule->attach(null, null);
@@ -247,23 +432,41 @@ final class CSSParser
 
 		$sheet = new CSSStyleSheet();
 		$sheet->configureLimitsInternal($options);
+		$startOffset = str_starts_with($cssText, "\xEF\xBB\xBF") ? 3 : 0;
+		$tokenizer = CSSTokenizer::forParserInternal($cssText, $options, false, true, $startOffset);
 		$ruleCount = $initialRuleCount;
 		$declarationCount = $initialDeclarationCount;
-		$offset = str_starts_with($cssText, "\xEF\xBB\xBF") ? 3 : 0;
+		$declLimitRecorded = false;
 
-		self::parseRuleList(
+		$rootFrame = [
+			'kind' => self::FRAME_RULE_LIST,
+			'rules' => $sheet->getCssRules(),
+			'keyframes' => true,
+			'depth' => $initialDepth,
+			'stopOnClosingBrace' => false,
+			'openBraceOffset' => null,
+			'allowEofClose' => false,
+			'allowCdoCdc' => false,
+			'limitReached' => false,
+			'pendingRule' => null,
+			'parentRules' => null,
+			'parentStopOnBrace' => false,
+		];
+
+		self::runIterativeEngine(
 			$cssText,
-			$offset,
-			strlen($cssText),
-			$sheet->getCssRules(),
+			$tokenizer,
+			$rootFrame,
 			$sheet,
-			true,
-			$initialDepth,
 			$options,
 			$ruleCount,
 			$declarationCount,
 			true,
+			$declLimitRecorded,
+			false,
+			true,
 		);
+
 		if ($sheet->getParseErrors() !== [] || count($sheet->getCssRules()) !== 1) {
 			$message = $sheet->getParseErrors()[0]['message'] ?? 'Exactly one valid CSS keyframe rule is required.';
 			throw new InvalidArgumentException($message);
@@ -303,17 +506,31 @@ final class CSSParser
 
 		$sheet = new CSSStyleSheet();
 		$sheet->configureLimitsInternal($options);
-		$length = strlen($cssText);
-		$offset = self::skipTrivia($cssText, str_starts_with($cssText, "\xEF\xBB\xBF") ? 3 : 0, $length, $sheet, false);
-		if ($sheet->getParseErrors() !== []) {
-			throw new InvalidArgumentException($sheet->getParseErrors()[0]['message']);
+		$startOffset = str_starts_with($cssText, "\xEF\xBB\xBF") ? 3 : 0;
+		$tokenizer = CSSTokenizer::forParserInternal($cssText, $options, false, true, $startOffset);
+
+		$firstType = self::advanceNonTrivia($tokenizer, $sheet, true, false);
+		self::assertNoSheetParseErrors($sheet);
+		if ($firstType !== CSSTokenType::AtKeyword) {
+			throw new InvalidArgumentException('Malformed page margin rule.');
 		}
-		$delimiter = CSSSyntaxScanner::findNextTopLevelDelimiterBytes($cssText, '{;}', $offset, $length);
-		if ($delimiter === null || $delimiter['delimiter'] !== '{') {
+		$ruleStart = $tokenizer->tokenStart;
+		$stmt = self::consumeStatementOrPrelude($cssText, $tokenizer, $firstType, false, true, false);
+		if ($stmt['controlOffset'] !== null) {
+			throw new InvalidArgumentException('CSS margin rule prelude contains disallowed control characters.');
+		}
+		if ($stmt['unclosedCommentOffset'] !== null) {
+			throw new InvalidArgumentException('Unclosed CSS comment.');
+		}
+		if ($stmt['badTokenMessage'] !== null) {
+			throw new InvalidArgumentException($stmt['badTokenMessage']);
+		}
+		if ($stmt['delimiter'] !== CSSTokenType::LeftCurlyBracket) {
 			throw new InvalidArgumentException('Malformed page margin rule.');
 		}
 
-		$prelude = self::extractPrelude($cssText, $offset, $delimiter['offset'], $sheet);
+		$braceOffset = $stmt['delimOffset'];
+		$prelude = self::buildCleanPrelude($cssText, $ruleStart, $braceOffset, $stmt['hasComments'], $sheet);
 		if ($prelude === null) {
 			self::assertNoSheetParseErrors($sheet);
 			throw new InvalidArgumentException('CSS margin rule prelude contains disallowed control characters.');
@@ -323,408 +540,1279 @@ final class CSSParser
 			throw new InvalidArgumentException('Unexpected prelude in page margin rule.');
 		}
 
-		$braceOffset = $delimiter['offset'];
-		$offset = $braceOffset + 1;
+		$collector = new CSSRuleList(null);
 		$style = new CSSStyleDeclaration('', $options);
 		$ruleCount = $initialRuleCount;
 		$declarationCount = $initialDeclarationCount;
+		$declLimitRecorded = false;
 
-		$closed = self::parseStyleBlock(
+		$frame = [
+			'kind' => self::FRAME_STYLE_BLOCK,
+			'currentStyle' => $style,
+			'ownerRule' => null,
+			'depth' => self::nextDepth($initialDepth),
+			'openBraceOffset' => $braceOffset,
+			'ruleStartOffset' => $ruleStart,
+			'allowNestedRules' => false,
+			'pageMode' => false,
+			'functionMode' => false,
+			'hasNestedRule' => false,
+			'isGroupingWithDecls' => false,
+			'allowEmptyInitialValue' => false,
+			'sawEmptyInitialValue' => false,
+			'allowEofClose' => false,
+			'diagnostics' => [],
+			'pendingRule' => null,
+			'declAtRuleName' => '@margin',
+			'declAtRuleCondition' => $name,
+			'parentRules' => $collector,
+			'parentStopOnBrace' => true,
+		];
+
+		self::runIterativeEngine(
 			$cssText,
-			$offset,
-			$length,
-			$style,
-			null,
+			$tokenizer,
+			$frame,
 			$sheet,
-			self::nextDepth($initialDepth),
 			$options,
 			$ruleCount,
 			$declarationCount,
 			true,
+			$declLimitRecorded,
 			false,
-			false,
-			false,
-			$braceOffset,
+			true,
 		);
-		if (!$closed) {
+
+		self::assertNoSheetParseErrors($sheet);
+		if (count($collector) !== 1) {
 			throw new InvalidArgumentException('Unclosed page margin rule block.');
 		}
-		if (self::skipTrivia($cssText, $offset, $length, $sheet, false) < $length) {
+		$trailing = self::advanceNonTrivia($tokenizer, $sheet, true, false);
+		self::assertNoSheetParseErrors($sheet);
+		if ($trailing !== CSSTokenType::Eof) {
 			throw new InvalidArgumentException('Unexpected trailing content in page margin rule.');
 		}
-		self::assertNoSheetParseErrors($sheet);
 
-		return new CSSMarginRule($name, $style, $options->maxBytes);
+		$marginRule = $collector->getRulesRaw()[0];
+		assert($marginRule instanceof CSSMarginRule);
+		$marginRule->attach(null, null);
+
+		return $marginRule;
 	}
 
-	private static function assertNoSheetParseErrors(CSSStyleSheet $sheet): void
-	{
-		$errors = $sheet->getParseErrors();
-		if ($errors !== []) {
-			throw new InvalidArgumentException($errors[0]['message']);
-		}
-	}
-
-	private static function parseRuleList(
+	/**
+	 * Iterative CSS Syntax L3 §5 state machine over `CSSTokenizer` frames.
+	 *
+	 * @param array<string, mixed> $initialFrame
+	 */
+	private static function runIterativeEngine(
 		string $source,
-		int &$offset,
-		int $end,
-		CSSRuleList $rules,
+		CSSTokenizer $tokenizer,
+		array $initialFrame,
 		CSSStyleSheet $sheet,
-		bool $keyframes,
-		int $depth,
 		CSSParserOptions $options,
 		int &$ruleCount,
 		int &$declarationCount,
 		bool $throwOnLimit,
-		bool $stopOnClosingBrace = false,
-		?int $openBraceOffset = null,
-		bool &$declLimitRecorded = false,
-		bool $allowEofClose = false,
-	): bool {
-		if ($options->maxDepth !== null && $depth > $options->maxDepth) {
-			$message = sprintf('Maximum CSS nesting depth of %d exceeded.', $options->maxDepth);
-			if ($throwOnLimit) {
-				throw new CSSParserLimitException($message);
-			}
-			$sheet->recordParseError($message, $openBraceOffset ?? $offset);
-			return false;
-		}
+		bool &$declLimitRecorded,
+		bool $browserMode,
+		bool $checkControlBytes,
+	): void {
+		$length = strlen($source);
+		/** @var list<array<string, mixed>> $stack */
+		$stack = [$initialFrame];
 
-		$allowCdoCdc = $depth === 0 && !$stopOnClosingBrace;
-		$limitReached = false;
+		while ($stack !== []) {
+			$topIdx = count($stack) - 1;
+			$kind = $stack[$topIdx]['kind'];
 
-		while ($offset < $end) {
-			$offset = self::skipTrivia($source, $offset, $end, $sheet, $allowCdoCdc);
-			if ($offset >= $end) {
-				break;
-			}
+			if ($kind === self::FRAME_RULE_LIST) {
+				/** @var CSSRuleList $rules */
+				$rules = $stack[$topIdx]['rules'];
+				$keyframes = (bool) $stack[$topIdx]['keyframes'];
+				$depth = (int) $stack[$topIdx]['depth'];
+				$stopOnBrace = (bool) $stack[$topIdx]['stopOnClosingBrace'];
+				/** @var ?int $openBraceOffset */
+				$openBraceOffset = $stack[$topIdx]['openBraceOffset'];
+				$allowEofClose = (bool) $stack[$topIdx]['allowEofClose'];
+				$allowCdoCdc = (bool) $stack[$topIdx]['allowCdoCdc'];
+				$limitReached = (bool) $stack[$topIdx]['limitReached'];
 
-			$delimiter = CSSSyntaxScanner::findNextTopLevelDelimiterBytes($source, '{;}', $offset, $end);
-			if ($delimiter === null) {
-				if ($stopOnClosingBrace) {
-					$sheet->recordParseError('Unclosed CSS rule block.', $openBraceOffset ?? $offset);
-					$offset = $end;
-					return $allowEofClose;
-				}
-				$sheet->recordParseError('Unterminated CSS rule.', $offset);
-				$offset = $end;
-				return true;
-			}
-
-			$ruleStart = $offset;
-			$delimChar = $delimiter['delimiter'];
-			$delimOffset = $delimiter['offset'];
-
-			if ($delimChar === '}') {
-				if ($stopOnClosingBrace) {
-					if ($ruleStart < $delimOffset) {
-						$sheet->recordParseError('Unexpected trailing tokens before closing brace.', $ruleStart);
+				if ($options->maxDepth !== null && $depth > $options->maxDepth) {
+					$message = sprintf('Maximum CSS nesting depth of %d exceeded.', $options->maxDepth);
+					if ($throwOnLimit) {
+						throw new CSSParserLimitException($message);
 					}
-					$offset = $delimOffset + 1;
-					return true;
-				}
-				$sheet->recordParseError('Unexpected closing brace.', $delimOffset);
-				$offset = $delimOffset + 1;
-				continue;
-			}
-
-			if ($limitReached || !self::canRecordRule($options, $ruleCount, $sheet, $ruleStart, $throwOnLimit)) {
-				$limitReached = true;
-				if ($delimChar === ';') {
-					$offset = $delimOffset + 1;
-					continue;
-				}
-				$close = CSSSyntaxScanner::findMatchingBlockEnd($source, $delimOffset, $end);
-				if ($close === null || $close >= $end) {
-					if ($stopOnClosingBrace) {
-						$sheet->recordParseError('Unclosed CSS rule block.', $openBraceOffset ?? $delimOffset);
-						$offset = $end;
-						return $allowEofClose;
-					}
-					$offset = $end;
-					return true;
-				}
-				$offset = $close + 1;
-				continue;
-			}
-
-			$prelude = self::extractPrelude($source, $ruleStart, $delimOffset, $sheet);
-			if ($prelude === null) {
-				if ($delimChar === ';') {
-					$offset = $delimOffset + 1;
-				} else {
-					self::skipMalformedBlock($source, $delimOffset, $offset, $end, $sheet);
-				}
-				continue;
-			}
-
-			if ($delimChar === ';') {
-				$offset = $delimOffset + 1;
-				if ($keyframes) {
-					$sheet->recordParseError(
-						str_starts_with($prelude, '@')
-							? 'Nested at-rules are not allowed inside @keyframes.'
-							: 'Stray declaration or statement is not allowed directly inside @keyframes.',
-						$ruleStart,
-					);
-					continue;
-				}
-				if (!str_starts_with($prelude, '@')) {
-					$sheet->recordParseError('A qualified rule requires a block.', $ruleStart);
-					continue;
-				}
-				try {
-					[$name] = self::splitAtRulePrelude($prelude);
-					if (isset(self::STATEMENT_AT_RULES[$name])) {
-						$stmt = self::parseAtRulePrelude($prelude, $options->maxBytes);
-						$stopOnClosingBrace ? $rules->appendDetached($stmt) : $rules->appendParsedInternal($stmt);
-						self::incrementCounter($ruleCount, 'CSS rule count');
+					$sheet->recordParseError($message, $openBraceOffset ?? $tokenizer->getOffsetInternal());
+					if ($stopOnBrace) {
+						self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes);
 					} else {
-						$raw = substr($source, $ruleStart, $offset - $ruleStart);
-						$opaque = self::createValidatedOpaqueRule($raw, $sheet, $ruleStart, $options->maxBytes, $throwOnLimit);
-						if ($opaque !== null) {
-							$stopOnClosingBrace ? $rules->appendDetached($opaque) : $rules->appendParsedInternal($opaque);
-							self::incrementCounter($ruleCount, 'CSS rule count');
+						$tokenizer->setOffsetInternal($length);
+					}
+					array_pop($stack);
+					continue;
+				}
+
+				// C-level clean ASCII qualified-rule fast path
+				if (!$limitReached) {
+					$fastPos = $tokenizer->getOffsetInternal();
+					while ($fastPos < $length) {
+						$fastPos += strspn($source, " \t\n", $fastPos, $length - $fastPos);
+						if ($fastPos + 1 < $length && $source[$fastPos] === '/' && $source[$fastPos + 1] === '*') {
+							$cEnd = strpos($source, '*/', $fastPos + 2);
+							if ($cEnd === false || $cEnd + 1 >= $length) {
+								break;
+							}
+							if ($checkControlBytes && CSSSyntaxScanner::hasControlCharactersInSlice($source, $fastPos + 2, $cEnd - ($fastPos + 2))) {
+								break;
+							}
+							$fastPos = $cEnd + 2;
+							continue;
+						}
+						break;
+					}
+					if ($fastPos < $length && $source[$fastPos] !== '@' && $source[$fastPos] !== '<' && $source[$fastPos] !== '}' && $source[$fastPos] !== '-' && !($source[$fastPos] === '/' && $fastPos + 1 < $length && $source[$fastPos + 1] === '*')) {
+						$fastSpan = strcspn($source, self::FAST_DECL_UNSAFE_BYTES, $fastPos, $length - $fastPos);
+						$fastStop = $fastPos + $fastSpan;
+						if ($fastStop < $length
+							&& $source[$fastStop] === '{'
+							&& CSSStyleDeclaration::isCleanAsciiSliceSafeInternal($source, $fastPos, $fastStop)
+						) {
+							$prelude = trim(substr($source, $fastPos, $fastSpan), " \t\n");
+							if ($prelude !== '' && self::canRecordRule($options, $ruleCount, $sheet, $fastPos, $throwOnLimit)) {
+								$childDepth = self::nextDepth($depth);
+								if ($options->maxDepth !== null && $childDepth > $options->maxDepth) {
+									$message = sprintf('Maximum CSS nesting depth of %d exceeded.', $options->maxDepth);
+									if ($throwOnLimit) {
+										throw new CSSParserLimitException($message);
+									}
+									$sheet->recordParseError($message, $fastStop + 1);
+									$tokenizer->setOffsetInternal($fastStop + 1);
+									if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+										if ($stopOnBrace && $allowEofClose) {
+											self::commitClosedRuleFrame($stack[$topIdx]);
+										}
+										array_pop($stack);
+									}
+									continue;
+								}
+								$nonDefaultDeclLimits = self::hasNonDefaultDeclLimits($options);
+								$fastRule = null;
+								try {
+									$initialStyle = $nonDefaultDeclLimits ? new CSSStyleProperties('', $options) : null;
+									$fastRule = $keyframes
+										? new CSSKeyframeRule($prelude, $initialStyle, $options->maxBytes)
+										: new CSSStyleRule($prelude, $initialStyle, $options->maxBytes);
+								} catch (InvalidArgumentException $exception) {
+									if ($throwOnLimit && $exception instanceof CSSParserLimitException) {
+										throw $exception;
+									}
+									$sheet->recordParseError($exception->getMessage(), $fastPos);
+									$tokenizer->setOffsetInternal($fastStop + 1);
+									if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+										$sheet->recordParseError('Unclosed CSS rule block.', $fastStop);
+										if ($stopOnBrace && $allowEofClose) {
+											self::commitClosedRuleFrame($stack[$topIdx]);
+										}
+										array_pop($stack);
+									}
+									continue;
+								}
+								self::incrementCounter($ruleCount, 'CSS rule count');
+								$tokenizer->setOffsetInternal($fastStop + 1);
+								$stack[] = [
+									'kind' => self::FRAME_STYLE_BLOCK,
+									'currentStyle' => $fastRule->getStyle(),
+									'ownerRule' => $fastRule instanceof CSSGroupingRule ? $fastRule : null,
+									'depth' => $childDepth,
+									'openBraceOffset' => $fastStop,
+									'ruleStartOffset' => $fastPos,
+									'allowNestedRules' => !$keyframes,
+									'pageMode' => false,
+									'functionMode' => false,
+									'hasNestedRule' => false,
+									'isGroupingWithDecls' => false,
+									'allowEmptyInitialValue' => false,
+									'sawEmptyInitialValue' => false,
+									'allowEofClose' => $allowEofClose,
+									'diagnostics' => [],
+									'pendingRule' => $fastRule,
+									'declAtRuleName' => null,
+									'declAtRuleCondition' => null,
+									'parentRules' => $rules,
+									'parentStopOnBrace' => $stopOnBrace,
+								];
+								continue;
+							}
 						}
 					}
+				}
+
+				$firstType = self::advanceNonTrivia($tokenizer, $sheet, $checkControlBytes, $allowCdoCdc);
+
+				if ($firstType === CSSTokenType::Eof) {
+					if ($stopOnBrace) {
+						$sheet->recordParseError('Unclosed CSS rule block.', $openBraceOffset ?? $tokenizer->tokenStart);
+						if ($allowEofClose) {
+							self::commitClosedRuleFrame($stack[$topIdx]);
+						}
+					}
+					array_pop($stack);
+					continue;
+				}
+
+				if ($firstType === CSSTokenType::RightCurlyBracket) {
+					if ($stopOnBrace) {
+						self::commitClosedRuleFrame($stack[$topIdx]);
+						array_pop($stack);
+					} else {
+						$sheet->recordParseError('Unexpected closing brace.', $tokenizer->tokenStart);
+					}
+					continue;
+				}
+
+				$ruleStart = $tokenizer->tokenStart;
+				$isAtRule = $firstType === CSSTokenType::AtKeyword;
+				$stmt = self::consumeStatementOrPrelude($source, $tokenizer, $firstType, $browserMode, $checkControlBytes, $isAtRule);
+				$delimType = $stmt['delimiter'];
+				$delimOffset = $stmt['delimOffset'];
+
+				if ($delimType === CSSTokenType::Eof) {
+					if ($stmt['controlOffset'] !== null) {
+						$sheet->recordParseError('CSS rule prelude contains disallowed control characters.', $ruleStart);
+					}
+					if ($stmt['unclosedCommentOffset'] !== null) {
+						$sheet->recordParseError('Unclosed CSS comment.', $stmt['unclosedCommentOffset']);
+					}
+					if ($stopOnBrace) {
+						$sheet->recordParseError('Unclosed CSS rule block.', $openBraceOffset ?? $ruleStart);
+						if ($allowEofClose) {
+							self::commitClosedRuleFrame($stack[$topIdx]);
+						}
+					} else {
+						$sheet->recordParseError('Unterminated CSS rule.', $ruleStart);
+					}
+					array_pop($stack);
+					continue;
+				}
+
+				if ($delimType === CSSTokenType::RightCurlyBracket) {
+					if ($stmt['controlOffset'] !== null) {
+						$sheet->recordParseError('CSS rule prelude contains disallowed control characters.', $ruleStart);
+					}
+					if ($stopOnBrace) {
+						$sheet->recordParseError('Unexpected trailing tokens before closing brace.', $ruleStart);
+						self::commitClosedRuleFrame($stack[$topIdx]);
+						array_pop($stack);
+					} else {
+						$sheet->recordParseError('Unexpected closing brace.', $delimOffset);
+					}
+					continue;
+				}
+
+				if ($limitReached || !self::canRecordRule($options, $ruleCount, $sheet, $ruleStart, $throwOnLimit)) {
+					$stack[$topIdx]['limitReached'] = true;
+					if ($delimType === CSSTokenType::LeftCurlyBracket) {
+						$closed = self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes);
+						if (!$closed) {
+							if ($stopOnBrace) {
+								$sheet->recordParseError('Unclosed CSS rule block.', $openBraceOffset ?? $delimOffset);
+								if ($allowEofClose) {
+									self::commitClosedRuleFrame($stack[$topIdx]);
+								}
+							}
+							array_pop($stack);
+						}
+					}
+					continue;
+				}
+
+				if ($stmt['controlOffset'] !== null || $stmt['badTokenMessage'] !== null) {
+					$msg = $stmt['controlOffset'] !== null
+						? 'CSS rule prelude contains disallowed control characters.'
+						: (string) $stmt['badTokenMessage'];
+					$sheet->recordParseError($msg, $ruleStart);
+					if ($delimType === CSSTokenType::LeftCurlyBracket) {
+						if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+							$sheet->recordParseError('Unclosed CSS rule block.', $delimOffset);
+							if ($stopOnBrace && $allowEofClose) {
+								self::commitClosedRuleFrame($stack[$topIdx]);
+							}
+							array_pop($stack);
+						}
+					}
+					continue;
+				}
+
+				$prelude = self::buildCleanPrelude($source, $ruleStart, $delimOffset, $stmt['hasComments'], $sheet);
+				if ($prelude === null) {
+					if ($delimType === CSSTokenType::LeftCurlyBracket) {
+						if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+							$sheet->recordParseError('Unclosed CSS rule block.', $delimOffset);
+							if ($stopOnBrace && $allowEofClose) {
+								self::commitClosedRuleFrame($stack[$topIdx]);
+							}
+							array_pop($stack);
+						}
+					}
+					continue;
+				}
+
+				if ($delimType === CSSTokenType::Semicolon) {
+					if ($keyframes) {
+						$sheet->recordParseError(
+							$isAtRule
+								? 'Nested at-rules are not allowed inside @keyframes.'
+								: 'Stray declaration or statement is not allowed directly inside @keyframes.',
+							$ruleStart,
+						);
+						continue;
+					}
+					if (!$isAtRule) {
+						$sheet->recordParseError('A qualified rule requires a block.', $ruleStart);
+						continue;
+					}
+					try {
+						[$name] = self::splitAtRulePrelude($prelude);
+						if (isset(self::STATEMENT_AT_RULES[$name])) {
+							$stmtRule = self::parseAtRulePrelude($prelude, $options->maxBytes);
+							$stopOnBrace ? $rules->appendDetached($stmtRule) : $rules->appendParsedInternal($stmtRule);
+							self::incrementCounter($ruleCount, 'CSS rule count');
+						} else {
+							$raw = substr($source, $ruleStart, $delimOffset - $ruleStart + 1);
+							$opaque = self::createValidatedOpaqueRule($raw, $sheet, $ruleStart, $options->maxBytes, $throwOnLimit, $browserMode);
+							if ($opaque !== null) {
+								$stopOnBrace ? $rules->appendDetached($opaque) : $rules->appendParsedInternal($opaque);
+								self::incrementCounter($ruleCount, 'CSS rule count');
+							}
+						}
+					} catch (InvalidArgumentException $exception) {
+						if ($throwOnLimit && $exception instanceof CSSParserLimitException) {
+							throw $exception;
+						}
+						$sheet->recordParseError($exception->getMessage(), $ruleStart);
+					}
+					continue;
+				}
+
+				// $delimType === CSSTokenType::LeftCurlyBracket
+				if ($prelude === '') {
+					$sheet->recordParseError('CSS rule prelude cannot be empty.', $ruleStart);
+					if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+						$sheet->recordParseError('Unclosed CSS rule block.', $delimOffset);
+						if ($stopOnBrace && $allowEofClose) {
+							self::commitClosedRuleFrame($stack[$topIdx]);
+						}
+						array_pop($stack);
+					}
+					continue;
+				}
+
+				if ($keyframes && $isAtRule) {
+					$sheet->recordParseError('Nested at-rules are not allowed inside @keyframes.', $ruleStart);
+					if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+						$sheet->recordParseError('Unclosed CSS rule block.', $delimOffset);
+						if ($stopOnBrace && $allowEofClose) {
+							self::commitClosedRuleFrame($stack[$topIdx]);
+						}
+						array_pop($stack);
+					}
+					continue;
+				}
+
+				if ($isAtRule) {
+					$childDepth = self::nextDepth($depth);
+					$prepared = self::prepareBlockAtRuleFrame(
+						$prelude,
+						$source,
+						$ruleStart,
+						$stmt['atKeywordEnd'],
+						$delimOffset,
+						$tokenizer,
+						$sheet,
+						false,
+						$childDepth,
+						$options,
+						$ruleCount,
+						$throwOnLimit,
+						false,
+						$browserMode,
+						$rules,
+						$stopOnBrace,
+					);
+					if ($prepared === false) {
+						// Unclosed block at EOF during skip
+						if ($stopOnBrace && $allowEofClose) {
+							self::commitClosedRuleFrame($stack[$topIdx]);
+						}
+						array_pop($stack);
+					} elseif (is_array($prepared)) {
+						$prepared['allowEofClose'] = $allowEofClose;
+						$stack[] = $prepared;
+					}
+					continue;
+				}
+
+				$childDepth = self::nextDepth($depth);
+				if ($options->maxDepth !== null && $childDepth > $options->maxDepth) {
+					$message = sprintf('Maximum CSS nesting depth of %d exceeded.', $options->maxDepth);
+					if ($throwOnLimit) {
+						throw new CSSParserLimitException($message);
+					}
+					$sheet->recordParseError($message, $delimOffset + 1);
+					if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+						if ($stopOnBrace && $allowEofClose) {
+							self::commitClosedRuleFrame($stack[$topIdx]);
+						}
+						array_pop($stack);
+					}
+					continue;
+				}
+
+				$nonDefaultDeclLimits = self::hasNonDefaultDeclLimits($options);
+				try {
+					$initialStyle = $nonDefaultDeclLimits ? new CSSStyleProperties('', $options) : null;
+					$rule = $keyframes
+						? new CSSKeyframeRule($prelude, $initialStyle, $options->maxBytes)
+						: new CSSStyleRule($prelude, $initialStyle, $options->maxBytes);
 				} catch (InvalidArgumentException $exception) {
 					if ($throwOnLimit && $exception instanceof CSSParserLimitException) {
 						throw $exception;
 					}
 					$sheet->recordParseError($exception->getMessage(), $ruleStart);
+					if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+						$sheet->recordParseError('Unclosed CSS rule block.', $delimOffset);
+						if ($stopOnBrace && $allowEofClose) {
+							self::commitClosedRuleFrame($stack[$topIdx]);
+						}
+						array_pop($stack);
+					}
+					continue;
 				}
+
+				self::incrementCounter($ruleCount, 'CSS rule count');
+				$stack[] = [
+					'kind' => self::FRAME_STYLE_BLOCK,
+					'currentStyle' => $rule->getStyle(),
+					'ownerRule' => $rule instanceof CSSGroupingRule ? $rule : null,
+					'depth' => $childDepth,
+					'openBraceOffset' => $delimOffset,
+					'ruleStartOffset' => $ruleStart,
+					'allowNestedRules' => !$keyframes,
+					'pageMode' => false,
+					'functionMode' => false,
+					'hasNestedRule' => false,
+					'isGroupingWithDecls' => false,
+					'allowEmptyInitialValue' => false,
+					'sawEmptyInitialValue' => false,
+					'allowEofClose' => $allowEofClose,
+					'diagnostics' => [],
+					'pendingRule' => $rule,
+					'declAtRuleName' => null,
+					'declAtRuleCondition' => null,
+					'parentRules' => $rules,
+					'parentStopOnBrace' => $stopOnBrace,
+				];
 				continue;
 			}
 
-			// $delimChar === '{'
-			if ($prelude === '') {
-				$sheet->recordParseError('CSS rule prelude cannot be empty.', $ruleStart);
-				$close = CSSSyntaxScanner::findMatchingBlockEnd($source, $delimOffset, $end);
-				if ($close === null || $close >= $end) {
-					$sheet->recordParseError('Unclosed CSS rule block.', $delimOffset);
-					$offset = $end;
-					return $stopOnClosingBrace ? $allowEofClose : true;
-				}
-				$offset = $close + 1;
-				continue;
-			}
+			if ($kind === self::FRAME_STYLE_BLOCK) {
+				$depth = (int) $stack[$topIdx]['depth'];
+				/** @var int $openBraceOffset */
+				$openBraceOffset = $stack[$topIdx]['openBraceOffset'];
+				$allowEofClose = (bool) $stack[$topIdx]['allowEofClose'];
 
-			if ($keyframes && str_starts_with($prelude, '@')) {
-				$sheet->recordParseError('Nested at-rules are not allowed inside @keyframes.', $ruleStart);
-				$close = CSSSyntaxScanner::findMatchingBlockEnd($source, $delimOffset, $end);
-				if ($close === null || $close >= $end) {
-					$sheet->recordParseError('Unclosed CSS rule block.', $delimOffset);
-					$offset = $end;
-					return $stopOnClosingBrace ? $allowEofClose : true;
+				if ($options->maxDepth !== null && $depth > $options->maxDepth) {
+					$message = sprintf('Maximum CSS nesting depth of %d exceeded.', $options->maxDepth);
+					if ($throwOnLimit) {
+						throw new CSSParserLimitException($message);
+					}
+					$sheet->recordParseError($message, $openBraceOffset + 1);
+					self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes);
+					array_pop($stack);
+					continue;
 				}
-				$offset = $close + 1;
-				continue;
-			}
 
-			if (str_starts_with($prelude, '@')) {
-				$childDepth = self::nextDepth($depth);
-				$prepared = self::prepareBlockAtRule(
-					$prelude,
-					$source,
-					$ruleStart,
-					$delimOffset,
-					$offset,
-					$end,
-					$sheet,
-					false,
-					$childDepth,
-					$options,
-					$ruleCount,
-					$declarationCount,
-					$throwOnLimit,
-					$declLimitRecorded,
-					false,
-					$allowEofClose,
-				);
-				if ($prepared !== null) {
-					$mode = $prepared['mode'];
-					$rule = $prepared['rule'];
-					if ($mode === 'done') {
-						$closed = true;
-					} elseif ($mode === 'style') {
-						/** @var CSSGroupingRule $rule */
-						/** @var CSSStyleDeclaration $preparedStyle */
-						$preparedStyle = $prepared['style'];
-						$closed = self::parseStyleBlock(
-							$source,
-							$offset,
-							$end,
-							$preparedStyle,
-							$rule,
-							$sheet,
-							$childDepth,
-							$options,
-							$ruleCount,
-							$declarationCount,
-							$throwOnLimit,
-							$prepared['allowNested'] ?? true,
-							$prepared['pageMode'] ?? false,
-							$prepared['functionMode'] ?? false,
-							$delimOffset,
-							$declLimitRecorded,
-							allowEofClose: $allowEofClose,
+				$allowNestedRules = (bool) $stack[$topIdx]['allowNestedRules'];
+				$pageMode = (bool) $stack[$topIdx]['pageMode'];
+				$functionMode = (bool) $stack[$topIdx]['functionMode'];
+				$allowEmptyInitialValue = (bool) $stack[$topIdx]['allowEmptyInitialValue'];
+
+				// C-level clean ASCII declaration fast path (only when terminating at ';' or '}', never '{').
+				$pos = $tokenizer->getOffsetInternal();
+				if ($pos < $length) {
+					$span = strcspn($source, self::FAST_DECL_UNSAFE_BYTES, $pos, $length - $pos);
+					$stop = $pos + $span;
+					if ($stop < $length
+						&& ($source[$stop] === ';' || $source[$stop] === '}')
+						&& CSSStyleDeclaration::isCleanAsciiSliceSafeInternal($source, $pos, $stop)
+					) {
+						/** @var CSSStyleDeclaration $currentStyle */
+						$currentStyle = $stack[$topIdx]['currentStyle'];
+						/** @var list<array{message: string, offset: int}> $diags */
+						$diags = $stack[$topIdx]['diagnostics'];
+						$sawEmpty = (bool) $stack[$topIdx]['sawEmptyInitialValue'];
+
+						if ($stop > $pos && !$declLimitRecorded) {
+							$declLimitRecorded = !$currentStyle->parseCleanAsciiDeclarationInternal(
+								$source,
+								$pos,
+								$stop,
+								false,
+								$diags,
+								$options,
+								$declarationCount,
+								$throwOnLimit,
+								true,
+								$allowEmptyInitialValue,
+								$sawEmpty,
+							);
+							$stack[$topIdx]['diagnostics'] = $diags;
+							$stack[$topIdx]['sawEmptyInitialValue'] = $sawEmpty;
+						}
+
+						if ($source[$stop] === ';') {
+							$tokenizer->setOffsetInternal($stop + 1);
+							continue;
+						}
+
+						// $source[$stop] === '}'
+						self::flushDiagnostics($sheet, $diags);
+						$stack[$topIdx]['diagnostics'] = [];
+						$tokenizer->setOffsetInternal($stop + 1);
+						self::closeStyleBlockFrame($stack[$topIdx], $sheet, $options, $ruleCount, $throwOnLimit);
+						array_pop($stack);
+						if ($stack !== [] && $stack[count($stack) - 1]['kind'] === self::FRAME_STYLE_BLOCK) {
+							$parentIdx = count($stack) - 1;
+							if (!(bool) $stack[$parentIdx]['pageMode']) {
+								$stack[$parentIdx]['hasNestedRule'] = true;
+								$pFunc = (bool) $stack[$parentIdx]['functionMode'];
+								$stack[$parentIdx]['currentStyle'] = $pFunc ? new CSSFunctionDescriptors('', $options) : new CSSStyleProperties('', $options);
+							}
+						}
+						continue;
+					}
+				}
+
+				$firstType = self::advanceNonTrivia($tokenizer, $sheet, $checkControlBytes, false);
+
+				if ($firstType === CSSTokenType::Eof) {
+					/** @var list<array{message: string, offset: int}> $diags */
+					$diags = $stack[$topIdx]['diagnostics'];
+					self::flushDiagnostics($sheet, $diags);
+					$stack[$topIdx]['diagnostics'] = [];
+					if ($allowEofClose) {
+						self::closeStyleBlockFrame($stack[$topIdx], $sheet, $options, $ruleCount, $throwOnLimit);
+					}
+					$sheet->recordParseError('Unclosed CSS rule block.', $openBraceOffset);
+					array_pop($stack);
+					continue;
+				}
+
+				if ($firstType === CSSTokenType::RightCurlyBracket) {
+					/** @var list<array{message: string, offset: int}> $diags */
+					$diags = $stack[$topIdx]['diagnostics'];
+					self::flushDiagnostics($sheet, $diags);
+					$stack[$topIdx]['diagnostics'] = [];
+					self::closeStyleBlockFrame($stack[$topIdx], $sheet, $options, $ruleCount, $throwOnLimit);
+					array_pop($stack);
+					if ($stack !== [] && $stack[count($stack) - 1]['kind'] === self::FRAME_STYLE_BLOCK) {
+						$parentIdx = count($stack) - 1;
+						if (!(bool) $stack[$parentIdx]['pageMode']) {
+							$stack[$parentIdx]['hasNestedRule'] = true;
+							$pFunc = (bool) $stack[$parentIdx]['functionMode'];
+							$stack[$parentIdx]['currentStyle'] = $pFunc ? new CSSFunctionDescriptors('', $options) : new CSSStyleProperties('', $options);
+						}
+					}
+					continue;
+				}
+
+				if ($firstType === CSSTokenType::Semicolon) {
+					continue;
+				}
+
+				// Consume statement tokens for either a declaration or a nested rule.
+				$stmtStart = $tokenizer->tokenStart;
+				$collected = self::consumeStyleStatementTokens($source, $tokenizer, $firstType, $checkControlBytes, $browserMode);
+				$delimType = $collected['delimiter'];
+				$delimOffset = $collected['delimOffset'];
+
+				if ($delimType === CSSTokenType::LeftCurlyBracket) {
+					/** @var list<array{message: string, offset: int}> $diags */
+					$diags = $stack[$topIdx]['diagnostics'];
+					self::flushDiagnostics($sheet, $diags);
+					$stack[$topIdx]['diagnostics'] = [];
+
+					/** @var ?CSSGroupingRule $ownerRule */
+					$ownerRule = $stack[$topIdx]['ownerRule'];
+
+					if (!$allowNestedRules) {
+						$sheet->recordParseError(
+							$ownerRule === null
+								? 'Nested rules are not allowed inside a @keyframes or declaration block.'
+								: 'Nested rules are not allowed inside a @keyframes block.',
+							$stmtStart,
 						);
-					} elseif ($mode === 'ffv') {
-						/** @var CSSFontFeatureValuesRule $rule */
-						$closed = self::parseFontFeatureValuesBody(
-							$rule,
-							$source,
-							$offset,
-							$end,
-							$sheet,
-							$childDepth,
-							$options,
-							$ruleCount,
-							$declarationCount,
-							$throwOnLimit,
-							$delimOffset,
-							$declLimitRecorded,
-							$allowEofClose,
-						);
+						if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+							$sheet->recordParseError('Unclosed CSS rule block.', $delimOffset);
+							if ($allowEofClose) {
+								self::closeStyleBlockFrame($stack[$topIdx], $sheet, $options, $ruleCount, $throwOnLimit);
+							}
+							array_pop($stack);
+						}
+						continue;
+					}
+
+					if ($pageMode && $ownerRule !== null) {
+						$prelude = ($collected['controlOffset'] === null && $collected['badTokenMessage'] === null)
+							? self::buildCleanPrelude($source, $stmtStart, $delimOffset, $collected['hasComments'], $sheet)
+							: null;
+						if ($collected['controlOffset'] !== null) {
+							$sheet->recordParseError('CSS rule prelude contains disallowed control characters.', $stmtStart);
+						} elseif ($collected['badTokenMessage'] !== null) {
+							$sheet->recordParseError($collected['badTokenMessage'], $stmtStart);
+						}
+						if ($prelude === null || !self::canRecordRule($options, $ruleCount, $sheet, $stmtStart, $throwOnLimit)) {
+							if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+								$sheet->recordParseError('Unclosed CSS rule block.', $delimOffset);
+								if ($allowEofClose) {
+									self::closeStyleBlockFrame($stack[$topIdx], $sheet, $options, $ruleCount, $throwOnLimit);
+								}
+								array_pop($stack);
+							}
+							continue;
+						}
+						try {
+							[$marginName, $extra] = self::splitAtRulePrelude($prelude);
+							if ($extra !== '') {
+								throw new InvalidArgumentException('Unexpected prelude in page margin rule.');
+							}
+						} catch (InvalidArgumentException $exception) {
+							if ($throwOnLimit && $exception instanceof CSSParserLimitException) {
+								throw $exception;
+							}
+							$sheet->recordParseError($exception->getMessage(), $stmtStart);
+							if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+								$sheet->recordParseError('Unclosed CSS rule block.', $delimOffset);
+								if ($allowEofClose) {
+									self::closeStyleBlockFrame($stack[$topIdx], $sheet, $options, $ruleCount, $throwOnLimit);
+								}
+								array_pop($stack);
+							}
+							continue;
+						}
+						$stack[] = [
+							'kind' => self::FRAME_STYLE_BLOCK,
+							'currentStyle' => new CSSStyleDeclaration('', $options),
+							'ownerRule' => null,
+							'depth' => self::nextDepth($depth),
+							'openBraceOffset' => $delimOffset,
+							'ruleStartOffset' => $stmtStart,
+							'allowNestedRules' => false,
+							'pageMode' => false,
+							'functionMode' => false,
+							'hasNestedRule' => false,
+							'isGroupingWithDecls' => false,
+							'allowEmptyInitialValue' => false,
+							'sawEmptyInitialValue' => false,
+							'allowEofClose' => $allowEofClose,
+							'diagnostics' => [],
+							'pendingRule' => null,
+							'declAtRuleName' => '@margin',
+							'declAtRuleCondition' => $marginName,
+							'parentRules' => $ownerRule->getCssRules(),
+							'parentStopOnBrace' => true,
+						];
+						continue;
+					}
+
+					// Nested style rule, grouping at-rule, or @function body rule
+					/** @var CSSStyleDeclaration $currentStyle */
+					$currentStyle = $stack[$topIdx]['currentStyle'];
+					self::flushTrailingNestedDeclarations(
+						$currentStyle,
+						$ownerRule,
+						$sheet,
+						$options,
+						$ruleCount,
+						$throwOnLimit,
+						$pageMode,
+						$functionMode,
+						(bool) $stack[$topIdx]['hasNestedRule'],
+						(bool) $stack[$topIdx]['isGroupingWithDecls'],
+						$stmtStart,
+					);
+
+					$prelude = null;
+					if ($collected['controlOffset'] !== null) {
+						$sheet->recordParseError('CSS rule prelude contains disallowed control characters.', $stmtStart);
+					} elseif ($collected['badTokenMessage'] !== null) {
+						$sheet->recordParseError($collected['badTokenMessage'], $stmtStart);
 					} else {
-						/** @var CSSGroupingRule $rule */
-						$closed = self::parseRuleList(
+						$prelude = self::buildCleanPrelude($source, $stmtStart, $delimOffset, $collected['hasComments'], $sheet);
+					}
+
+					if ($prelude === null || !self::canRecordRule($options, $ruleCount, $sheet, $stmtStart, $throwOnLimit)) {
+						if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+							$sheet->recordParseError('Unclosed CSS rule block.', $delimOffset);
+							if ($allowEofClose) {
+								self::closeStyleBlockFrame($stack[$topIdx], $sheet, $options, $ruleCount, $throwOnLimit);
+							}
+							array_pop($stack);
+							continue;
+						}
+						$stack[$topIdx]['hasNestedRule'] = true;
+						$stack[$topIdx]['currentStyle'] = $functionMode ? new CSSFunctionDescriptors('', $options) : new CSSStyleProperties('', $options);
+						continue;
+					}
+
+					if ($prelude === '') {
+						$sheet->recordParseError('CSS rule prelude cannot be empty.', $stmtStart);
+						if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+							$sheet->recordParseError('Unclosed CSS rule block.', $delimOffset);
+							if ($allowEofClose) {
+								self::closeStyleBlockFrame($stack[$topIdx], $sheet, $options, $ruleCount, $throwOnLimit);
+							}
+							array_pop($stack);
+							continue;
+						}
+						$stack[$topIdx]['hasNestedRule'] = true;
+						$stack[$topIdx]['currentStyle'] = $functionMode ? new CSSFunctionDescriptors('', $options) : new CSSStyleProperties('', $options);
+						continue;
+					}
+
+					if ($firstType === CSSTokenType::AtKeyword) {
+						$childDepth = self::nextDepth($depth);
+						$prepared = self::prepareBlockAtRuleFrame(
+							$prelude,
 							$source,
-							$offset,
-							$end,
-							$rule->getCssRules(),
+							$stmtStart,
+							$collected['atKeywordEnd'],
+							$delimOffset,
+							$tokenizer,
 							$sheet,
-							$rule instanceof CSSKeyframesRule,
+							true,
 							$childDepth,
 							$options,
 							$ruleCount,
-							$declarationCount,
 							$throwOnLimit,
+							$functionMode,
+							$browserMode,
+							$ownerRule?->getCssRules(),
 							true,
-							$delimOffset,
-							$declLimitRecorded,
-							$allowEofClose,
 						);
+						if ($prepared === false) {
+							$sheet->recordParseError('Unclosed CSS rule block.', $delimOffset);
+							if ($allowEofClose) {
+								self::closeStyleBlockFrame($stack[$topIdx], $sheet, $options, $ruleCount, $throwOnLimit);
+							}
+							array_pop($stack);
+							continue;
+						}
+						if (is_array($prepared)) {
+							$prepared['allowEofClose'] = $allowEofClose;
+							$stack[] = $prepared;
+						} else {
+							$stack[$topIdx]['hasNestedRule'] = true;
+							$stack[$topIdx]['currentStyle'] = $functionMode ? new CSSFunctionDescriptors('', $options) : new CSSStyleProperties('', $options);
+						}
+						continue;
 					}
-					if ($closed) {
-						$stopOnClosingBrace ? $rules->appendDetached($rule) : $rules->appendParsedInternal($rule);
+
+					// Nested style rule
+					$childDepth = self::nextDepth($depth);
+					if ($options->maxDepth !== null && $childDepth > $options->maxDepth) {
+						$message = sprintf('Maximum CSS nesting depth of %d exceeded.', $options->maxDepth);
+						if ($throwOnLimit) {
+							throw new CSSParserLimitException($message);
+						}
+						$sheet->recordParseError($message, $delimOffset + 1);
+						if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+							if ($allowEofClose) {
+								self::closeStyleBlockFrame($stack[$topIdx], $sheet, $options, $ruleCount, $throwOnLimit);
+							}
+							array_pop($stack);
+							continue;
+						}
+						$stack[$topIdx]['hasNestedRule'] = true;
+						$stack[$topIdx]['currentStyle'] = $functionMode ? new CSSFunctionDescriptors('', $options) : new CSSStyleProperties('', $options);
+						continue;
 					}
+
+					$nonDefaultDeclLimits = self::hasNonDefaultDeclLimits($options);
+					try {
+						$nestedStyleRule = new CSSStyleRule($prelude, $nonDefaultDeclLimits ? new CSSStyleProperties('', $options) : null, $options->maxBytes);
+					} catch (InvalidArgumentException $exception) {
+						if ($throwOnLimit && $exception instanceof CSSParserLimitException) {
+							throw $exception;
+						}
+						$sheet->recordParseError($exception->getMessage(), $stmtStart);
+						if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+							$sheet->recordParseError('Unclosed CSS rule block.', $delimOffset);
+							if ($allowEofClose) {
+								self::closeStyleBlockFrame($stack[$topIdx], $sheet, $options, $ruleCount, $throwOnLimit);
+							}
+							array_pop($stack);
+							continue;
+						}
+						$stack[$topIdx]['hasNestedRule'] = true;
+						$stack[$topIdx]['currentStyle'] = $functionMode ? new CSSFunctionDescriptors('', $options) : new CSSStyleProperties('', $options);
+						continue;
+					}
+
+					self::incrementCounter($ruleCount, 'CSS rule count');
+					$stack[] = [
+						'kind' => self::FRAME_STYLE_BLOCK,
+						'currentStyle' => $nestedStyleRule->getStyle(),
+						'ownerRule' => $nestedStyleRule,
+						'depth' => $childDepth,
+						'openBraceOffset' => $delimOffset,
+						'ruleStartOffset' => $stmtStart,
+						'allowNestedRules' => true,
+						'pageMode' => false,
+						'functionMode' => false,
+						'hasNestedRule' => false,
+						'isGroupingWithDecls' => false,
+						'allowEmptyInitialValue' => false,
+						'sawEmptyInitialValue' => false,
+						'allowEofClose' => $allowEofClose,
+						'diagnostics' => [],
+						'pendingRule' => $nestedStyleRule,
+						'declAtRuleName' => null,
+						'declAtRuleCondition' => null,
+						'parentRules' => $ownerRule?->getCssRules(),
+						'parentStopOnBrace' => true,
+					];
+					continue;
 				}
+
+				// Declaration terminated by ';', '}', or Eof
+				/** @var CSSStyleDeclaration $currentStyle */
+				$currentStyle = $stack[$topIdx]['currentStyle'];
+				/** @var list<array{message: string, offset: int}> $diags */
+				$diags = $stack[$topIdx]['diagnostics'];
+				$sawEmpty = (bool) $stack[$topIdx]['sawEmptyInitialValue'];
+
+				// Wait: what if statement is a nested statement @-rule (e.g. `@unknown foo;`) inside a block?
+				// Per existing CSSParser / CSS Style Blocks, only block at-rules are structured; `@foo;` falls through as invalid declaration (or in CSSOM `@unknown;` inside style block records error).
+				if (!$declLimitRecorded) {
+					$declLimitRecorded = !$currentStyle->parseDeclarationFromTokensInternal(
+						$source,
+						$stmtStart,
+						$delimOffset,
+						$collected['tokens'],
+						$collected['hasComments'],
+						$collected['controlOffset'],
+						$collected['badTokenOffset'],
+						$collected['badTokenMessage'],
+						$collected['hasUnclosedConstruct'],
+						$collected['unclosedBlocks'],
+						$collected['hasTopLevelBraces'],
+						false,
+						$diags,
+						$options,
+						$declarationCount,
+						$throwOnLimit,
+						true,
+						$allowEmptyInitialValue,
+						$sawEmpty,
+						$browserMode,
+					);
+					$stack[$topIdx]['diagnostics'] = $diags;
+					$stack[$topIdx]['sawEmptyInitialValue'] = $sawEmpty;
+				}
+
+				if ($delimType === CSSTokenType::Semicolon) {
+					continue;
+				}
+
+				self::flushDiagnostics($sheet, $diags);
+				$stack[$topIdx]['diagnostics'] = [];
+
+				if ($delimType === CSSTokenType::RightCurlyBracket) {
+					self::closeStyleBlockFrame($stack[$topIdx], $sheet, $options, $ruleCount, $throwOnLimit);
+					array_pop($stack);
+					if ($stack !== [] && $stack[count($stack) - 1]['kind'] === self::FRAME_STYLE_BLOCK) {
+						$parentIdx = count($stack) - 1;
+						if (!(bool) $stack[$parentIdx]['pageMode']) {
+							$stack[$parentIdx]['hasNestedRule'] = true;
+							$pFunc = (bool) $stack[$parentIdx]['functionMode'];
+							$stack[$parentIdx]['currentStyle'] = $pFunc ? new CSSFunctionDescriptors('', $options) : new CSSStyleProperties('', $options);
+						}
+					}
+					continue;
+				}
+
+				// $delimType === CSSTokenType::Eof
+				if ($allowEofClose) {
+					self::closeStyleBlockFrame($stack[$topIdx], $sheet, $options, $ruleCount, $throwOnLimit);
+				}
+				$sheet->recordParseError('Unclosed CSS rule block.', $openBraceOffset);
+				array_pop($stack);
 				continue;
 			}
 
-			$childDepth = self::nextDepth($depth);
-			if ($options->maxDepth !== null && $childDepth > $options->maxDepth) {
-				$message = sprintf('Maximum CSS nesting depth of %d exceeded.', $options->maxDepth);
-				if ($throwOnLimit) {
-					throw new CSSParserLimitException($message);
-				}
-				$sheet->recordParseError($message, $delimOffset + 1);
-				$close = CSSSyntaxScanner::findMatchingBlockEnd($source, $delimOffset, $end);
-				if ($close === null || $close >= $end) {
-					$offset = $end;
-					return $stopOnClosingBrace ? $allowEofClose : true;
-				}
-				$offset = $close + 1;
-				continue;
-			}
+			// self::FRAME_FFV_BODY
+			self::stepFontFeatureValuesFrame($stack, $topIdx, $source, $tokenizer, $sheet, $options, $ruleCount, $declarationCount, $throwOnLimit, $browserMode, $checkControlBytes);
+		}
+	}
 
-			$nonDefaultDeclLimits = $options->maxBytes !== CSSParserOptions::DEFAULT_MAX_BYTES
-				|| $options->maxDeclarations !== CSSParserOptions::DEFAULT_MAX_DECLARATIONS
-				|| $options->maxDepth !== CSSParserOptions::DEFAULT_MAX_DEPTH
-				|| $options->maxMathDepth !== CSSParserOptions::DEFAULT_MAX_MATH_DEPTH;
+	/**
+	 * @param array<string, mixed> $frame
+	 */
+	private static function commitClosedRuleFrame(array $frame): void
+	{
+		/** @var ?CSSRule $pendingRule */
+		$pendingRule = $frame['pendingRule'];
+		/** @var ?CSSRuleList $parentRules */
+		$parentRules = $frame['parentRules'];
+		if ($pendingRule === null || $parentRules === null) {
+			return;
+		}
+		if ((bool) $frame['parentStopOnBrace']) {
+			$parentRules->appendDetached($pendingRule);
+		} else {
+			$parentRules->appendParsedInternal($pendingRule);
+		}
+	}
+
+	/**
+	 * @param array<string, mixed> $frame
+	 */
+	private static function closeStyleBlockFrame(
+		array $frame,
+		CSSStyleSheet $sheet,
+		CSSParserOptions $options,
+		int &$ruleCount,
+		bool $throwOnLimit,
+	): void {
+		/** @var CSSStyleDeclaration $currentStyle */
+		$currentStyle = $frame['currentStyle'];
+		/** @var ?CSSGroupingRule $ownerRule */
+		$ownerRule = $frame['ownerRule'];
+		$pageMode = (bool) $frame['pageMode'];
+		$functionMode = (bool) $frame['functionMode'];
+
+		self::flushTrailingNestedDeclarations(
+			$currentStyle,
+			$ownerRule,
+			$sheet,
+			$options,
+			$ruleCount,
+			$throwOnLimit,
+			$pageMode,
+			$functionMode,
+			(bool) $frame['hasNestedRule'],
+			(bool) $frame['isGroupingWithDecls'],
+			(int) $frame['openBraceOffset'],
+		);
+
+		/** @var ?CSSRuleList $parentRules */
+		$parentRules = $frame['parentRules'];
+		if ($parentRules === null) {
+			return;
+		}
+		$parentStop = (bool) $frame['parentStopOnBrace'];
+
+		/** @var ?string $declAtName */
+		$declAtName = $frame['declAtRuleName'];
+		if ($declAtName !== null) {
+			$condition = (string) ($frame['declAtRuleCondition'] ?? '');
+			$ruleStartOffset = (int) $frame['ruleStartOffset'];
+			$sawEmptyInitialValue = (bool) $frame['sawEmptyInitialValue'];
+
 			try {
-				$initialStyle = $nonDefaultDeclLimits ? new CSSStyleProperties('', $options) : null;
-				$rule = $keyframes
-					? new CSSKeyframeRule($prelude, $initialStyle, $options->maxBytes)
-					: new CSSStyleRule($prelude, $initialStyle, $options->maxBytes);
+				if ($declAtName === '@margin') {
+					$rule = new CSSMarginRule($condition, $currentStyle, $options->maxBytes);
+				} else {
+					$rule = match ($declAtName) {
+						'font-face' => new CSSFontFaceRule($currentStyle, $options->maxBytes),
+						'property' => new CSSPropertyRule($condition, $currentStyle, $sawEmptyInitialValue, $options->maxBytes),
+						'counter-style' => new CSSCounterStyleRule($condition, $currentStyle, $options->maxBytes),
+						'font-palette-values' => new CSSFontPaletteValuesRule($condition, $currentStyle, $options->maxBytes),
+						'position-try' => new CSSPositionTryRule($condition, $currentStyle, $options->maxBytes),
+						'view-transition' => new CSSViewTransitionRule($currentStyle, $options->maxBytes),
+						default => new CSSAtRule($declAtName, $condition, $currentStyle, true, $options->maxBytes),
+					};
+				}
 			} catch (InvalidArgumentException $exception) {
 				if ($throwOnLimit && $exception instanceof CSSParserLimitException) {
 					throw $exception;
 				}
-				$sheet->recordParseError($exception->getMessage(), $ruleStart);
-				$close = CSSSyntaxScanner::findMatchingBlockEnd($source, $delimOffset, $end);
-				if ($close === null || $close >= $end) {
-					$sheet->recordParseError('Unclosed CSS rule block.', $delimOffset);
-					$offset = $end;
-					return $stopOnClosingBrace ? $allowEofClose : true;
-				}
-				$offset = $close + 1;
-				continue;
+				$sheet->recordParseError($exception->getMessage(), $ruleStartOffset);
+				return;
 			}
 
 			self::incrementCounter($ruleCount, 'CSS rule count');
-
-			$offset = $delimOffset + 1;
-			$closed = self::parseStyleBlock(
-				$source,
-				$offset,
-				$end,
-				$rule->getStyle(),
-				$rule instanceof CSSGroupingRule ? $rule : null,
-				$sheet,
-				$childDepth,
-				$options,
-				$ruleCount,
-				$declarationCount,
-				$throwOnLimit,
-				!$keyframes,
-				false,
-				false,
-				$delimOffset,
-				$declLimitRecorded,
-				allowEofClose: $allowEofClose,
-			);
-			if ($closed) {
-				$stopOnClosingBrace ? $rules->appendDetached($rule) : $rules->appendParsedInternal($rule);
-			}
+			$parentStop ? $parentRules->appendDetached($rule) : $parentRules->appendParsedInternal($rule);
+			return;
 		}
 
-		if ($stopOnClosingBrace) {
-			$sheet->recordParseError('Unclosed CSS rule block.', $openBraceOffset ?? $offset);
-			return $allowEofClose;
+		/** @var ?CSSRule $pendingRule */
+		$pendingRule = $frame['pendingRule'];
+		if ($pendingRule !== null) {
+			$parentStop ? $parentRules->appendDetached($pendingRule) : $parentRules->appendParsedInternal($pendingRule);
 		}
-
-		return true;
-	}
-
-	private static function parseAtRulePrelude(string $prelude, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES): CSSAtRule
-	{
-		[$name, $condition] = self::splitAtRulePrelude($prelude);
-		return match ($name) {
-			'charset' => new CSSCharsetRule($condition, $maxBytes),
-			'import' => new CSSImportRule($condition, $maxBytes),
-			'namespace' => new CSSNamespaceRule($condition, $maxBytes),
-			'layer' => new CSSLayerStatementRule($condition, $maxBytes),
-			default => new CSSAtRule($name, $condition, null, false, $maxBytes),
-		};
 	}
 
 	/**
-	 * Parses the at-rule header (without recursing into grouping/page/font-feature-values bodies)
-	 * so callers keep a strict 1-frame-per-nesting-level stack profile.
-	 *
-	 * @return array{mode: string, rule: CSSRule, allowNested?: bool, style?: CSSStyleDeclaration, pageMode?: bool, functionMode?: bool}|null
+	 * @param list<array<string, mixed>> $stack
 	 */
-	private static function prepareBlockAtRule(
+	private static function stepFontFeatureValuesFrame(
+		array &$stack,
+		int $topIdx,
+		string $source,
+		CSSTokenizer $tokenizer,
+		CSSStyleSheet $sheet,
+		CSSParserOptions $options,
+		int &$ruleCount,
+		int &$declarationCount,
+		bool $throwOnLimit,
+		bool $browserMode,
+		bool $checkControlBytes,
+	): void {
+		/** @var CSSFontFeatureValuesRule $rule */
+		$rule = $stack[$topIdx]['rule'];
+		$depth = (int) $stack[$topIdx]['depth'];
+		$openBraceOffset = (int) $stack[$topIdx]['openBraceOffset'];
+		$allowEofClose = (bool) $stack[$topIdx]['allowEofClose'];
+
+		$firstType = self::advanceNonTrivia($tokenizer, $sheet, $checkControlBytes, false);
+		if ($firstType === CSSTokenType::Eof) {
+			$sheet->recordParseError('Unclosed @font-feature-values block.', $openBraceOffset);
+			if ($allowEofClose) {
+				self::commitClosedRuleFrame($stack[$topIdx]);
+			}
+			array_pop($stack);
+			return;
+		}
+		if ($firstType === CSSTokenType::RightCurlyBracket) {
+			self::commitClosedRuleFrame($stack[$topIdx]);
+			array_pop($stack);
+			return;
+		}
+
+		$ruleStart = $tokenizer->tokenStart;
+		$stmt = self::consumeStatementOrPrelude($source, $tokenizer, $firstType, false, $checkControlBytes, $firstType === CSSTokenType::AtKeyword);
+		$delimType = $stmt['delimiter'];
+		$delimOffset = $stmt['delimOffset'];
+
+		if ($delimType === CSSTokenType::Eof) {
+			$sheet->recordParseError('Unterminated rule in @font-feature-values.', $ruleStart);
+			if ($allowEofClose) {
+				self::commitClosedRuleFrame($stack[$topIdx]);
+			}
+			array_pop($stack);
+			return;
+		}
+		if ($delimType === CSSTokenType::RightCurlyBracket) {
+			$sheet->recordParseError('Unexpected trailing tokens before closing brace.', $ruleStart);
+			self::commitClosedRuleFrame($stack[$topIdx]);
+			array_pop($stack);
+			return;
+		}
+		if ($delimType !== CSSTokenType::LeftCurlyBracket) {
+			$sheet->recordParseError('Unexpected token in @font-feature-values.', $delimOffset);
+			return;
+		}
+
+		$childDepth = self::nextDepth($depth);
+		if ($options->maxDepth !== null && $childDepth > $options->maxDepth) {
+			$message = sprintf('Maximum CSS nesting depth of %d exceeded.', $options->maxDepth);
+			if ($throwOnLimit) {
+				throw new CSSParserLimitException($message);
+			}
+			$sheet->recordParseError($message, $delimOffset + 1);
+			if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+				if ($allowEofClose) {
+					self::commitClosedRuleFrame($stack[$topIdx]);
+				}
+				array_pop($stack);
+			}
+			return;
+		}
+
+		if ($stmt['controlOffset'] !== null || $stmt['badTokenMessage'] !== null) {
+			$msg = $stmt['controlOffset'] !== null
+				? 'CSS rule prelude contains disallowed control characters.'
+				: (string) $stmt['badTokenMessage'];
+			$sheet->recordParseError($msg, $ruleStart);
+			if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+				$sheet->recordParseError('Unclosed @font-feature-values feature block.', $delimOffset);
+				array_pop($stack);
+			}
+			return;
+		}
+
+		$prelude = self::buildCleanPrelude($source, $ruleStart, $delimOffset, $stmt['hasComments'], $sheet);
+		if ($prelude === null) {
+			if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+				$sheet->recordParseError('Unclosed @font-feature-values feature block.', $delimOffset);
+				array_pop($stack);
+			}
+			return;
+		}
+
+		try {
+			[$featureType, $extra] = self::splitAtRulePrelude($prelude);
+		} catch (InvalidArgumentException $exception) {
+			if ($throwOnLimit && $exception instanceof CSSParserLimitException) {
+				throw $exception;
+			}
+			$sheet->recordParseError($exception->getMessage(), $ruleStart);
+			if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+				$sheet->recordParseError('Unclosed @font-feature-values feature block.', $delimOffset);
+				array_pop($stack);
+			}
+			return;
+		}
+
+		if ($extra === '' && isset(self::FONT_FEATURE_CATEGORIES[$featureType])) {
+			$close = self::findBlockEndFromTokenizer($source, $tokenizer, $delimOffset);
+			if ($close === null) {
+				$sheet->recordParseError('Unclosed @font-feature-values feature block.', $delimOffset);
+				$tokenizer->setOffsetInternal(strlen($source));
+				array_pop($stack);
+				return;
+			}
+			$blockStart = $delimOffset + 1;
+			$tokenizer->setOffsetInternal($close + 1);
+			$map = $rule->getFeatureMap($featureType);
+
+			$declOffset = $blockStart;
+			while ($declOffset < $close) {
+				$declOffset = self::skipFfvTrivia($source, $declOffset, $close, $sheet, $checkControlBytes);
+				if ($declOffset >= $close) {
+					break;
+				}
+				$next = CSSSyntaxScanner::findNextTopLevelDelimiterBytes($source, ';', $declOffset, $close);
+				$segEnd = $next !== null ? $next['offset'] : $close;
+				$segStart = $declOffset;
+				$declOffset = $next !== null ? $next['offset'] + 1 : $close;
+
+				if ($checkControlBytes && CSSSyntaxScanner::hasControlCharactersInSlice($source, $segStart, $segEnd - $segStart)) {
+					$sheet->recordParseError('CSS font feature declaration contains disallowed control characters.', $segStart);
+					continue;
+				}
+
+				$colon = CSSSyntaxScanner::findTopLevel($source, ':', $segStart, $segEnd);
+				if ($colon === null) {
+					if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($source, $segStart, $segEnd)) !== '') {
+						$sheet->recordParseError('Invalid CSS font feature declaration (missing colon).', $segStart);
+					}
+					continue;
+				}
+
+				$rawName = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($source, $segStart, $colon));
+				$decodedName = $rawName !== '' ? CSSSyntaxScanner::decodeIdentAt($rawName, 0, strlen($rawName)) : null;
+				if ($decodedName === null || $decodedName['end'] !== strlen($rawName)) {
+					$sheet->recordParseError('Invalid font feature value name.', $segStart);
+					continue;
+				}
+
+				if (CSSSyntaxScanner::findLastTopLevelImportant($source, $colon + 1, $segEnd) !== null) {
+					$sheet->recordParseError('!important is not allowed in @font-feature-values.', $segStart);
+					continue;
+				}
+
+				if ($options->maxDeclarations !== null && $declarationCount >= $options->maxDeclarations) {
+					$message = sprintf('Maximum CSS declaration limit of %d exceeded.', $options->maxDeclarations);
+					if ($throwOnLimit) {
+						throw new CSSParserLimitException($message);
+					}
+					$sheet->recordParseError($message, $segStart);
+					break;
+				}
+				self::incrementCounter($declarationCount, 'CSS declaration count');
+
+				$rawVal = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($source, $colon + 1, $segEnd));
+				$tokens = $rawVal === ''
+					? []
+					: (preg_split('/[ \t\n\r\f]+/', $rawVal, CSSStyleValue::MAX_LIST_ITEMS + 2) ?: []);
+				if (count($tokens) > CSSStyleValue::MAX_LIST_ITEMS) {
+					$message = sprintf('CSS font feature value list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS);
+					if ($throwOnLimit) {
+						throw new CSSParserLimitException($message);
+					}
+					$sheet->recordParseError($message, $segStart);
+					continue;
+				}
+				$ints = [];
+				$valid = true;
+				foreach ($tokens as $token) {
+					if ($token === '' || !preg_match('/^\d+$/D', $token)) {
+						$valid = false;
+						break;
+					}
+					$stripped = ltrim($token, '0');
+					$intVal = (int) $token;
+					if ($stripped !== '' && (string) $intVal !== $stripped) {
+						$valid = false;
+						break;
+					}
+					$ints[] = $intVal;
+				}
+				if (!$valid || $ints === []) {
+					$sheet->recordParseError('Font feature values must be non-empty integer lists.', $segStart);
+					continue;
+				}
+				try {
+					$map->setParsedInternal($rawName, $ints, $options->maxBytes);
+				} catch (CSSParserLimitException $exception) {
+					if ($throwOnLimit) {
+						throw $exception;
+					}
+					$sheet->recordParseError($exception->getMessage(), $segStart);
+				} catch (InvalidArgumentException $exception) {
+					$sheet->recordParseError($exception->getMessage(), $segStart);
+				}
+			}
+		} elseif (self::canRecordRule($options, $ruleCount, $sheet, $ruleStart, $throwOnLimit)) {
+			$close = self::findBlockEndFromTokenizer($source, $tokenizer, $delimOffset);
+			if ($close === null) {
+				$sheet->recordParseError('Unclosed @font-feature-values feature block.', $delimOffset);
+				$tokenizer->setOffsetInternal(strlen($source));
+				array_pop($stack);
+				return;
+			}
+			$raw = substr($source, $ruleStart, $close - $ruleStart + 1);
+			$tokenizer->setOffsetInternal($close + 1);
+			$opaque = self::createValidatedOpaqueRule($raw, $sheet, $ruleStart, $options->maxBytes, $throwOnLimit, $browserMode);
+			if ($opaque !== null) {
+				$rule->getCssRules()->appendDetached($opaque);
+				self::incrementCounter($ruleCount, 'CSS rule count');
+			}
+		} else {
+			if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+				$sheet->recordParseError('Unclosed @font-feature-values feature block.', $delimOffset);
+				array_pop($stack);
+			}
+		}
+	}
+
+	/**
+	 * @return array<string, mixed>|bool|null Frame array to push, `true` if handled synchronously, `null` on recoverable error, `false` if unclosed EOF block during skip.
+	 */
+	private static function prepareBlockAtRuleFrame(
 		string $prelude,
 		string $source,
 		int $ruleStart,
+		int $atKeywordEnd,
 		int $braceOffset,
-		int &$offset,
-		int $end,
+		CSSTokenizer $tokenizer,
 		CSSStyleSheet $sheet,
 		bool $allowDeclarations,
 		int $depth,
 		CSSParserOptions $options,
 		int &$ruleCount,
-		int &$declarationCount,
 		bool $throwOnLimit,
-		bool &$declLimitRecorded = false,
-		bool $functionMode = false,
-		bool $allowEofClose = false,
-	): ?array {
+		bool $functionMode,
+		bool $browserMode,
+		?CSSRuleList $parentRules,
+		bool $parentStopOnBrace,
+	): array|bool|null {
+		$checkControlBytes = !$browserMode;
+
 		try {
 			[$name, $condition] = self::splitAtRulePrelude($prelude);
 		} catch (InvalidArgumentException $exception) {
@@ -732,7 +1820,10 @@ final class CSSParser
 				throw $exception;
 			}
 			$sheet->recordParseError($exception->getMessage(), $ruleStart);
-			self::skipMalformedBlock($source, $braceOffset, $offset, $end, $sheet);
+			if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+				$sheet->recordParseError('Unclosed CSS rule block.', $braceOffset);
+				return false;
+			}
 			return null;
 		}
 
@@ -742,7 +1833,9 @@ final class CSSParser
 				throw new CSSParserLimitException($message);
 			}
 			$sheet->recordParseError($message, $braceOffset + 1);
-			self::skipMalformedBlock($source, $braceOffset, $offset, $end, $sheet);
+			if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+				return false;
+			}
 			return null;
 		}
 
@@ -752,21 +1845,23 @@ final class CSSParser
 			&& !($allowDeclarations && ($name === 'keyframes' || $name === '-webkit-keyframes'));
 
 		if (!$isKnown) {
-			$close = CSSSyntaxScanner::findMatchingBlockEnd($source, $braceOffset, $end);
-			if ($close === null || $close >= $end) {
+			$close = self::findBlockEndFromTokenizer($source, $tokenizer, $braceOffset);
+			if ($close === null) {
 				$sheet->recordParseError('Unclosed CSS rule block.', $braceOffset);
-				$offset = $end;
-				return null;
+				$tokenizer->setOffsetInternal(strlen($source));
+				return false;
 			}
 			$raw = substr($source, $ruleStart, $close - $ruleStart + 1);
-			$offset = $close + 1;
-			$opaque = self::createValidatedOpaqueRule($raw, $sheet, $ruleStart, $options->maxBytes, $throwOnLimit);
+			$tokenizer->setOffsetInternal($close + 1);
+			$opaque = self::createValidatedOpaqueRule($raw, $sheet, $ruleStart, $options->maxBytes, $throwOnLimit, $browserMode);
 			if ($opaque === null) {
 				return null;
 			}
 			self::incrementCounter($ruleCount, 'CSS rule count');
-
-			return ['mode' => 'done', 'rule' => $opaque];
+			if ($parentRules !== null) {
+				$parentStopOnBrace ? $parentRules->appendDetached($opaque) : $parentRules->appendParsedInternal($opaque);
+			}
+			return true;
 		}
 
 		if ($name === 'page') {
@@ -777,19 +1872,35 @@ final class CSSParser
 					throw $exception;
 				}
 				$sheet->recordParseError($exception->getMessage(), $ruleStart);
-				self::skipMalformedBlock($source, $braceOffset, $offset, $end, $sheet);
+				if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+					$sheet->recordParseError('Unclosed CSS rule block.', $braceOffset);
+					return false;
+				}
 				return null;
 			}
 			self::incrementCounter($ruleCount, 'CSS rule count');
-			$offset = $braceOffset + 1;
 
 			return [
-				'mode' => 'style',
-				'rule' => $pageRule,
-				'style' => $pageRule->getStyle(),
-				'allowNested' => true,
+				'kind' => self::FRAME_STYLE_BLOCK,
+				'currentStyle' => $pageRule->getStyle(),
+				'ownerRule' => $pageRule,
+				'depth' => $depth,
+				'openBraceOffset' => $braceOffset,
+				'ruleStartOffset' => $ruleStart,
+				'allowNestedRules' => true,
 				'pageMode' => true,
 				'functionMode' => false,
+				'hasNestedRule' => false,
+				'isGroupingWithDecls' => false,
+				'allowEmptyInitialValue' => false,
+				'sawEmptyInitialValue' => false,
+				'allowEofClose' => false,
+				'diagnostics' => [],
+				'pendingRule' => $pageRule,
+				'declAtRuleName' => null,
+				'declAtRuleCondition' => null,
+				'parentRules' => $parentRules,
+				'parentStopOnBrace' => $parentStopOnBrace,
 			];
 		}
 
@@ -802,18 +1913,32 @@ final class CSSParser
 					throw $exception;
 				}
 				$sheet->recordParseError($exception->getMessage(), $ruleStart);
-				self::skipMalformedBlock($source, $braceOffset, $offset, $end, $sheet);
+				if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+					$sheet->recordParseError('Unclosed CSS rule block.', $braceOffset);
+					return false;
+				}
 				return null;
 			}
 			self::incrementCounter($ruleCount, 'CSS rule count');
-			$offset = $braceOffset + 1;
 
-			return ['mode' => 'ffv', 'rule' => $ffvRule];
+			return [
+				'kind' => self::FRAME_FFV_BODY,
+				'rule' => $ffvRule,
+				'depth' => $depth,
+				'openBraceOffset' => $braceOffset,
+				'allowEofClose' => false,
+				'pendingRule' => $ffvRule,
+				'parentRules' => $parentRules,
+				'parentStopOnBrace' => $parentStopOnBrace,
+			];
 		}
 
 		if (($name === 'starting-style' || $name === 'font-face' || $name === 'view-transition') && $condition !== '') {
 			$sheet->recordParseError(sprintf('@%s does not accept a prelude.', $name), $ruleStart);
-			self::skipMalformedBlock($source, $braceOffset, $offset, $end, $sheet);
+			if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+				$sheet->recordParseError('Unclosed CSS rule block.', $braceOffset);
+				return false;
+			}
 			return null;
 		}
 
@@ -828,7 +1953,7 @@ final class CSSParser
 					'keyframes', '-webkit-keyframes' => new CSSKeyframesRule($condition, $name, $options->maxBytes),
 					'starting-style' => new CSSStartingStyleRule($options->maxBytes),
 					'function' => CSSFunctionRule::fromPrelude(
-						self::extractFunctionRawPrelude($source, $ruleStart, $braceOffset, $condition),
+						$atKeywordEnd > $ruleStart ? substr($source, $atKeywordEnd, $braceOffset - $atKeywordEnd) : $condition,
 						$options->maxBytes,
 					),
 					default => new CSSGroupingRule($name, $condition, $options->maxBytes),
@@ -838,578 +1963,516 @@ final class CSSParser
 					throw $exception;
 				}
 				$sheet->recordParseError($exception->getMessage(), $ruleStart);
-				self::skipMalformedBlock($source, $braceOffset, $offset, $end, $sheet);
+				if (!self::skipRemainingBlock($tokenizer, $sheet, $checkControlBytes)) {
+					$sheet->recordParseError('Unclosed CSS rule block.', $braceOffset);
+					return false;
+				}
 				return null;
 			}
 
 			self::incrementCounter($ruleCount, 'CSS rule count');
-			$offset = $braceOffset + 1;
 
 			if (($allowDeclarations || $name === 'function') && !$rule instanceof CSSKeyframesRule) {
 				$isFunction = $functionMode || $rule instanceof CSSFunctionRule;
 				return [
-					'mode' => 'style',
-					'rule' => $rule,
-					'style' => $isFunction ? new CSSFunctionDescriptors('', $options) : new CSSStyleProperties('', $options),
-					'allowNested' => true,
+					'kind' => self::FRAME_STYLE_BLOCK,
+					'currentStyle' => $isFunction ? new CSSFunctionDescriptors('', $options) : new CSSStyleProperties('', $options),
+					'ownerRule' => $rule,
+					'depth' => $depth,
+					'openBraceOffset' => $braceOffset,
+					'ruleStartOffset' => $ruleStart,
+					'allowNestedRules' => true,
 					'pageMode' => false,
 					'functionMode' => $isFunction,
+					'hasNestedRule' => false,
+					'isGroupingWithDecls' => true,
+					'allowEmptyInitialValue' => false,
+					'sawEmptyInitialValue' => false,
+					'allowEofClose' => false,
+					'diagnostics' => [],
+					'pendingRule' => $rule,
+					'declAtRuleName' => null,
+					'declAtRuleCondition' => null,
+					'parentRules' => $parentRules,
+					'parentStopOnBrace' => $parentStopOnBrace,
 				];
 			}
 
-			return ['mode' => 'list', 'rule' => $rule];
+			return [
+				'kind' => self::FRAME_RULE_LIST,
+				'rules' => $rule->getCssRules(),
+				'keyframes' => $rule instanceof CSSKeyframesRule,
+				'depth' => $depth,
+				'stopOnClosingBrace' => true,
+				'openBraceOffset' => $braceOffset,
+				'allowEofClose' => false,
+				'allowCdoCdc' => false,
+				'limitReached' => false,
+				'pendingRule' => $rule,
+				'parentRules' => $parentRules,
+				'parentStopOnBrace' => $parentStopOnBrace,
+			];
 		}
 
-		// DECLARATION_AT_RULES
+		// DECLARATION_AT_RULES (depth counts as 1 level, already passed in $depth)
 		$declarationClass = match ($name) {
 			'font-face' => CSSFontFaceDescriptors::class,
 			'position-try' => CSSPositionTryDescriptors::class,
 			default => CSSStyleDeclaration::class,
 		};
 		$style = new $declarationClass('', $options);
-		$offset = $braceOffset + 1;
-		$sawEmptyInitialValue = false;
-		$closed = self::parseStyleBlock(
-			$source,
-			$offset,
-			$end,
-			$style,
-			null,
-			$sheet,
-			$depth,
-			$options,
-			$ruleCount,
-			$declarationCount,
-			$throwOnLimit,
-			false,
-			false,
-			false,
-			$braceOffset,
-			$declLimitRecorded,
-			$name === 'property',
-			$sawEmptyInitialValue,
-			allowEofClose: $allowEofClose,
-		);
-		if (!$closed) {
-			return null;
-		}
 
-		try {
-			$rule = match ($name) {
-				'font-face' => new CSSFontFaceRule($style, $options->maxBytes),
-				'property' => new CSSPropertyRule($condition, $style, $sawEmptyInitialValue, $options->maxBytes),
-				'counter-style' => new CSSCounterStyleRule($condition, $style, $options->maxBytes),
-				'font-palette-values' => new CSSFontPaletteValuesRule($condition, $style, $options->maxBytes),
-				'position-try' => new CSSPositionTryRule($condition, $style, $options->maxBytes),
-				'view-transition' => new CSSViewTransitionRule($style, $options->maxBytes),
-				default => new CSSAtRule($name, $condition, $style, true, $options->maxBytes),
-			};
-		} catch (InvalidArgumentException $exception) {
-			if ($throwOnLimit && $exception instanceof CSSParserLimitException) {
-				throw $exception;
-			}
-			$sheet->recordParseError($exception->getMessage(), $ruleStart);
-			return null;
-		}
-
-		self::incrementCounter($ruleCount, 'CSS rule count');
-
-		return ['mode' => 'done', 'rule' => $rule];
+		return [
+			'kind' => self::FRAME_STYLE_BLOCK,
+			'currentStyle' => $style,
+			'ownerRule' => null,
+			'depth' => $depth,
+			'openBraceOffset' => $braceOffset,
+			'ruleStartOffset' => $ruleStart,
+			'allowNestedRules' => false,
+			'pageMode' => false,
+			'functionMode' => false,
+			'hasNestedRule' => false,
+			'isGroupingWithDecls' => false,
+			'allowEmptyInitialValue' => $name === 'property',
+			'sawEmptyInitialValue' => false,
+			'allowEofClose' => false,
+			'diagnostics' => [],
+			'pendingRule' => null,
+			'declAtRuleName' => $name,
+			'declAtRuleCondition' => $condition,
+			'parentRules' => $parentRules,
+			'parentStopOnBrace' => $parentStopOnBrace,
+		];
 	}
 
 	/**
-	 * Inline body dispatch helper so callers incur 1 PHP frame per nesting level (never 2).
-	 *
-	 * @param array{mode: string, rule: CSSRule, allowNested?: bool, style?: CSSStyleDeclaration, pageMode?: bool, functionMode?: bool} $prepared
+	 * Advances `$tokenizer` to the first non-whitespace (and optionally non-CDO/CDC) token,
+	 * flushing any leading comment diagnostics onto `$sheet`.
 	 */
-	private static function finishPreparedAtRuleBody(
-		array $prepared,
-		string $source,
-		int $braceOffset,
-		int &$offset,
-		int $end,
+	private static function advanceNonTrivia(
+		CSSTokenizer $tokenizer,
 		CSSStyleSheet $sheet,
-		int $childDepth,
-		CSSParserOptions $options,
-		int &$ruleCount,
-		int &$declarationCount,
-		bool $throwOnLimit,
-		bool &$declLimitRecorded = false,
-	): ?CSSRule {
-		$mode = $prepared['mode'];
-		if ($mode === 'done') {
-			return $prepared['rule'];
-		}
+		bool $checkControlBytes,
+		bool $allowCdoCdc,
+	): CSSTokenType {
+		while (true) {
+			$type = $tokenizer->advanceInternal();
+			if ($checkControlBytes && $tokenizer->commentControlErrorOffsets !== []) {
+				foreach ($tokenizer->commentControlErrorOffsets as $errOffset) {
+					$sheet->recordParseError('CSS comment contains disallowed control characters.', $errOffset);
+				}
+			}
+			if ($tokenizer->tokenUnclosedCommentOffset !== null) {
+				$sheet->recordParseError('Unclosed CSS comment.', $tokenizer->tokenUnclosedCommentOffset);
+			}
+			if ($type === CSSTokenType::Whitespace) {
+				continue;
+			}
+			if ($allowCdoCdc && ($type === CSSTokenType::Cdo || $type === CSSTokenType::Cdc)) {
+				continue;
+			}
 
-		if ($mode === 'style') {
-			/** @var CSSGroupingRule $rule */
-			$rule = $prepared['rule'];
-			/** @var CSSStyleDeclaration $style */
-			$style = $prepared['style'];
-			$closed = self::parseStyleBlock(
-				$source,
-				$offset,
-				$end,
-				$style,
-				$rule,
-				$sheet,
-				$childDepth,
-				$options,
-				$ruleCount,
-				$declarationCount,
-				$throwOnLimit,
-				$prepared['allowNested'] ?? true,
-				$prepared['pageMode'] ?? false,
-				$prepared['functionMode'] ?? false,
-				$braceOffset,
-				$declLimitRecorded,
-			);
-			return $closed ? $rule : null;
+			return $type;
 		}
-
-		if ($mode === 'ffv') {
-			/** @var CSSFontFeatureValuesRule $rule */
-			$rule = $prepared['rule'];
-			$closed = self::parseFontFeatureValuesBody(
-				$rule,
-				$source,
-				$offset,
-				$end,
-				$sheet,
-				$childDepth,
-				$options,
-				$ruleCount,
-				$declarationCount,
-				$throwOnLimit,
-				$braceOffset,
-				$declLimitRecorded,
-			);
-			return $closed ? $rule : null;
-		}
-
-		/** @var CSSGroupingRule $rule */
-		$rule = $prepared['rule'];
-		$closed = self::parseRuleList(
-			$source,
-			$offset,
-			$end,
-			$rule->getCssRules(),
-			$sheet,
-			$rule instanceof CSSKeyframesRule,
-			$childDepth,
-			$options,
-			$ruleCount,
-			$declarationCount,
-			$throwOnLimit,
-			true,
-			$braceOffset,
-			$declLimitRecorded,
-		);
-		return $closed ? $rule : null;
 	}
 
-	private static function parseStyleBlock(
+	/**
+	 * Consumes a rule prelude starting from `$firstType` until top-level `{`, `}`, `;` (optional), or `Eof`.
+	 *
+	 * @return array{delimiter: CSSTokenType, delimOffset: int, atKeywordEnd: int, hasComments: bool, controlOffset: ?int, unclosedCommentOffset: ?int, badTokenMessage: ?string}
+	 */
+	private static function consumeStatementOrPrelude(
 		string $source,
-		int &$offset,
-		int $end,
-		CSSStyleDeclaration $style,
-		?CSSGroupingRule $ownerRule,
-		CSSStyleSheet $sheet,
-		int $depth,
-		CSSParserOptions $options,
-		int &$ruleCount,
-		int &$declarationCount,
-		bool $throwOnLimit,
-		bool $allowNestedRules,
-		bool $pageMode,
-		bool $functionMode,
-		int $openBraceOffset,
-		bool &$declLimitRecorded = false,
-		bool $allowEmptyInitialValue = false,
-		bool &$sawEmptyInitialValue = false,
-		bool $allowEofClose = false,
-	): bool {
-		if ($options->maxDepth !== null && $depth > $options->maxDepth) {
-			$message = sprintf('Maximum CSS nesting depth of %d exceeded.', $options->maxDepth);
-			if ($throwOnLimit) {
-				throw new CSSParserLimitException($message);
+		CSSTokenizer $tokenizer,
+		CSSTokenType $firstType,
+		bool $browserMode,
+		bool $checkControlBytes,
+		bool $isAtRule,
+	): array {
+		$length = strlen($source);
+		$atKeywordEnd = $isAtRule ? $tokenizer->tokenEnd : 0;
+		$hasComments = $tokenizer->tokenHadLeadingComment;
+		$controlOffset = $tokenizer->tokenControlByteOffset;
+		$unclosedCommentOffset = $tokenizer->tokenUnclosedCommentOffset;
+		$badTokenMessage = null;
+		$blockStack = [];
+		$stopOnSemicolon = $isAtRule || !$browserMode;
+
+		$type = $firstType;
+		while (true) {
+			if ($tokenizer->tokenHadLeadingComment) {
+				$hasComments = true;
 			}
-			$sheet->recordParseError($message, $openBraceOffset + 1);
-			self::skipMalformedBlock($source, $openBraceOffset, $offset, $end, $sheet);
-			return false;
+			if ($checkControlBytes && $tokenizer->commentControlErrorOffsets !== []) {
+				$controlOffset ??= $tokenizer->commentControlErrorOffsets[0];
+			}
+			if ($tokenizer->tokenUnclosedCommentOffset !== null) {
+				$unclosedCommentOffset ??= $tokenizer->tokenUnclosedCommentOffset;
+			}
+			if ($tokenizer->tokenControlByteOffset !== null) {
+				$controlOffset ??= $tokenizer->tokenControlByteOffset;
+			}
+
+			if ($type === CSSTokenType::Eof) {
+				return [
+					'delimiter' => CSSTokenType::Eof,
+					'delimOffset' => $length,
+					'atKeywordEnd' => $atKeywordEnd,
+					'hasComments' => $hasComments,
+					'controlOffset' => $controlOffset,
+					'unclosedCommentOffset' => $unclosedCommentOffset,
+					'badTokenMessage' => $badTokenMessage,
+				];
+			}
+
+			if ($blockStack === []) {
+				if ($type === CSSTokenType::LeftCurlyBracket) {
+					return [
+						'delimiter' => CSSTokenType::LeftCurlyBracket,
+						'delimOffset' => $tokenizer->tokenStart,
+						'atKeywordEnd' => $atKeywordEnd,
+						'hasComments' => $hasComments,
+						'controlOffset' => $controlOffset,
+						'unclosedCommentOffset' => $unclosedCommentOffset,
+						'badTokenMessage' => $badTokenMessage,
+					];
+				}
+				if ($type === CSSTokenType::RightCurlyBracket) {
+					return [
+						'delimiter' => CSSTokenType::RightCurlyBracket,
+						'delimOffset' => $tokenizer->tokenStart,
+						'atKeywordEnd' => $atKeywordEnd,
+						'hasComments' => $hasComments,
+						'controlOffset' => $controlOffset,
+						'unclosedCommentOffset' => $unclosedCommentOffset,
+						'badTokenMessage' => $badTokenMessage,
+					];
+				}
+				if ($stopOnSemicolon && $type === CSSTokenType::Semicolon) {
+					return [
+						'delimiter' => CSSTokenType::Semicolon,
+						'delimOffset' => $tokenizer->tokenStart,
+						'atKeywordEnd' => $atKeywordEnd,
+						'hasComments' => $hasComments,
+						'controlOffset' => $controlOffset,
+						'unclosedCommentOffset' => $unclosedCommentOffset,
+						'badTokenMessage' => $badTokenMessage,
+					];
+				}
+			}
+
+			if ($type === CSSTokenType::BadString || $type === CSSTokenType::BadUrl) {
+				$badTokenMessage ??= $type === CSSTokenType::BadString
+					? 'Invalid CSS string token in rule prelude.'
+					: 'Invalid CSS url() token in rule prelude.';
+			} elseif (!$browserMode && $tokenizer->tokenClosedAtEof) {
+				$badTokenMessage ??= 'Unclosed string or url() token in rule prelude.';
+			}
+
+			if ($type === CSSTokenType::LeftParenthesis || $type === CSSTokenType::Function) {
+				$blockStack[] = ')';
+			} elseif ($type === CSSTokenType::LeftSquareBracket) {
+				$blockStack[] = ']';
+			} elseif ($type === CSSTokenType::LeftCurlyBracket) {
+				$blockStack[] = '}';
+			} elseif ($type === CSSTokenType::RightParenthesis || $type === CSSTokenType::RightSquareBracket || $type === CSSTokenType::RightCurlyBracket) {
+				$closer = match ($type) {
+					CSSTokenType::RightParenthesis => ')',
+					CSSTokenType::RightSquareBracket => ']',
+					CSSTokenType::RightCurlyBracket => '}',
+				};
+				if ($blockStack !== [] && end($blockStack) === $closer) {
+					array_pop($blockStack);
+				}
+			}
+
+			$type = $tokenizer->advanceInternal();
 		}
+	}
 
-		$diagnostics = [];
-		$currentStyle = $style;
-		$hasNestedRule = false;
-		$isGroupingWithDecls = $ownerRule !== null && !$ownerRule instanceof CSSStyleRule && !$pageMode;
+	/**
+	 * Consumes tokens inside a `STYLE_BLOCK` statement starting from `$firstType` until top-level `;`, `}`, `{`, or `Eof`.
+	 *
+	 * @return array{
+	 *   delimiter: CSSTokenType,
+	 *   delimOffset: int,
+	 *   atKeywordEnd: int,
+	 *   tokens: list<array{type: CSSTokenType, start: int, end: int, hasEscapes: bool, closedAtEof: bool, closedQuote: string, trailingBsAtEof: bool}>,
+	 *   hasComments: bool,
+	 *   controlOffset: ?int,
+	 *   badTokenOffset: ?int,
+	 *   badTokenMessage: ?string,
+	 *   hasUnclosedConstruct: bool,
+	 *   unclosedBlocks: list<string>,
+	 *   hasTopLevelBraces: bool
+	 * }
+	 */
+	private static function consumeStyleStatementTokens(
+		string $source,
+		CSSTokenizer $tokenizer,
+		CSSTokenType $firstType,
+		bool $checkControlBytes,
+		bool $browserMode,
+	): array {
+		$length = strlen($source);
+		$atKeywordEnd = $firstType === CSSTokenType::AtKeyword ? $tokenizer->tokenEnd : 0;
+		$tokens = [];
+		$blockStack = [];
+		$hasComments = $tokenizer->tokenHadLeadingComment;
+		$controlOffset = $tokenizer->tokenControlByteOffset;
+		$badTokenOffset = null;
+		$badTokenMessage = null;
+		$hasUnclosedConstruct = false;
+		$hasTopLevelBraces = false;
+		$stmtStart = $tokenizer->tokenStart;
 
-		while ($offset < $end) {
-			$offset = self::skipTrivia($source, $offset, $end, $sheet, false);
-			if ($offset >= $end) {
+		$type = $firstType;
+		while (true) {
+			if ($tokenizer->tokenHadLeadingComment) {
+				$hasComments = true;
+			}
+			if ($checkControlBytes && $tokenizer->commentControlErrorOffsets !== []) {
+				$controlOffset ??= $tokenizer->commentControlErrorOffsets[0];
+			}
+			if ($tokenizer->tokenUnclosedCommentOffset !== null) {
+				$hasUnclosedConstruct = true;
+			}
+			if ($tokenizer->tokenControlByteOffset !== null) {
+				$controlOffset ??= $tokenizer->tokenControlByteOffset;
+			}
+
+			if ($type === CSSTokenType::Eof) {
+				$delimOffset = $length;
+				$delimType = CSSTokenType::Eof;
 				break;
 			}
 
-			$delimiter = CSSSyntaxScanner::findNextTopLevelDelimiterBytes($source, ';{}', $offset, $end);
-			if ($delimiter === null) {
-				if (!$declLimitRecorded) {
-					$declLimitRecorded = !$currentStyle->parseDeclarationSlice(
-						$source,
-						$offset,
-						$end,
-						false,
-						$diagnostics,
-						$options,
-						$declarationCount,
-						$throwOnLimit,
-						true,
-						$allowEmptyInitialValue,
-						$sawEmptyInitialValue,
-					);
-				}
-				self::flushDiagnostics($sheet, $diagnostics);
-				if ($allowEofClose) {
-					self::flushTrailingNestedDeclarations(
-						$currentStyle,
-						$ownerRule,
-						$sheet,
-						$options,
-						$ruleCount,
-						$throwOnLimit,
-						$pageMode,
-						$functionMode,
-						$hasNestedRule,
-						$isGroupingWithDecls,
-						$end,
-					);
-				}
-				$sheet->recordParseError('Unclosed CSS rule block.', $openBraceOffset);
-				$offset = $end;
-				return $allowEofClose;
+			if ($blockStack === [] && ($type === CSSTokenType::Semicolon || $type === CSSTokenType::LeftCurlyBracket || $type === CSSTokenType::RightCurlyBracket)) {
+				$delimOffset = $tokenizer->tokenStart;
+				$delimType = $type;
+				break;
 			}
 
-			$delimChar = $delimiter['delimiter'];
-			$delimOffset = $delimiter['offset'];
+			if ($type === CSSTokenType::BadString || $type === CSSTokenType::BadUrl) {
+				$badTokenOffset ??= $tokenizer->tokenStart;
+				$badTokenMessage ??= $type === CSSTokenType::BadString
+					? 'Invalid CSS string token.'
+					: 'Invalid CSS url() token.';
+			}
+			if ($tokenizer->tokenClosedAtEof) {
+				$hasUnclosedConstruct = true;
+			}
 
-			if ($delimChar === ';') {
-				if (!$declLimitRecorded) {
-					$declLimitRecorded = !$currentStyle->parseDeclarationSlice(
-						$source,
-						$offset,
-						$delimOffset,
-						false,
-						$diagnostics,
-						$options,
-						$declarationCount,
-						$throwOnLimit,
-						true,
-						$allowEmptyInitialValue,
-						$sawEmptyInitialValue,
-					);
+			if ($type === CSSTokenType::LeftParenthesis || $type === CSSTokenType::Function) {
+				$blockStack[] = ')';
+			} elseif ($type === CSSTokenType::LeftSquareBracket) {
+				$blockStack[] = ']';
+			} elseif ($type === CSSTokenType::LeftCurlyBracket) {
+				$blockStack[] = '}';
+			} elseif ($type === CSSTokenType::RightParenthesis || $type === CSSTokenType::RightSquareBracket || $type === CSSTokenType::RightCurlyBracket) {
+				$closer = match ($type) {
+					CSSTokenType::RightParenthesis => ')',
+					CSSTokenType::RightSquareBracket => ']',
+					CSSTokenType::RightCurlyBracket => '}',
+				};
+				if ($blockStack !== [] && end($blockStack) === $closer) {
+					array_pop($blockStack);
+				} else {
+					$hasTopLevelBraces = true;
 				}
-				$offset = $delimOffset + 1;
-				continue;
 			}
 
-			if ($delimChar === '}') {
-				if ($delimOffset > $offset && !$declLimitRecorded) {
-					$declLimitRecorded = !$currentStyle->parseDeclarationSlice(
-						$source,
-						$offset,
-						$delimOffset,
-						false,
-						$diagnostics,
-						$options,
-						$declarationCount,
-						$throwOnLimit,
-						true,
-						$allowEmptyInitialValue,
-						$sawEmptyInitialValue,
-					);
-				}
-				self::flushDiagnostics($sheet, $diagnostics);
-				self::flushTrailingNestedDeclarations(
-					$currentStyle,
-					$ownerRule,
-					$sheet,
-					$options,
-					$ruleCount,
-					$throwOnLimit,
-					$pageMode,
-					$functionMode,
-					$hasNestedRule,
-					$isGroupingWithDecls,
-					$delimOffset,
-				);
-				$offset = $delimOffset + 1;
-				return true;
-			}
+			$tokens[] = [
+				'type' => $type,
+				'start' => $tokenizer->tokenStart,
+				'end' => $tokenizer->tokenEnd,
+				'hasEscapes' => $tokenizer->tokenHasEscapes,
+				'closedAtEof' => $tokenizer->tokenClosedAtEof,
+				'closedQuote' => $tokenizer->tokenClosedQuote,
+				'trailingBsAtEof' => $tokenizer->tokenTrailingBackslashAtEof,
+			];
 
-			// $delimChar === '{'
-			if (!$allowNestedRules) {
-				$sheet->recordParseError(
-					$ownerRule === null
-						? 'Nested rules are not allowed inside a @keyframes or declaration block.'
-						: 'Nested rules are not allowed inside a @keyframes block.',
-					$offset,
-				);
-				$close = CSSSyntaxScanner::findMatchingBlockEnd($source, $delimOffset, $end);
-				if ($close === null || $close >= $end) {
-					$sheet->recordParseError('Unclosed CSS rule block.', $delimOffset);
-					self::flushDiagnostics($sheet, $diagnostics);
-					$offset = $end;
-					return $allowEofClose;
-				}
-				$offset = $close + 1;
-				continue;
-			}
+			$type = $tokenizer->advanceInternal();
+		}
 
-			self::flushDiagnostics($sheet, $diagnostics);
-
-			if ($pageMode && $ownerRule !== null) {
-				$prelude = self::extractPrelude($source, $offset, $delimOffset, $sheet);
-				if ($prelude === null || !self::canRecordRule($options, $ruleCount, $sheet, $offset, $throwOnLimit)) {
-					self::skipMalformedBlock($source, $delimOffset, $offset, $end, $sheet);
-					continue;
-				}
-				$marginStyle = new CSSStyleDeclaration('', $options);
-				$ruleStart = $offset;
-				$offset = $delimOffset + 1;
-				$diagnostics = [];
-				$closed = self::parseStyleBlock(
-					$source,
-					$offset,
-					$end,
-					$marginStyle,
-					null,
-					$sheet,
-					self::nextDepth($depth),
-					$options,
-					$ruleCount,
-					$declarationCount,
-					$throwOnLimit,
-					false,
-					false,
-					false,
-					$delimOffset,
-					$declLimitRecorded,
-					allowEofClose: $allowEofClose,
-				);
-				if ($closed) {
-					try {
-						[$marginName, $extra] = self::splitAtRulePrelude($prelude);
-						if ($extra !== '') {
-							throw new InvalidArgumentException('Unexpected prelude in page margin rule.');
-						}
-						$ownerRule->getCssRules()->appendDetached(new CSSMarginRule($marginName, $marginStyle, $options->maxBytes));
-						self::incrementCounter($ruleCount, 'CSS rule count');
-					} catch (InvalidArgumentException $exception) {
-						if ($throwOnLimit && $exception instanceof CSSParserLimitException) {
-							throw $exception;
-						}
-						$sheet->recordParseError($exception->getMessage(), $ruleStart);
-					}
-				}
-				continue;
-			}
-
-			// Style rule / grouping rule / @function nested rule
-			self::flushTrailingNestedDeclarations(
-				$currentStyle,
-				$ownerRule,
-				$sheet,
-				$options,
-				$ruleCount,
-				$throwOnLimit,
-				$pageMode,
-				$functionMode,
-				$hasNestedRule,
-				$isGroupingWithDecls,
-				$offset,
-			);
-
-			$ruleStart = $offset;
-			$prelude = self::extractPrelude($source, $ruleStart, $delimOffset, $sheet);
-
-			if ($prelude === null || !self::canRecordRule($options, $ruleCount, $sheet, $ruleStart, $throwOnLimit)) {
-				self::skipMalformedBlock($source, $delimOffset, $offset, $end, $sheet);
-				$hasNestedRule = true;
-				$currentStyle = $functionMode ? new CSSFunctionDescriptors('', $options) : new CSSStyleProperties('', $options);
-				continue;
-			}
-
-			if ($prelude === '') {
-				$sheet->recordParseError('CSS rule prelude cannot be empty.', $ruleStart);
-				self::skipMalformedBlock($source, $delimOffset, $offset, $end, $sheet);
-				$hasNestedRule = true;
-				$currentStyle = $functionMode ? new CSSFunctionDescriptors('', $options) : new CSSStyleProperties('', $options);
-				continue;
-			}
-
-			if (str_starts_with($prelude, '@')) {
-				$childDepth = self::nextDepth($depth);
-				$prepared = self::prepareBlockAtRule(
-					$prelude,
-					$source,
-					$ruleStart,
-					$delimOffset,
-					$offset,
-					$end,
-					$sheet,
-					true,
-					$childDepth,
-					$options,
-					$ruleCount,
-					$declarationCount,
-					$throwOnLimit,
-					$declLimitRecorded,
-					$functionMode,
-					$allowEofClose,
-				);
-				if ($prepared !== null) {
-					$mode = $prepared['mode'];
-					$nested = $prepared['rule'];
-					if ($mode === 'done') {
-						$nestedClosed = true;
-					} elseif ($mode === 'style') {
-						/** @var CSSGroupingRule $nested */
-						/** @var CSSStyleDeclaration $preparedStyle */
-						$preparedStyle = $prepared['style'];
-						$nestedClosed = self::parseStyleBlock(
-							$source,
-							$offset,
-							$end,
-							$preparedStyle,
-							$nested,
-							$sheet,
-							$childDepth,
-							$options,
-							$ruleCount,
-							$declarationCount,
-							$throwOnLimit,
-							$prepared['allowNested'] ?? true,
-							$prepared['pageMode'] ?? false,
-							$prepared['functionMode'] ?? false,
-							$delimOffset,
-							$declLimitRecorded,
-							allowEofClose: $allowEofClose,
-						);
-					} elseif ($mode === 'ffv') {
-						/** @var CSSFontFeatureValuesRule $nested */
-						$nestedClosed = self::parseFontFeatureValuesBody(
-							$nested,
-							$source,
-							$offset,
-							$end,
-							$sheet,
-							$childDepth,
-							$options,
-							$ruleCount,
-							$declarationCount,
-							$throwOnLimit,
-							$delimOffset,
-							$declLimitRecorded,
-							$allowEofClose,
-						);
-					} else {
-						/** @var CSSGroupingRule $nested */
-						$nestedClosed = self::parseRuleList(
-							$source,
-							$offset,
-							$end,
-							$nested->getCssRules(),
-							$sheet,
-							$nested instanceof CSSKeyframesRule,
-							$childDepth,
-							$options,
-							$ruleCount,
-							$declarationCount,
-							$throwOnLimit,
-							true,
-							$delimOffset,
-							$declLimitRecorded,
-							$allowEofClose,
-						);
-					}
-					if ($nestedClosed && $ownerRule !== null) {
-						$ownerRule->getCssRules()->appendDetached($nested);
-					}
+		// In browser mode, enforce CSSOM non-NUL control-byte invariant on actual non-comment tokens.
+		if ($browserMode && $controlOffset === null && $delimOffset > $stmtStart) {
+			if (!$hasComments) {
+				if (CSSSyntaxScanner::hasControlCharactersInSlice($source, $stmtStart, $delimOffset - $stmtStart)) {
+					$controlOffset = $stmtStart;
 				}
 			} else {
-				$childDepth = self::nextDepth($depth);
-				if ($options->maxDepth !== null && $childDepth > $options->maxDepth) {
-					$message = sprintf('Maximum CSS nesting depth of %d exceeded.', $options->maxDepth);
-					if ($throwOnLimit) {
-						throw new CSSParserLimitException($message);
+				foreach ($tokens as $tok) {
+					$tokLen = $tok['end'] - $tok['start'];
+					if ($tokLen > 0 && CSSSyntaxScanner::hasControlCharactersInSlice($source, $tok['start'], $tokLen)) {
+						$controlOffset = $tok['start'];
+						break;
 					}
-					$sheet->recordParseError($message, $delimOffset + 1);
-					self::skipMalformedBlock($source, $delimOffset, $offset, $end, $sheet);
-				} else {
-					$nestedStyleRule = null;
-					$nonDefaultDeclLimits = $options->maxBytes !== CSSParserOptions::DEFAULT_MAX_BYTES
-						|| $options->maxDeclarations !== CSSParserOptions::DEFAULT_MAX_DECLARATIONS
-						|| $options->maxDepth !== CSSParserOptions::DEFAULT_MAX_DEPTH
-						|| $options->maxMathDepth !== CSSParserOptions::DEFAULT_MAX_MATH_DEPTH;
-					try {
-						$nestedStyleRule = new CSSStyleRule($prelude, $nonDefaultDeclLimits ? new CSSStyleProperties('', $options) : null, $options->maxBytes);
-					} catch (InvalidArgumentException $exception) {
-						if ($throwOnLimit && $exception instanceof CSSParserLimitException) {
-							throw $exception;
-						}
-						$sheet->recordParseError($exception->getMessage(), $ruleStart);
-						self::skipMalformedBlock($source, $delimOffset, $offset, $end, $sheet);
+				}
+			}
+		}
+
+		return [
+			'delimiter' => $delimType,
+			'delimOffset' => $delimOffset,
+			'atKeywordEnd' => $atKeywordEnd,
+			'tokens' => $tokens,
+			'hasComments' => $hasComments,
+			'controlOffset' => $controlOffset,
+			'badTokenOffset' => $badTokenOffset,
+			'badTokenMessage' => $badTokenMessage,
+			'hasUnclosedConstruct' => $hasUnclosedConstruct,
+			'unclosedBlocks' => $blockStack,
+			'hasTopLevelBraces' => $hasTopLevelBraces,
+		];
+	}
+
+	/**
+	 * Skips tokens inside an already-opened `{` block until its matching `}` (ignoring stray `)`/`]`), returning false on EOF.
+	 */
+	private static function skipRemainingBlock(CSSTokenizer $tokenizer, CSSStyleSheet $sheet, bool $checkControlBytes): bool
+	{
+		$stack = ['}'];
+		while (true) {
+			$type = $tokenizer->advanceInternal();
+			if ($checkControlBytes && $tokenizer->commentControlErrorOffsets !== []) {
+				foreach ($tokenizer->commentControlErrorOffsets as $errOffset) {
+					$sheet->recordParseError('CSS comment contains disallowed control characters.', $errOffset);
+				}
+			}
+			if ($tokenizer->tokenUnclosedCommentOffset !== null) {
+				$sheet->recordParseError('Unclosed CSS comment.', $tokenizer->tokenUnclosedCommentOffset);
+			}
+			if ($type === CSSTokenType::Eof) {
+				return false;
+			}
+			if ($type === CSSTokenType::LeftParenthesis || $type === CSSTokenType::Function) {
+				$stack[] = ')';
+			} elseif ($type === CSSTokenType::LeftSquareBracket) {
+				$stack[] = ']';
+			} elseif ($type === CSSTokenType::LeftCurlyBracket) {
+				$stack[] = '}';
+			} elseif ($type === CSSTokenType::RightParenthesis || $type === CSSTokenType::RightSquareBracket) {
+				$closer = $type === CSSTokenType::RightParenthesis ? ')' : ']';
+				if (end($stack) === $closer) {
+					array_pop($stack);
+				}
+			} elseif ($type === CSSTokenType::RightCurlyBracket) {
+				$top = end($stack);
+				if ($top === '}') {
+					array_pop($stack);
+					if ($stack === []) {
+						return true;
 					}
-					if ($nestedStyleRule !== null) {
-						self::incrementCounter($ruleCount, 'CSS rule count');
-						$offset = $delimOffset + 1;
-						$nestedClosed = self::parseStyleBlock(
-							$source,
-							$offset,
-							$end,
-							$nestedStyleRule->getStyle(),
-							$nestedStyleRule,
-							$sheet,
-							$childDepth,
-							$options,
-							$ruleCount,
-							$declarationCount,
-							$throwOnLimit,
-							true,
-							false,
-							false,
-							$delimOffset,
-							$declLimitRecorded,
-							allowEofClose: $allowEofClose,
-						);
-						if ($nestedClosed && $ownerRule !== null) {
-							$ownerRule->getCssRules()->appendDetached($nestedStyleRule);
+				} elseif (count($stack) > 1) {
+					do {
+						array_pop($stack);
+					} while ($stack !== [] && end($stack) !== '}');
+					if ($stack !== [] && end($stack) === '}') {
+						array_pop($stack);
+						if ($stack === []) {
+							return true;
 						}
 					}
 				}
 			}
+		}
+	}
 
-			$hasNestedRule = true;
-			$currentStyle = $functionMode ? new CSSFunctionDescriptors('', $options) : new CSSStyleProperties('', $options);
+	private static function findBlockEndFromTokenizer(string $source, CSSTokenizer $tokenizer, int $openBraceOffset): ?int
+	{
+		$len = strlen($source);
+		$close = CSSSyntaxScanner::findMatchingBlockEnd($source, $openBraceOffset, $len);
+		if ($close !== null) {
+			return $close;
+		}
+		$tokenizer->setOffsetInternal($len);
+
+		return null;
+	}
+
+	private static function buildCleanPrelude(
+		string $source,
+		int $start,
+		int $end,
+		bool $hasComments,
+		?CSSStyleSheet $sheet = null,
+	): ?string {
+		$len = $end - $start;
+		if ($len > 0 && CSSSyntaxScanner::hasControlCharactersInSlice($source, $start, $len)) {
+			$sheet?->recordParseError('CSS rule prelude contains disallowed control characters.', $start);
+			return null;
+		}
+		if ($hasComments) {
+			return CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($source, $start, $end));
 		}
 
-		self::flushDiagnostics($sheet, $diagnostics);
-		if ($allowEofClose) {
-			self::flushTrailingNestedDeclarations(
-				$currentStyle,
-				$ownerRule,
-				$sheet,
-				$options,
-				$ruleCount,
-				$throwOnLimit,
-				$pageMode,
-				$functionMode,
-				$hasNestedRule,
-				$isGroupingWithDecls,
-				$end,
-			);
+		$raw = substr($source, $start, $len);
+		return str_contains($raw, '\\')
+			? CSSSyntaxScanner::trimCssWhitespace($raw)
+			: trim($raw, CSSSyntaxScanner::CSS_WHITESPACE);
+	}
+
+	private static function skipFfvTrivia(
+		string $source,
+		int $offset,
+		int $end,
+		CSSStyleSheet $sheet,
+		bool $checkControlBytes,
+	): int {
+		while ($offset < $end) {
+			$offset += strspn($source, CSSSyntaxScanner::CSS_WHITESPACE, $offset, $end - $offset);
+			if ($offset >= $end) {
+				break;
+			}
+			if ($source[$offset] === '/' && $offset + 1 < $end && $source[$offset + 1] === '*') {
+				$commentEnd = strpos($source, '*/', $offset + 2);
+				if ($commentEnd === false || $commentEnd + 1 >= $end) {
+					if ($checkControlBytes && CSSSyntaxScanner::hasControlCharactersInSlice($source, $offset, $end - $offset)) {
+						$sheet->recordParseError('CSS comment contains disallowed control characters.', $offset);
+					}
+					$sheet->recordParseError('Unclosed CSS comment.', $offset);
+					return $end;
+				}
+				if ($checkControlBytes && CSSSyntaxScanner::hasControlCharactersInSlice($source, $offset + 2, $commentEnd - ($offset + 2))) {
+					$sheet->recordParseError('CSS comment contains disallowed control characters.', $offset);
+				}
+				$offset = $commentEnd + 2;
+				continue;
+			}
+			break;
 		}
-		$sheet->recordParseError('Unclosed CSS rule block.', $openBraceOffset);
-		return $allowEofClose;
+
+		return $offset;
+	}
+
+	private static function hasNonDefaultDeclLimits(CSSParserOptions $options): bool
+	{
+		return $options->maxBytes !== CSSParserOptions::DEFAULT_MAX_BYTES
+			|| $options->maxDeclarations !== CSSParserOptions::DEFAULT_MAX_DECLARATIONS
+			|| $options->maxDepth !== CSSParserOptions::DEFAULT_MAX_DEPTH
+			|| $options->maxMathDepth !== CSSParserOptions::DEFAULT_MAX_MATH_DEPTH;
+	}
+
+	private static function assertNoSheetParseErrors(CSSStyleSheet $sheet): void
+	{
+		$errors = $sheet->getParseErrors();
+		if ($errors !== []) {
+			throw new InvalidArgumentException($errors[0]['message']);
+		}
+	}
+
+	private static function parseAtRulePrelude(string $prelude, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES): CSSAtRule
+	{
+		[$name, $condition] = self::splitAtRulePrelude($prelude);
+		return match ($name) {
+			'charset' => new CSSCharsetRule($condition, $maxBytes),
+			'import' => new CSSImportRule($condition, $maxBytes),
+			'namespace' => new CSSNamespaceRule($condition, $maxBytes),
+			'layer' => new CSSLayerStatementRule($condition, $maxBytes),
+			default => new CSSAtRule($name, $condition, null, false, $maxBytes),
+		};
 	}
 
 	private static function flushTrailingNestedDeclarations(
@@ -1445,332 +2508,6 @@ final class CSSParser
 		}
 	}
 
-	private static function parseFontFeatureValuesBody(
-		CSSFontFeatureValuesRule $rule,
-		string $source,
-		int &$offset,
-		int $end,
-		CSSStyleSheet $sheet,
-		int $depth,
-		CSSParserOptions $options,
-		int &$ruleCount,
-		int &$declarationCount,
-		bool $throwOnLimit,
-		int $openBraceOffset,
-		bool &$declLimitRecorded = false,
-		bool $allowEofClose = false,
-	): bool {
-		while ($offset < $end) {
-			$offset = self::skipTrivia($source, $offset, $end, $sheet, false);
-			if ($offset >= $end) {
-				break;
-			}
-
-			$ruleStart = $offset;
-			$delimiter = CSSSyntaxScanner::findNextTopLevelDelimiterBytes($source, '{;}', $offset, $end);
-			if ($delimiter === null) {
-				$sheet->recordParseError('Unterminated rule in @font-feature-values.', $offset);
-				$offset = $end;
-				return $allowEofClose;
-			}
-
-			$delimChar = $delimiter['delimiter'];
-			$delimOffset = $delimiter['offset'];
-
-			if ($delimChar === '}') {
-				if ($ruleStart < $delimOffset) {
-					$sheet->recordParseError('Unexpected trailing tokens before closing brace.', $ruleStart);
-				}
-				$offset = $delimOffset + 1;
-				return true;
-			}
-
-			if ($delimChar !== '{') {
-				$sheet->recordParseError('Unexpected token in @font-feature-values.', $delimOffset);
-				$offset = $delimOffset + 1;
-				continue;
-			}
-
-			$childDepth = self::nextDepth($depth);
-			if ($options->maxDepth !== null && $childDepth > $options->maxDepth) {
-				$message = sprintf('Maximum CSS nesting depth of %d exceeded.', $options->maxDepth);
-				if ($throwOnLimit) {
-					throw new CSSParserLimitException($message);
-				}
-				$sheet->recordParseError($message, $delimOffset + 1);
-				self::skipMalformedBlock($source, $delimOffset, $offset, $end, $sheet);
-				continue;
-			}
-
-			$prelude = self::extractPrelude($source, $ruleStart, $delimOffset, $sheet);
-			if ($prelude === null) {
-				self::skipMalformedBlock($source, $delimOffset, $offset, $end, $sheet);
-				continue;
-			}
-			try {
-				[$featureType, $extra] = self::splitAtRulePrelude($prelude);
-			} catch (InvalidArgumentException $exception) {
-				if ($throwOnLimit && $exception instanceof CSSParserLimitException) {
-					throw $exception;
-				}
-				$sheet->recordParseError($exception->getMessage(), $ruleStart);
-				self::skipMalformedBlock($source, $delimOffset, $offset, $end, $sheet);
-				continue;
-			}
-
-			if ($extra === '' && isset(self::FONT_FEATURE_CATEGORIES[$featureType])) {
-				$close = CSSSyntaxScanner::findMatchingBlockEnd($source, $delimOffset, $end);
-				if ($close === null || $close >= $end) {
-					$sheet->recordParseError('Unclosed @font-feature-values feature block.', $delimOffset);
-					$offset = $end;
-					return false;
-				}
-				$blockStart = $delimOffset + 1;
-				$offset = $close + 1;
-				$map = $rule->getFeatureMap($featureType);
-
-				$declOffset = $blockStart;
-				while ($declOffset < $close) {
-					$declOffset = self::skipTrivia($source, $declOffset, $close, $sheet, false);
-					if ($declOffset >= $close) {
-						break;
-					}
-					$next = CSSSyntaxScanner::findNextTopLevelDelimiterBytes($source, ';', $declOffset, $close);
-					$segEnd = $next !== null ? $next['offset'] : $close;
-					$segStart = $declOffset;
-					$declOffset = $next !== null ? $next['offset'] + 1 : $close;
-
-					if ($declLimitRecorded) {
-						break;
-					}
-
-					if (CSSSyntaxScanner::hasControlCharactersInSlice($source, $segStart, $segEnd - $segStart)) {
-						$sheet->recordParseError('CSS font feature declaration contains disallowed control characters.', $segStart);
-						continue;
-					}
-
-					$colon = CSSSyntaxScanner::findTopLevel($source, ':', $segStart, $segEnd);
-					if ($colon === null) {
-						if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($source, $segStart, $segEnd)) !== '') {
-							$sheet->recordParseError('Invalid CSS font feature declaration (missing colon).', $segStart);
-						}
-						continue;
-					}
-
-					$rawName = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($source, $segStart, $colon));
-					$decodedName = $rawName !== '' ? CSSSyntaxScanner::decodeIdentAt($rawName, 0, strlen($rawName)) : null;
-					if ($decodedName === null || $decodedName['end'] !== strlen($rawName)) {
-						$sheet->recordParseError('Invalid font feature value name.', $segStart);
-						continue;
-					}
-
-					if (CSSSyntaxScanner::findLastTopLevelImportant($source, $colon + 1, $segEnd) !== null) {
-						$sheet->recordParseError('!important is not allowed in @font-feature-values.', $segStart);
-						continue;
-					}
-
-					if ($options->maxDeclarations !== null && $declarationCount >= $options->maxDeclarations) {
-						$declLimitRecorded = true;
-						$message = sprintf('Maximum CSS declaration limit of %d exceeded.', $options->maxDeclarations);
-						if ($throwOnLimit) {
-							throw new CSSParserLimitException($message);
-						}
-						$sheet->recordParseError($message, $segStart);
-						break;
-					}
-					self::incrementCounter($declarationCount, 'CSS declaration count');
-
-					$rawVal = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($source, $colon + 1, $segEnd));
-					$tokens = $rawVal === ''
-						? []
-						: (preg_split('/[ \t\n\r\f]+/', $rawVal, CSSStyleValue::MAX_LIST_ITEMS + 2) ?: []);
-					if (count($tokens) > CSSStyleValue::MAX_LIST_ITEMS) {
-						$message = sprintf('CSS font feature value list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS);
-						if ($throwOnLimit) {
-							throw new CSSParserLimitException($message);
-						}
-						$sheet->recordParseError($message, $segStart);
-						continue;
-					}
-					$ints = [];
-					$valid = true;
-					foreach ($tokens as $token) {
-						if ($token === '' || !preg_match('/^\d+$/D', $token)) {
-							$valid = false;
-							break;
-						}
-						$stripped = ltrim($token, '0');
-						$intVal = (int) $token;
-						if ($stripped !== '' && (string) $intVal !== $stripped) {
-							$valid = false;
-							break;
-						}
-						$ints[] = $intVal;
-					}
-					if (!$valid || $ints === []) {
-						$sheet->recordParseError('Font feature values must be non-empty integer lists.', $segStart);
-						continue;
-					}
-					try {
-						$map->setParsedInternal($rawName, $ints, $options->maxBytes);
-					} catch (CSSParserLimitException $exception) {
-						if ($throwOnLimit) {
-							throw $exception;
-						}
-						$sheet->recordParseError($exception->getMessage(), $segStart);
-					} catch (InvalidArgumentException $exception) {
-						$sheet->recordParseError($exception->getMessage(), $segStart);
-					}
-				}
-			} elseif (self::canRecordRule($options, $ruleCount, $sheet, $ruleStart, $throwOnLimit)) {
-				$close = CSSSyntaxScanner::findMatchingBlockEnd($source, $delimOffset, $end);
-				if ($close === null || $close >= $end) {
-					$sheet->recordParseError('Unclosed @font-feature-values feature block.', $delimOffset);
-					$offset = $end;
-					return false;
-				}
-				$raw = substr($source, $ruleStart, $close - $ruleStart + 1);
-				$offset = $close + 1;
-				$opaque = self::createValidatedOpaqueRule($raw, $sheet, $ruleStart, $options->maxBytes, $throwOnLimit);
-				if ($opaque !== null) {
-					$rule->getCssRules()->appendDetached($opaque);
-					self::incrementCounter($ruleCount, 'CSS rule count');
-				}
-			} else {
-				self::skipMalformedBlock($source, $delimOffset, $offset, $end, $sheet);
-			}
-		}
-
-		$sheet->recordParseError('Unclosed @font-feature-values block.', $openBraceOffset);
-		return $allowEofClose;
-	}
-
-	private static function parseSingleNestedRuleInternal(
-		string $source,
-		int &$offset,
-		int $end,
-		CSSStyleSheet $sheet,
-		int $depth,
-		CSSParserOptions $options,
-		int &$ruleCount,
-		int &$declarationCount,
-		bool $functionMode = false,
-	): CSSRule {
-		if ($options->maxDepth !== null && $depth > $options->maxDepth) {
-			throw new CSSParserLimitException(sprintf('Maximum CSS nesting depth of %d exceeded.', $options->maxDepth));
-		}
-
-		$delimiter = CSSSyntaxScanner::findNextTopLevelDelimiterBytes($source, '{;}', $offset, $end);
-		if ($delimiter === null) {
-			throw new InvalidArgumentException('Unterminated nested CSS rule.');
-		}
-		$ruleStart = $offset;
-		$delimOffset = $delimiter['offset'];
-		$prelude = self::extractPrelude($source, $ruleStart, $delimOffset, $sheet);
-		if ($prelude === null) {
-			throw new InvalidArgumentException($sheet->getParseErrors()[0]['message'] ?? 'CSS rule prelude contains disallowed control characters.');
-		}
-
-		if ($delimiter['delimiter'] === ';') {
-			if (!str_starts_with($prelude, '@')) {
-				throw new InvalidArgumentException('A qualified rule requires a block.');
-			}
-			[$name] = self::splitAtRulePrelude($prelude);
-			if (isset(self::STATEMENT_AT_RULES[$name])) {
-				throw new InvalidArgumentException(sprintf('Statement @%s rule is not allowed inside a nested rule.', $name));
-			}
-			$rule = self::parseSingleRule(substr($source, $ruleStart, $delimOffset - $ruleStart + 1), $options, $depth, $ruleCount);
-			$offset = $delimOffset + 1;
-			return $rule;
-		}
-		if ($delimiter['delimiter'] !== '{') {
-			throw new InvalidArgumentException('Invalid nested CSS rule.');
-		}
-		if ($prelude === '') {
-			throw new InvalidArgumentException('CSS rule prelude cannot be empty.');
-		}
-		if ($options->maxRules !== null && $ruleCount >= $options->maxRules) {
-			throw new CSSParserLimitException(sprintf('Maximum CSS rule limit of %d exceeded.', $options->maxRules));
-		}
-
-		if (str_starts_with($prelude, '@')) {
-			$childDepth = self::nextDepth($depth);
-			$declLimitRecorded = false;
-			$prepared = self::prepareBlockAtRule(
-				$prelude,
-				$source,
-				$ruleStart,
-				$delimOffset,
-				$offset,
-				$end,
-				$sheet,
-				true,
-				$childDepth,
-				$options,
-				$ruleCount,
-				$declarationCount,
-				true,
-				$declLimitRecorded,
-				$functionMode,
-			);
-			$rule = $prepared === null ? null : self::finishPreparedAtRuleBody(
-				$prepared,
-				$source,
-				$delimOffset,
-				$offset,
-				$end,
-				$sheet,
-				$childDepth,
-				$options,
-				$ruleCount,
-				$declarationCount,
-				true,
-				$declLimitRecorded,
-			);
-			if ($rule === null) {
-				$message = $sheet->getParseErrors()[0]['message'] ?? 'Malformed nested CSS rule.';
-				throw new InvalidArgumentException($message);
-			}
-			return $rule;
-		}
-
-		$childDepth = self::nextDepth($depth);
-		if ($options->maxDepth !== null && $childDepth > $options->maxDepth) {
-			throw new CSSParserLimitException(sprintf('Maximum CSS nesting depth of %d exceeded.', $options->maxDepth));
-		}
-
-		$nonDefaultDeclLimits = $options->maxBytes !== CSSParserOptions::DEFAULT_MAX_BYTES
-			|| $options->maxDeclarations !== CSSParserOptions::DEFAULT_MAX_DECLARATIONS
-			|| $options->maxDepth !== CSSParserOptions::DEFAULT_MAX_DEPTH
-			|| $options->maxMathDepth !== CSSParserOptions::DEFAULT_MAX_MATH_DEPTH;
-		$rule = new CSSStyleRule($prelude, $nonDefaultDeclLimits ? new CSSStyleProperties('', $options) : null, $options->maxBytes);
-		self::incrementCounter($ruleCount, 'CSS rule count');
-		$offset = $delimOffset + 1;
-
-		$closed = self::parseStyleBlock(
-			$source,
-			$offset,
-			$end,
-			$rule->getStyle(),
-			$rule,
-			$sheet,
-			$childDepth,
-			$options,
-			$ruleCount,
-			$declarationCount,
-			true,
-			true,
-			false,
-			false,
-			$delimOffset,
-		);
-		if (!$closed) {
-			throw new InvalidArgumentException('Malformed nested CSS rule block.');
-		}
-
-		return $rule;
-	}
-
 	/** @return array{string, string} */
 	private static function splitAtRulePrelude(string $prelude): array
 	{
@@ -1801,42 +2538,18 @@ final class CSSParser
 		return [$name, CSSSyntaxScanner::trimCssWhitespace(substr($prelude, $pos))];
 	}
 
-	private static function extractPrelude(string $source, int $start, int $end, ?CSSStyleSheet $sheet = null): ?string
-	{
-		$len = $end - $start;
-		if ($len > 0 && CSSSyntaxScanner::hasControlCharactersInSlice($source, $start, $len)) {
-			$sheet?->recordParseError('CSS rule prelude contains disallowed control characters.', $start);
-			return null;
-		}
-		$raw = substr($source, $start, $len);
-		if (str_contains($raw, '/*')) {
-			return CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($raw));
-		}
-
-		return CSSSyntaxScanner::trimCssWhitespace($raw);
-	}
-
-	private static function extractFunctionRawPrelude(string $source, int $ruleStart, int $braceOffset, string $fallback): string
-	{
-		$rawSlice = substr($source, $ruleStart, $braceOffset - $ruleStart);
-		$len = strlen($rawSlice);
-		if ($len >= 2 && $rawSlice[0] === '@') {
-			$identEnd = CSSSyntaxScanner::scanIdentEnd($rawSlice, 1, $len);
-			if ($identEnd !== null) {
-				return substr($rawSlice, $identEnd);
-			}
-		}
-
-		return $fallback;
-	}
-
 	private static function createValidatedOpaqueRule(
 		string $raw,
 		CSSStyleSheet $sheet,
 		int $offset,
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
 		bool $throwOnLimit = false,
+		bool $browserMode = false,
 	): ?CSSOpaqueRule {
+		if ($browserMode && strcspn($raw, self::CONTROL_BYTES) !== strlen($raw)) {
+			$sheet->recordParseError('CSS opaque rule contains disallowed control characters.', $offset);
+			return null;
+		}
 		try {
 			return CSSOpaqueRule::createParsedInternal($raw, $maxBytes);
 		} catch (InvalidArgumentException $exception) {
@@ -1848,22 +2561,6 @@ final class CSSParser
 		}
 	}
 
-	private static function skipMalformedBlock(
-		string $source,
-		int $braceOffset,
-		int &$offset,
-		int $end,
-		CSSStyleSheet $sheet,
-	): void {
-		$close = CSSSyntaxScanner::findMatchingBlockEnd($source, $braceOffset, $end);
-		if ($close === null || $close >= $end) {
-			$sheet->recordParseError('Unclosed CSS rule block.', $braceOffset);
-			$offset = $end;
-			return;
-		}
-		$offset = $close + 1;
-	}
-
 	/** @param list<array{message: string, offset: int}> $diagnostics */
 	private static function flushDiagnostics(CSSStyleSheet $sheet, array &$diagnostics): void
 	{
@@ -1871,50 +2568,6 @@ final class CSSParser
 			$sheet->recordParseError($error['message'], $error['offset']);
 		}
 		$diagnostics = [];
-	}
-
-	private static function skipTrivia(
-		string $source,
-		int $offset,
-		int $end,
-		?CSSStyleSheet $sheet = null,
-		bool $allowCdoCdc = false,
-	): int {
-		while ($offset < $end) {
-			$offset += strspn($source, " \t\n\r\f", $offset, $end - $offset);
-			if ($offset >= $end) {
-				break;
-			}
-			$ch = $source[$offset];
-			if ($ch === '/' && $offset + 1 < $end && $source[$offset + 1] === '*') {
-				$commentEnd = strpos($source, '*/', $offset + 2);
-				if ($commentEnd === false || $commentEnd + 1 >= $end) {
-					if (CSSSyntaxScanner::hasControlCharactersInSlice($source, $offset, $end - $offset)) {
-						$sheet?->recordParseError('CSS comment contains disallowed control characters.', $offset);
-					}
-					$sheet?->recordParseError('Unclosed CSS comment.', $offset);
-					return $end;
-				}
-				if (CSSSyntaxScanner::hasControlCharactersInSlice($source, $offset + 2, $commentEnd - ($offset + 2))) {
-					$sheet?->recordParseError('CSS comment contains disallowed control characters.', $offset);
-				}
-				$offset = $commentEnd + 2;
-				continue;
-			}
-			if ($allowCdoCdc) {
-				if ($ch === '-' && $offset + 3 <= $end && substr_compare($source, '-->', $offset, 3) === 0) {
-					$offset += 3;
-					continue;
-				}
-				if ($ch === '<' && $offset + 4 <= $end && substr_compare($source, '<!--', $offset, 4) === 0) {
-					$offset += 4;
-					continue;
-				}
-			}
-			break;
-		}
-
-		return $offset;
 	}
 
 	private static function nextDepth(int $depth): int

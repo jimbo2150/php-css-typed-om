@@ -23,7 +23,9 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleSheet;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSInputPreprocessor;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSTokenizer;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSRotate;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
@@ -254,6 +256,25 @@ $results['benchmarks']['micro.scanner_split_top_level'] = measure(
 	1,
 	null,
 	'splits',
+	'input',
+);
+
+$results['benchmarks']['micro.preprocess_and_tokenize'] = measure(
+	static function () use ($scannerBlob): int {
+		$preprocessed = CSSInputPreprocessor::preprocess($scannerBlob);
+		$tokenizer = new CSSTokenizer($preprocessed);
+		$count = 0;
+		while (!$tokenizer->nextToken()->isEof()) {
+			$count++;
+		}
+		return $count;
+	},
+	$warmup,
+	$iterations,
+	strlen($scannerBlob),
+	1,
+	null,
+	'streams',
 	'input',
 );
 

@@ -79,6 +79,8 @@ final class WptSchema
 			'syntax.scanner.split',
 			'syntax.ident.escape',
 			'syntax.eof',
+			'syntax.preprocess',
+			'syntax.tokenize',
 		],
 		'css/css-values' => [
 			'values.calc.parse',

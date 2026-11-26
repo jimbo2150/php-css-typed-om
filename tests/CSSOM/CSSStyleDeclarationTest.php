@@ -136,4 +136,38 @@ final class CSSStyleDeclarationTest extends TestCase
 		/** @phpstan-ignore property.notFound */
 		$_ = $map->unknownProp;
 	}
+
+	public function testStripsLeadingBomAndSupportsBrowserErrorRecovery(): void
+	{
+		$bomDecl = CSSStyleDeclaration::parse("\xEF\xBB\xBFcolor: red;\r\nmargin: 0;");
+		self::assertSame('red', $bomDecl->getPropertyValue('color'));
+		self::assertSame('0', $bomDecl->getPropertyValue('margin'));
+
+		$diags = [];
+		$browserDecl = CSSStyleDeclaration::parse(
+			"\xEF\xBB\xBFcolor: r\x00ed; content: \"abc\\; width: calc(10px; background: url(a.png",
+			false,
+			$diags,
+			new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions(browserErrorRecovery: true),
+		);
+		self::assertSame("r\u{FFFD}ed", $browserDecl->getPropertyValue('color'));
+
+		$unclosedStr = CSSStyleDeclaration::parse(
+			'content: "hello\\',
+			false,
+			$diags,
+			new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions(browserErrorRecovery: true),
+		);
+		self::assertSame('"hello"', $unclosedStr->getPropertyValue('content'));
+		self::assertSame('content: "hello";', $unclosedStr->getCssText());
+
+		$unclosedCalc = CSSStyleDeclaration::parse(
+			'width: calc(10px + 20px',
+			false,
+			$diags,
+			new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions(browserErrorRecovery: true),
+		);
+		self::assertSame('calc(10px + 20px)', $unclosedCalc->getPropertyValue('width'));
+		self::assertSame('width: calc(10px + 20px);', $unclosedCalc->getCssText());
+	}
 }

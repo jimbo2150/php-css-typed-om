@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/css-syntax",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/css-syntax/cdc-vs-ident-tokens.html",
+    "css/css-syntax/ident-three-code-points.html",
+    "css/css-syntax/escaped-eof.html",
+    "css/css-syntax/url-whitespace-consumption.html",
+    "css/css-syntax/unclosed-constructs.html",
+    "css/css-syntax/unclosed-url-at-eof.html"
+  ],
+  "cases": [
+    {
+      "id": "css-syntax/tokenizer/cdo-and-cdc-tokens",
+      "upstream": "css/css-syntax/cdc-vs-ident-tokens.html",
+      "category": "parsing",
+      "operation": "syntax.tokenize",
+      "input": { "source": "<!-- 10--> --> --a" },
+      "expected": {
+        "tokens": [
+          { "type": "CDO-token" },
+          { "type": "whitespace-token" },
+          { "type": "dimension-token", "numericValue": 10 },
+          { "type": "delim-token", "value": ">" },
+          { "type": "whitespace-token" },
+          { "type": "CDC-token" },
+          { "type": "whitespace-token" },
+          { "type": "ident-token", "value": "--a" }
+        ]
+      },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/tokenizer/hash-id-vs-unrestricted-flags",
+      "upstream": "css/css-syntax/ident-three-code-points.html",
+      "category": "parsing",
+      "operation": "syntax.tokenize",
+      "input": { "source": "#abc #-- #123 #-1 #" },
+      "expected": {
+        "tokens": [
+          { "type": "hash-token", "value": "abc", "flag": "id" },
+          { "type": "whitespace-token" },
+          { "type": "hash-token", "value": "--", "flag": "id" },
+          { "type": "whitespace-token" },
+          { "type": "hash-token", "value": "123", "flag": "unrestricted" },
+          { "type": "whitespace-token" },
+          { "type": "hash-token", "value": "-1", "flag": "unrestricted" },
+          { "type": "whitespace-token" },
+          { "type": "delim-token", "value": "#" }
+        ]
+      },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/tokenizer/bad-string-and-bad-url-tokens",
+      "upstream": "css/css-syntax/unclosed-constructs.html",
+      "category": "error-recovery",
+      "operation": "syntax.tokenize",
+      "input": { "source": "\"a\nb\" url(x y) url(ok)" },
+      "expected": {
+        "tokens": [
+          { "type": "bad-string-token" },
+          { "type": "whitespace-token" },
+          { "type": "ident-token", "value": "b" },
+          { "type": "string-token", "value": " url(x y) url(ok)" }
+        ]
+      },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/tokenizer/bad-url-followed-by-valid-url",
+      "upstream": "css/css-syntax/url-whitespace-consumption.html",
+      "category": "error-recovery",
+      "operation": "syntax.tokenize",
+      "input": { "source": "url(x y) url(  a.png  )" },
+      "expected": {
+        "tokens": [
+          { "type": "bad-url-token" },
+          { "type": "whitespace-token" },
+          { "type": "url-token", "value": "a.png" }
+        ]
+      },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/tokenizer/unclosed-url-and-escaped-eof",
+      "upstream": "css/css-syntax/unclosed-url-at-eof.html",
+      "category": "error-recovery",
+      "operation": "syntax.tokenize",
+      "input": { "source": "url(a\\" },
+      "expected": {
+        "tokens": [
+          { "type": "url-token", "value": "a\uFFFD" }
+        ]
+      },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/tokenizer/escaped-eof-ident",
+      "upstream": "css/css-syntax/escaped-eof.html",
+      "category": "error-recovery",
+      "operation": "syntax.tokenize",
+      "input": { "source": "foo\\" },
+      "expected": {
+        "tokens": [
+          { "type": "ident-token", "value": "foo\uFFFD" }
+        ]
+      },
+      "status": "pass"
+    }
+  ]
+}

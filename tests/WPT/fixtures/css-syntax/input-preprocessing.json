@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/css-syntax",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/css-syntax/input-preprocessing.html"
+  ],
+  "cases": [
+    {
+      "id": "css-syntax/preprocess/crlf-cr-ff-normalized-to-lf",
+      "upstream": "css/css-syntax/input-preprocessing.html",
+      "category": "canonicalization",
+      "operation": "syntax.preprocess",
+      "input": { "raw": "a\r\nb\rc\fd" },
+      "expected": { "value": "a\nb\nc\nd" },
+      "status": "pass",
+      "specRef": "https://drafts.csswg.org/css-syntax-3/#input-preprocessing"
+    },
+    {
+      "id": "css-syntax/preprocess/nul-replaced-with-fffd",
+      "upstream": "css/css-syntax/input-preprocessing.html",
+      "category": "canonicalization",
+      "operation": "syntax.preprocess",
+      "input": { "raw": "a\u0000b" },
+      "expected": { "value": "a\uFFFDb" },
+      "status": "pass",
+      "specRef": "https://drafts.csswg.org/css-syntax-3/#input-preprocessing"
+    },
+    {
+      "id": "css-syntax/preprocess/single-bom-stripped",
+      "upstream": "css/css-syntax/input-preprocessing.html",
+      "category": "canonicalization",
+      "operation": "syntax.preprocess",
+      "input": { "rawHex": "efbbbf61207b7d" },
+      "expected": { "value": "a {}" },
+      "status": "pass",
+      "specRef": "https://drafts.csswg.org/css-syntax-3/#input-preprocessing"
+    },
+    {
+      "id": "css-syntax/preprocess/surrogate-bytes-replaced-with-fffd",
+      "upstream": "css/css-syntax/input-preprocessing.html",
+      "category": "error-recovery",
+      "operation": "syntax.preprocess",
+      "input": { "rawHex": "eda08061" },
+      "expected": { "value": "\uFFFD\uFFFD\uFFFDa" },
+      "status": "pass",
+      "specRef": "https://drafts.csswg.org/css-syntax-3/#input-preprocessing"
+    }
+  ]
+}

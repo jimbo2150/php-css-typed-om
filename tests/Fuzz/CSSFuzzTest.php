@@ -17,7 +17,9 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSScopeRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleSheet;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSInputPreprocessor;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSTokenizer;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSPositionValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
@@ -85,6 +87,40 @@ final class CSSFuzzTest extends TestCase
 			self::assertDoesNotMatchRegularExpression('/<\/style(?=[\t\n\f\r \/>]|$)/i', $escaped);
 			$reparsed = CSSStyleSheet::parse($rendered, $options);
 			self::assertSame($rendered, CSSRenderer::render($reparsed, new CSSRenderOptions(CSSRenderMode::Minified)));
+
+			// Preprocessor, Tokenizer, and Browser-Mode Error Recovery fuzz invariants
+			$preprocessed = CSSInputPreprocessor::preprocess($input, $options);
+			self::assertSame(1, preg_match('//u', $preprocessed));
+			self::assertFalse(str_contains($preprocessed, "\r") || str_contains($preprocessed, "\f") || str_contains($preprocessed, "\x00"));
+			$tokens = CSSTokenizer::tokenize($input, $options, true, 10_000);
+			self::assertNotEmpty($tokens);
+			self::assertTrue($tokens[count($tokens) - 1]->isEof());
+			$prevEnd = 0;
+			foreach ($tokens as $tok) {
+				self::assertGreaterThanOrEqual($prevEnd, $tok->start);
+				self::assertGreaterThanOrEqual($tok->start, $tok->end);
+				$prevEnd = $tok->end;
+			}
+			$browserSheet = CSSStyleSheet::parse($input, new CSSParserOptions(
+				maxBytes: $options->maxBytes,
+				maxDepth: $options->maxDepth,
+				maxRules: $options->maxRules,
+				maxMathDepth: $options->maxMathDepth,
+				maxErrors: $options->maxErrors,
+				maxDeclarations: $options->maxDeclarations,
+				browserErrorRecovery: true,
+			));
+			$browserRendered = CSSRenderer::render($browserSheet, new CSSRenderOptions(CSSRenderMode::Minified));
+			$browserReparsed = CSSStyleSheet::parse($browserRendered, new CSSParserOptions(
+				maxBytes: $options->maxBytes,
+				maxDepth: $options->maxDepth,
+				maxRules: $options->maxRules,
+				maxMathDepth: $options->maxMathDepth,
+				maxErrors: $options->maxErrors,
+				maxDeclarations: $options->maxDeclarations,
+				browserErrorRecovery: true,
+			));
+			self::assertSame($browserRendered, CSSRenderer::render($browserReparsed, new CSSRenderOptions(CSSRenderMode::Minified)));
 
 			// Standalone declaration parsing also stays bounded and crash-free
 			$fuzzDiags = [];

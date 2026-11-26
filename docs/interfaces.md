@@ -76,7 +76,11 @@ The documented names and signatures follow the PHP source. Trait pages describe 
 ## Parser utilities
 
 - [`CSSCalcParser`](interfaces/Parser/CSSCalcParser.md) — parser for CSS `calc()` arithmetic.
+- [`CSSInputPreprocessor`](interfaces/Parser/CSSInputPreprocessor.md) — CSS Syntax Level 3 §3.3 input stream preprocessor and UTF-8 sanitizer.
 - [`CSSSyntaxScanner`](interfaces/Parser/CSSSyntaxScanner.md) — top-level splitting, delimiter matching, and CSS-fragment validation.
+- [`CSSToken`](interfaces/Parser/CSSToken.md) — immutable CSS Syntax Level 3 token value object.
+- [`CSSTokenizer`](interfaces/Parser/CSSTokenizer.md) — iterative CSS Syntax Level 3 §4.3 streaming tokenizer.
+- [`CSSTokenType`](interfaces/Parser/CSSTokenType.md) — backed enum of all 25 W3C `<*-token>` types.
 
 ## Typed Object Model (Typed OM)
 

@@ -8,7 +8,9 @@ use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleDeclaration;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleRule;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStyleSheet;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSInputPreprocessor;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSTokenizer;
 use Jimbo2150\PhpCssTypedOm\Tests\WPT\Harness\WptAssertions;
 use Jimbo2150\PhpCssTypedOm\Tests\WPT\Harness\WptContractTestCase;
 use Jimbo2150\PhpCssTypedOm\Tests\WPT\Harness\WptFixtureCase;
@@ -43,6 +45,8 @@ final class CssSyntaxWptTest extends WptContractTestCase
 			'syntax.declaration.recover' => $this->runDeclarationRecover($case),
 			'syntax.scanner.split' => $this->runScannerSplit($case),
 			'syntax.eof' => $this->runEof($case),
+			'syntax.preprocess' => $this->runPreprocess($case),
+			'syntax.tokenize' => $this->runTokenize($case),
 			default => throw new LogicException(sprintf('Unsupported css/css-syntax operation "%s" in case "%s".', $case->operation, $case->id)),
 		};
 	}
@@ -222,5 +226,57 @@ final class CssSyntaxWptTest extends WptContractTestCase
 		}
 
 		throw new LogicException(sprintf('Unsupported EOF mode "%s".', $mode));
+	}
+
+	private function runPreprocess(WptFixtureCase $case): void
+	{
+		if (isset($case->input['rawHex']) && is_string($case->input['rawHex'])) {
+			$raw = hex2bin($case->input['rawHex']);
+			if ($raw === false) {
+				throw new LogicException(sprintf('Invalid hex in case "%s".', $case->id));
+			}
+		} elseif (isset($case->input['raw']) && is_string($case->input['raw'])) {
+			$raw = $case->input['raw'];
+		} else {
+			throw new LogicException(sprintf('Case "%s" requires input.raw or input.rawHex.', $case->id));
+		}
+
+		$expected = $case->expected['value'] ?? null;
+		if (!is_string($expected)) {
+			throw new LogicException(sprintf('Case "%s" requires string expected.value.', $case->id));
+		}
+
+		self::assertSame($expected, CSSInputPreprocessor::preprocess($raw), $case->id);
+	}
+
+	private function runTokenize(WptFixtureCase $case): void
+	{
+		$source = $case->input['source'] ?? null;
+		if (!is_string($source)) {
+			throw new LogicException(sprintf('Case "%s" requires string input.source.', $case->id));
+		}
+		$expectedTokens = $case->expected['tokens'] ?? null;
+		if (!is_array($expectedTokens)) {
+			throw new LogicException(sprintf('Case "%s" requires array expected.tokens.', $case->id));
+		}
+
+		$actual = CSSTokenizer::tokenize($source);
+		self::assertCount(count($expectedTokens), $actual, $case->id);
+		foreach ($expectedTokens as $idx => $spec) {
+			if (!is_array($spec) || !isset($spec['type'])) {
+				throw new LogicException(sprintf('Case "%s" token #%d missing type.', $case->id, $idx));
+			}
+			$tok = $actual[$idx];
+			self::assertSame((string) $spec['type'], $tok->type->value, $case->id . " token #$idx type");
+			if (array_key_exists('value', $spec)) {
+				self::assertSame((string) $spec['value'], $tok->value, $case->id . " token #$idx value");
+			}
+			if (array_key_exists('flag', $spec)) {
+				self::assertSame($spec['flag'], $tok->flag, $case->id . " token #$idx flag");
+			}
+			if (array_key_exists('numericValue', $spec)) {
+				self::assertSame((float) $spec['numericValue'], $tok->numericValue, $case->id . " token #$idx numericValue");
+			}
+		}
 	}
 }

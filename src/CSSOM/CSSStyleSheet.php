@@ -47,6 +47,8 @@ final class CSSStyleSheet extends StyleSheet
 
 	private ?int $maxErrors = CSSParserOptions::DEFAULT_MAX_ERRORS;
 
+	private bool $browserErrorRecovery = false;
+
 	private bool $errorsTruncated = false;
 
 	private ?CSSParserOptions $cachedParserOptions = null;
@@ -118,6 +120,7 @@ final class CSSStyleSheet extends StyleSheet
 		$this->maxMathDepth = $options->maxMathDepth;
 		$this->maxDeclarations = $options->maxDeclarations;
 		$this->maxErrors = $options->maxErrors;
+		$this->browserErrorRecovery = $options->browserErrorRecovery;
 		$this->cachedParserOptions = null;
 		$this->getMedia()->setMaxBytesInternal($options->maxBytes);
 	}
@@ -134,6 +137,7 @@ final class CSSStyleSheet extends StyleSheet
 			maxRules: $this->maxRules,
 			maxDeclarations: $this->maxDeclarations,
 			maxErrors: $this->maxErrors,
+			browserErrorRecovery: $this->browserErrorRecovery,
 		));
 	}
 

@@ -22,7 +22,9 @@
       "fixtures/css-syntax/escaping-and-identifiers.json",
       "fixtures/css-syntax/error-recovery-rules-and-declarations.json",
       "fixtures/css-syntax/eof-and-unclosed-constructs.json",
-      "fixtures/css-syntax/comments-strings-and-urls.json"
+      "fixtures/css-syntax/comments-strings-and-urls.json",
+      "fixtures/css-syntax/input-preprocessing.json",
+      "fixtures/css-syntax/tokenizer-tokens.json"
     ],
     "css/css-values": [
       "fixtures/css-values/calc-parsing-and-serialization.json",

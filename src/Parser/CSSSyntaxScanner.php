@@ -1330,8 +1330,16 @@ final class CSSSyntaxScanner
 				continue;
 			}
 
-			$chunks[] = $next;
-			$offset++;
+			$ord = ord($next);
+			if ($ord < 0x80) {
+				$chunks[] = $next;
+				$offset++;
+			} else {
+				$byteLen = 1;
+				CSSTokenizer::readUtf8CodePointAt($ident, $offset, $length, $byteLen);
+				$chunks[] = substr($ident, $offset, $byteLen);
+				$offset += $byteLen;
+			}
 		}
 
 		return implode('', $chunks);
@@ -1481,6 +1489,9 @@ final class CSSSyntaxScanner
 
 		$first = $source[$pos];
 		if ($first === '-') {
+			if ($pos + 1 < $length && $source[$pos + 1] === '>') {
+				return null;
+			}
 			$pos++;
 		} elseif (($first >= 'a' && $first <= 'z') || ($first >= 'A' && $first <= 'Z') || $first === '_' || ord($first) >= 0x80) {
 			$pos++;
@@ -1580,7 +1591,14 @@ final class CSSSyntaxScanner
 				return $next;
 			}
 
-			return $slashOffset + 2;
+			$ord = ord($escaped);
+			if ($ord < 0x80) {
+				return $slashOffset + 2;
+			}
+			$byteLen = 1;
+			CSSTokenizer::readUtf8CodePointAt($source, $next, $length, $byteLen);
+
+			return $next + $byteLen;
 		}
 		$end = $next + $hexLen;
 		if ($end < $length) {
@@ -1847,7 +1865,7 @@ final class CSSSyntaxScanner
 			break;
 		}
 
-		// Consume <bad-url-token> remnants up to the first unescaped ')' or EOF.
+		// Consume <bad-url-token> remnants up to the first unescaped ')' or EOF per §4.3.14.
 		while ($pos < $length) {
 			$pos += strcspn($source, "\\)", $pos, $length - $pos);
 			if ($pos >= $length) {
@@ -1856,7 +1874,10 @@ final class CSSSyntaxScanner
 			if ($source[$pos] === ')') {
 				return $pos;
 			}
-			$pos += 2;
+			$pos = self::advanceIdentEscapeEnd($source, $pos, $length);
+			if ($pos < $length && ($source[$pos] === "\n" || $source[$pos] === "\r" || $source[$pos] === "\f")) {
+				$pos++;
+			}
 		}
 
 		return $length;
