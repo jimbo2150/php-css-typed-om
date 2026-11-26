@@ -1,0 +1,192 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/geometry",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/geometry/DOMMatrix-001.html",
+    "css/geometry/DOMMatrix-002.html",
+    "css/geometry/DOMMatrix-a-f-alias.html",
+    "css/geometry/DOMMatrix-attributes.html",
+    "css/geometry/DOMMatrix-css-string.worker.js",
+    "css/geometry/DOMMatrix2DInit-validate-fixup.html",
+    "css/geometry/DOMMatrixInit-validate-fixup.html"
+  ],
+  "cases": [
+    {
+      "id": "geometry/construct/default-identity",
+      "upstream": "css/geometry/DOMMatrix-001.html",
+      "category": "parsing",
+      "operation": "geometry.matrix.construct",
+      "input": { "init": null },
+      "expected": {
+        "is2D": true,
+        "isIdentity": true,
+        "elements": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+      },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/construct/empty-string-identity",
+      "upstream": "css/geometry/DOMMatrix-css-string.worker.js",
+      "category": "parsing",
+      "operation": "geometry.matrix.construct",
+      "input": { "init": "" },
+      "expected": { "is2D": true, "isIdentity": true },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/construct/none-string-identity",
+      "upstream": "css/geometry/DOMMatrix-css-string.worker.js",
+      "category": "parsing",
+      "operation": "geometry.matrix.construct",
+      "input": { "init": "none" },
+      "expected": { "is2D": true, "isIdentity": true },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/construct/css-transform-string-2d",
+      "upstream": "css/geometry/DOMMatrix-css-string.worker.js",
+      "category": "parsing",
+      "operation": "geometry.matrix.construct",
+      "input": { "init": "translate(10px, 20px) scale(2, 3)", "mutable": true },
+      "expected": {
+        "is2D": true,
+        "isIdentity": false,
+        "elements": [2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 1, 0, 10, 20, 0, 1]
+      },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/construct/css-transform-string-3d",
+      "upstream": "css/geometry/DOMMatrix-css-string.worker.js",
+      "category": "parsing",
+      "operation": "geometry.matrix.construct",
+      "input": { "init": "translate3d(1px, 2px, 3px)" },
+      "expected": {
+        "is2D": false,
+        "elements": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 2, 3, 1]
+      },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/construct/sequence-6-elements",
+      "upstream": "css/geometry/DOMMatrix-001.html",
+      "category": "parsing",
+      "operation": "geometry.matrix.construct",
+      "input": { "init": [1, 2, 3, 4, 5, 6] },
+      "expected": {
+        "is2D": true,
+        "fields": { "a": 1, "b": 2, "c": 3, "d": 4, "e": 5, "f": 6, "m11": 1, "m12": 2, "m21": 3, "m22": 4, "m41": 5, "m42": 6 }
+      },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/construct/sequence-16-elements-marks-3d",
+      "upstream": "css/geometry/DOMMatrix-001.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.construct",
+      "input": { "init": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] },
+      "expected": { "is2D": false, "isIdentity": true },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/fromMatrix/dictionary-with-matching-aliases",
+      "upstream": "css/geometry/DOMMatrix-a-f-alias.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.fromMatrix",
+      "input": { "other": { "a": 2, "m11": 2, "e": 15, "m41": 15 } },
+      "expected": { "is2D": true, "fields": { "m11": 2, "m41": 15, "m22": 1, "m44": 1 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/fromMatrix/dictionary-m33-1-with-isIdentity-true",
+      "upstream": "css/geometry/DOMMatrixInit-validate-fixup.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.fromMatrix",
+      "input": { "other": { "m33": 1, "isIdentity": true } },
+      "expected": { "is2D": true, "isIdentity": true },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/fromMatrix/dictionary-2d-fixup-defaults",
+      "upstream": "css/geometry/DOMMatrix2DInit-validate-fixup.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.fromMatrix",
+      "input": { "other": { "b": 0.5, "c": -0.5 } },
+      "expected": { "is2D": true, "fields": { "a": 1, "b": 0.5, "c": -0.5, "d": 1, "e": 0, "f": 0 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/fromMatrix/dictionary-3d-entry-clears-is2d",
+      "upstream": "css/geometry/DOMMatrix-attributes.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.fromMatrix",
+      "input": { "other": { "m43": 5 } },
+      "expected": { "is2D": false, "isIdentity": false, "fields": { "m43": 5 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/fromFloatArray/float32-16-elements",
+      "upstream": "css/geometry/DOMMatrix-002.html",
+      "category": "parsing",
+      "operation": "geometry.matrix.fromFloatArray",
+      "input": { "kind": "float32", "values": [2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 1, 0, 4, 5, 0, 1] },
+      "expected": { "is2D": false, "elements": [2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 1, 0, 4, 5, 0, 1] },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/fromFloatArray/float64-16-elements-3d",
+      "upstream": "css/geometry/DOMMatrix-002.html",
+      "category": "parsing",
+      "operation": "geometry.matrix.fromFloatArray",
+      "input": { "kind": "float64", "mutable": true, "values": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0, 7, 1] },
+      "expected": { "is2D": false, "elements": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0, 7, 1] },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/construct/matrix-string-with-matrix-fn",
+      "upstream": "css/geometry/DOMMatrix-css-string.worker.js",
+      "category": "parsing",
+      "operation": "geometry.matrix.construct",
+      "input": { "init": "matrix(1, 0, 0, 1, 12, 34)" },
+      "expected": { "is2D": true, "fields": { "e": 12, "f": 34 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/construct/matrix3d-string-marks-3d",
+      "upstream": "css/geometry/DOMMatrix-css-string.worker.js",
+      "category": "parsing",
+      "operation": "geometry.matrix.construct",
+      "input": { "init": "matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)" },
+      "expected": { "is2D": false, "isIdentity": true },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/construct/explicit-is2d-false-with-2d-entries",
+      "upstream": "css/geometry/DOMMatrixInit-validate-fixup.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.fromMatrix",
+      "input": { "other": { "is2D": false, "a": 1 } },
+      "expected": { "is2D": false, "isIdentity": true },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/construct/empty-from-matrix-gives-identity",
+      "upstream": "css/geometry/DOMMatrix-001.html",
+      "category": "parsing",
+      "operation": "geometry.matrix.fromMatrix",
+      "input": { "other": [] },
+      "expected": { "is2D": true, "isIdentity": true },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/construct/string-with-css-comments",
+      "upstream": "css/geometry/DOMMatrix-css-string.worker.js",
+      "category": "parsing",
+      "operation": "geometry.matrix.construct",
+      "input": { "init": "/* lead */ translate(5px, 6px)" },
+      "expected": { "is2D": true, "fields": { "e": 5, "f": 6 } },
+      "status": "pass"
+    }
+  ]
+}

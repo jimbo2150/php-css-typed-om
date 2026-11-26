@@ -25,6 +25,8 @@
     },
     "scripts": {
         "test": "./vendor/bin/phpunit",
+        "test-wpt": "./vendor/bin/phpunit --testsuite=WPT",
+        "wpt-audit": "php tools/wpt-sync.php --audit",
         "test-coverage": "XDEBUG_MODE=coverage ./vendor/bin/phpunit --coverage-text",
         "test-coverage-html": "XDEBUG_MODE=coverage ./vendor/bin/phpunit --coverage-html ./.test/coverage",
         "cs-check": "./vendor/bin/php-cs-fixer fix --dry-run --diff",

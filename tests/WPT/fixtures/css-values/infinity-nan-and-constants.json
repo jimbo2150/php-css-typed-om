@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/css-values",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/css-values/calc-infinity-nan-computed.html",
+    "css/css-values/calc-infinity-nan-serialize-length.html",
+    "css/css-values/calc-infinity-nan-serialize-number.html",
+    "css/css-values/calc-infinity-nan-serialize-angle.html",
+    "css/css-values/calc-infinity-nan-serialize-time.html",
+    "css/css-values/calc-catch-divide-by-0.html",
+    "css/css-values/calc-invalid-range-clamping.html",
+    "css/css-values/signed-zero.html"
+  ],
+  "cases": [
+    {
+      "id": "css-values/constants/pi-and-e-fold",
+      "upstream": "css/css-values/calc-infinity-nan-serialize-number.html",
+      "category": "parsing",
+      "operation": "values.math.eval",
+      "input": { "expression": "calc(pi)" },
+      "expected": { "value": 3.141592653589793, "unit": "number" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/constants/e-constant-folds",
+      "upstream": "css/css-values/calc-infinity-nan-serialize-number.html",
+      "category": "parsing",
+      "operation": "values.math.eval",
+      "input": { "expression": "calc(e)" },
+      "expected": { "value": 2.718281828459045, "unit": "number" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/constants/infinity-serializes-canonically",
+      "upstream": "css/css-values/calc-infinity-nan-serialize-number.html",
+      "category": "serialization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(InFiNiTy)" },
+      "expected": { "cssText": "calc(infinity)", "constant": "infinity" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/constants/neg-infinity-serializes-canonically",
+      "upstream": "css/css-values/calc-infinity-nan-serialize-number.html",
+      "category": "serialization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(-INFINITY)" },
+      "expected": { "cssText": "calc(-infinity)", "constant": "-infinity" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/constants/nan-serializes-canonically",
+      "upstream": "css/css-values/calc-infinity-nan-serialize-number.html",
+      "category": "serialization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(nan)" },
+      "expected": { "cssText": "calc(NaN)", "constant": "NaN" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/constants/divide-by-zero-produces-infinity",
+      "upstream": "css/css-values/calc-catch-divide-by-0.html",
+      "category": "canonicalization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(1 / 0)" },
+      "expected": { "cssText": "calc(infinity)", "constant": "infinity" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/constants/negative-length-divide-by-zero",
+      "upstream": "css/css-values/calc-infinity-nan-serialize-length.html",
+      "category": "serialization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(-10px / 0)" },
+      "expected": { "cssText": "calc(-infinity * 1px)", "type": { "length": 1 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/constants/zero-div-zero-produces-nan",
+      "upstream": "css/css-values/calc-catch-divide-by-0.html",
+      "category": "canonicalization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(0 / 0)" },
+      "expected": { "cssText": "calc(NaN)", "constant": "NaN" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/constants/inf-minus-inf-produces-nan",
+      "upstream": "css/css-values/calc-infinity-nan-computed.html",
+      "category": "canonicalization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(infinity - infinity)" },
+      "expected": { "cssText": "calc(NaN)", "constant": "NaN" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/constants/one-over-infinity-is-zero",
+      "upstream": "css/css-values/calc-infinity-nan-computed.html",
+      "category": "canonicalization",
+      "operation": "values.calc.parse",
+      "input": { "expression": "calc(1 / infinity)" },
+      "expected": { "value": 0.0, "unit": "number" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/constants/clamp-range-infinity-length-to-upper",
+      "upstream": "css/css-values/calc-invalid-range-clamping.html",
+      "category": "error-recovery",
+      "operation": "values.clamp-range",
+      "input": { "expression": "calc(infinity * 1px)", "min": 0.0, "max": 500.0 },
+      "expected": { "cssText": "500px", "value": 500.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/constants/clamp-range-neg-infinity-length-to-lower",
+      "upstream": "css/css-values/calc-invalid-range-clamping.html",
+      "category": "error-recovery",
+      "operation": "values.clamp-range",
+      "input": { "expression": "calc(-infinity * 1px)", "min": 0.0, "max": 500.0 },
+      "expected": { "cssText": "0px", "value": 0.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/constants/clamp-range-nan-length-to-lower",
+      "upstream": "css/css-values/calc-invalid-range-clamping.html",
+      "category": "error-recovery",
+      "operation": "values.clamp-range",
+      "input": { "expression": "calc(NaN * 1px)", "min": 10.0, "max": 500.0 },
+      "expected": { "cssText": "10px", "value": 10.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/constants/angle-nan-serialization",
+      "upstream": "css/css-values/calc-infinity-nan-serialize-angle.html",
+      "category": "serialization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "asin(2)" },
+      "expected": { "cssText": "calc(NaN * 1deg)", "type": { "angle": 1 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/constants/signed-zero-negative-one-over-inf",
+      "upstream": "css/css-values/signed-zero.html",
+      "category": "canonicalization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(-1 / infinity)" },
+      "expected": { "cssText": "-0", "value": -0.0, "isNegativeZero": true, "checkSignedZero": true },
+      "status": "xfail",
+      "divergenceKind": "api-tradeoff",
+      "xfailReason": "CSSUnitValue normalizes -0.0 to +0.0 on assignment per finite double canonicalization.",
+      "specRef": "https://drafts.csswg.org/css-values-4/#calc-simplification"
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/css-syntax",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/css-syntax/unclosed-constructs.html",
+    "css/css-syntax/unclosed-url-at-eof.html",
+    "css/css-syntax/escaped-eof.html"
+  ],
+  "cases": [
+    {
+      "id": "css-syntax/eof/unclosed-string-detected",
+      "upstream": "css/css-syntax/unclosed-constructs.html",
+      "category": "error-recovery",
+      "operation": "syntax.eof",
+      "input": { "mode": "unclosedCheck", "source": "\"unterminated string" },
+      "expected": { "hasUnclosed": true, "isBalanced": false },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/eof/unclosed-comment-detected",
+      "upstream": "css/css-syntax/unclosed-constructs.html",
+      "category": "error-recovery",
+      "operation": "syntax.eof",
+      "input": { "mode": "unclosedCheck", "source": "color: red /* unclosed" },
+      "expected": { "hasUnclosed": true, "isBalanced": false },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/eof/unclosed-unquoted-url-detected",
+      "upstream": "css/css-syntax/unclosed-url-at-eof.html",
+      "category": "error-recovery",
+      "operation": "syntax.eof",
+      "input": { "mode": "unclosedCheck", "source": "url(https://example.com/a.png" },
+      "expected": { "hasUnclosed": true, "isBalanced": false },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/eof/unclosed-url-escape-at-eof",
+      "upstream": "css/css-syntax/escaped-eof.html",
+      "category": "error-recovery",
+      "operation": "syntax.eof",
+      "input": { "mode": "unclosedCheck", "source": "url(a\\61" },
+      "expected": { "isBalanced": false },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/eof/unclosed-block-closes-cleanly-in-stylesheet",
+      "upstream": "css/css-syntax/unclosed-constructs.html",
+      "category": "error-recovery",
+      "operation": "syntax.eof",
+      "input": { "mode": "stylesheet", "source": "div { color: red;" },
+      "expected": { "ruleCount": 1, "cssText": "div { color: red; }", "hasErrors": true },
+      "status": "xfail",
+      "divergenceKind": "security-invariant",
+      "xfailReason": "CSSParser enforces balanced delimiter integrity and discards unclosed rule blocks instead of auto-closing them at EOF.",
+      "specRef": "https://drafts.csswg.org/css-syntax-3/#consume-qualified-rule"
+    },
+    {
+      "id": "css-syntax/eof/unclosed-media-rule-closes-at-eof",
+      "upstream": "css/css-syntax/unclosed-constructs.html",
+      "category": "error-recovery",
+      "operation": "syntax.eof",
+      "input": { "mode": "stylesheet", "source": "@media screen { p { color: blue;" },
+      "expected": { "ruleCount": 1, "hasErrors": true },
+      "status": "xfail",
+      "divergenceKind": "security-invariant",
+      "xfailReason": "CSSParser requires balanced closing braces for @media and nested blocks rather than synthesizing rules from unclosed blocks at EOF.",
+      "specRef": "https://drafts.csswg.org/css-syntax-3/#consume-at-rule"
+    },
+    {
+      "id": "css-syntax/eof/unclosed-function-paren-in-declaration",
+      "upstream": "css/css-syntax/unclosed-constructs.html",
+      "category": "error-recovery",
+      "operation": "syntax.eof",
+      "input": { "mode": "unclosedCheck", "source": "calc(10px + 20px" },
+      "expected": { "isBalanced": false },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/eof/closed-url-string-comment-balanced",
+      "upstream": "css/css-syntax/unclosed-constructs.html",
+      "category": "parsing",
+      "operation": "syntax.eof",
+      "input": { "mode": "unclosedCheck", "source": "\"ok\" /* c */ url(a.png)" },
+      "expected": { "hasUnclosed": false, "isBalanced": true },
+      "status": "pass"
+    }
+  ]
+}

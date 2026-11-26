@@ -1,0 +1,236 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/cssom",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/cssom/escape.html",
+    "css/cssom/CSS-escape-numeric-id.html"
+  ],
+  "cases": [
+    {
+      "id": "cssom/escape/empty-string",
+      "upstream": "css/cssom/escape.html",
+      "category": "serialization",
+      "operation": "css.escape",
+      "input": { "value": "" },
+      "expected": { "value": "" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/nul-codepoint",
+      "upstream": "css/cssom/escape.html",
+      "category": "error-recovery",
+      "operation": "css.escape",
+      "input": { "value": "\u0000" },
+      "expected": { "value": "\uFFFD" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/nul-embedded-in-ident",
+      "upstream": "css/cssom/escape.html",
+      "category": "error-recovery",
+      "operation": "css.escape",
+      "input": { "value": "a\u0000b" },
+      "expected": { "value": "a\uFFFDb" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/null-argument",
+      "upstream": "css/cssom/escape.html",
+      "category": "error-recovery",
+      "operation": "css.escape",
+      "input": { "value": null },
+      "expected": { "value": "\uFFFD" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/ascii-letters-and-digits",
+      "upstream": "css/cssom/escape.html",
+      "category": "serialization",
+      "operation": "css.escape",
+      "input": { "value": "a0b" },
+      "expected": { "value": "a0b" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/leading-digit-0",
+      "upstream": "css/cssom/escape.html",
+      "category": "serialization",
+      "operation": "css.escape",
+      "input": { "value": "0a" },
+      "expected": { "value": "\\30 a" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/leading-digit-9",
+      "upstream": "css/cssom/escape.html",
+      "category": "serialization",
+      "operation": "css.escape",
+      "input": { "value": "9" },
+      "expected": { "value": "\\39 " },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/numeric-id-42",
+      "upstream": "css/cssom/CSS-escape-numeric-id.html",
+      "category": "serialization",
+      "operation": "css.escape",
+      "input": { "value": "42" },
+      "expected": { "value": "\\34 2" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/dash-followed-by-digit",
+      "upstream": "css/cssom/escape.html",
+      "category": "serialization",
+      "operation": "css.escape",
+      "input": { "value": "-0a" },
+      "expected": { "value": "-\\30 a" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/dash-followed-by-9",
+      "upstream": "css/cssom/escape.html",
+      "category": "serialization",
+      "operation": "css.escape",
+      "input": { "value": "-9" },
+      "expected": { "value": "-\\39 " },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/lone-hyphen",
+      "upstream": "css/cssom/escape.html",
+      "category": "serialization",
+      "operation": "css.escape",
+      "input": { "value": "-" },
+      "expected": { "value": "\\-" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/double-hyphen",
+      "upstream": "css/cssom/escape.html",
+      "category": "serialization",
+      "operation": "css.escape",
+      "input": { "value": "--a" },
+      "expected": { "value": "--a" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/hyphen-underscore-digits",
+      "upstream": "css/cssom/escape.html",
+      "category": "serialization",
+      "operation": "css.escape",
+      "input": { "value": "-_a0" },
+      "expected": { "value": "-_a0" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/control-soh",
+      "upstream": "css/cssom/escape.html",
+      "category": "serialization",
+      "operation": "css.escape",
+      "input": { "value": "\u0001" },
+      "expected": { "value": "\\1 " },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/control-unit-separator",
+      "upstream": "css/cssom/escape.html",
+      "category": "serialization",
+      "operation": "css.escape",
+      "input": { "value": "\u001f" },
+      "expected": { "value": "\\1f " },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/control-del",
+      "upstream": "css/cssom/escape.html",
+      "category": "serialization",
+      "operation": "css.escape",
+      "input": { "value": "\u007f" },
+      "expected": { "value": "\\7f " },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/control-in-middle",
+      "upstream": "css/cssom/escape.html",
+      "category": "serialization",
+      "operation": "css.escape",
+      "input": { "value": "a\u000bb" },
+      "expected": { "value": "a\\b b" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/space-and-punctuation",
+      "upstream": "css/cssom/escape.html",
+      "category": "serialization",
+      "operation": "css.escape",
+      "input": { "value": "a b.c:d/e" },
+      "expected": { "value": "a\\ b\\.c\\:d\\/e" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/brackets-quotes-and-backslash",
+      "upstream": "css/cssom/escape.html",
+      "category": "serialization",
+      "operation": "css.escape",
+      "input": { "value": "[]\"'\\" },
+      "expected": { "value": "\\[\\]\\\"\\'\\\\" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/hash-at-bang-colon",
+      "upstream": "css/cssom/escape.html",
+      "category": "serialization",
+      "operation": "css.escape",
+      "input": { "value": "#@!:" },
+      "expected": { "value": "\\#\\@\\!\\:" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/non-ascii-bmp",
+      "upstream": "css/cssom/escape.html",
+      "category": "serialization",
+      "operation": "css.escape",
+      "input": { "value": "\u0080\u00e9\u2603" },
+      "expected": { "value": "\u0080\u00e9\u2603" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/non-ascii-astral-emoji",
+      "upstream": "css/cssom/escape.html",
+      "category": "serialization",
+      "operation": "css.escape",
+      "input": { "value": "foo\uD83D\uDE00bar" },
+      "expected": { "value": "foo\uD83D\uDE00bar" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/invalid-utf8-single-byte",
+      "upstream": "css/cssom/escape.html",
+      "category": "error-recovery",
+      "operation": "css.escape",
+      "input": { "rawHex": "80" },
+      "expected": { "value": "\uFFFD" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/invalid-utf8-overlong",
+      "upstream": "css/cssom/escape.html",
+      "category": "error-recovery",
+      "operation": "css.escape",
+      "input": { "rawHex": "c080" },
+      "expected": { "value": "\uFFFD\uFFFD" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/escape/leading-non-ascii-with-dash",
+      "upstream": "css/cssom/escape.html",
+      "category": "serialization",
+      "operation": "css.escape",
+      "input": { "value": "-\u00a9" },
+      "expected": { "value": "-\u00a9" },
+      "status": "pass"
+    }
+  ]
+}

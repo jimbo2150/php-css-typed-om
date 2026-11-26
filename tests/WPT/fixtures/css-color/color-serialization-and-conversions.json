@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/css-color",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/css-color/parsing/color-computed-rgb.html",
+    "css/css-color/parsing/color-computed-hsl.html",
+    "css/css-color/parsing/color-computed-hwb.html",
+    "css/css-color/parsing/color-computed-lab.html",
+    "css/css-color/parsing/color-computed-color-function.html",
+    "css/css-color/parsing/color-computed-none.html"
+  ],
+  "cases": [
+    {
+      "id": "css-color/serialize/hex-red-to-color5-percent-rgb",
+      "upstream": "css/css-color/parsing/color-computed-rgb.html",
+      "category": "serialization",
+      "operation": "color.serialize",
+      "input": { "cssText": "#ff0000" },
+      "expected": { "cssText": "rgb(100% 0% 0%)" },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/serialize/comment-between-tokens-in-rgb",
+      "upstream": "css/css-color/parsing/color-computed-rgb.html",
+      "category": "serialization",
+      "operation": "color.serialize",
+      "input": { "cssText": "rgb(100%/*c*/0% 0%)" },
+      "expected": { "cssText": "rgb(100% 0% 0%)" },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/convert/red-to-hsl",
+      "upstream": "css/css-color/parsing/color-computed-hsl.html",
+      "category": "canonicalization",
+      "operation": "color.convert",
+      "input": { "cssText": "#ff0000", "to": "hsl" },
+      "tolerance": 1e-6,
+      "expected": { "class": "CSSHSL", "channels": { "h": 0.0, "s": 100.0, "l": 50.0 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/convert/red-to-hwb",
+      "upstream": "css/css-color/parsing/color-computed-hwb.html",
+      "category": "canonicalization",
+      "operation": "color.convert",
+      "input": { "cssText": "#ff0000", "to": "hwb" },
+      "tolerance": 1e-6,
+      "expected": { "class": "CSSHWB", "channels": { "h": 0.0, "w": 0.0, "b": 0.0 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/convert/hwb-to-rgb",
+      "upstream": "css/css-color/parsing/color-computed-hwb.html",
+      "category": "canonicalization",
+      "operation": "color.convert",
+      "input": { "cssText": "hwb(120deg 20% 20%)", "to": "rgb" },
+      "tolerance": 0.01,
+      "expected": { "class": "CSSRGB", "channels": { "r": 20.0, "g": 80.0, "b": 20.0 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/convert/red-to-lab-d50-reference",
+      "upstream": "css/css-color/parsing/color-computed-lab.html",
+      "category": "canonicalization",
+      "operation": "color.convert",
+      "input": { "cssText": "#ff0000", "to": "lab" },
+      "tolerance": 0.01,
+      "expected": { "class": "CSSLab", "channels": { "l": 54.2917, "a": 80.8125, "b": 69.885 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/convert/red-to-oklab-reference",
+      "upstream": "css/css-color/parsing/color-computed-lab.html",
+      "category": "canonicalization",
+      "operation": "color.convert",
+      "input": { "cssText": "#ff0000", "to": "oklab" },
+      "tolerance": 0.01,
+      "expected": { "class": "CSSOKLab", "channels": { "l": 62.7955, "a": 0.224863, "b": 0.125846 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/convert/red-to-oklch-and-back-to-rgb",
+      "upstream": "css/css-color/parsing/color-computed-lab.html",
+      "category": "canonicalization",
+      "operation": "color.convert",
+      "input": { "cssText": "#ff0000", "to": ["oklch", "rgb"] },
+      "tolerance": 1e-4,
+      "expected": { "class": "CSSRGB", "channels": { "r": 100.0, "g": 0.0, "b": 0.0 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/convert/lch-roundtrip-through-rgb",
+      "upstream": "css/css-color/parsing/color-computed-lab.html",
+      "category": "canonicalization",
+      "operation": "color.convert",
+      "input": { "cssText": "lch(50% 40 120deg)", "to": ["rgb", "lch"] },
+      "tolerance": 0.05,
+      "expected": { "class": "CSSLCH", "channels": { "l": 50.0, "c": 40.0, "h": 120.0 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/convert/display-p3-roundtrip-red",
+      "upstream": "css/css-color/parsing/color-computed-color-function.html",
+      "category": "canonicalization",
+      "operation": "color.convert",
+      "input": { "cssText": "#ff0000", "to": ["display-p3", "rgb"] },
+      "tolerance": 1e-4,
+      "expected": { "class": "CSSRGB", "channels": { "r": 100.0, "g": 0.0, "b": 0.0 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/convert/xyz-d65-whitepoint-to-xyz-d50",
+      "upstream": "css/css-color/parsing/color-computed-color-function.html",
+      "category": "canonicalization",
+      "operation": "color.convert",
+      "input": { "cssText": "color(xyz-d65 0.9504559270516716 1 1.0890577507598784)", "to": "xyz-d50" },
+      "tolerance": 1e-6,
+      "expected": { "class": "CSSColor", "colorSpace": "xyz-d50", "channels": { "0": 0.9642956764295677, "1": 1.0, "2": 0.8251046025104602 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/convert/same-space-srgb-preserves-none-and-percent",
+      "upstream": "css/css-color/parsing/color-computed-none.html",
+      "category": "serialization",
+      "operation": "color.convert",
+      "input": { "cssText": "color(srgb 10% 0.2 none)", "to": "srgb" },
+      "expected": { "class": "CSSColor", "colorSpace": "srgb", "cssText": "color(srgb 10% 0.2 none)" },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/convert/out-of-gamut-p3-to-rgb-unclipped",
+      "upstream": "css/css-color/parsing/color-computed-color-function.html",
+      "category": "canonicalization",
+      "operation": "color.convert",
+      "input": { "cssText": "color(display-p3 1 0 0)", "to": "rgb" },
+      "tolerance": 1e-3,
+      "expected": { "class": "CSSRGB", "channels": { "r": 109.3066, "g": -22.6742, "b": -15.0135 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/convert/black-to-hsl-zero-saturation",
+      "upstream": "css/css-color/parsing/color-computed-hsl.html",
+      "category": "canonicalization",
+      "operation": "color.convert",
+      "input": { "cssText": "#000000", "to": "hsl" },
+      "tolerance": 1e-6,
+      "expected": { "class": "CSSHSL", "channels": { "h": 0.0, "s": 0.0, "l": 0.0 } },
+      "status": "pass"
+    }
+  ]
+}

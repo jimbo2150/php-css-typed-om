@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/cssom",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/cssom/CSS-supports.html"
+  ],
+  "cases": [
+    {
+      "id": "cssom/supports/two-arg-standard-property-valid",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "parsing",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "display", "value": "grid" },
+      "expected": { "result": true },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/supports/two-arg-unknown-property-false",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "parsing",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "not-a-real-css-property", "value": "1px" },
+      "expected": { "result": false },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/supports/two-arg-custom-property-true",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "parsing",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "--foo", "value": "bar" },
+      "expected": { "result": true },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/supports/two-arg-embedded-important-false",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "error-recovery",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "color", "value": "red !important" },
+      "expected": { "result": false },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/supports/one-arg-and-combinator",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "parsing",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "(display: flex) and (color: red)" },
+      "expected": { "result": true },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/supports/one-arg-or-combinator",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "parsing",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "(unknown-prop: 1) or (color: green)" },
+      "expected": { "result": true },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/supports/one-arg-not-negation",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "parsing",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "not (unknown-prop: 1)" },
+      "expected": { "result": true },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/supports/one-arg-mixed-unparenthesized-invalid",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "error-recovery",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "(color: red) and (display: grid) or (margin: 0)" },
+      "expected": { "result": false },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/supports/one-arg-selector-function",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "parsing",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "selector(div > p.active)" },
+      "expected": { "result": true },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/supports/one-arg-unbalanced-parens-false",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "error-recovery",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "(color: red" },
+      "expected": { "result": false },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/supports/one-arg-escaped-not-keyword",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "canonicalization",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "\\6e ot (unknown-prop: 1)" },
+      "expected": { "result": true },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/supports/one-arg-nested-parenthesized-combinators",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "parsing",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "((display: flex) and (color: red)) or (unknown-prop: 1)" },
+      "expected": { "result": true },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/supports/one-arg-selector-empty-false",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "error-recovery",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "selector()" },
+      "expected": { "result": false },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/supports/one-arg-comment-only-false",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "error-recovery",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "/* comment */" },
+      "expected": { "result": false },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/supports/two-arg-escaped-property-name",
+      "upstream": "css/cssom/CSS-supports.html",
+      "category": "canonicalization",
+      "operation": "css.supports",
+      "input": { "propertyOrCondition": "\\63 olor", "value": "rebeccapurple" },
+      "expected": { "result": true },
+      "status": "pass"
+    }
+  ]
+}

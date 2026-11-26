@@ -31,6 +31,12 @@ jobs:
         run: ./vendor/bin/phpstan analyse --memory-limit=512M --no-progress
       - name: Lint benchmarks script
         run: php -l benchmarks/bench.php
+      - name: Lint and audit WPT conformance fixtures
+        run: |
+          set -o pipefail
+          php -l tools/wpt-sync.php
+          php tools/wpt-sync.php --audit
+          php tools/wpt-sync.php --audit --json | php -r '$d = json_decode(stream_get_contents(STDIN), true); if (!is_array($d) || ($d["errors"] ?? null) !== [] || ($d["totalCases"] ?? 0) < 350) { exit(1); }'
       - name: Run benchmark smoke test
         run: |
           set -o pipefail

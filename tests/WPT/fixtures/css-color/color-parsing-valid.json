@@ -1,0 +1,246 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/css-color",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/css-color/parsing/color-valid.html",
+    "css/css-color/parsing/color-valid-rgb.html",
+    "css/css-color/parsing/color-valid-hsl.html",
+    "css/css-color/parsing/color-valid-hwb.html",
+    "css/css-color/parsing/color-valid-lab.html",
+    "css/css-color/parsing/color-valid-color-function.html",
+    "css/css-color/parsing/color-computed-hex-color.html",
+    "css/css-color/parsing/color-computed-named-color.html",
+    "css/css-color/parsing/color-computed-none.html"
+  ],
+  "cases": [
+    {
+      "id": "css-color/valid/hex-6-digit",
+      "upstream": "css/css-color/parsing/color-computed-hex-color.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "#ff0000" },
+      "expected": { "class": "CSSRGB", "channels": { "r": 100.0, "g": 0.0, "b": 0.0, "alpha": 100.0 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/hex-3-digit-expands",
+      "upstream": "css/css-color/parsing/color-computed-hex-color.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "#0f8" },
+      "expected": { "class": "CSSRGB", "channels": { "r": 0.0, "g": 100.0, "b": 53.333333333333336, "alpha": 100.0 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/hex-4-digit-alpha",
+      "upstream": "css/css-color/parsing/color-computed-hex-color.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "#0f08" },
+      "expected": { "class": "CSSRGB", "channels": { "r": 0.0, "g": 100.0, "b": 0.0, "alpha": 53.333333333333336 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/hex-8-digit-alpha",
+      "upstream": "css/css-color/parsing/color-computed-hex-color.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "#0000ff80" },
+      "expected": { "class": "CSSRGB", "channels": { "r": 0.0, "g": 0.0, "b": 100.0, "alpha": 50.19607843137255 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/rgb-legacy-comma-integers",
+      "upstream": "css/css-color/parsing/color-valid-rgb.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "rgb(255, 0, 128)" },
+      "expected": { "class": "CSSRGB", "channels": { "r": { "value": 100.0, "unit": "percent" }, "g": 0.0, "b": 50.19607843137255 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/rgba-legacy-comma-alpha",
+      "upstream": "css/css-color/parsing/color-valid-rgb.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "rgba(0, 255, 0, 0.25)" },
+      "expected": { "class": "CSSRGB", "channels": { "g": 100.0, "alpha": 25.0 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/rgb-modern-space-and-slash-alpha",
+      "upstream": "css/css-color/parsing/color-valid-rgb.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "rgb(100% 50% 0% / 40%)" },
+      "expected": { "class": "CSSRGB", "cssText": "rgb(100% 50% 0% / 40%)" },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/rgb-modern-none-channel",
+      "upstream": "css/css-color/parsing/color-computed-none.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "rgb(none 100% 0%)" },
+      "expected": { "class": "CSSRGB", "channels": { "r": "none", "g": 100.0, "b": 0.0 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/hsl-turn-angle-normalizes-to-deg",
+      "upstream": "css/css-color/parsing/color-valid-hsl.html",
+      "category": "canonicalization",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "hsl(0.5turn 100% 50%)" },
+      "expected": { "class": "CSSHSL", "channels": { "h": { "value": 0.5, "unit": "turn" }, "s": 100.0, "l": 50.0 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/hsla-legacy-space-modern-accepted",
+      "upstream": "css/css-color/parsing/color-valid-hsl.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "hsla(120deg 100% 50% / 50%)" },
+      "expected": { "class": "CSSHSL", "cssText": "hsl(120deg 100% 50% / 50%)" },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/hwb-bare-hue-becomes-deg",
+      "upstream": "css/css-color/parsing/color-valid-hwb.html",
+      "category": "canonicalization",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "hwb(240 0% 0%)" },
+      "expected": { "class": "CSSHWB", "cssText": "hwb(240deg 0% 0%)" },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/lab-percent-and-number",
+      "upstream": "css/css-color/parsing/color-valid-lab.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "lab(50% 40 -20)" },
+      "expected": { "class": "CSSLab", "cssText": "lab(50% 40 -20)" },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/lch-with-angle-hue",
+      "upstream": "css/css-color/parsing/color-valid-lab.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "lch(50% 60 180deg)" },
+      "expected": { "class": "CSSLCH", "cssText": "lch(50% 60 180deg)" },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/oklab-unitless-l-scales-to-percent",
+      "upstream": "css/css-color/parsing/color-valid-lab.html",
+      "category": "canonicalization",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "oklab(0.6 0.1 -0.1)" },
+      "expected": { "class": "CSSOKLab", "channels": { "l": { "value": 60.0, "unit": "percent" }, "a": 0.1, "b": -0.1 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/oklch-none-hue",
+      "upstream": "css/css-color/parsing/color-valid-lab.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "oklch(70% 0.15 none)" },
+      "expected": { "class": "CSSOKLCH", "channels": { "l": 70.0, "c": 0.15, "h": "none" } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/color-function-display-p3",
+      "upstream": "css/css-color/parsing/color-valid-color-function.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "color(display-p3 1 0.5 0 / 80%)" },
+      "expected": { "class": "CSSColor", "colorSpace": "display-p3", "cssText": "color(display-p3 1 0.5 0 / 80%)" },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/color-function-dashed-custom-space",
+      "upstream": "css/css-color/parsing/color-valid-color-function.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "color(--my-cmyk 0 0.5 1 0)" },
+      "expected": { "class": "CSSColor", "colorSpace": "--my-cmyk" },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/rgb-calc-channel",
+      "upstream": "css/css-color/parsing/color-valid.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "rgb(calc(255 * 0.5) 0 0)" },
+      "expected": { "class": "CSSRGB", "channels": { "r": { "value": 50.0, "unit": "percent" } } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/named-color-keyword-via-stylevalue",
+      "upstream": "css/css-color/parsing/color-computed-named-color.html",
+      "category": "parsing",
+      "operation": "color.stylevalue.parse",
+      "input": { "cssText": "rebeccapurple" },
+      "expected": { "class": "CSSRGB", "cssText": "rgb(40% 20% 60%)" },
+      "status": "xfail",
+      "divergenceKind": "api-tradeoff",
+      "xfailReason": "Named CSS color keywords fall back to CSSUnparsedValue in CSSStyleValue::parse() instead of resolving a CSSRGB table.",
+      "specRef": "https://drafts.csswg.org/css-color-4/#named-colors"
+    },
+    {
+      "id": "css-color/valid/relative-color-syntax-via-stylevalue-unparsed",
+      "upstream": "css/css-color/parsing/color-valid.html",
+      "category": "canonicalization",
+      "operation": "color.stylevalue.parse",
+      "input": { "cssText": "rgb(from red r g b / 50%)" },
+      "expected": { "class": "CSSUnparsedValue", "cssText": "rgb(from red r g b / 50%)" },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/color-function-a98-rgb",
+      "upstream": "css/css-color/parsing/color-valid-color-function.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "color(a98-rgb 0.25 0.5 0.75)" },
+      "expected": { "class": "CSSColor", "colorSpace": "a98-rgb", "cssText": "color(a98-rgb 0.25 0.5 0.75)" },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/color-function-prophoto-rgb-percent",
+      "upstream": "css/css-color/parsing/color-valid-color-function.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "color(prophoto-rgb 50% 25% 100%)" },
+      "expected": { "class": "CSSColor", "colorSpace": "prophoto-rgb", "channels": { "0": { "value": 50.0, "unit": "percent" }, "1": 25.0, "2": 100.0 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/color-function-rec2020-with-none-alpha",
+      "upstream": "css/css-color/parsing/color-computed-none.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "color(rec2020 0.1 0.2 0.3 / none)" },
+      "expected": { "class": "CSSColor", "colorSpace": "rec2020", "channels": { "alpha": "none" }, "cssText": "color(rec2020 0.1 0.2 0.3 / none)" },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/hsl-rad-hue-preserves-unit",
+      "upstream": "css/css-color/parsing/color-valid-hsl.html",
+      "category": "parsing",
+      "operation": "color.parse.valid",
+      "input": { "cssText": "hsl(3.141592653589793rad 50% 50%)" },
+      "expected": { "class": "CSSHSL", "channels": { "h": { "value": 3.141592653589793, "unit": "rad" }, "s": 50.0, "l": 50.0 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-color/valid/rgba-modern-space-alias-serializes-as-rgb",
+      "upstream": "css/css-color/parsing/color-valid-rgb.html",
+      "category": "serialization",
+      "operation": "color.serialize",
+      "input": { "cssText": "rgba(100% 0% 50% / 0.5)" },
+      "expected": { "cssText": "rgb(100% 0% 50% / 50%)" },
+      "status": "pass"
+    }
+  ]
+}

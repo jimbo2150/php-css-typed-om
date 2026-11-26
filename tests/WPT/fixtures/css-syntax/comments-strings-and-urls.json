@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/css-syntax",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/css-syntax/serialize-consecutive-tokens.html",
+    "css/css-syntax/url-whitespace-consumption.html",
+    "css/css-syntax/cdc-vs-ident-tokens.html"
+  ],
+  "cases": [
+    {
+      "id": "css-syntax/tokens/split-ignores-string-and-comment-delimiters",
+      "upstream": "css/css-syntax/serialize-consecutive-tokens.html",
+      "category": "parsing",
+      "operation": "syntax.scanner.split",
+      "input": { "action": "splitTopLevel", "source": "a: \"x;y\"; b: /* ; */ c", "delimiter": ";" },
+      "expected": { "parts": ["a: \"x;y\"", " b: /* ; */ c"] },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/tokens/remove-comments-preserves-ident-separation",
+      "upstream": "css/css-syntax/serialize-consecutive-tokens.html",
+      "category": "serialization",
+      "operation": "syntax.scanner.split",
+      "input": { "action": "removeComments", "source": "div/*c*/span" },
+      "expected": { "value": "div span" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/tokens/remove-comments-preserves-cdo-cdc-boundary",
+      "upstream": "css/css-syntax/cdc-vs-ident-tokens.html",
+      "category": "serialization",
+      "operation": "syntax.scanner.split",
+      "input": { "action": "removeComments", "source": "<!/*c*/--" },
+      "expected": { "value": "<! --" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/tokens/bad-string-unescaped-newline-rejected",
+      "upstream": "css/css-syntax/serialize-consecutive-tokens.html",
+      "category": "error-recovery",
+      "operation": "syntax.scanner.split",
+      "input": { "action": "isBalanced", "source": "\"line1\nline2\"" },
+      "expected": { "balanced": false },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/tokens/escaped-newline-in-string-allowed",
+      "upstream": "css/css-syntax/serialize-consecutive-tokens.html",
+      "category": "parsing",
+      "operation": "syntax.scanner.split",
+      "input": { "action": "isBalanced", "source": "\"line1\\\nline2\"" },
+      "expected": { "balanced": true },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/tokens/unquoted-url-with-whitespace-around-value",
+      "upstream": "css/css-syntax/url-whitespace-consumption.html",
+      "category": "parsing",
+      "operation": "syntax.scanner.split",
+      "input": { "action": "isBalanced", "source": "url(  https://example.com/a.png  )" },
+      "expected": { "balanced": true },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/tokens/unquoted-url-interior-whitespace-rejected",
+      "upstream": "css/css-syntax/url-whitespace-consumption.html",
+      "category": "error-recovery",
+      "operation": "syntax.scanner.split",
+      "input": { "action": "isBalanced", "source": "url(a b.png)" },
+      "expected": { "balanced": false },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/tokens/quoted-url-with-trailing-comment",
+      "upstream": "css/css-syntax/url-whitespace-consumption.html",
+      "category": "parsing",
+      "operation": "syntax.scanner.split",
+      "input": { "action": "findMatchingUrlEnd", "source": "url(\"a.png\" /* ok */)", "openParenOffset": 3 },
+      "expected": { "offset": 20 },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/tokens/unquoted-url-with-escaped-paren",
+      "upstream": "css/css-syntax/url-whitespace-consumption.html",
+      "category": "parsing",
+      "operation": "syntax.scanner.split",
+      "input": { "action": "isBalanced", "source": "url(a\\)b.png)" },
+      "expected": { "balanced": true },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/tokens/unquoted-url-with-quote-rejected",
+      "upstream": "css/css-syntax/url-whitespace-consumption.html",
+      "category": "error-recovery",
+      "operation": "syntax.scanner.split",
+      "input": { "action": "isBalanced", "source": "url(a'b.png)" },
+      "expected": { "balanced": false },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/tokens/remove-comments-preserves-scientific-boundary",
+      "upstream": "css/css-syntax/serialize-consecutive-tokens.html",
+      "category": "serialization",
+      "operation": "syntax.scanner.split",
+      "input": { "action": "removeComments", "source": "1e/*c*/+2" },
+      "expected": { "value": "1e +2" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/tokens/escaped-slash-does-not-start-comment",
+      "upstream": "css/css-syntax/serialize-consecutive-tokens.html",
+      "category": "parsing",
+      "operation": "syntax.scanner.split",
+      "input": { "action": "removeComments", "source": "1e\\/*c*/+2" },
+      "expected": { "value": "1e\\/*c*/+2" },
+      "status": "pass"
+    }
+  ]
+}

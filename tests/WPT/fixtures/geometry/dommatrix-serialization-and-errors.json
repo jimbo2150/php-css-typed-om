@@ -1,0 +1,160 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/geometry",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/geometry/DOMMatrix-001.html",
+    "css/geometry/DOMMatrix-a-f-alias.html",
+    "css/geometry/DOMMatrix-invert-non-invertible.html",
+    "css/geometry/DOMMatrix-stringifier.html",
+    "css/geometry/DOMMatrix2DInit-validate-fixup.html",
+    "css/geometry/DOMMatrixInit-validate-fixup.html"
+  ],
+  "cases": [
+    {
+      "id": "geometry/serialize/2d-matrix-stringifier",
+      "upstream": "css/geometry/DOMMatrix-stringifier.html",
+      "category": "serialization",
+      "operation": "geometry.matrix.serialize",
+      "input": { "init": [1, 0, 0, 1, 10, 20] },
+      "expected": { "cssText": "matrix(1, 0, 0, 1, 10, 20)", "is2D": true },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/serialize/3d-matrix-stringifier",
+      "upstream": "css/geometry/DOMMatrix-stringifier.html",
+      "category": "serialization",
+      "operation": "geometry.matrix.serialize",
+      "input": { "init": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 10, 20, 30, 1] },
+      "expected": { "cssText": "matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 10, 20, 30, 1)", "is2D": false },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/serialize/negative-zero-normalized-to-zero",
+      "upstream": "css/geometry/DOMMatrix-stringifier.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.serialize",
+      "input": { "init": [-0.0, 0, 0, -0.0, 0, 0] },
+      "expected": { "cssText": "matrix(0, 0, 0, 0, 0, 0)" },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/serialize/to-json-contains-all-aliases",
+      "upstream": "css/geometry/DOMMatrix-stringifier.html",
+      "category": "serialization",
+      "operation": "geometry.matrix.serialize",
+      "input": { "init": [2, 0, 0, 3, 10, 20] },
+      "expected": {
+        "toJSON": { "a": 2, "m11": 2, "d": 3, "m22": 3, "e": 10, "m41": 10, "f": 20, "m42": 20, "is2D": true, "isIdentity": false }
+      },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/invalid/sequence-wrong-length-5",
+      "upstream": "css/geometry/DOMMatrix-001.html",
+      "category": "error-recovery",
+      "operation": "geometry.matrix.invalid",
+      "input": { "target": "construct", "init": [1, 0, 0, 1, 0] },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "geometry/invalid/from-float32-wrong-length",
+      "upstream": "css/geometry/DOMMatrix-001.html",
+      "category": "error-recovery",
+      "operation": "geometry.matrix.invalid",
+      "input": { "target": "fromFloat32Array", "values": [1, 0, 0, 1, 0, 0] },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "geometry/invalid/from-float64-wrong-length",
+      "upstream": "css/geometry/DOMMatrix-001.html",
+      "category": "error-recovery",
+      "operation": "geometry.matrix.invalid",
+      "input": { "target": "fromFloat64Array", "values": [1, 0, 0, 1, 0, 0] },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "geometry/invalid/alias-conflict-a-and-m11",
+      "upstream": "css/geometry/DOMMatrix-a-f-alias.html",
+      "category": "error-recovery",
+      "operation": "geometry.matrix.invalid",
+      "input": { "target": "fromMatrix", "other": { "a": 2, "m11": 3 } },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "geometry/invalid/alias-conflict-e-and-m41",
+      "upstream": "css/geometry/DOMMatrix2DInit-validate-fixup.html",
+      "category": "error-recovery",
+      "operation": "geometry.matrix.invalid",
+      "input": { "target": "fromMatrix", "other": { "e": 10, "m41": 20 } },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "geometry/invalid/is2d-true-with-3d-entry-m43",
+      "upstream": "css/geometry/DOMMatrixInit-validate-fixup.html",
+      "category": "error-recovery",
+      "operation": "geometry.matrix.invalid",
+      "input": { "target": "fromMatrix", "other": { "is2D": true, "m43": 5 } },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "geometry/invalid/is2d-true-with-m33-not-one",
+      "upstream": "css/geometry/DOMMatrixInit-validate-fixup.html",
+      "category": "error-recovery",
+      "operation": "geometry.matrix.invalid",
+      "input": { "target": "fromMatrix", "other": { "is2D": true, "m33": 2 } },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "geometry/invalid/css-string-with-semicolon-injection",
+      "upstream": "css/geometry/DOMMatrix-stringifier.html",
+      "category": "error-recovery",
+      "operation": "geometry.matrix.invalid",
+      "input": { "target": "construct", "init": "translate(10px); body { color: red }" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "geometry/invalid/css-string-with-relative-em-unit",
+      "upstream": "css/geometry/DOMMatrix-stringifier.html",
+      "category": "error-recovery",
+      "operation": "geometry.matrix.invalid",
+      "input": { "target": "construct", "init": "translate(calc(5em + 1px))" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "geometry/invalid/readonly-offset-set-throws",
+      "upstream": "css/geometry/DOMMatrix-001.html",
+      "category": "error-recovery",
+      "operation": "geometry.matrix.invalid",
+      "input": { "target": "readOnlyOffsetSet" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "geometry/invalid/singular-invert-sets-nan-per-geometry-spec",
+      "upstream": "css/geometry/DOMMatrix-invert-non-invertible.html",
+      "category": "error-recovery",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "init": [0, 0, 0, 0, 5, 6],
+        "steps": [
+          { "op": "invertSelf", "args": [] }
+        ]
+      },
+      "expected": { "is2D": false },
+      "status": "xfail",
+      "divergenceKind": "security-invariant",
+      "xfailReason": "DOMMatrix enforces strictly finite matrix elements and atomically throws InvalidArgumentException on singular inversion instead of writing NaN elements.",
+      "specRef": "https://drafts.fxtf.org/geometry/#dom-dommatrix-invertself"
+    }
+  ]
+}

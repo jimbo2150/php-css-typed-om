@@ -1,0 +1,198 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/css-typed-om",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/css-typed-om/stylevalue-normalization/transformvalue-normalization.tentative.html",
+    "css/css-typed-om/stylevalue-serialization/cssTransformValue.tentative.html",
+    "css/css-typed-om/stylevalue-subclasses/cssTransformValue-toMatrix.html",
+    "css/css-typed-om/stylevalue-subclasses/cssTransformComponent-toMatrix.html",
+    "css/css-typed-om/stylevalue-subclasses/cssTransformComponent-toMatrix-relative-units.html",
+    "css/css-typed-om/the-stylepropertymap/computed/get-position.html"
+  ],
+  "cases": [
+    {
+      "id": "css-typed-om/transform/parse-2d-chain-normalizes-names",
+      "upstream": "css/css-typed-om/stylevalue-serialization/cssTransformValue.tentative.html",
+      "category": "serialization",
+      "operation": "typed-om.transform.parse",
+      "input": { "cssText": "translateX(10px) rotate(45deg)" },
+      "expected": { "cssText": "translatex(10px) rotate(45deg)", "is2D": true, "length": 2, "componentClasses": ["CSSTranslate", "CSSRotate"] },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/transform/rotatez-marks-3d",
+      "upstream": "css/css-typed-om/stylevalue-normalization/transformvalue-normalization.tentative.html",
+      "category": "canonicalization",
+      "operation": "typed-om.transform.parse",
+      "input": { "cssText": "rotateZ(90deg)" },
+      "expected": { "is2D": false, "length": 1, "componentClasses": ["CSSRotate"] },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/transform/translate-and-scale-matrix-order",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/cssTransformValue-toMatrix.html",
+      "category": "canonicalization",
+      "operation": "typed-om.transform.toMatrix",
+      "input": { "cssText": "translate(10px, 20px) scale(2, 3)" },
+      "expected": {
+        "is2D": true,
+        "elements": [2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 1, 0, 10, 20, 0, 1]
+      },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/transform/scale-then-translate-matrix-order",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/cssTransformValue-toMatrix.html",
+      "category": "canonicalization",
+      "operation": "typed-om.transform.toMatrix",
+      "input": { "cssText": "scale(2, 3) translate(10px, 20px)" },
+      "expected": {
+        "is2D": true,
+        "elements": [2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 1, 0, 20, 60, 0, 1]
+      },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/transform/skewx-45deg-matrix",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/cssTransformComponent-toMatrix.html",
+      "category": "canonicalization",
+      "operation": "typed-om.transform.toMatrix",
+      "input": { "cssText": "skewX(45deg)" },
+      "expected": {
+        "is2D": true,
+        "elements": [1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+      },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/transform/perspective-200px-matrix",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/cssTransformComponent-toMatrix.html",
+      "category": "canonicalization",
+      "operation": "typed-om.transform.toMatrix",
+      "input": { "cssText": "perspective(200px)" },
+      "expected": {
+        "is2D": false,
+        "elements": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, -0.005, 0, 0, 0, 1]
+      },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/transform/relative-units-in-to-matrix-throws",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/cssTransformComponent-toMatrix-relative-units.html",
+      "category": "error-recovery",
+      "operation": "typed-om.transform.toMatrix",
+      "input": { "cssText": "translate(5em, 10px)" },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "xfail",
+      "divergenceKind": "api-tradeoff",
+      "xfailReason": "CSSTransformComponent resolves single relative CSSUnitValue lengths using the default CSSContext (16px/em) instead of throwing.",
+      "specRef": "https://drafts.css-houdini.org/css-typed-om/#dom-csstransformcomponent-tomatrix"
+    },
+    {
+      "id": "css-typed-om/transform/unresolved-calc-relative-to-matrix-throws",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/cssTransformComponent-toMatrix-relative-units.html",
+      "category": "error-recovery",
+      "operation": "typed-om.transform.toMatrix",
+      "input": { "cssText": "translate(calc(5em + 10px), 10px)" },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/transform/reject-none-as-transform-value",
+      "upstream": "css/css-typed-om/stylevalue-normalization/transformvalue-normalization.tentative.html",
+      "category": "error-recovery",
+      "operation": "typed-om.transform.parse",
+      "input": { "cssText": "none" },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/position/parse-left-top",
+      "upstream": "css/css-typed-om/the-stylepropertymap/computed/get-position.html",
+      "category": "parsing",
+      "operation": "typed-om.position.parse",
+      "input": { "cssText": "left top" },
+      "expected": { "cssText": "left top", "x": "left", "y": "top" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/position/parse-single-keyword-top-expands-center-top",
+      "upstream": "css/css-typed-om/the-stylepropertymap/computed/get-position.html",
+      "category": "canonicalization",
+      "operation": "typed-om.position.parse",
+      "input": { "cssText": "top" },
+      "expected": { "cssText": "center top", "x": "center", "y": "top" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/position/parse-swapped-axis-keywords-normalized",
+      "upstream": "css/css-typed-om/the-stylepropertymap/computed/get-position.html",
+      "category": "canonicalization",
+      "operation": "typed-om.position.parse",
+      "input": { "cssText": "bottom right" },
+      "expected": { "cssText": "right bottom", "x": "right", "y": "bottom" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/position/reject-same-axis-keywords",
+      "upstream": "css/css-typed-om/the-stylepropertymap/computed/get-position.html",
+      "category": "error-recovery",
+      "operation": "typed-om.position.parse",
+      "input": { "cssText": "left right" },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/position/parse-calc-and-keyword",
+      "upstream": "css/css-typed-om/the-stylepropertymap/computed/get-position.html",
+      "category": "parsing",
+      "operation": "typed-om.position.parse",
+      "input": { "cssText": "calc(50% - 10px) center" },
+      "expected": { "cssText": "calc(50% - 10px) center", "x": "calc(50% - 10px)", "y": "center" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/position/single-unit-zero-normalizes-to-px-and-center",
+      "upstream": "css/css-typed-om/the-stylepropertymap/computed/get-position.html",
+      "category": "canonicalization",
+      "operation": "typed-om.position.parse",
+      "input": { "cssText": "0" },
+      "expected": { "cssText": "0px center", "x": "0px", "y": "center" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/transform/skewy-45deg-matrix",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/cssTransformComponent-toMatrix.html",
+      "category": "canonicalization",
+      "operation": "typed-om.transform.toMatrix",
+      "input": { "cssText": "skewY(45deg)" },
+      "expected": {
+        "is2D": true,
+        "elements": [1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+      },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/transform/matrix3d-parses-as-3d-matrix-component",
+      "upstream": "css/css-typed-om/stylevalue-serialization/cssTransformValue.tentative.html",
+      "category": "parsing",
+      "operation": "typed-om.transform.parse",
+      "input": { "cssText": "matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 10, 20, 30, 1)" },
+      "expected": { "is2D": false, "length": 1, "componentClasses": ["CSSMatrixComponent"] },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/transform/perspective-none-is-identity-3d",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/cssTransformComponent-toMatrix.html",
+      "category": "canonicalization",
+      "operation": "typed-om.transform.toMatrix",
+      "input": { "cssText": "perspective(none)" },
+      "expected": {
+        "is2D": false,
+        "elements": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+      },
+      "status": "pass"
+    }
+  ]
+}

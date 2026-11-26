@@ -1,0 +1,329 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/geometry",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/geometry/DOMMatrix-002.html",
+    "css/geometry/DOMMatrix-003.html",
+    "css/geometry/DOMMatrix-invert-invertible.html",
+    "css/geometry/DOMMatrix-invert-preserves-2d.html",
+    "css/geometry/DOMMatrix-invertSelf.html",
+    "css/geometry/DOMMatrix-newobject.html",
+    "css/geometry/DOMPoint-matrixTransform-translation-w.html"
+  ],
+  "cases": [
+    {
+      "id": "geometry/ops/readonly-translate-returns-new-mutable-matrix",
+      "upstream": "css/geometry/DOMMatrix-newobject.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "mutable": false,
+        "init": [1, 0, 0, 1, 10, 20],
+        "steps": [
+          { "op": "translate", "args": [5, -5] }
+        ]
+      },
+      "expected": {
+        "immutableReceiver": true,
+        "receiverCssText": "matrix(1, 0, 0, 1, 10, 20)",
+        "is2D": true,
+        "fields": { "e": 15, "f": 15 }
+      },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/ops/translate-3d-tz-nonzero-clears-is2d",
+      "upstream": "css/geometry/DOMMatrix-003.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "steps": [
+          { "op": "translateSelf", "args": [10, 20, 30] }
+        ]
+      },
+      "expected": { "is2D": false, "fields": { "m41": 10, "m42": 20, "m43": 30 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/ops/scale-defaults-scaleY-to-scaleX",
+      "upstream": "css/geometry/DOMMatrix-003.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "mutable": false,
+        "steps": [
+          { "op": "scale", "args": [3] }
+        ]
+      },
+      "expected": { "is2D": true, "fields": { "a": 3, "d": 3 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/ops/scale-with-origin-offset",
+      "upstream": "css/geometry/DOMMatrix-003.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "steps": [
+          { "op": "scaleSelf", "args": [2, 2, 1, 10, 20, 0] }
+        ]
+      },
+      "expected": { "is2D": true, "fields": { "a": 2, "d": 2, "e": -10, "f": -20 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/ops/scale3d-clears-is2d",
+      "upstream": "css/geometry/DOMMatrix-003.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "steps": [
+          { "op": "scale3dSelf", "args": [2] }
+        ]
+      },
+      "expected": { "is2D": false, "fields": { "m11": 2, "m22": 2, "m33": 2 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/ops/rotate-1-arg-90deg-preserves-is2d",
+      "upstream": "css/geometry/DOMMatrix-003.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "steps": [
+          { "op": "rotateSelf", "args": [90] }
+        ]
+      },
+      "expected": { "is2D": true, "fields": { "a": 0, "b": 1, "c": -1, "d": 0 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/ops/rotate-from-vector-0-1-is-90deg",
+      "upstream": "css/geometry/DOMMatrix-003.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "mutable": false,
+        "steps": [
+          { "op": "rotateFromVector", "args": [0, 1] }
+        ]
+      },
+      "expected": { "is2D": true, "fields": { "a": 0, "b": 1, "c": -1, "d": 0 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/ops/rotate-from-zero-vector-is-identity",
+      "upstream": "css/geometry/DOMMatrix-003.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "mutable": false,
+        "steps": [
+          { "op": "rotateFromVector", "args": [0, 0] }
+        ]
+      },
+      "expected": { "is2D": true, "isIdentity": true },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/ops/rotate-axis-angle-x-90deg",
+      "upstream": "css/geometry/DOMMatrix-003.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "steps": [
+          { "op": "rotateAxisAngleSelf", "args": [1, 0, 0, 90] }
+        ]
+      },
+      "expected": { "is2D": false, "fields": { "m22": 0, "m23": 1, "m32": -1, "m33": 0 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/ops/skewx-and-skewy-45deg",
+      "upstream": "css/geometry/DOMMatrix-003.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "steps": [
+          { "op": "skewXSelf", "args": [45] }
+        ]
+      },
+      "expected": { "is2D": true, "fields": { "c": 1 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/ops/flipx-and-flipy",
+      "upstream": "css/geometry/DOMMatrix-002.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "mutable": false,
+        "init": [2, 0, 0, 3, 10, 20],
+        "steps": [
+          { "op": "flipX", "args": [] },
+          { "op": "flipY", "args": [] }
+        ]
+      },
+      "expected": { "is2D": true, "fields": { "a": -2, "d": -3, "e": 10, "f": 20 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/ops/multiply-vs-premultiply-order",
+      "upstream": "css/geometry/DOMMatrix-003.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "init": [1, 0, 0, 1, 10, 0],
+        "steps": [
+          { "op": "preMultiplySelf", "args": [[2, 0, 0, 3, 0, 0]] }
+        ]
+      },
+      "expected": { "is2D": true, "fields": { "a": 2, "d": 3, "e": 20 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/ops/invert-preserves-2d",
+      "upstream": "css/geometry/DOMMatrix-invert-preserves-2d.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "init": [2, 0, 0, 4, 10, 20],
+        "steps": [
+          { "op": "invertSelf", "args": [] }
+        ]
+      },
+      "expected": { "is2D": true, "fields": { "a": 0.5, "d": 0.25, "e": -5, "f": -5 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/ops/invert-3d-roundtrip-to-identity",
+      "upstream": "css/geometry/DOMMatrix-invert-invertible.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "steps": [
+          { "op": "translateSelf", "args": [10, 20, 30] },
+          { "op": "scaleSelf", "args": [2, 4, 5] },
+          { "op": "invertSelf", "args": [] }
+        ]
+      },
+      "expected": {
+        "is2D": false,
+        "elements": [0.5, 0, 0, 0, 0, 0.25, 0, 0, 0, 0, 0.2, 0, -5, -5, -6, 1]
+      },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/ops/set-matrix-value-resets-2d-flag",
+      "upstream": "css/geometry/DOMMatrix-003.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "init": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 10, 1],
+        "steps": [
+          { "op": "setMatrixValue", "args": ["translate(4px, 5px)"] }
+        ]
+      },
+      "expected": { "is2D": true, "fields": { "e": 4, "f": 5, "m43": 0 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/transformPoint/2d-rotation-90deg",
+      "upstream": "css/geometry/DOMPoint-matrixTransform-translation-w.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.transformPoint",
+      "input": { "init": "rotate(90deg)", "point": { "x": 1, "y": 0 } },
+      "expected": { "x": 0, "y": 1, "z": 0, "w": 1 },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/transformPoint/translation-respects-w-component",
+      "upstream": "css/geometry/DOMPoint-matrixTransform-translation-w.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.transformPoint",
+      "input": { "init": [1, 0, 0, 1, 10, 20], "point": { "x": 1, "y": 2, "z": 0, "w": 2 } },
+      "expected": { "x": 21, "y": 42, "z": 0, "w": 2 },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/ops/inverse-non-mutating-on-readonly",
+      "upstream": "css/geometry/DOMMatrix-invertSelf.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "mutable": false,
+        "init": [2, 0, 0, 2, 0, 0],
+        "steps": [
+          { "op": "inverse", "args": [] }
+        ]
+      },
+      "expected": { "immutableReceiver": true, "is2D": true, "fields": { "a": 0.5, "d": 0.5 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/ops/scale-non-uniform-preserves-2d",
+      "upstream": "css/geometry/DOMMatrix-003.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "mutable": false,
+        "steps": [
+          { "op": "scaleNonUniform", "args": [2, 5] }
+        ]
+      },
+      "expected": { "is2D": true, "fields": { "a": 2, "d": 5 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/ops/rotate-3-arg-marks-3d",
+      "upstream": "css/geometry/DOMMatrix-003.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "steps": [
+          { "op": "rotateSelf", "args": [90, 0, 0] }
+        ]
+      },
+      "expected": { "is2D": false, "fields": { "m22": 0, "m23": 1, "m32": -1, "m33": 0 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/ops/skewy-45deg-sets-b-to-1",
+      "upstream": "css/geometry/DOMMatrix-003.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "steps": [
+          { "op": "skewYSelf", "args": [45] }
+        ]
+      },
+      "expected": { "is2D": true, "fields": { "b": 1 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/ops/multiply-3d-propagates-false-is2d",
+      "upstream": "css/geometry/DOMMatrix-002.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.ops",
+      "input": {
+        "mutable": false,
+        "init": [1, 0, 0, 1, 10, 0],
+        "steps": [
+          { "op": "multiply", "args": [[1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 5, 1]] }
+        ]
+      },
+      "expected": { "is2D": false, "fields": { "m41": 10, "m43": 5 } },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/transformPoint/3d-z-translation",
+      "upstream": "css/geometry/DOMPoint-matrixTransform-translation-w.html",
+      "category": "canonicalization",
+      "operation": "geometry.matrix.transformPoint",
+      "input": { "init": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 2, 3, 1], "point": { "x": 4, "y": 5, "z": 6, "w": 1 } },
+      "expected": { "x": 5, "y": 7, "z": 9, "w": 1 },
+      "status": "pass"
+    }
+  ]
+}

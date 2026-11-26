@@ -6,3 +6,7 @@ The Apache Software Foundation (/).
 
 This project includes code derived from WebKit (https://webkit.org/),
 which is licensed under the dual LGPL and BSD licenses.
+
+This project includes test fixture vectors derived from the W3C Web Platform Tests
+(https://github.com/web-platform-tests/wpt), which are licensed under the
+W3C 3-Clause BSD License (see tests/WPT/LICENSE).

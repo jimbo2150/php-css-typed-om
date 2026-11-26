@@ -1,0 +1,237 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/css-values",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/css-values/calc-serialization.html",
+    "css/css-values/calc-dimension-serialization-order.html",
+    "css/css-values/calc-invalid-parsing.html"
+  ],
+  "cases": [
+    {
+      "id": "css-values/calc/serialize-single-unit-px",
+      "upstream": "css/css-values/calc-serialization.html",
+      "category": "serialization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(10px)" },
+      "expected": { "cssText": "10px", "value": 10.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/serialize-nested-calc-flattens",
+      "upstream": "css/css-values/calc-serialization.html",
+      "category": "canonicalization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(10px + calc(2em + 3vw))" },
+      "expected": { "cssText": "calc(2em + 10px + 3vw)", "roundTrip": true },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/serialize-dimension-order-pct-alpha-units",
+      "upstream": "css/css-values/calc-dimension-serialization-order.html",
+      "category": "canonicalization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(10vw + 2em + 50% + 1in)" },
+      "expected": { "cssText": "calc(50% + 2em + 96px + 10vw)", "roundTrip": true },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/serialize-sum-with-negative-second-term",
+      "upstream": "css/css-values/calc-serialization.html",
+      "category": "serialization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(5em - 10px)" },
+      "expected": { "cssText": "calc(5em - 10px)", "roundTrip": true },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/serialize-sum-reorders-leading-negative",
+      "upstream": "css/css-values/calc-dimension-serialization-order.html",
+      "category": "canonicalization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(10px - 5em)" },
+      "expected": { "cssText": "calc(-5em + 10px)", "roundTrip": true },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/serialize-operator-precedence-mul-before-add",
+      "upstream": "css/css-values/calc-serialization.html",
+      "category": "parsing",
+      "operation": "values.calc.parse",
+      "input": { "expression": "calc(10px + 2 * 5px)" },
+      "expected": { "cssText": "20px", "value": 20.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/serialize-parenthesized-sum-multiplied",
+      "upstream": "css/css-values/calc-serialization.html",
+      "category": "canonicalization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(2 * (10px + 5%))" },
+      "expected": { "cssText": "calc(10% + 20px)", "type": { "length": 1, "percentHint": "length" }, "roundTrip": true },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/serialize-unary-plus-and-minus",
+      "upstream": "css/css-values/calc-serialization.html",
+      "category": "parsing",
+      "operation": "values.calc.parse",
+      "input": { "expression": "calc(+10px - -5px)" },
+      "expected": { "cssText": "15px", "value": 15.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/serialize-comments-around-operands",
+      "upstream": "css/css-values/calc-serialization.html",
+      "category": "parsing",
+      "operation": "values.calc.parse",
+      "input": { "expression": "calc(/* a */ 10px + /* b */ 20px)" },
+      "expected": { "cssText": "30px", "value": 30.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/serialize-product-scalar-then-alpha-units",
+      "upstream": "css/css-values/calc-dimension-serialization-order.html",
+      "category": "canonicalization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(2px * 5em)" },
+      "expected": { "cssText": "calc(10 * 1em * 1px)", "type": { "length": 2 }, "roundTrip": true },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/invalid-binary-plus-no-whitespace-left",
+      "upstream": "css/css-values/calc-invalid-parsing.html",
+      "category": "error-recovery",
+      "operation": "values.calc.invalid",
+      "input": { "expression": "calc(10px+ 5px)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/invalid-binary-plus-no-whitespace-right",
+      "upstream": "css/css-values/calc-invalid-parsing.html",
+      "category": "error-recovery",
+      "operation": "values.calc.invalid",
+      "input": { "expression": "calc(10px +5px)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/invalid-binary-minus-no-whitespace",
+      "upstream": "css/css-values/calc-invalid-parsing.html",
+      "category": "error-recovery",
+      "operation": "values.calc.invalid",
+      "input": { "expression": "calc(10px-5px)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/invalid-empty-calc",
+      "upstream": "css/css-values/calc-invalid-parsing.html",
+      "category": "error-recovery",
+      "operation": "values.calc.invalid",
+      "input": { "expression": "calc()" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/invalid-mismatched-dimensions-sum",
+      "upstream": "css/css-values/calc-invalid-parsing.html",
+      "category": "error-recovery",
+      "operation": "values.calc.invalid",
+      "input": { "expression": "calc(10px + 5deg)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/invalid-bare-constant-outside-math",
+      "upstream": "css/css-values/calc-invalid-parsing.html",
+      "category": "error-recovery",
+      "operation": "values.calc.invalid",
+      "input": { "expression": "pi" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/invalid-unary-minus-before-constant",
+      "upstream": "css/css-values/calc-invalid-parsing.html",
+      "category": "error-recovery",
+      "operation": "values.calc.invalid",
+      "input": { "expression": "calc(-pi)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/invalid-trailing-operator",
+      "upstream": "css/css-values/calc-invalid-parsing.html",
+      "category": "error-recovery",
+      "operation": "values.calc.invalid",
+      "input": { "expression": "calc(10px +)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/serialize-negative-invert-in-product",
+      "upstream": "css/css-values/calc-serialization.html",
+      "category": "serialization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(10px / 2)" },
+      "expected": { "cssText": "5px", "value": 5.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/serialize-product-with-em-and-vw-order",
+      "upstream": "css/css-values/calc-dimension-serialization-order.html",
+      "category": "canonicalization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(4vw * 2em)" },
+      "expected": { "cssText": "calc(8 * 1em * 1vw)", "type": { "length": 2 }, "roundTrip": true },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/parse-nested-parens-grouping",
+      "upstream": "css/css-values/calc-serialization.html",
+      "category": "parsing",
+      "operation": "values.calc.parse",
+      "input": { "expression": "calc((10px + 20px) * 2 - 5px)" },
+      "expected": { "cssText": "55px", "value": 55.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/parse-scientific-notation-operand",
+      "upstream": "css/css-values/calc-serialization.html",
+      "category": "parsing",
+      "operation": "values.calc.parse",
+      "input": { "expression": "calc(1e2px + 5e-1in)" },
+      "expected": { "cssText": "148px", "value": 148.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/invalid-division-by-percentage-dimension-rejected-sum",
+      "upstream": "css/css-values/calc-invalid-parsing.html",
+      "category": "error-recovery",
+      "operation": "values.calc.invalid",
+      "input": { "expression": "calc(10px / 2s + 5px)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/invalid-negative-func-token",
+      "upstream": "css/css-values/calc-invalid-parsing.html",
+      "category": "error-recovery",
+      "operation": "values.calc.invalid",
+      "input": { "expression": "calc(-abs(1%))" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-values/calc/invalid-unbalanced-parens",
+      "upstream": "css/css-values/calc-invalid-parsing.html",
+      "category": "error-recovery",
+      "operation": "values.calc.invalid",
+      "input": { "expression": "calc((10px + 5px)" },
+      "expected": {},
+      "status": "pass"
+    }
+  ]
+}

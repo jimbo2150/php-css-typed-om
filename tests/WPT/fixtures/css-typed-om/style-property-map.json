@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/css-typed-om",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/css-typed-om/the-stylepropertymap/inline/set.tentative.html",
+    "css/css-typed-om/the-stylepropertymap/inline/append.tentative.html",
+    "css/css-typed-om/the-stylepropertymap/inline/delete.html",
+    "css/css-typed-om/the-stylepropertymap/inline/clear.html",
+    "css/css-typed-om/the-stylepropertymap/inline/get.html",
+    "css/css-typed-om/the-stylepropertymap/inline/getAll.tentative.html",
+    "css/css-typed-om/the-stylepropertymap/inline/has.tentative.html"
+  ],
+  "cases": [
+    {
+      "id": "css-typed-om/property-map/set-space-separated-and-get",
+      "upstream": "css/css-typed-om/the-stylepropertymap/inline/set.tentative.html",
+      "category": "serialization",
+      "operation": "typed-om.property-map.ops",
+      "input": {
+        "initialCss": "",
+        "steps": [
+          { "action": "set", "property": "margin", "values": ["10px", "20px"] }
+        ]
+      },
+      "expected": {
+        "size": 1,
+        "declCssText": "margin: 10px 20px;",
+        "has": { "margin": true, "padding": false },
+        "get": { "margin": "10px 20px", "padding": null }
+      },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/property-map/append-comma-list-and-get-all",
+      "upstream": "css/css-typed-om/the-stylepropertymap/inline/append.tentative.html",
+      "category": "parsing",
+      "operation": "typed-om.property-map.ops",
+      "input": {
+        "initialCss": "",
+        "steps": [
+          { "action": "append", "property": "background-image", "values": ["url(\"a.png\")", "url(\"b.png\")"] }
+        ]
+      },
+      "expected": {
+        "declCssText": "background-image: url(\"a.png\"), url(\"b.png\");",
+        "get": { "background-image": "url(\"a.png\")" },
+        "getAll": { "background-image": ["url(\"a.png\")", "url(\"b.png\")"] }
+      },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/property-map/delete-and-clear",
+      "upstream": "css/css-typed-om/the-stylepropertymap/inline/delete.html",
+      "category": "canonicalization",
+      "operation": "typed-om.property-map.ops",
+      "input": {
+        "initialCss": "color: red; width: 10px;",
+        "steps": [
+          { "action": "delete", "property": "COLOR" },
+          { "action": "clear", "property": "" }
+        ]
+      },
+      "expected": { "size": 0, "declCssText": "" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/property-map/custom-property-empty-and-whitespace",
+      "upstream": "css/css-typed-om/the-stylepropertymap/inline/get.html",
+      "category": "canonicalization",
+      "operation": "typed-om.property-map.ops",
+      "input": {
+        "initialCss": "--empty: ;",
+        "steps": []
+      },
+      "expected": {
+        "size": 1,
+        "has": { "--empty": true },
+        "get": { "--empty": "" },
+        "getAll": { "--empty": [""] }
+      },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/property-map/custom-property-case-sensitive",
+      "upstream": "css/css-typed-om/the-stylepropertymap/inline/has.tentative.html",
+      "category": "canonicalization",
+      "operation": "typed-om.property-map.ops",
+      "input": {
+        "initialCss": "",
+        "steps": [
+          { "action": "set", "property": "--ThemeColor", "values": ["navy"] }
+        ]
+      },
+      "expected": {
+        "has": { "--ThemeColor": true, "--themecolor": false },
+        "get": { "--ThemeColor": "navy" }
+      },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/property-map/set-rejects-semicolon-injection-atomically",
+      "upstream": "css/css-typed-om/the-stylepropertymap/inline/set.tentative.html",
+      "category": "error-recovery",
+      "operation": "typed-om.property-map.ops",
+      "input": {
+        "initialCss": "color: red;",
+        "steps": [
+          { "action": "set", "property": "color", "values": ["blue; margin: 0"] }
+        ]
+      },
+      "expected": { "throws": "InvalidArgumentException", "declCssText": "color: red;" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/property-map/get-all-custom-property-keeps-commas",
+      "upstream": "css/css-typed-om/the-stylepropertymap/inline/getAll.tentative.html",
+      "category": "canonicalization",
+      "operation": "typed-om.property-map.ops",
+      "input": {
+        "initialCss": "--fonts: Inter, sans-serif;",
+        "steps": []
+      },
+      "expected": {
+        "getAll": { "--fonts": ["Inter, sans-serif"] }
+      },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/property-map/clear-empty-map-noop",
+      "upstream": "css/css-typed-om/the-stylepropertymap/inline/clear.html",
+      "category": "canonicalization",
+      "operation": "typed-om.property-map.ops",
+      "input": {
+        "initialCss": "",
+        "steps": [
+          { "action": "clear", "property": "" }
+        ]
+      },
+      "expected": { "size": 0, "declCssText": "" },
+      "status": "pass"
+    }
+  ]
+}

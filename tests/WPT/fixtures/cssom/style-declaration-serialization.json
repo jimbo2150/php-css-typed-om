@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/cssom",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/cssom/cssom-cssText-serialize.html",
+    "css/cssom/cssstyledeclaration-csstext.html",
+    "css/cssom/cssstyledeclaration-csstext-important.html",
+    "css/cssom/cssstyledeclaration-csstext-final-delimiter.html",
+    "css/cssom/cssstyledeclaration-custom-properties.html",
+    "css/cssom/cssstyledeclaration-properties.html"
+  ],
+  "cases": [
+    {
+      "id": "cssom/decl/serialize-canonical-semicolons",
+      "upstream": "css/cssom/cssstyledeclaration-csstext-final-delimiter.html",
+      "category": "serialization",
+      "operation": "cssom.declaration.cssText",
+      "input": { "cssText": "color: red; margin: 10px" },
+      "expected": { "cssText": "color: red; margin: 10px;", "length": 2 },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/decl/serialize-important-priority",
+      "upstream": "css/cssom/cssstyledeclaration-csstext-important.html",
+      "category": "serialization",
+      "operation": "cssom.declaration.cssText",
+      "input": { "cssText": "color: green !IMPORTANT; padding: 4px" },
+      "expected": { "cssText": "color: green !important; padding: 4px;", "length": 2 },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/decl/duplicate-important-precedence",
+      "upstream": "css/cssom/cssstyledeclaration-csstext-important.html",
+      "category": "canonicalization",
+      "operation": "cssom.declaration.cssText",
+      "input": { "cssText": "color: red !important; color: blue; color: green !important;" },
+      "expected": { "cssText": "color: green !important;", "length": 1, "properties": { "color": "green" } },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/decl/ascii-case-insensitive-standard-properties",
+      "upstream": "css/cssom/cssstyledeclaration-properties.html",
+      "category": "canonicalization",
+      "operation": "cssom.declaration.setProperty",
+      "input": { "initialCss": "", "property": "Background-Color", "value": "navy", "lookup": "background-color" },
+      "expected": { "cssText": "background-color: navy;", "propertyValue": "navy", "length": 1 },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/decl/custom-property-preserves-case",
+      "upstream": "css/cssom/cssstyledeclaration-custom-properties.html",
+      "category": "canonicalization",
+      "operation": "cssom.declaration.setProperty",
+      "input": { "initialCss": "", "property": "--MyVar", "value": "10px", "lookup": "--MyVar" },
+      "expected": { "cssText": "--MyVar: 10px;", "propertyValue": "10px", "length": 1 },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/decl/custom-property-case-distinct-from-lowercase",
+      "upstream": "css/cssom/cssstyledeclaration-custom-properties.html",
+      "category": "canonicalization",
+      "operation": "cssom.declaration.setProperty",
+      "input": { "initialCss": "--myvar: 1px;", "property": "--MyVar", "value": "2px", "lookup": "--myvar" },
+      "expected": { "propertyValue": "1px", "length": 2 },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/decl/set-empty-value-removes-property",
+      "upstream": "css/cssom/cssstyledeclaration-properties.html",
+      "category": "canonicalization",
+      "operation": "cssom.declaration.setProperty",
+      "input": { "initialCss": "color: red; margin: 5px;", "property": "color", "value": "" },
+      "expected": { "cssText": "margin: 5px;", "propertyValue": "", "length": 1 },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/decl/set-property-with-important",
+      "upstream": "css/cssom/cssstyledeclaration-csstext-important.html",
+      "category": "serialization",
+      "operation": "cssom.declaration.setProperty",
+      "input": { "initialCss": "color: red;", "property": "color", "value": "blue", "priority": "IMPORTANT" },
+      "expected": { "cssText": "color: blue !important;", "propertyValue": "blue", "priority": "important" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/decl/reject-important-embedded-in-value",
+      "upstream": "css/cssom/cssstyledeclaration-csstext-important.html",
+      "category": "error-recovery",
+      "operation": "cssom.declaration.setProperty",
+      "input": { "initialCss": "color: red;", "property": "color", "value": "blue !important" },
+      "expected": { "throws": "InvalidArgumentException", "cssText": "color: red;" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/decl/reject-invalid-priority-string",
+      "upstream": "css/cssom/cssstyledeclaration-csstext-important.html",
+      "category": "error-recovery",
+      "operation": "cssom.declaration.setProperty",
+      "input": { "initialCss": "color: red;", "property": "color", "value": "blue", "priority": "bogus" },
+      "expected": { "throws": "InvalidArgumentException", "cssText": "color: red;" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/decl/reject-top-level-semicolon-injection",
+      "upstream": "css/cssom/cssstyledeclaration-csstext.html",
+      "category": "error-recovery",
+      "operation": "cssom.declaration.setProperty",
+      "input": { "initialCss": "color: red;", "property": "color", "value": "blue; background: yellow" },
+      "expected": { "throws": "InvalidArgumentException", "cssText": "color: red;" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/decl/atomic-set-csstext-rejection",
+      "upstream": "css/cssom/cssstyledeclaration-csstext.html",
+      "category": "error-recovery",
+      "operation": "cssom.declaration.cssText",
+      "input": { "mode": "setCssText", "initialCss": "color: red;", "cssText": "color: blue; broken" },
+      "expected": { "throws": "InvalidArgumentException", "cssText": "color: red;" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/decl/serialize-quoted-string-and-parent-rule",
+      "upstream": "css/cssom/cssom-cssText-serialize.html",
+      "category": "serialization",
+      "operation": "cssom.declaration.cssText",
+      "input": { "cssText": "content: \"a; b\"; color: purple;" },
+      "expected": { "cssText": "content: \"a; b\"; color: purple;", "length": 2, "parentRuleFromSheet": true },
+      "status": "pass"
+    }
+  ]
+}

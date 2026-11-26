@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/cssom",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/cssom/MediaList.html",
+    "css/cssom/MediaList-parsing.html",
+    "css/cssom/medialist-appendmedium-parse-single-and-dedup.html",
+    "css/cssom/medialist-deletemedium-parse-and-remove-all.html"
+  ],
+  "cases": [
+    {
+      "id": "cssom/medialist/parse-and-dedup",
+      "upstream": "css/cssom/MediaList-parsing.html",
+      "category": "canonicalization",
+      "operation": "cssom.mediaList",
+      "input": { "initial": "screen, PRINT, screen", "steps": [] },
+      "expected": { "mediaText": "screen, PRINT", "length": 2, "items": ["screen", "PRINT"] },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/medialist/append-deduplicates-case-insensitive",
+      "upstream": "css/cssom/medialist-appendmedium-parse-single-and-dedup.html",
+      "category": "canonicalization",
+      "operation": "cssom.mediaList",
+      "input": {
+        "initial": "screen",
+        "steps": [
+          { "action": "appendMedium", "value": "SCREEN" },
+          { "action": "appendMedium", "value": "print" }
+        ]
+      },
+      "expected": { "mediaText": "screen, print", "length": 2 },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/medialist/delete-medium-removes-match",
+      "upstream": "css/cssom/medialist-deletemedium-parse-and-remove-all.html",
+      "category": "canonicalization",
+      "operation": "cssom.mediaList",
+      "input": {
+        "initial": "screen, print, all",
+        "steps": [
+          { "action": "deleteMedium", "value": "PRINT" }
+        ]
+      },
+      "expected": { "mediaText": "screen, all", "length": 2 },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/medialist/delete-missing-throws",
+      "upstream": "css/cssom/medialist-deletemedium-parse-and-remove-all.html",
+      "category": "error-recovery",
+      "operation": "cssom.mediaList",
+      "input": {
+        "initial": "screen",
+        "steps": [
+          { "action": "deleteMedium", "value": "print" }
+        ]
+      },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/medialist/append-comma-list-rejected",
+      "upstream": "css/cssom/medialist-appendmedium-parse-single-and-dedup.html",
+      "category": "error-recovery",
+      "operation": "cssom.mediaList",
+      "input": {
+        "initial": "screen",
+        "steps": [
+          { "action": "appendMedium", "value": "print, speech" }
+        ]
+      },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/medialist/empty-initial-gives-zero-length",
+      "upstream": "css/cssom/MediaList.html",
+      "category": "parsing",
+      "operation": "cssom.mediaList",
+      "input": { "initial": "", "steps": [] },
+      "expected": { "mediaText": "", "length": 0 },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/medialist/set-media-text-replaces-list",
+      "upstream": "css/cssom/MediaList-parsing.html",
+      "category": "canonicalization",
+      "operation": "cssom.mediaList",
+      "input": {
+        "initial": "screen",
+        "steps": [
+          { "action": "setMediaText", "value": "print, (min-width: 600px)" }
+        ]
+      },
+      "expected": { "mediaText": "print, (min-width: 600px)", "length": 2 },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/medialist/comma-inside-parens-not-split",
+      "upstream": "css/cssom/MediaList-parsing.html",
+      "category": "parsing",
+      "operation": "cssom.mediaList",
+      "input": { "initial": "screen and (min-width: calc(10px + 20px))", "steps": [] },
+      "expected": { "mediaText": "screen and (min-width: calc(10px + 20px))", "length": 1 },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/medialist/append-empty-string-rejected",
+      "upstream": "css/cssom/medialist-appendmedium-parse-single-and-dedup.html",
+      "category": "error-recovery",
+      "operation": "cssom.mediaList",
+      "input": {
+        "initial": "screen",
+        "steps": [
+          { "action": "appendMedium", "value": "   " }
+        ]
+      },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/medialist/delete-all-to-empty",
+      "upstream": "css/cssom/medialist-deletemedium-parse-and-remove-all.html",
+      "category": "canonicalization",
+      "operation": "cssom.mediaList",
+      "input": {
+        "initial": "screen, print",
+        "steps": [
+          { "action": "deleteMedium", "value": "screen" },
+          { "action": "deleteMedium", "value": "print" }
+        ]
+      },
+      "expected": { "mediaText": "", "length": 0 },
+      "status": "pass"
+    }
+  ]
+}

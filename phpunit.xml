@@ -28,6 +28,9 @@
 		<testsuite name="Fuzz">
 			<directory>tests/Fuzz</directory>
 		</testsuite>
+		<testsuite name="WPT">
+			<directory>tests/WPT/Suites</directory>
+		</testsuite>
 	</testsuites>
 	<source>
 		<include>

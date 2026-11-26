@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "wptRepository": "https://github.com/web-platform-tests/wpt",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "license": "BSD-3-Clause",
+  "suites": {
+    "css/css-typed-om": [
+      "fixtures/css-typed-om/stylevalue-normalization.json",
+      "fixtures/css-typed-om/stylevalue-serialization.json",
+      "fixtures/css-typed-om/numeric-values-and-math.json",
+      "fixtures/css-typed-om/transforms-and-positions.json",
+      "fixtures/css-typed-om/style-property-map.json"
+    ],
+    "css/cssom": [
+      "fixtures/cssom/css-escape.json",
+      "fixtures/cssom/stylesheet-rules-and-mutation.json",
+      "fixtures/cssom/style-declaration-serialization.json",
+      "fixtures/cssom/css-supports.json",
+      "fixtures/cssom/media-list.json"
+    ],
+    "css/css-syntax": [
+      "fixtures/css-syntax/escaping-and-identifiers.json",
+      "fixtures/css-syntax/error-recovery-rules-and-declarations.json",
+      "fixtures/css-syntax/eof-and-unclosed-constructs.json",
+      "fixtures/css-syntax/comments-strings-and-urls.json"
+    ],
+    "css/css-values": [
+      "fixtures/css-values/calc-parsing-and-serialization.json",
+      "fixtures/css-values/calc-simplification-and-units.json",
+      "fixtures/css-values/math-functions-trig-exp-stepped-sign.json",
+      "fixtures/css-values/infinity-nan-and-constants.json"
+    ],
+    "css/css-color": [
+      "fixtures/css-color/color-parsing-valid.json",
+      "fixtures/css-color/color-parsing-invalid.json",
+      "fixtures/css-color/color-serialization-and-conversions.json"
+    ],
+    "css/geometry": [
+      "fixtures/geometry/dommatrix-constructor-and-parsing.json",
+      "fixtures/geometry/dommatrix-operations-and-invert.json",
+      "fixtures/geometry/dommatrix-serialization-and-errors.json"
+    ]
+  }
+}

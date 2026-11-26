@@ -1,0 +1,196 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/css-color",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/css-color/parsing/color-invalid.html",
+    "css/css-color/parsing/color-invalid-hex-color.html",
+    "css/css-color/parsing/color-invalid-rgb.html",
+    "css/css-color/parsing/color-invalid-hsl.html",
+    "css/css-color/parsing/color-invalid-hwb.html",
+    "css/css-color/parsing/color-invalid-lab.html",
+    "css/css-color/parsing/color-invalid-color-function.html"
+  ],
+  "cases": [
+    {
+      "id": "css-color/invalid/hex-5-digits",
+      "upstream": "css/css-color/parsing/color-invalid-hex-color.html",
+      "category": "error-recovery",
+      "operation": "color.parse.invalid",
+      "input": { "cssText": "#12345" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-color/invalid/hex-non-hex-digit",
+      "upstream": "css/css-color/parsing/color-invalid-hex-color.html",
+      "category": "error-recovery",
+      "operation": "color.parse.invalid",
+      "input": { "cssText": "#ggg" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-color/invalid/rgb-legacy-mixed-number-and-percent",
+      "upstream": "css/css-color/parsing/color-invalid-rgb.html",
+      "category": "error-recovery",
+      "operation": "color.parse.invalid",
+      "input": { "cssText": "rgb(255, 50%, 0)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-color/invalid/rgb-legacy-none-disallowed",
+      "upstream": "css/css-color/parsing/color-invalid-rgb.html",
+      "category": "error-recovery",
+      "operation": "color.parse.invalid",
+      "input": { "cssText": "rgb(none, 0, 0)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-color/invalid/rgb-legacy-commas-with-slash-alpha",
+      "upstream": "css/css-color/parsing/color-invalid-rgb.html",
+      "category": "error-recovery",
+      "operation": "color.parse.invalid",
+      "input": { "cssText": "rgb(255, 0, 0 / 50%)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-color/invalid/rgb-space-before-open-paren",
+      "upstream": "css/css-color/parsing/color-invalid.html",
+      "category": "error-recovery",
+      "operation": "color.parse.invalid",
+      "input": { "cssText": "rgb (1 2 3)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-color/invalid/rgb-too-few-channels",
+      "upstream": "css/css-color/parsing/color-invalid-rgb.html",
+      "category": "error-recovery",
+      "operation": "color.parse.invalid",
+      "input": { "cssText": "rgb(10 20)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-color/invalid/hsl-legacy-missing-percent-on-s-l",
+      "upstream": "css/css-color/parsing/color-invalid-hsl.html",
+      "category": "error-recovery",
+      "operation": "color.parse.invalid",
+      "input": { "cssText": "hsl(120, 100, 50)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-color/invalid/hwb-rejects-comma-syntax",
+      "upstream": "css/css-color/parsing/color-invalid-hwb.html",
+      "category": "error-recovery",
+      "operation": "color.parse.invalid",
+      "input": { "cssText": "hwb(120, 0%, 0%)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-color/invalid/oklch-rejects-comma-syntax",
+      "upstream": "css/css-color/parsing/color-invalid-lab.html",
+      "category": "error-recovery",
+      "operation": "color.parse.invalid",
+      "input": { "cssText": "oklch(50%, 0.2, 30)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-color/invalid/lab-rejects-length-unit",
+      "upstream": "css/css-color/parsing/color-invalid-lab.html",
+      "category": "error-recovery",
+      "operation": "color.parse.invalid",
+      "input": { "cssText": "lab(50px 10 10)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-color/invalid/color-function-unknown-predefined-space",
+      "upstream": "css/css-color/parsing/color-invalid-color-function.html",
+      "category": "error-recovery",
+      "operation": "color.parse.invalid",
+      "input": { "cssText": "color(bogus-space 1 0 0)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-color/invalid/color-function-wrong-channel-count",
+      "upstream": "css/css-color/parsing/color-invalid-color-function.html",
+      "category": "error-recovery",
+      "operation": "color.parse.invalid",
+      "input": { "cssText": "color(srgb 1 0)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-color/invalid/trailing-garbage-after-color-function",
+      "upstream": "css/css-color/parsing/color-invalid.html",
+      "category": "error-recovery",
+      "operation": "color.parse.invalid",
+      "input": { "cssText": "rgb(1 2 3) extra" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-color/invalid/unclosed-color-function",
+      "upstream": "css/css-color/parsing/color-invalid.html",
+      "category": "error-recovery",
+      "operation": "color.parse.invalid",
+      "input": { "cssText": "rgb(1 2 3" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-color/invalid/hex-7-digits",
+      "upstream": "css/css-color/parsing/color-invalid-hex-color.html",
+      "category": "error-recovery",
+      "operation": "color.parse.invalid",
+      "input": { "cssText": "#1234567" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-color/invalid/rgb-extra-fourth-channel-without-slash",
+      "upstream": "css/css-color/parsing/color-invalid-rgb.html",
+      "category": "error-recovery",
+      "operation": "color.parse.invalid",
+      "input": { "cssText": "rgb(10 20 30 0.5)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-color/invalid/hsl-legacy-none-disallowed",
+      "upstream": "css/css-color/parsing/color-invalid-hsl.html",
+      "category": "error-recovery",
+      "operation": "color.parse.invalid",
+      "input": { "cssText": "hsl(none, 100%, 50%)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-color/invalid/oklab-rejects-angle-on-a-channel",
+      "upstream": "css/css-color/parsing/color-invalid-lab.html",
+      "category": "error-recovery",
+      "operation": "color.parse.invalid",
+      "input": { "cssText": "oklab(50% 10deg 0.1)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-color/invalid/color-function-with-commas-rejected",
+      "upstream": "css/css-color/parsing/color-invalid-color-function.html",
+      "category": "error-recovery",
+      "operation": "color.parse.invalid",
+      "input": { "cssText": "color(srgb, 1, 0, 0)" },
+      "expected": {},
+      "status": "pass"
+    }
+  ]
+}

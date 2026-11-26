@@ -1,0 +1,311 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/css-values",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/css-values/round-mod-rem-serialize.html",
+    "css/css-values/round-mod-rem-computed.html",
+    "css/css-values/round-mod-rem-invalid.html",
+    "css/css-values/sin-cos-tan-serialize.html",
+    "css/css-values/sin-cos-tan-computed.html",
+    "css/css-values/acos-asin-atan-atan2-serialize.html",
+    "css/css-values/acos-asin-atan-atan2-computed.html",
+    "css/css-values/hypot-pow-sqrt-serialize.html",
+    "css/css-values/hypot-pow-sqrt-computed.html",
+    "css/css-values/exp-log-serialize.html",
+    "css/css-values/exp-log-compute.html",
+    "css/css-values/signs-abs-serialize.html",
+    "css/css-values/signs-abs-computed.html",
+    "css/css-values/calc-rounding-001.html"
+  ],
+  "cases": [
+    {
+      "id": "css-values/math/sin-180deg",
+      "upstream": "css/css-values/sin-cos-tan-computed.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "sin(180deg)" },
+      "expected": { "value": 0.0, "unit": "number" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/sin-quarter-turn",
+      "upstream": "css/css-values/sin-cos-tan-computed.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "sin(0.25turn)" },
+      "expected": { "value": 1.0, "unit": "number" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/cos-100grad",
+      "upstream": "css/css-values/sin-cos-tan-computed.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "cos(100grad)" },
+      "expected": { "value": 0.0, "unit": "number" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/tan-45deg",
+      "upstream": "css/css-values/sin-cos-tan-computed.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "tan(45deg)" },
+      "expected": { "value": 1.0, "unit": "number" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/tan-90deg-infinity",
+      "upstream": "css/css-values/sin-cos-tan-serialize.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "tan(90deg)" },
+      "expected": { "cssText": "calc(infinity)", "constant": "infinity" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/tan-270deg-neg-infinity",
+      "upstream": "css/css-values/sin-cos-tan-serialize.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "tan(270deg)" },
+      "expected": { "cssText": "calc(-infinity)", "constant": "-infinity" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/asin-1-is-90deg",
+      "upstream": "css/css-values/acos-asin-atan-atan2-computed.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "asin(1)" },
+      "expected": { "value": 90.0, "unit": "deg" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/acos-neg1-is-180deg",
+      "upstream": "css/css-values/acos-asin-atan-atan2-computed.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "acos(-1)" },
+      "expected": { "value": 180.0, "unit": "deg" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/atan-infinity-is-90deg",
+      "upstream": "css/css-values/acos-asin-atan-atan2-serialize.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "atan(infinity)" },
+      "expected": { "value": 90.0, "unit": "deg" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/atan2-unit-equivalence",
+      "upstream": "css/css-values/acos-asin-atan-atan2-computed.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "atan2(1in, 96px)" },
+      "expected": { "value": 45.0, "unit": "deg" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/pow-and-sqrt",
+      "upstream": "css/css-values/hypot-pow-sqrt-computed.html",
+      "category": "parsing",
+      "operation": "values.math.eval",
+      "input": { "expression": "pow(2, 3)" },
+      "expected": { "value": 8.0, "unit": "number" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/hypot-lengths",
+      "upstream": "css/css-values/hypot-pow-sqrt-serialize.html",
+      "category": "serialization",
+      "operation": "values.math.eval",
+      "input": { "expression": "hypot(3px, 4px)" },
+      "expected": { "cssText": "5px", "value": 5.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/log-base-2",
+      "upstream": "css/css-values/exp-log-compute.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "log(8, 2)" },
+      "expected": { "value": 3.0, "unit": "number" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/exp-zero-is-one",
+      "upstream": "css/css-values/exp-log-serialize.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "exp(0)" },
+      "expected": { "value": 1.0, "unit": "number" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/round-nearest-positive-tie-toward-pos-inf",
+      "upstream": "css/css-values/calc-rounding-001.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "round(2.5)" },
+      "expected": { "cssText": "3", "value": 3.0, "unit": "number" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/round-nearest-negative-tie-toward-pos-inf",
+      "upstream": "css/css-values/round-mod-rem-computed.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "round(-2.5)" },
+      "expected": { "cssText": "-2", "value": -2.0, "unit": "number" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/round-up-length-step",
+      "upstream": "css/css-values/round-mod-rem-serialize.html",
+      "category": "serialization",
+      "operation": "values.math.eval",
+      "input": { "expression": "round(up, 11px, 5px)" },
+      "expected": { "cssText": "15px", "value": 15.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/round-down-negative-step-uses-abs",
+      "upstream": "css/css-values/round-mod-rem-computed.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "round(down, 14px, -5px)" },
+      "expected": { "cssText": "10px", "value": 10.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/round-to-zero-negative-input",
+      "upstream": "css/css-values/round-mod-rem-computed.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "round(to-zero, -14px, 5px)" },
+      "expected": { "cssText": "-10px", "value": -10.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/mod-negative-dividend-positive-divisor",
+      "upstream": "css/css-values/round-mod-rem-computed.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "mod(-10px, 3px)" },
+      "expected": { "cssText": "2px", "value": 2.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/rem-negative-dividend-positive-divisor",
+      "upstream": "css/css-values/round-mod-rem-computed.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "rem(-10px, 3px)" },
+      "expected": { "cssText": "-1px", "value": -1.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/abs-negative-length",
+      "upstream": "css/css-values/signs-abs-computed.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "abs(-12px)" },
+      "expected": { "cssText": "12px", "value": 12.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/sign-negative-length",
+      "upstream": "css/css-values/signs-abs-serialize.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "sign(-12px)" },
+      "expected": { "cssText": "-1", "value": -1.0, "unit": "number" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/round-invalid-strategy-rejected",
+      "upstream": "css/css-values/round-mod-rem-invalid.html",
+      "category": "error-recovery",
+      "operation": "values.calc.invalid",
+      "input": { "expression": "round(sideways, 10px, 2px)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/round-mismatched-dimensions-rejected",
+      "upstream": "css/css-values/round-mod-rem-invalid.html",
+      "category": "error-recovery",
+      "operation": "values.calc.invalid",
+      "input": { "expression": "round(10px, 2deg)" },
+      "expected": {},
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/sin-1rad-exact-unit-number",
+      "upstream": "css/css-values/sin-cos-tan-computed.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "sin(1rad)" },
+      "expected": { "value": 0.8414709848078965, "unit": "number" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/cos-05turn-is-neg1",
+      "upstream": "css/css-values/sin-cos-tan-computed.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "cos(0.5turn)" },
+      "expected": { "value": -1.0, "unit": "number" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/atan2-quadrant-neg1-neg1",
+      "upstream": "css/css-values/acos-asin-atan-atan2-computed.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "atan2(-1px, -1px)" },
+      "expected": { "value": -135.0, "unit": "deg" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/sqrt-25-is-5",
+      "upstream": "css/css-values/hypot-pow-sqrt-computed.html",
+      "category": "parsing",
+      "operation": "values.math.eval",
+      "input": { "expression": "sqrt(25)" },
+      "expected": { "value": 5.0, "unit": "number" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/log-e-is-1",
+      "upstream": "css/css-values/exp-log-compute.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "log(e)" },
+      "expected": { "value": 1.0, "unit": "number" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/mod-positive-dividend-negative-divisor",
+      "upstream": "css/css-values/round-mod-rem-computed.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "mod(11px, -3px)" },
+      "expected": { "cssText": "-1px", "value": -1.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/math/rem-positive-dividend-negative-divisor",
+      "upstream": "css/css-values/round-mod-rem-computed.html",
+      "category": "canonicalization",
+      "operation": "values.math.eval",
+      "input": { "expression": "rem(11px, -3px)" },
+      "expected": { "cssText": "2px", "value": 2.0, "unit": "px" },
+      "status": "pass"
+    }
+  ]
+}

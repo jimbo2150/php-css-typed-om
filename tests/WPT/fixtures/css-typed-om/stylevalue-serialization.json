@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/css-typed-om",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/css-typed-om/stylevalue-objects/parseAll.html",
+    "css/css-typed-om/stylevalue-objects/parseAll-invalid.html",
+    "css/css-typed-om/stylevalue-serialization/cssStyleValue-string.html",
+    "css/css-typed-om/stylevalue-serialization/cssKeywordValue.tentative.html",
+    "css/css-typed-om/stylevalue-serialization/cssUnparsedValue.html",
+    "css/css-typed-om/stylevalue-serialization/cssImageValue.html",
+    "css/css-typed-om/stylevalue-subclasses/cssVariableReferenceValue-variable.html",
+    "css/css-typed-om/stylevalue-subclasses/cssVariableReferenceValue-invalid.html"
+  ],
+  "cases": [
+    {
+      "id": "css-typed-om/serialize/keyword-value-preserves-ident",
+      "upstream": "css/css-typed-om/stylevalue-serialization/cssKeywordValue.tentative.html",
+      "category": "serialization",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "position", "cssText": "sticky" },
+      "expected": { "class": "CSSKeywordValue", "cssText": "sticky" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/serialize/image-url-value",
+      "upstream": "css/css-typed-om/stylevalue-serialization/cssImageValue.html",
+      "category": "serialization",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "background-image", "cssText": "url(\"https://example.com/bg.png\")" },
+      "expected": { "class": "CSSImageValue", "cssText": "url(\"https://example.com/bg.png\")" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/serialize/unparsed-with-var-and-fallback",
+      "upstream": "css/css-typed-om/stylevalue-serialization/cssUnparsedValue.html",
+      "category": "serialization",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "--custom", "cssText": "var(--base, 2px) solid" },
+      "expected": {
+        "class": "CSSUnparsedValue",
+        "cssText": "var(--base, 2px) solid",
+        "segments": [
+          { "var": "--base", "fallback": "2px" },
+          " solid"
+        ]
+      },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/serialize/unparsed-mixed-prefix-and-nested-var",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/cssVariableReferenceValue-variable.html",
+      "category": "serialization",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "--custom", "cssText": "myvar(--x) + var(--y, var(--z, 1px))" },
+      "expected": {
+        "class": "CSSUnparsedValue",
+        "cssText": "myvar(--x) + var(--y, var(--z, 1px))",
+        "segments": [
+          "myvar(--x) + ",
+          { "var": "--y", "fallback": "var(--z, 1px)" }
+        ]
+      },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/serialize/parse-all-splits-top-level-commas",
+      "upstream": "css/css-typed-om/stylevalue-objects/parseAll.html",
+      "category": "parsing",
+      "operation": "typed-om.stylevalue.parseAll",
+      "input": { "property": "background-image", "cssText": "url(\"a,b.png\"), linear-gradient(red, blue)" },
+      "expected": { "count": 2, "items": ["url(\"a,b.png\")", "linear-gradient(red, blue)"], "itemClasses": ["CSSImageValue", "CSSImageValue"] },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/serialize/parse-all-custom-property-preserves-commas",
+      "upstream": "css/css-typed-om/stylevalue-objects/parseAll.html",
+      "category": "canonicalization",
+      "operation": "typed-om.stylevalue.parseAll",
+      "input": { "property": "--stack", "cssText": "Inter, sans-serif" },
+      "expected": { "count": 1, "items": ["Inter, sans-serif"], "itemClasses": ["CSSUnparsedValue"] },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/serialize/parse-all-rejects-empty-list",
+      "upstream": "css/css-typed-om/stylevalue-objects/parseAll-invalid.html",
+      "category": "error-recovery",
+      "operation": "typed-om.stylevalue.parseAll",
+      "input": { "property": "width", "cssText": " , " },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/serialize/reject-invalid-var-without-leading-dashes",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/cssVariableReferenceValue-invalid.html",
+      "category": "error-recovery",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "color", "cssText": "var(notcustom)" },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "xfail",
+      "divergenceKind": "api-tradeoff",
+      "xfailReason": "CSSUnparsedValue treats malformed var(notcustom) as an opaque unparsed string token rather than throwing.",
+      "specRef": "https://drafts.css-houdini.org/css-typed-om/#dom-cssvariablereferencevalue-cssvariablereferencevalue"
+    },
+    {
+      "id": "css-typed-om/serialize/standalone-cssstylevalue-string-roundtrip",
+      "upstream": "css/css-typed-om/stylevalue-serialization/cssStyleValue-string.html",
+      "category": "serialization",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "margin", "cssText": "0px" },
+      "expected": { "class": "CSSUnitValue", "cssText": "0px" },
+      "status": "pass"
+    }
+  ]
+}

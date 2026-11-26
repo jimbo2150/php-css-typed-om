@@ -1,0 +1,270 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/css-typed-om",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/css-typed-om/factory-absolute-length.html",
+    "css/css-typed-om/factory-duration.html",
+    "css/css-typed-om/factory-frequency.html",
+    "css/css-typed-om/container-length-units-type.html",
+    "css/css-typed-om/parse-calc-expressions.html",
+    "css/css-typed-om/stylevalue-serialization/cssUnitValue.tentative.html",
+    "css/css-typed-om/stylevalue-serialization/cssMathValue.tentative.html",
+    "css/css-typed-om/stylevalue-subclasses/numeric-objects/arithmetic.tentative.any.js",
+    "css/css-typed-om/stylevalue-subclasses/numeric-objects/to.tentative.any.js",
+    "css/css-typed-om/stylevalue-subclasses/numeric-objects/toSum.tentative.html",
+    "css/css-typed-om/stylevalue-subclasses/numeric-objects/equals.tentative.html",
+    "css/css-typed-om/stylevalue-subclasses/numeric-objects/parse.tentative.html"
+  ],
+  "cases": [
+    {
+      "id": "css-typed-om/numeric/factory-px",
+      "upstream": "css/css-typed-om/factory-absolute-length.html",
+      "category": "parsing",
+      "operation": "typed-om.unit-factory",
+      "input": { "method": "px", "value": 10 },
+      "expected": { "cssText": "10px", "value": 10.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/factory-Q-uppercase",
+      "upstream": "css/css-typed-om/factory-absolute-length.html",
+      "category": "serialization",
+      "operation": "typed-om.unit-factory",
+      "input": { "method": "Q", "value": 4 },
+      "expected": { "cssText": "4Q", "value": 4.0, "unit": "Q" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/factory-percent",
+      "upstream": "css/css-typed-om/stylevalue-serialization/cssUnitValue.tentative.html",
+      "category": "serialization",
+      "operation": "typed-om.unit-factory",
+      "input": { "method": "percent", "value": 50 },
+      "expected": { "cssText": "50%", "value": 50.0, "unit": "percent" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/factory-ms-duration",
+      "upstream": "css/css-typed-om/factory-duration.html",
+      "category": "serialization",
+      "operation": "typed-om.unit-factory",
+      "input": { "method": "ms", "value": 250 },
+      "expected": { "cssText": "250ms", "value": 250.0, "unit": "ms" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/factory-khz-frequency",
+      "upstream": "css/css-typed-om/factory-frequency.html",
+      "category": "serialization",
+      "operation": "typed-om.unit-factory",
+      "input": { "method": "khz", "value": 2.5 },
+      "expected": { "cssText": "2.5kHz", "value": 2.5, "unit": "kHz" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/container-unit-cqw-type-is-length",
+      "upstream": "css/css-typed-om/container-length-units-type.html",
+      "category": "canonicalization",
+      "operation": "typed-om.numeric.type",
+      "input": { "cssText": "10cqw" },
+      "expected": { "type": { "length": 1 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/parse-calc-mixed-percent-hint",
+      "upstream": "css/css-typed-om/parse-calc-expressions.html",
+      "category": "canonicalization",
+      "operation": "typed-om.numeric.type",
+      "input": { "cssText": "calc(100% - 10px)" },
+      "expected": { "type": { "length": 1, "percentHint": "length" } },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/parse-calc-product-length-squared-type",
+      "upstream": "css/css-typed-om/stylevalue-serialization/cssMathValue.tentative.html",
+      "category": "canonicalization",
+      "operation": "typed-om.numeric.type",
+      "input": { "cssText": "calc(2px * 5em)" },
+      "expected": { "type": { "length": 2 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/arithmetic-add-same-unit-collapses",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/numeric-objects/arithmetic.tentative.any.js",
+      "category": "canonicalization",
+      "operation": "typed-om.numeric.arithmetic",
+      "input": { "base": "10px", "method": "add", "args": ["15px"] },
+      "expected": { "class": "CSSUnitValue", "cssText": "25px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/arithmetic-add-mixed-length-creates-sum",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/numeric-objects/arithmetic.tentative.any.js",
+      "category": "serialization",
+      "operation": "typed-om.numeric.arithmetic",
+      "input": { "base": "25px", "method": "add", "args": ["1em"] },
+      "expected": { "class": "CSSMathSum", "cssText": "calc(25px + 1em)" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/arithmetic-mul-scalar",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/numeric-objects/arithmetic.tentative.any.js",
+      "category": "canonicalization",
+      "operation": "typed-om.numeric.arithmetic",
+      "input": { "base": "10px", "method": "mul", "args": [3] },
+      "expected": { "class": "CSSUnitValue", "cssText": "30px" },
+      "status": "xfail",
+      "divergenceKind": "api-tradeoff",
+      "xfailReason": "CSSNumericValue::mul() constructs an unsimplified CSSMathProduct node rather than eagerly collapsing scalar CSSUnitValue products.",
+      "specRef": "https://drafts.css-houdini.org/css-typed-om/#dom-cssnumericvalue-mul"
+    },
+    {
+      "id": "css-typed-om/numeric/arithmetic-incompatible-add-throws",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/numeric-objects/arithmetic.tentative.any.js",
+      "category": "error-recovery",
+      "operation": "typed-om.numeric.arithmetic",
+      "input": { "base": "10px", "method": "add", "args": ["10deg"] },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/to-cm-to-px",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/numeric-objects/to.tentative.any.js",
+      "category": "canonicalization",
+      "operation": "typed-om.numeric.to",
+      "input": { "cssText": "2.54cm", "unit": "px" },
+      "expected": { "value": 96.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/to-incompatible-unit-throws",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/numeric-objects/to.tentative.any.js",
+      "category": "error-recovery",
+      "operation": "typed-om.numeric.to",
+      "input": { "cssText": "10px", "unit": "deg" },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/to-sum-merges-compatible-lengths",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/numeric-objects/toSum.tentative.html",
+      "category": "canonicalization",
+      "operation": "typed-om.numeric.toSum",
+      "input": { "cssText": "calc(1in + 4px + 10%)", "units": ["px", "percent"] },
+      "expected": { "class": "CSSMathSum", "cssText": "calc(100px + 10%)" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/equals-structural-exact-unit-match",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/numeric-objects/equals.tentative.html",
+      "category": "canonicalization",
+      "operation": "typed-om.numeric.equals",
+      "input": { "left": "1in", "right": ["96px"] },
+      "expected": { "equal": false },
+      "status": "xfail",
+      "divergenceKind": "api-tradeoff",
+      "xfailReason": "CSSNumericValue::equals() converts compatible units (1in == 96px) by design instead of requiring identical unit strings.",
+      "specRef": "https://drafts.css-houdini.org/css-typed-om/#dom-cssnumericvalue-equals"
+    },
+    {
+      "id": "css-typed-om/numeric/equals-math-sum-identical",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/numeric-objects/equals.tentative.html",
+      "category": "canonicalization",
+      "operation": "typed-om.numeric.equals",
+      "input": { "left": "calc(10px + 1em)", "right": ["calc(10px + 1em)"] },
+      "expected": { "equal": true },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/parse-rejects-infinity-unit-value",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/numeric-objects/parse.tentative.html",
+      "category": "error-recovery",
+      "operation": "typed-om.numeric.parse",
+      "input": { "cssText": "1e500px" },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/factory-viewport-svh",
+      "upstream": "css/css-typed-om/factory-absolute-length.html",
+      "category": "parsing",
+      "operation": "typed-om.unit-factory",
+      "input": { "method": "svh", "value": 50 },
+      "expected": { "cssText": "50svh", "value": 50.0, "unit": "svh" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/factory-viewport-dvw",
+      "upstream": "css/css-typed-om/factory-absolute-length.html",
+      "category": "parsing",
+      "operation": "typed-om.unit-factory",
+      "input": { "method": "dvw", "value": 75 },
+      "expected": { "cssText": "75dvw", "value": 75.0, "unit": "dvw" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/factory-resolution-x",
+      "upstream": "css/css-typed-om/stylevalue-serialization/cssUnitValue.tentative.html",
+      "category": "serialization",
+      "operation": "typed-om.unit-factory",
+      "input": { "method": "x", "value": 2 },
+      "expected": { "cssText": "2x", "value": 2.0, "unit": "x" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/arithmetic-sub-same-unit-collapses",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/numeric-objects/arithmetic.tentative.any.js",
+      "category": "canonicalization",
+      "operation": "typed-om.numeric.arithmetic",
+      "input": { "base": "20px", "method": "sub", "args": ["5px"] },
+      "expected": { "class": "CSSUnitValue", "cssText": "15px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/arithmetic-min-mixed-lengths",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/numeric-objects/arithmetic.tentative.any.js",
+      "category": "serialization",
+      "operation": "typed-om.numeric.arithmetic",
+      "input": { "base": "10px", "method": "min", "args": ["2em", "5vw"] },
+      "expected": { "class": "CSSMathMin", "cssText": "min(10px, 2em, 5vw)" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/arithmetic-max-mixed-lengths",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/numeric-objects/arithmetic.tentative.any.js",
+      "category": "serialization",
+      "operation": "typed-om.numeric.arithmetic",
+      "input": { "base": "10px", "method": "max", "args": ["2em"] },
+      "expected": { "class": "CSSMathMax", "cssText": "max(10px, 2em)" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/to-angle-turn-to-deg",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/numeric-objects/to.tentative.any.js",
+      "category": "canonicalization",
+      "operation": "typed-om.numeric.to",
+      "input": { "cssText": "0.25turn", "unit": "deg" },
+      "expected": { "value": 90.0, "unit": "deg" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/to-sum-throws-on-incompatible-unit",
+      "upstream": "css/css-typed-om/stylevalue-subclasses/numeric-objects/toSum.tentative.html",
+      "category": "error-recovery",
+      "operation": "typed-om.numeric.toSum",
+      "input": { "cssText": "10px", "units": ["deg"] },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/numeric/type-inverted-time",
+      "upstream": "css/css-typed-om/stylevalue-serialization/cssMathValue.tentative.html",
+      "category": "canonicalization",
+      "operation": "typed-om.numeric.type",
+      "input": { "cssText": "calc(1 / 2s)" },
+      "expected": { "type": { "time": -1 } },
+      "status": "pass"
+    }
+  ]
+}

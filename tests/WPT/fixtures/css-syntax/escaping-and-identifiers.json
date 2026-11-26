@@ -1,0 +1,175 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/css-syntax",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/css-syntax/serialize-escape-identifiers.html",
+    "css/css-syntax/escaped-eof.html",
+    "css/css-syntax/input-preprocessing.html",
+    "css/css-syntax/ident-three-code-points.html"
+  ],
+  "cases": [
+    {
+      "id": "css-syntax/ident/hex-escape-single-digit",
+      "upstream": "css/css-syntax/serialize-escape-identifiers.html",
+      "category": "parsing",
+      "operation": "syntax.ident.escape",
+      "input": { "mode": "decode", "raw": "\\61 b" },
+      "expected": { "value": "ab" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/ident/hex-escape-six-digits-no-whitespace",
+      "upstream": "css/css-syntax/serialize-escape-identifiers.html",
+      "category": "parsing",
+      "operation": "syntax.ident.escape",
+      "input": { "mode": "decode", "raw": "\\000069mportant" },
+      "expected": { "value": "important" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/ident/hex-escape-consumes-crlf",
+      "upstream": "css/css-syntax/input-preprocessing.html",
+      "category": "canonicalization",
+      "operation": "syntax.ident.escape",
+      "input": { "mode": "decode", "raw": "\\61\r\nb" },
+      "expected": { "value": "ab" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/ident/hex-escape-consumes-only-one-whitespace",
+      "upstream": "css/css-syntax/serialize-escape-identifiers.html",
+      "category": "parsing",
+      "operation": "syntax.ident.escape",
+      "input": { "mode": "decode", "raw": "\\61  b" },
+      "expected": { "value": "a b" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/ident/hex-escape-zero-becomes-replacement",
+      "upstream": "css/css-syntax/input-preprocessing.html",
+      "category": "error-recovery",
+      "operation": "syntax.ident.escape",
+      "input": { "mode": "decode", "raw": "\\0 " },
+      "expected": { "value": "\uFFFD" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/ident/hex-escape-above-max-codepoint",
+      "upstream": "css/css-syntax/input-preprocessing.html",
+      "category": "error-recovery",
+      "operation": "syntax.ident.escape",
+      "input": { "mode": "decode", "raw": "\\110000 " },
+      "expected": { "value": "\uFFFD" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/ident/hex-escape-surrogate-becomes-replacement",
+      "upstream": "css/css-syntax/input-preprocessing.html",
+      "category": "error-recovery",
+      "operation": "syntax.ident.escape",
+      "input": { "mode": "decode", "raw": "\\d800 " },
+      "expected": { "value": "\uFFFD" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/ident/hex-escape-astral-codepoint",
+      "upstream": "css/css-syntax/serialize-escape-identifiers.html",
+      "category": "parsing",
+      "operation": "syntax.ident.escape",
+      "input": { "mode": "decode", "raw": "\\1f600 " },
+      "expected": { "value": "\uD83D\uDE00" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/ident/escaped-punctuation",
+      "upstream": "css/css-syntax/serialize-escape-identifiers.html",
+      "category": "parsing",
+      "operation": "syntax.ident.escape",
+      "input": { "mode": "decode", "raw": "foo\\:bar\\.baz" },
+      "expected": { "value": "foo:bar.baz" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/ident/escaped-eof-becomes-replacement",
+      "upstream": "css/css-syntax/escaped-eof.html",
+      "category": "error-recovery",
+      "operation": "syntax.ident.escape",
+      "input": { "mode": "decode", "raw": "foo\\" },
+      "expected": { "value": "foo\uFFFD" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/ident/normalize-escaped-standard-property-name",
+      "upstream": "css/css-syntax/serialize-escape-identifiers.html",
+      "category": "canonicalization",
+      "operation": "syntax.ident.escape",
+      "input": { "mode": "normalizeProperty", "raw": "\\63 olor" },
+      "expected": { "value": "color" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/ident/normalize-escaped-custom-property-preserves-case",
+      "upstream": "css/css-syntax/ident-three-code-points.html",
+      "category": "canonicalization",
+      "operation": "syntax.ident.escape",
+      "input": { "mode": "normalizeProperty", "raw": "\\2d\\2dMyProp" },
+      "expected": { "value": "--MyProp" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/ident/hex-escape-consumes-tab-delimiter",
+      "upstream": "css/css-syntax/serialize-escape-identifiers.html",
+      "category": "parsing",
+      "operation": "syntax.ident.escape",
+      "input": { "mode": "decode", "raw": "\\61\tb" },
+      "expected": { "value": "ab" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/ident/hex-escape-consumes-form-feed-delimiter",
+      "upstream": "css/css-syntax/input-preprocessing.html",
+      "category": "parsing",
+      "operation": "syntax.ident.escape",
+      "input": { "mode": "decode", "raw": "\\61\fb" },
+      "expected": { "value": "ab" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/ident/hex-escape-uppercase-digits",
+      "upstream": "css/css-syntax/serialize-escape-identifiers.html",
+      "category": "parsing",
+      "operation": "syntax.ident.escape",
+      "input": { "mode": "decode", "raw": "\\4A\\4B" },
+      "expected": { "value": "JK" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/ident/hex-escape-low-surrogate-dc00-replacement",
+      "upstream": "css/css-syntax/input-preprocessing.html",
+      "category": "error-recovery",
+      "operation": "syntax.ident.escape",
+      "input": { "mode": "decode", "raw": "\\dc00 " },
+      "expected": { "value": "\uFFFD" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/ident/hex-escape-max-unicode-10ffff",
+      "upstream": "css/css-syntax/serialize-escape-identifiers.html",
+      "category": "parsing",
+      "operation": "syntax.ident.escape",
+      "input": { "mode": "decode", "raw": "\\10ffff " },
+      "expected": { "value": "\uDBFF\uDFFF" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/ident/escaped-backslash-preserved",
+      "upstream": "css/css-syntax/serialize-escape-identifiers.html",
+      "category": "parsing",
+      "operation": "syntax.ident.escape",
+      "input": { "mode": "decode", "raw": "a\\\\b" },
+      "expected": { "value": "a\\b" },
+      "status": "pass"
+    }
+  ]
+}

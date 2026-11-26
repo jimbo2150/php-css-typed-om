@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/css-syntax",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/css-syntax/parse-invalid-input.html",
+    "css/css-syntax/invalid-nested-rules.html",
+    "css/css-syntax/declarations-trim-whitespace.html",
+    "css/css-syntax/at-rule-in-declaration-list.html",
+    "css/css-syntax/trailing-braces.html",
+    "css/css-syntax/input-preprocessing.html"
+  ],
+  "cases": [
+    {
+      "id": "css-syntax/recovery/skip-malformed-rule-before-valid-rule",
+      "upstream": "css/css-syntax/parse-invalid-input.html",
+      "category": "error-recovery",
+      "operation": "syntax.stylesheet.recover",
+      "input": { "css": "not a rule; p { color: green; }" },
+      "expected": { "ruleCount": 1, "cssText": "p { color: green; }", "hasErrors": true },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/recovery/skip-malformed-rule-respects-balanced-block",
+      "upstream": "css/css-syntax/parse-invalid-input.html",
+      "category": "error-recovery",
+      "operation": "syntax.stylesheet.recover",
+      "input": { "css": "{ p { color: red; } } .ok { color: blue; }" },
+      "expected": { "ruleCount": 1, "cssText": ".ok { color: blue; }", "hasErrors": true },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/recovery/malformed-declaration-continues-next-declaration",
+      "upstream": "css/css-syntax/declarations-trim-whitespace.html",
+      "category": "error-recovery",
+      "operation": "syntax.declaration.recover",
+      "input": { "css": "broken-decl; color: green; invalid-name!: 1; margin: 4px;", "strict": false },
+      "expected": { "cssText": "color: green; margin: 4px;", "length": 2, "hasDiagnostics": true },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/recovery/declaration-skips-balanced-parens-on-error",
+      "upstream": "css/css-syntax/invalid-nested-rules.html",
+      "category": "error-recovery",
+      "operation": "syntax.declaration.recover",
+      "input": { "css": "invalid(a; b: 1); color: navy;", "strict": false },
+      "expected": { "cssText": "color: navy;", "length": 1, "hasDiagnostics": true },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/recovery/declaration-trim-css-whitespace",
+      "upstream": "css/css-syntax/declarations-trim-whitespace.html",
+      "category": "canonicalization",
+      "operation": "syntax.declaration.recover",
+      "input": { "css": " \t\n\f color : \t red \n ; ", "strict": false },
+      "expected": { "cssText": "color: red;", "length": 1, "hasDiagnostics": false },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/recovery/strict-declaration-throws-on-malformed",
+      "upstream": "css/css-syntax/parse-invalid-input.html",
+      "category": "error-recovery",
+      "operation": "syntax.declaration.recover",
+      "input": { "css": "color: red; broken", "strict": true },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/recovery/stray-closing-brace-ignored-between-rules",
+      "upstream": "css/css-syntax/trailing-braces.html",
+      "category": "error-recovery",
+      "operation": "syntax.stylesheet.recover",
+      "input": { "css": "a { color: red; } } b { color: blue; }" },
+      "expected": { "ruleCount": 2, "cssText": "a { color: red; }\nb { color: blue; }", "hasErrors": true },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/recovery/at-rule-inside-declaration-list-nested",
+      "upstream": "css/css-syntax/at-rule-in-declaration-list.html",
+      "category": "parsing",
+      "operation": "syntax.stylesheet.recover",
+      "input": { "css": ".card { color: red; @media (min-width: 10px) { color: blue; } }" },
+      "expected": { "ruleCount": 1, "hasErrors": false, "firstRuleColor": "red" },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/recovery/form-feed-and-tabs-in-stylesheet",
+      "upstream": "css/css-syntax/declarations-trim-whitespace.html",
+      "category": "parsing",
+      "operation": "syntax.stylesheet.recover",
+      "input": { "css": "a {\fmargin:\t0;\n}" },
+      "expected": { "ruleCount": 1, "cssText": "a { margin: 0; }", "hasErrors": false },
+      "status": "pass"
+    },
+    {
+      "id": "css-syntax/recovery/vertical-tab-rejected-and-recovers",
+      "upstream": "css/css-syntax/input-preprocessing.html",
+      "category": "error-recovery",
+      "operation": "syntax.stylesheet.recover",
+      "input": { "css": "a { \u000bmargin: 0; } b { color: teal; }" },
+      "expected": { "ruleCount": 2, "hasErrors": true },
+      "status": "pass"
+    }
+  ]
+}

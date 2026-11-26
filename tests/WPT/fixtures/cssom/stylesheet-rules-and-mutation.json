@@ -1,0 +1,189 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/cssom",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/cssom/CSSGroupingRule-insertRule.html",
+    "css/cssom/insertRule-syntax-error-01.html",
+    "css/cssom/insertRule-no-index.html",
+    "css/cssom/insertRule-charset-no-index.html",
+    "css/cssom/insertRule-import-no-index.html",
+    "css/cssom/insertRule-namespace-after-import.html",
+    "css/cssom/CSSStyleSheet-constructable-replace-cssRules.html",
+    "css/cssom/CSSStyleSheet-replace-detach-old-rules.html",
+    "css/cssom/CSSStyleSheet-replace-parse-errors.html"
+  ],
+  "cases": [
+    {
+      "id": "cssom/stylesheet/parse-empty",
+      "upstream": "css/cssom/CSSStyleSheet-constructable-replace-cssRules.html",
+      "category": "parsing",
+      "operation": "cssom.stylesheet.parse",
+      "input": { "css": "" },
+      "expected": { "ruleCount": 0, "cssText": "", "parseErrorsEmpty": true },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/stylesheet/parse-style-rule",
+      "upstream": "css/cssom/CSSStyleSheet-constructable-replace-cssRules.html",
+      "category": "parsing",
+      "operation": "cssom.stylesheet.parse",
+      "input": { "css": "div { color: green; margin: 4px !important; }" },
+      "expected": { "ruleCount": 1, "ruleTypes": [1], "cssText": "div { color: green; margin: 4px !important; }", "parseErrorsEmpty": true, "roundTrip": true },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/stylesheet/parse-media-and-supports-grouping",
+      "upstream": "css/cssom/CSSGroupingRule-insertRule.html",
+      "category": "parsing",
+      "operation": "cssom.stylesheet.parse",
+      "input": { "css": "@media screen { @supports (display: grid) { .box { display: grid; } } }" },
+      "expected": { "ruleCount": 1, "ruleTypes": [4], "parseErrorsEmpty": true, "roundTrip": true },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/stylesheet/parse-keyframes-and-page",
+      "upstream": "css/cssom/CSSStyleSheet-constructable-replace-cssRules.html",
+      "category": "serialization",
+      "operation": "cssom.stylesheet.parse",
+      "input": { "css": "@keyframes fade { from { opacity: 0; } to { opacity: 1; } } @page :first { margin: 1cm; }" },
+      "expected": { "ruleCount": 2, "ruleTypes": [7, 6], "parseErrorsEmpty": true, "roundTrip": true },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/stylesheet/insert-rule-default-index",
+      "upstream": "css/cssom/insertRule-no-index.html",
+      "category": "parsing",
+      "operation": "cssom.stylesheet.insertRule",
+      "input": { "initialCss": "b { color: blue; }", "rule": "a { color: red; }", "index": 0 },
+      "expected": { "returnedIndex": 0, "ruleCount": 2, "cssText": "a { color: red; }\nb { color: blue; }" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/stylesheet/insert-rule-append",
+      "upstream": "css/cssom/CSSGroupingRule-insertRule.html",
+      "category": "parsing",
+      "operation": "cssom.stylesheet.insertRule",
+      "input": { "initialCss": "a { color: red; }", "rule": "b { color: blue; }", "index": 1 },
+      "expected": { "returnedIndex": 1, "ruleCount": 2, "cssText": "a { color: red; }\nb { color: blue; }" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/stylesheet/insert-rule-into-media-grouping",
+      "upstream": "css/cssom/CSSGroupingRule-insertRule.html",
+      "category": "parsing",
+      "operation": "cssom.stylesheet.insertRule",
+      "input": { "initialCss": "@media all { a { color: red; } }", "rule": "b { color: blue; }", "index": 1, "targetRuleIndex": 0 },
+      "expected": { "returnedIndex": 1, "ruleCount": 1, "cssText": "@media all { a { color: red; }\nb { color: blue; } }" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/stylesheet/insert-rule-reject-empty",
+      "upstream": "css/cssom/insertRule-syntax-error-01.html",
+      "category": "error-recovery",
+      "operation": "cssom.stylesheet.insertRule",
+      "input": { "initialCss": "a { color: red; }", "rule": "", "index": 0 },
+      "expected": { "throws": "InvalidArgumentException", "cssTextAfter": "a { color: red; }" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/stylesheet/insert-rule-reject-multiple-rules",
+      "upstream": "css/cssom/insertRule-syntax-error-01.html",
+      "category": "error-recovery",
+      "operation": "cssom.stylesheet.insertRule",
+      "input": { "initialCss": "a { color: red; }", "rule": "b { color: blue; } c { color: green; }", "index": 0 },
+      "expected": { "throws": "InvalidArgumentException", "cssTextAfter": "a { color: red; }" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/stylesheet/insert-rule-reject-unclosed-block",
+      "upstream": "css/cssom/insertRule-syntax-error-01.html",
+      "category": "error-recovery",
+      "operation": "cssom.stylesheet.insertRule",
+      "input": { "initialCss": "a { color: red; }", "rule": "b { color: blue;", "index": 0 },
+      "expected": { "throws": "InvalidArgumentException", "cssTextAfter": "a { color: red; }" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/stylesheet/insert-rule-out-of-bounds",
+      "upstream": "css/cssom/CSSGroupingRule-insertRule.html",
+      "category": "error-recovery",
+      "operation": "cssom.stylesheet.insertRule",
+      "input": { "initialCss": "a { color: red; }", "rule": "b { color: blue; }", "index": 5 },
+      "expected": { "throws": "OutOfBoundsException", "cssTextAfter": "a { color: red; }" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/stylesheet/insert-charset-rule-rejected",
+      "upstream": "css/cssom/insertRule-charset-no-index.html",
+      "category": "error-recovery",
+      "operation": "cssom.stylesheet.insertRule",
+      "input": { "initialCss": "", "rule": "@charset \"utf-8\";", "index": 0 },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "xfail",
+      "divergenceKind": "api-tradeoff",
+      "xfailReason": "CSSStyleSheet::insertRule() delegates to CSSParser::parseSingleRule(), which permits @charset syntax rather than throwing SyntaxError like DOM insertRule.",
+      "specRef": "https://drafts.csswg.org/cssom/#dom-cssstylesheet-insertrule"
+    },
+    {
+      "id": "cssom/stylesheet/insert-import-after-style-rule-hierarchy",
+      "upstream": "css/cssom/insertRule-import-no-index.html",
+      "category": "error-recovery",
+      "operation": "cssom.stylesheet.insertRule",
+      "input": { "initialCss": "a { color: red; }", "rule": "@import url(\"x.css\");", "index": 1 },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "xfail",
+      "divergenceKind": "api-tradeoff",
+      "xfailReason": "Standalone CSSStyleSheet::insertRule() validates rule syntax without enforcing CSSOM stylesheet-level @import/@namespace ordering hierarchy.",
+      "specRef": "https://drafts.csswg.org/cssom/#dom-cssstylesheet-insertrule"
+    },
+    {
+      "id": "cssom/stylesheet/insert-namespace-after-style-rule-hierarchy",
+      "upstream": "css/cssom/insertRule-namespace-after-import.html",
+      "category": "error-recovery",
+      "operation": "cssom.stylesheet.insertRule",
+      "input": { "initialCss": "a { color: red; }", "rule": "@namespace svg url(\"http://www.w3.org/2000/svg\");", "index": 1 },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "xfail",
+      "divergenceKind": "api-tradeoff",
+      "xfailReason": "Standalone CSSStyleSheet::insertRule() does not enforce CSSOM @namespace post-style-rule HierarchyRequestError.",
+      "specRef": "https://drafts.csswg.org/cssom/#dom-cssstylesheet-insertrule"
+    },
+    {
+      "id": "cssom/stylesheet/delete-rule-valid",
+      "upstream": "css/cssom/CSSGroupingRule-insertRule.html",
+      "category": "canonicalization",
+      "operation": "cssom.stylesheet.deleteRule",
+      "input": { "initialCss": "a { color: red; } b { color: blue; }", "index": 0 },
+      "expected": { "ruleCount": 1, "cssText": "b { color: blue; }" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/stylesheet/delete-rule-out-of-bounds",
+      "upstream": "css/cssom/CSSGroupingRule-insertRule.html",
+      "category": "error-recovery",
+      "operation": "cssom.stylesheet.deleteRule",
+      "input": { "initialCss": "a { color: red; }", "index": 1 },
+      "expected": { "throws": "OutOfBoundsException" },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/stylesheet/replace-sync-replaces-and-detaches",
+      "upstream": "css/cssom/CSSStyleSheet-replace-detach-old-rules.html",
+      "category": "canonicalization",
+      "operation": "cssom.stylesheet.replaceSync",
+      "input": { "initialCss": "a { color: red; }", "nextCss": "b { color: blue; } c { margin: 0; }" },
+      "expected": { "ruleCount": 2, "cssText": "b { color: blue; }\nc { margin: 0; }", "oldRuleDetached": true },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/stylesheet/replace-sync-recovers-malformed",
+      "upstream": "css/cssom/CSSStyleSheet-replace-parse-errors.html",
+      "category": "error-recovery",
+      "operation": "cssom.stylesheet.replaceSync",
+      "input": { "initialCss": "a { color: red; }", "nextCss": "broken; p { color: navy; }" },
+      "expected": { "cssText": "p { color: navy; }" },
+      "status": "pass"
+    }
+  ]
+}

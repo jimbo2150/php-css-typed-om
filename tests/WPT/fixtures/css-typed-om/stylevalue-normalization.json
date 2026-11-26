@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/css-typed-om",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/css-typed-om/stylevalue-objects/parse.html",
+    "css/css-typed-om/stylevalue-objects/parse-invalid.html",
+    "css/css-typed-om/stylevalue-normalization/normalize-ident.tentative.html",
+    "css/css-typed-om/stylevalue-normalization/normalize-image.html",
+    "css/css-typed-om/stylevalue-normalization/normalize-numeric.tentative.html",
+    "css/css-typed-om/stylevalue-normalization/normalize-tokens.tentative.html"
+  ],
+  "cases": [
+    {
+      "id": "css-typed-om/normalize/css-wide-keyword-inherit",
+      "upstream": "css/css-typed-om/stylevalue-normalization/normalize-ident.tentative.html",
+      "category": "parsing",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "background-image", "cssText": "INHERIT" },
+      "expected": { "class": "CSSKeywordValue", "cssText": "inherit" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/normalize/css-wide-keyword-revert-layer",
+      "upstream": "css/css-typed-om/stylevalue-normalization/normalize-ident.tentative.html",
+      "category": "parsing",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "color", "cssText": "revert-layer" },
+      "expected": { "class": "CSSKeywordValue", "cssText": "revert-layer" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/normalize/property-keyword-width-auto",
+      "upstream": "css/css-typed-om/stylevalue-normalization/normalize-ident.tentative.html",
+      "category": "parsing",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "width", "cssText": "auto" },
+      "expected": { "class": "CSSKeywordValue", "cssText": "auto" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/normalize/property-keyword-display-grid",
+      "upstream": "css/css-typed-om/stylevalue-objects/parse.html",
+      "category": "parsing",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "display", "cssText": "grid" },
+      "expected": { "class": "CSSKeywordValue", "cssText": "grid" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/normalize/unit-value-width-px",
+      "upstream": "css/css-typed-om/stylevalue-normalization/normalize-numeric.tentative.html",
+      "category": "parsing",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "width", "cssText": "12px" },
+      "expected": { "class": "CSSUnitValue", "cssText": "12px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/normalize/clamp-parses-as-math-clamp",
+      "upstream": "css/css-typed-om/stylevalue-normalization/normalize-numeric.tentative.html",
+      "category": "parsing",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "width", "cssText": "clamp(10px, 5vw, 100px)" },
+      "expected": { "class": "CSSMathClamp", "cssText": "clamp(10px, 5vw, 100px)" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/normalize/url-image-value",
+      "upstream": "css/css-typed-om/stylevalue-normalization/normalize-image.html",
+      "category": "parsing",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "background-image", "cssText": "url(\"a.png\")" },
+      "expected": { "class": "CSSImageValue", "cssText": "url(\"a.png\")" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/normalize/gradient-with-var-falls-back-to-unparsed",
+      "upstream": "css/css-typed-om/stylevalue-normalization/normalize-tokens.tentative.html",
+      "category": "canonicalization",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "background-image", "cssText": "linear-gradient(var(--a), blue)" },
+      "expected": { "class": "CSSUnparsedValue", "cssText": "linear-gradient(var(--a), blue)" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/normalize/custom-property-keeps-unparsed",
+      "upstream": "css/css-typed-om/stylevalue-normalization/normalize-tokens.tentative.html",
+      "category": "parsing",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "--custom", "cssText": "12px" },
+      "expected": { "class": "CSSUnparsedValue", "cssText": "12px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/normalize/color-oklch-typed",
+      "upstream": "css/css-typed-om/stylevalue-objects/parse.html",
+      "category": "parsing",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "color", "cssText": "oklch(50% 0.2 30)" },
+      "expected": { "class": "CSSOKLCH", "cssText": "oklch(50% 0.2 30deg)" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/normalize/invalid-empty-value-throws",
+      "upstream": "css/css-typed-om/stylevalue-objects/parse-invalid.html",
+      "category": "error-recovery",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "width", "cssText": "" },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/normalize/invalid-unbalanced-parens-throws",
+      "upstream": "css/css-typed-om/stylevalue-objects/parse-invalid.html",
+      "category": "error-recovery",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "color", "cssText": "rgb(10, 20, 30" },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/normalize/invalid-semicolon-injection-throws",
+      "upstream": "css/css-typed-om/stylevalue-objects/parse-invalid.html",
+      "category": "error-recovery",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "width", "cssText": "10px; color: red" },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "pass"
+    },
+    {
+      "id": "css-typed-om/normalize/invalid-keyword-on-width-unparsed-tradeoff",
+      "upstream": "css/css-typed-om/stylevalue-objects/parse-invalid.html",
+      "category": "error-recovery",
+      "operation": "typed-om.stylevalue.parse",
+      "input": { "property": "width", "cssText": "banana" },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "xfail",
+      "divergenceKind": "api-tradeoff",
+      "xfailReason": "CSSStyleValue::parse() intentionally falls back to CSSUnparsedValue for unrecognized property keywords instead of maintaining a per-property CSS grammar validator.",
+      "specRef": "https://drafts.css-houdini.org/css-typed-om/#dom-cssstylevalue-parse"
+    }
+  ]
+}

@@ -1,0 +1,177 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/css-values",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/css-values/calc-unit-analysis.html",
+    "css/css-values/minmax-length-serialize.html",
+    "css/css-values/minmax-number-serialize.html",
+    "css/css-values/clamp-length-serialize.html",
+    "css/css-values/clamp-length-computed.html",
+    "css/css-values/calc-serialization.html"
+  ],
+  "cases": [
+    {
+      "id": "css-values/units/bare-unit-preserved-until-simplify",
+      "upstream": "css/css-values/calc-unit-analysis.html",
+      "category": "canonicalization",
+      "operation": "values.calc.parse",
+      "input": { "expression": "1in" },
+      "expected": { "value": 1.0, "unit": "in" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/units/simplify-inch-to-px",
+      "upstream": "css/css-values/calc-unit-analysis.html",
+      "category": "canonicalization",
+      "operation": "values.calc.simplify",
+      "input": { "expression": "1in" },
+      "expected": { "value": 96.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/units/simplify-pt-to-px",
+      "upstream": "css/css-values/calc-unit-analysis.html",
+      "category": "canonicalization",
+      "operation": "values.calc.simplify",
+      "input": { "expression": "72pt" },
+      "expected": { "value": 96.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/units/simplify-rad-to-deg",
+      "upstream": "css/css-values/calc-unit-analysis.html",
+      "category": "canonicalization",
+      "operation": "values.calc.simplify",
+      "input": { "expression": "0.5turn" },
+      "expected": { "value": 180.0, "unit": "deg" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/units/simplify-ms-to-s",
+      "upstream": "css/css-values/calc-unit-analysis.html",
+      "category": "canonicalization",
+      "operation": "values.calc.simplify",
+      "input": { "expression": "500ms" },
+      "expected": { "value": 0.5, "unit": "s" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/units/simplify-khz-to-hz",
+      "upstream": "css/css-values/calc-unit-analysis.html",
+      "category": "canonicalization",
+      "operation": "values.calc.simplify",
+      "input": { "expression": "2kHz" },
+      "expected": { "value": 2000.0, "unit": "Hz" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/units/unit-cancellation-in-by-cm",
+      "upstream": "css/css-values/calc-unit-analysis.html",
+      "category": "canonicalization",
+      "operation": "values.calc.parse",
+      "input": { "expression": "calc(1in / 2.54cm)" },
+      "expected": { "value": 1.0, "unit": "number" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/units/unit-cancellation-em-by-em",
+      "upstream": "css/css-values/calc-unit-analysis.html",
+      "category": "canonicalization",
+      "operation": "values.calc.parse",
+      "input": { "expression": "calc(10em / 5em)" },
+      "expected": { "value": 2.0, "unit": "number" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/units/percentage-division-does-not-cancel",
+      "upstream": "css/css-values/calc-unit-analysis.html",
+      "category": "canonicalization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(10% / 5%)" },
+      "expected": { "cssText": "calc(2 * 1% / 1%)", "type": { "percent": 0 } },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/units/zero-dropping-preserves-percent-hint-px",
+      "upstream": "css/css-values/calc-serialization.html",
+      "category": "canonicalization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(50% + 10px - 10px)" },
+      "expected": { "cssText": "calc(50% + 0px)", "type": { "length": 1, "percentHint": "length" } },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/units/zero-dropping-preserves-percent-hint-pct",
+      "upstream": "css/css-values/calc-serialization.html",
+      "category": "canonicalization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(10px + 50% - 50%)" },
+      "expected": { "cssText": "calc(0% + 10px)", "type": { "length": 1, "percentHint": "length" } },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/units/zero-dropped-when-another-length-preserves-hint",
+      "upstream": "css/css-values/calc-serialization.html",
+      "category": "canonicalization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "calc(50% + 10px - 10px + 2em)" },
+      "expected": { "cssText": "calc(50% + 2em)", "type": { "length": 1, "percentHint": "length" } },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/units/min-folds-absolute-lengths",
+      "upstream": "css/css-values/minmax-length-serialize.html",
+      "category": "canonicalization",
+      "operation": "values.calc.parse",
+      "input": { "expression": "min(1in, 5px, 20px)" },
+      "expected": { "cssText": "5px", "value": 5.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/units/min-partial-fold-with-percent",
+      "upstream": "css/css-values/minmax-length-serialize.html",
+      "category": "serialization",
+      "operation": "values.calc.serialize",
+      "input": { "expression": "min(10px, 50%, 5px)" },
+      "expected": { "cssText": "min(5px, 50%)", "type": { "length": 1, "percentHint": "length" } },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/units/max-numbers",
+      "upstream": "css/css-values/minmax-number-serialize.html",
+      "category": "parsing",
+      "operation": "values.calc.parse",
+      "input": { "expression": "max(1, 5, 3)" },
+      "expected": { "cssText": "5", "value": 5.0, "unit": "number" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/units/clamp-folds-absolute-lengths",
+      "upstream": "css/css-values/clamp-length-computed.html",
+      "category": "canonicalization",
+      "operation": "values.calc.parse",
+      "input": { "expression": "clamp(10px, 5px, 20px)" },
+      "expected": { "cssText": "10px", "value": 10.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/units/clamp-min-beats-max",
+      "upstream": "css/css-values/clamp-length-serialize.html",
+      "category": "canonicalization",
+      "operation": "values.calc.parse",
+      "input": { "expression": "clamp(30px, 15px, 20px)" },
+      "expected": { "cssText": "30px", "value": 30.0, "unit": "px" },
+      "status": "pass"
+    },
+    {
+      "id": "css-values/units/context-resolves-relative-units",
+      "upstream": "css/css-values/calc-unit-analysis.html",
+      "category": "canonicalization",
+      "operation": "values.calc.simplify",
+      "input": { "expression": "calc(10vw + 2em + 1in)", "context": { "fontSize": 16, "viewportWidth": 1000, "viewportHeight": 500 } },
+      "expected": { "cssText": "228px", "value": 228.0, "unit": "px" },
+      "status": "pass"
+    }
+  ]
+}
