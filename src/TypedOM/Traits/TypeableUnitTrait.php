@@ -23,6 +23,12 @@ trait TypeableUnitTrait
 		}
 	}
 
+	/** @internal */
+	public function getUnitObjInternal(): ?CSSUnitEnum
+	{
+		return $this->unitObj;
+	}
+
 	/**
 	 * Set the unit.
 	 *

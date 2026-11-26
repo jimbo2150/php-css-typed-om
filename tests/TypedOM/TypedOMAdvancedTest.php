@@ -47,7 +47,7 @@ final class TypedOMAdvancedTest extends TestCase
 		}
 
 		$withComments = CSSNumericValue::parse('calc(/* lead */ 10px + /* mid */ 5px)');
-		self::assertSame('calc(10px + 5px)', (string) $withComments);
+		self::assertSame('15px', (string) $withComments);
 
 		$mixedPercent = CSSNumericValue::parse('calc(100% - 10px)');
 		$type = $mixedPercent->type();
@@ -93,7 +93,16 @@ final class TypedOMAdvancedTest extends TestCase
 	public function testTransformCompositionMatricesAndMutability(): void
 	{
 		$translate = new CSSTranslate(CSSNumericValue::parse('calc(10px + 5px)'), CSS::px(20));
-		self::assertSame('translate(calc(10px + 5px), 20px)', (string) $translate);
+		self::assertSame('translate(15px, 20px)', (string) $translate);
+
+		$irrTranslate = new CSSTranslate(CSSNumericValue::parse('calc(10px + 5em)'), CSS::px(20));
+		self::assertSame('translate(calc(5em + 10px), 20px)', (string) $irrTranslate);
+		try {
+			$irrTranslate->toMatrix();
+			self::fail('Expected unresolved relative math expression in CSSTranslate::toMatrix() to throw.');
+		} catch (\InvalidArgumentException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
 
 		$rotateZ = CSSStyleValue::parse('transform', 'rotateZ(90deg)');
 		self::assertInstanceOf(CSSTransformValue::class, $rotateZ);
@@ -320,5 +329,94 @@ final class TypedOMAdvancedTest extends TestCase
 		self::assertCount(2, $trList);
 		$trClone = clone $trList;
 		self::assertNotSame($trList[0], $trClone[0]);
+	}
+
+	public function testCssValues4MathCrossComponentIntegration(): void
+	{
+		// CSSStyleValue::parse() & parseAll() with comma-bearing CSS Values 4 math functions & transforms
+		$roundWidth = CSSStyleValue::parse('width', 'round(up, 1em, 10px)');
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction::class, $roundWidth);
+		self::assertSame('round(up, 1em, 10px)', (string) $roundWidth);
+
+		$sinOpacity = CSSStyleValue::parse('opacity', 'sin(0.5)');
+		self::assertInstanceOf(CSSUnitValue::class, $sinOpacity);
+		self::assertEqualsWithDelta(sin(0.5), $sinOpacity->value, 1e-12);
+
+		$commaAll = CSSStyleValue::parseAll('background-image', 'linear-gradient(calc(sin(1deg) * 10px), red, blue), linear-gradient(calc(abs(-5px)), green, yellow)');
+		self::assertCount(2, $commaAll);
+		self::assertSame('linear-gradient(calc(sin(1deg) * 10px), red, blue)', (string) $commaAll[0]);
+		self::assertSame('linear-gradient(calc(abs(-5px)), green, yellow)', (string) $commaAll[1]);
+
+		$transform = CSSStyleValue::parse('transform', 'translate(round(up, 1em, 10px), abs(-2vw))');
+		self::assertInstanceOf(CSSTransformValue::class, $transform);
+		self::assertSame('translate(round(up, 1em, 10px), 2vw)', (string) $transform);
+
+		$transformIrr = CSSStyleValue::parse('transform', 'translate(round(up, 1em, 10px), abs(1px - 2vw))');
+		self::assertInstanceOf(CSSTransformValue::class, $transformIrr);
+		self::assertSame('translate(round(up, 1em, 10px), abs(1px - 2vw))', (string) $transformIrr);
+
+		$singleArgTranslate = CSSStyleValue::parse('transform', 'translate(round(up, 1em, 10px))');
+		self::assertInstanceOf(CSSTransformValue::class, $singleArgTranslate);
+		self::assertSame('translate(round(up, 1em, 10px))', (string) $singleArgTranslate);
+
+		$posWithRound = CSSStyleValue::parse('object-position', 'left round(up, 1em, 10px)');
+		self::assertInstanceOf(CSSPositionValue::class, $posWithRound);
+		self::assertSame('left round(up, 1em, 10px)', (string) $posWithRound);
+
+		// Invalid arity / incompatible unit types / bare constants fall back to CSSUnparsedValue
+		foreach ([
+			['width', 'sin()'],
+			['width', 'atan2(1px, 2s)'],
+			['width', 'pi'],
+			['opacity', 'e'],
+		] as [$prop, $raw]) {
+			self::assertInstanceOf(CSSUnparsedValue::class, CSSStyleValue::parse($prop, $raw));
+		}
+
+		// StylePropertyMap set/get/append round-trip with CSSMathFunction, CSSMathConstant & negated constant
+		$map = new StylePropertyMap(new CSSStyleDeclaration());
+		$negInfExpr = new CSSMathNegate(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathConstant::negInfinity());
+		$map->set('width', CSSNumericValue::parse('round(up, 1em, 10px)'));
+		$map->set('opacity', \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathConstant::infinity());
+		$map->set('z-index', $negInfExpr);
+		$map->append('margin', CSSNumericValue::parse('abs(-2em)'), CSSNumericValue::parse('hypot(3em, 4vw)'));
+
+		self::assertSame('round(up, 1em, 10px)', (string) $map->get('width'));
+		self::assertSame('calc(infinity)', (string) $map->get('opacity'));
+		self::assertSame('calc(infinity)', (string) $map->get('z-index'));
+		self::assertSame('2em, hypot(3em, 4vw)', $map->getStyleDeclaration()->getPropertyValue('margin'));
+
+		$absNode = CSSNumericValue::parse('abs(-2em)');
+		self::assertInstanceOf(CSSUnitValue::class, $absNode);
+		self::assertSame('2em', (string) $absNode);
+		$absExprNode = CSSNumericValue::parse('abs(1px - 2vw)');
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction::class, $absExprNode);
+		self::assertSame('abs(1px - 2vw)', $absExprNode->toBoundedCssTextInternal(null));
+		self::assertSame('calc(-(-infinity))', $negInfExpr->toBoundedCssTextInternal(null));
+
+		// CSSImageValue with CSS Values 4 math functions & escapes + unified maxMathDepth boundary
+		$gradMath = new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSImageValue('linear-gradient(calc(s\\69n(1deg) * 10px), red, blue)');
+		self::assertSame('linear-gradient(calc(s\\69n(1deg) * 10px), red, blue)', (string) $gradMath);
+
+		$gradDepth1 = new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSImageValue(
+			'linear-gradient(calc(sin(1deg)), red, blue)',
+			new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions(maxMathDepth: 1),
+		);
+		self::assertSame('linear-gradient(calc(sin(1deg)), red, blue)', (string) $gradDepth1);
+
+		foreach ([
+			['linear-gradient(calc(sin(cos(1deg))), red, blue)', 1],
+			['linear-gradient(calc(sin(cos(tan(1deg)))), red, blue)', 2],
+		] as [$imgCss, $limit]) {
+			try {
+				new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSImageValue(
+					$imgCss,
+					new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions(maxMathDepth: $limit),
+				);
+				self::fail('Expected CSSImageValue to enforce maxMathDepth=' . $limit . ' for: ' . $imgCss);
+			} catch (\Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
 	}
 }

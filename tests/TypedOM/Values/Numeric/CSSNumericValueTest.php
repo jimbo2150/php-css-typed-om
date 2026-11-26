@@ -197,7 +197,7 @@ class CSSNumericValueTest extends TestCase
 
 	public function testConvertsMathValuesWithoutDiscardingTheirStructure(): void
 	{
-		$sum = CSSNumericValue::parse('calc(16px + 16px)')->to('em');
+		$sum = (new CSSMathSum([new CSSUnitValue(16, 'px'), new CSSUnitValue(16, 'px')]))->to('em');
 		$product = (new CSSUnitValue(16, 'px'))->div(new CSSUnitValue(2, 'number'))->to('em');
 
 		self::assertInstanceOf(CSSMathSum::class, $sum);
@@ -788,5 +788,56 @@ class CSSNumericValueTest extends TestCase
 		} catch (\Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException $e) {
 			self::assertStringContainsString('node count', strtolower($e->getMessage()));
 		}
+	}
+
+	public function testToSumWithNonCanonicalMathFunctionsAndAtan2DefaultContext(): void
+	{
+		$absIn = (new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction('abs', new CSSUnitValue(-1, 'in')))->toSum('in');
+		self::assertCount(1, $absIn->values);
+		self::assertInstanceOf(CSSUnitValue::class, $absIn->values[0]);
+		self::assertEqualsWithDelta(1.0, $absIn->values[0]->value, 1e-12);
+		self::assertSame('in', $absIn->values[0]->unit);
+
+		$absMs = (new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction('abs', new CSSUnitValue(-1000, 'ms')))->toSum('ms');
+		self::assertEqualsWithDelta(1000.0, $absMs->values[0]->value, 1e-12);
+		self::assertSame('ms', $absMs->values[0]->unit);
+
+		$absTurn = (new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction('abs', new CSSUnitValue(-1, 'turn')))->toSum('turn');
+		self::assertEqualsWithDelta(1.0, $absTurn->values[0]->value, 1e-12);
+		self::assertSame('turn', $absTurn->values[0]->unit);
+
+		$hypotIn = (new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction('hypot', [new CSSUnitValue(3, 'in'), new CSSUnitValue(4, 'in')]))->toSum('in');
+		self::assertEqualsWithDelta(5.0, $hypotIn->values[0]->value, 1e-12);
+		self::assertSame('in', $hypotIn->values[0]->unit);
+
+		$prodAbsIn = (new CSSMathProduct([
+			new CSSUnitValue(2, 'number'),
+			new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction('abs', new CSSUnitValue(-1, 'in')),
+		]))->toSum('in');
+		self::assertEqualsWithDelta(2.0, $prodAbsIn->values[0]->value, 1e-12);
+		self::assertSame('in', $prodAbsIn->values[0]->unit);
+
+		$sumAbsIn = (new CSSMathSum([
+			new CSSUnitValue(1, 'in'),
+			new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction('abs', new CSSUnitValue(-2, 'in')),
+		]))->toSum('in');
+		self::assertEqualsWithDelta(3.0, $sumAbsIn->values[0]->value, 1e-12);
+		self::assertSame('in', $sumAbsIn->values[0]->unit);
+
+		// atan2() with relative lengths works without explicit CSSContext (uses default 16px root) and respects custom context
+		$atan2Default = (new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction('atan2', [
+			new CSSUnitValue(1, 'em'),
+			new CSSUnitValue(16, 'px'),
+		]))->to('rad');
+		self::assertInstanceOf(CSSUnitValue::class, $atan2Default);
+		self::assertSame('rad', $atan2Default->unit);
+		self::assertEqualsWithDelta(M_PI_4, $atan2Default->value, 1e-12);
+
+		$atan2Custom = (new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction('atan2', [
+			new CSSUnitValue(1, 'em'),
+			new CSSUnitValue(16, 'px'),
+		]))->to('rad', new \Jimbo2150\PhpCssTypedOm\TypedOM\CSSContext(32.0));
+		self::assertInstanceOf(CSSUnitValue::class, $atan2Custom);
+		self::assertEqualsWithDelta(atan2(32.0, 16.0), $atan2Custom->value, 1e-12);
 	}
 }

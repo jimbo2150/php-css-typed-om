@@ -12,18 +12,49 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitEnum;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathClamp;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathConstant;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathConstantEnum;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunctionEnum;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathInvert;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMax;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMin;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathNegate;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSimplifier;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSRoundingStrategy;
 
 /**
- * Shunting-yard parser for CSS `calc()` expressions and bare `<calc-sum>` arguments.
+ * Shunting-yard parser for CSS `calc()` expressions and CSS Values Level 4 math functions.
  */
 class CSSCalcParser
 {
+	/** @var array<string, true> All recognized CSS Values Level 4 math function names (lowercase) */
+	public const array MATH_FUNCTIONS = [
+		'calc' => true,
+		'min' => true,
+		'max' => true,
+		'clamp' => true,
+		'round' => true,
+		'mod' => true,
+		'rem' => true,
+		'sin' => true,
+		'cos' => true,
+		'tan' => true,
+		'asin' => true,
+		'acos' => true,
+		'atan' => true,
+		'atan2' => true,
+		'pow' => true,
+		'sqrt' => true,
+		'hypot' => true,
+		'log' => true,
+		'exp' => true,
+		'abs' => true,
+		'sign' => true,
+	];
+
 	private const int GROUP_SUM = 1;
 	private const int GROUP_PRODUCT = 2;
 
@@ -33,6 +64,7 @@ class CSSCalcParser
 	private const int T_LPAREN = 4;
 	private const int T_RPAREN = 5;
 	private const int T_UNKNOWN = 6;
+	private const int T_CONST = 7;
 
 	/** @var array<string, array{precedence: int, left: bool}> */
 	private const array OPERATORS = [
@@ -168,7 +200,15 @@ class CSSCalcParser
 	}
 
 	/**
-	 * Modes: 0 = auto (unit/calc/min/max/clamp), 2 = inner calc expression.
+	 * Returns whether a decoded CSS function name is a supported CSS Values Level 4 math function.
+	 */
+	public static function isMathFunctionName(string $name): bool
+	{
+		return isset(self::MATH_FUNCTIONS[strtolower($name)]);
+	}
+
+	/**
+	 * Modes: 0 = auto (unit or math function), 2 = inner calc expression.
 	 */
 	private static function parseSliceIterative(
 		string $source,
@@ -184,7 +224,11 @@ class CSSCalcParser
 		$totalNodes = 0;
 		$slots = [];
 		$nextSlot = 1;
-		$workStack = [[0, $rootStart, $rootEnd, $rootDepth, $rootMode, 0]];
+		$parsedMathFunction = $rootMode === 2;
+		// Frame kind 0: [0, start, end, depth, mode, targetSlot, allowConstants]
+		// Frame kind 1: [1, outputQueue, targetSlot]
+		// Frame kind 2: [2, function, argSlots, targetSlot, strategy]
+		$workStack = [[0, $rootStart, $rootEnd, $rootDepth, $rootMode, 0, $rootMode === 2]];
 
 		while ($workStack !== []) {
 			$frame = array_pop($workStack);
@@ -278,6 +322,13 @@ class CSSCalcParser
 						/** @var CSSUnitEnum $unitEnum */
 						$unitEnum = $token[3];
 						$valueStack[] = new CSSUnitValue($numValue, $unitEnum);
+					} elseif ($type === self::T_CONST) {
+						if (++$totalNodes > CSSNumericValue::MAX_MATH_NODES) {
+							throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
+						}
+						/** @var CSSMathConstantEnum $constEnum */
+						$constEnum = $token[1];
+						$valueStack[] = new CSSMathConstant($constEnum);
 					} else {
 						/** @var int $childSlot */
 						$childSlot = $token[1];
@@ -298,7 +349,7 @@ class CSSCalcParser
 			}
 
 			if ($kind === 2) {
-				[, $function, $argSlots, $targetSlot] = $frame;
+				[, $function, $argSlots, $targetSlot, $strategy] = $frame;
 				$arguments = [];
 				foreach ($argSlots as $as) {
 					$val = $slots[$as] ?? null;
@@ -311,17 +362,24 @@ class CSSCalcParser
 				if (++$totalNodes > CSSNumericValue::MAX_MATH_NODES) {
 					throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
 				}
-				$slots[$targetSlot] = match ($function) {
-					'min' => new CSSMathMin($arguments),
-					'max' => new CSSMathMax($arguments),
-					'clamp' => new CSSMathClamp($arguments[0], $arguments[1], $arguments[2]),
-					default => throw new InvalidArgumentException('Unsupported CSS math function: ' . (string) $function),
-				};
+				if ($function === 'min') {
+					$slots[$targetSlot] = new CSSMathMin($arguments);
+				} elseif ($function === 'max') {
+					$slots[$targetSlot] = new CSSMathMax($arguments);
+				} elseif ($function === 'clamp') {
+					$slots[$targetSlot] = new CSSMathClamp($arguments[0], $arguments[1], $arguments[2]);
+				} else {
+					$fnEnum = CSSMathFunctionEnum::tryFrom((string) $function);
+					if ($fnEnum === null) {
+						throw new InvalidArgumentException('Unsupported CSS math function: ' . (string) $function);
+					}
+					$slots[$targetSlot] = new CSSMathFunction($fnEnum, $arguments, $strategy);
+				}
 				continue;
 			}
 
 			// kind === 0: PARSE slice
-			[, $start, $end, $depth, $mode, $targetSlot] = $frame;
+			[, $start, $end, $depth, $mode, $targetSlot, $allowConstants] = $frame;
 			self::trimSlice($source, $start, $end);
 			if ($options->maxMathDepth !== null && $depth > $options->maxMathDepth) {
 				throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $options->maxMathDepth));
@@ -362,70 +420,77 @@ class CSSCalcParser
 					continue;
 				}
 
-				if (($c0 === 'c' || $c0 === 'C')
-					&& $sliceLen >= 6
-					&& substr_compare($source, 'calc(', $start, 5, true) === 0
+				if ($allowConstants) {
+					$constEnum = null;
+					if (($c0 >= 'a' && $c0 <= 'z') || ($c0 >= 'A' && $c0 <= 'Z') || $c0 === '-') {
+						if ($sliceLen <= 9 && !str_contains($rawSlice = substr($source, $start, $sliceLen), '\\')) {
+							$constEnum = CSSMathConstantEnum::tryFromKeyword($rawSlice);
+						}
+					}
+					if ($constEnum === null && ($c0 === '\\' || $c0 === '-' || ($c0 >= 'a' && $c0 <= 'z') || ($c0 >= 'A' && $c0 <= 'Z'))) {
+						$ident = CSSSyntaxScanner::decodeIdentAt($source, $start, $end);
+						if ($ident !== null && $ident['end'] === $end) {
+							$constEnum = CSSMathConstantEnum::tryFromKeyword($ident['ident']);
+						}
+					}
+					if ($constEnum !== null) {
+						if (++$totalNodes > CSSNumericValue::MAX_MATH_NODES) {
+							throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
+						}
+						$slots[$targetSlot] = new CSSMathConstant($constEnum);
+						continue;
+					}
+				}
+
+				$fnName = null;
+				$openOffset = -1;
+				if ((($c0 >= 'a' && $c0 <= 'z') || ($c0 >= 'A' && $c0 <= 'Z'))
+					&& preg_match('/\G([a-zA-Z][a-zA-Z0-9-]*)\(/', $source, $fnMatch, 0, $start) === 1
+					&& ($start + strlen($fnMatch[0])) <= $end
 				) {
+					$candidate = strtolower($fnMatch[1]);
+					if (isset(self::MATH_FUNCTIONS[$candidate])) {
+						$fnName = $candidate;
+						$openOffset = $start + strlen($fnMatch[1]);
+					}
+				}
+				if ($fnName === null && ($c0 === '\\' || ($c0 >= 'a' && $c0 <= 'z') || ($c0 >= 'A' && $c0 <= 'Z'))) {
+					$ident = CSSSyntaxScanner::decodeIdentAt($source, $start, $end);
+					if ($ident !== null && $ident['end'] < $end && $source[$ident['end']] === '(') {
+						$candidate = strtolower($ident['ident']);
+						if (isset(self::MATH_FUNCTIONS[$candidate])) {
+							$fnName = $candidate;
+							$openOffset = $ident['end'];
+						}
+					}
+				}
+
+				if ($fnName === 'calc') {
 					$mathIndex ??= self::buildMathIndex($source, $rootStart, $rootEnd, $options, $rootDepth, $rootMode === 0);
-					$close = $mathIndex['matchingParens'][$start + 4] ?? null;
+					$close = $mathIndex['matchingParens'][$openOffset] ?? null;
 					if ($close !== $end - 1) {
 						if ($throwOnInvalid) {
 							throw new InvalidArgumentException('Invalid CSS calc() expression.');
 						}
 						return null;
 					}
-					$start += 5;
+					if ($targetSlot === 0) {
+						$parsedMathFunction = true;
+					} else {
+						if ($depth >= PHP_INT_MAX) {
+							throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
+						}
+						$depth++;
+						if ($options->maxMathDepth !== null && $depth > $options->maxMathDepth) {
+							throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $options->maxMathDepth));
+						}
+					}
+					$start = $openOffset + 1;
 					$end = $close;
 					self::trimSlice($source, $start, $end);
 					$mode = 2;
-				} elseif ($sliceLen >= 6 && ($c0 === '\\' || $c0 === 'c' || $c0 === 'C')) {
-					$ident = CSSSyntaxScanner::decodeIdentAt($source, $start, $end);
-					if ($ident !== null && $ident['end'] < $end && $source[$ident['end']] === '(' && strtolower($ident['ident']) === 'calc') {
-						$mathIndex ??= self::buildMathIndex($source, $rootStart, $rootEnd, $options, $rootDepth, $rootMode === 0);
-						$close = $mathIndex['matchingParens'][$ident['end']] ?? null;
-						if ($close !== $end - 1) {
-							if ($throwOnInvalid) {
-								throw new InvalidArgumentException('Invalid CSS calc() expression.');
-							}
-							return null;
-						}
-						$start = $ident['end'] + 1;
-						$end = $close;
-						self::trimSlice($source, $start, $end);
-						$mode = 2;
-					}
-				}
-			}
-
-			if ($mode === 0) {
-				$c0 = $source[$start];
-				$sliceLen = $end - $start;
-				$fnName = null;
-				$openOffset = -1;
-				if ($sliceLen >= 5 && ($c0 === 'm' || $c0 === 'M')) {
-					if (substr_compare($source, 'min(', $start, 4, true) === 0) {
-						$fnName = 'min';
-						$openOffset = $start + 3;
-					} elseif (substr_compare($source, 'max(', $start, 4, true) === 0) {
-						$fnName = 'max';
-						$openOffset = $start + 3;
-					}
-				} elseif ($sliceLen >= 7 && ($c0 === 'c' || $c0 === 'C') && substr_compare($source, 'clamp(', $start, 6, true) === 0) {
-					$fnName = 'clamp';
-					$openOffset = $start + 5;
-				}
-				if ($fnName === null && $sliceLen >= 5 && ($c0 === '\\' || $c0 === 'm' || $c0 === 'M' || $c0 === 'c' || $c0 === 'C')) {
-					$ident = CSSSyntaxScanner::decodeIdentAt($source, $start, $end);
-					if ($ident !== null && $ident['end'] < $end && $source[$ident['end']] === '(') {
-						$lowerIdent = strtolower($ident['ident']);
-						if ($lowerIdent === 'min' || $lowerIdent === 'max' || $lowerIdent === 'clamp') {
-							$fnName = $lowerIdent;
-							$openOffset = $ident['end'];
-						}
-					}
-				}
-
-				if ($fnName !== null) {
+					$allowConstants = true;
+				} elseif ($fnName !== null) {
 					$mathIndex ??= self::buildMathIndex($source, $rootStart, $rootEnd, $options, $rootDepth, $rootMode === 0);
 					$close = $mathIndex['matchingParens'][$openOffset] ?? null;
 					if ($close !== $end - 1) {
@@ -433,6 +498,9 @@ class CSSCalcParser
 							throw new InvalidArgumentException('Invalid CSS math function.');
 						}
 						return null;
+					}
+					if ($targetSlot === 0) {
+						$parsedMathFunction = true;
 					}
 
 					$argRanges = [];
@@ -449,17 +517,59 @@ class CSSCalcParser
 						throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', CSSNumericValue::MAX_MATH_NODES));
 					}
 
-					if ($fnName === 'clamp' && count($argRanges) !== 3) {
-						if ($throwOnInvalid) {
-							throw new InvalidArgumentException('Invalid argument count for ' . $fnName . '().');
+					$strategy = null;
+					$argMetaOffset = 0;
+					if ($fnName === 'round') {
+						[$a0s, $a0e] = $argRanges[0];
+						self::trimSliceWithComments($source, $a0s, $a0e, $mathIndex['commentEndByStart'], $mathIndex['commentStartByEnd']);
+						if ($a0s >= $a0e) {
+							throw new InvalidArgumentException('Empty argument in round().');
 						}
-						return null;
+						$strategyIdent = CSSSyntaxScanner::decodeIdentAt($source, $a0s, $a0e);
+						$matchedStrategy = ($strategyIdent !== null && $strategyIdent['end'] === $a0e)
+							? CSSRoundingStrategy::tryFrom(strtolower($strategyIdent['ident']))
+							: null;
+						if ($matchedStrategy !== null) {
+							$strategy = $matchedStrategy;
+							array_shift($argRanges);
+							$argMetaOffset = 1;
+						} else {
+							$strategy = CSSRoundingStrategy::NEAREST;
+						}
 					}
-					if ($fnName !== 'clamp' && $options->maxMathDepth !== null) {
-						$cappedDepth = min($options->maxMathDepth, intdiv(PHP_INT_MAX, 64));
-						$maxArgs = max(1024, $cappedDepth * 16);
-						if (count($argRanges) > $maxArgs) {
-							throw new CSSParserLimitException(sprintf('CSS %s() argument count exceeds maximum limit of %d.', $fnName, $maxArgs));
+
+					$argCount = count($argRanges);
+					if ($fnName === 'clamp') {
+						if ($argCount !== 3) {
+							if ($throwOnInvalid) {
+								throw new InvalidArgumentException('Invalid argument count for clamp().');
+							}
+							return null;
+						}
+					} elseif ($fnName === 'min' || $fnName === 'max') {
+						if ($options->maxMathDepth !== null) {
+							$cappedDepth = min($options->maxMathDepth, intdiv(PHP_INT_MAX, 64));
+							$maxArgs = max(1024, $cappedDepth * 16);
+							if ($argCount > $maxArgs) {
+								throw new CSSParserLimitException(sprintf('CSS %s() argument count exceeds maximum limit of %d.', $fnName, $maxArgs));
+							}
+						}
+					} else {
+						$fnEnum = CSSMathFunctionEnum::from($fnName);
+						$minArgs = $fnEnum->minArgs();
+						$maxFnArgs = $fnEnum->maxArgs();
+						if ($argCount < $minArgs || ($maxFnArgs !== null && $argCount > $maxFnArgs)) {
+							if ($throwOnInvalid) {
+								throw new InvalidArgumentException('Invalid argument count for ' . $fnName . '().');
+							}
+							return null;
+						}
+						if ($fnEnum->isVariadic() && $options->maxMathDepth !== null) {
+							$cappedDepth = min($options->maxMathDepth, intdiv(PHP_INT_MAX, 64));
+							$maxArgs = max(1024, $cappedDepth * 16);
+							if ($argCount > $maxArgs) {
+								throw new CSSParserLimitException(sprintf('CSS %s() argument count exceeds maximum limit of %d.', $fnName, $maxArgs));
+							}
 						}
 					}
 
@@ -473,7 +583,7 @@ class CSSCalcParser
 						}
 						$argSlot = $nextSlot++;
 						$argSlots[] = $argSlot;
-						$meta = $argMeta[$argIdx] ?? ['opCount' => 0, 'hasChildParen' => false];
+						$meta = $argMeta[$argIdx + $argMetaOffset] ?? ['opCount' => 0, 'hasChildParen' => false];
 						$opCount = $meta['opCount'];
 						$firstChar = $source[$as];
 						$isExpr = $firstChar === '('
@@ -482,19 +592,19 @@ class CSSCalcParser
 						if ($depth >= PHP_INT_MAX) {
 							throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
 						}
-						$argJobs[] = [0, $as, $ae, $depth + 1, $isExpr ? 2 : 0, $argSlot];
+						$argJobs[] = [0, $as, $ae, $depth + 1, $isExpr ? 2 : 0, $argSlot, true];
 					}
-					$workStack[] = [2, $fnName, $argSlots, $targetSlot];
+					$workStack[] = [2, $fnName, $argSlots, $targetSlot, $strategy];
 					for ($i = count($argJobs) - 1; $i >= 0; $i--) {
 						$workStack[] = $argJobs[$i];
 					}
 					continue;
+				} else {
+					if ($throwOnInvalid) {
+						throw new InvalidArgumentException('Invalid CSS numeric value.');
+					}
+					return null;
 				}
-
-				if ($throwOnInvalid) {
-					throw new InvalidArgumentException('Invalid CSS numeric value.');
-				}
-				return null;
 			}
 
 			// mode === 2: inner <calc-sum> expression
@@ -506,7 +616,7 @@ class CSSCalcParser
 
 			foreach ($tokens as $token) {
 				$type = $token[0];
-				if ($type === self::T_NUMBER) {
+				if ($type === self::T_NUMBER || $type === self::T_CONST) {
 					$outputQueue[] = $token;
 				} elseif ($type === self::T_FUNC) {
 					$fnSlot = $nextSlot++;
@@ -514,7 +624,7 @@ class CSSCalcParser
 					if ($parenDepth >= PHP_INT_MAX - $depth) {
 						throw new InvalidArgumentException('Nesting depth cannot be negative or overflow integer bounds.');
 					}
-					$childFuncJobs[] = [0, $token[1], $token[2], $depth + $parenDepth + 1, 0, $fnSlot];
+					$childFuncJobs[] = [0, $token[1], $token[2], $depth + $parenDepth, 0, $fnSlot, true];
 				} elseif ($type === self::T_OP) {
 					$op1 = $token[1];
 					$op1Meta = self::OPERATORS[$op1];
@@ -572,7 +682,12 @@ class CSSCalcParser
 			}
 		}
 
-		return $slots[0] ?? null;
+		$result = $slots[0] ?? null;
+		if ($result !== null && $parsedMathFunction) {
+			return CSSMathSimplifier::simplify($result);
+		}
+
+		return $result;
 	}
 
 	private static function trimSlice(string $source, int &$start, int &$end): void
@@ -841,6 +956,22 @@ class CSSCalcParser
 					$unaryRun = 0;
 					continue;
 				}
+				if ($character === '-') {
+					$negIdent = CSSSyntaxScanner::decodeIdentAt($expression, $offset, $sliceEnd);
+					if ($negIdent !== null) {
+						if ($negIdent['end'] < $sliceEnd && $expression[$negIdent['end']] === '(') {
+							throw new InvalidArgumentException('Invalid function token in calc() expression.');
+						}
+						if (CSSMathConstantEnum::tryFromKeyword($negIdent['ident']) === CSSMathConstantEnum::NEG_INFINITY) {
+							$tokens[] = [self::T_CONST, CSSMathConstantEnum::NEG_INFINITY];
+							$offset = $negIdent['end'];
+							$expectsOperand = false;
+							$hadWhitespace = false;
+							$unaryRun = 0;
+							continue;
+						}
+					}
+				}
 				$unaryRun += strspn($expression, '+-', $offset, $sliceEnd - $offset);
 				if ($options->maxMathDepth !== null && ($depth + $unaryRun) > $options->maxMathDepth) {
 					throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $options->maxMathDepth));
@@ -863,6 +994,15 @@ class CSSCalcParser
 						|| ($sawComment && (($nextChar >= '0' && $nextChar <= '9') || $nextChar === '.'))
 					) {
 						throw new InvalidArgumentException('Invalid unary operator in calc() expression.');
+					}
+					if (($nextChar >= 'a' && $nextChar <= 'z') || ($nextChar >= 'A' && $nextChar <= 'Z') || $nextChar === '\\' || ord($nextChar) >= 0x80) {
+						$afterUnaryIdent = CSSSyntaxScanner::decodeIdentAt($expression, $look, $sliceEnd);
+						if ($afterUnaryIdent !== null
+							&& ($afterUnaryIdent['end'] >= $sliceEnd || $expression[$afterUnaryIdent['end']] !== '(')
+							&& CSSMathConstantEnum::tryFromKeyword($afterUnaryIdent['ident']) !== null
+						) {
+							throw new InvalidArgumentException('Invalid unary operator before CSS math constant.');
+						}
 					}
 				}
 				$tokens[] = [self::T_OP, $character === '-' ? 'u-' : 'u+'];
@@ -933,7 +1073,8 @@ class CSSCalcParser
 					continue;
 				}
 				if ($afterName >= $sliceEnd || $expression[$afterName] !== '\\') {
-					$tokens[] = [self::T_UNKNOWN, $name];
+					$constEnum = CSSMathConstantEnum::tryFromKeyword($name);
+					$tokens[] = $constEnum !== null ? [self::T_CONST, $constEnum] : [self::T_UNKNOWN, $name];
 					$offset = $afterName;
 					$expectsOperand = false;
 					$hadWhitespace = false;
@@ -958,7 +1099,8 @@ class CSSCalcParser
 						$unaryRun = 0;
 						continue;
 					}
-					$tokens[] = [self::T_UNKNOWN, $ident['ident']];
+					$constEnum = CSSMathConstantEnum::tryFromKeyword($ident['ident']);
+					$tokens[] = $constEnum !== null ? [self::T_CONST, $constEnum] : [self::T_UNKNOWN, $ident['ident']];
 					$offset = $afterName;
 					$expectsOperand = false;
 					$hadWhitespace = false;

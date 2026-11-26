@@ -8,6 +8,7 @@ use Error;
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserLimitException;
 use Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 
 /**
@@ -152,7 +153,7 @@ final class CSSImageValue extends CSSStyleValue
 							continue;
 						}
 					}
-					$isMathFn = $lower === 'calc' || $lower === 'min' || $lower === 'max' || $lower === 'clamp';
+					$isMathFn = CSSCalcParser::isMathFunctionName($lower);
 					$top = $parenStack !== [] ? $parenStack[count($parenStack) - 1] : null;
 					if ($top !== null && $top['isMath']) {
 						$nextDepth = $top['depth'] + 1;

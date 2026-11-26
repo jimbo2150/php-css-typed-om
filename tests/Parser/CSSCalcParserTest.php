@@ -6,8 +6,6 @@ namespace Jimbo2150\PhpCssTypedOm\Tests\Parser;
 
 use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathInvert;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathNegate;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
 use PHPUnit\Framework\TestCase;
@@ -16,184 +14,117 @@ class CSSCalcParserTest extends TestCase
 {
 	public function testParseSimpleAddition(): void
 	{
-		$input = 'calc(10px + 5px)';
-		$result = CSSCalcParser::parse($input);
+		$result = CSSCalcParser::parse('calc(10px + 5px)');
 
-		$this->assertInstanceOf(CSSMathSum::class, $result);
-		/** @var CSSMathSum $result */
-		$this->assertEquals(2, $result->length);
-		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[0]);
-		$this->assertEquals(10, $result->inner_values[0]->value);
-		$this->assertEquals('px', $result->inner_values[0]->unit);
-		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[1]);
-		$this->assertEquals(5, $result->inner_values[1]->value);
-		$this->assertEquals('px', $result->inner_values[1]->unit);
-		$this->assertEquals($input, (string) $result);
+		$this->assertInstanceOf(CSSUnitValue::class, $result);
+		$this->assertEquals(15, $result->value);
+		$this->assertEquals('px', $result->unit);
+		$this->assertEquals('15px', (string) $result);
 	}
 
 	public function testParseSimpleSubtraction(): void
 	{
-		$input = 'calc(10px - 5px)';
-		$result = CSSCalcParser::parse($input);
+		$result = CSSCalcParser::parse('calc(10px - 5px)');
 
-		$this->assertInstanceOf(CSSMathSum::class, $result);
-		/** @var CSSMathSum $result */
-		$this->assertEquals(2, $result->length);
-		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[0]);
-		$this->assertEquals(10, $result->inner_values[0]->value);
-		$this->assertEquals('px', $result->inner_values[0]->unit);
-		$this->assertInstanceOf(CSSMathNegate::class, $result->inner_values[1]);
-		/** @var CSSMathNegate $negate */
-		$negate = $result->inner_values[1];
-		$this->assertEquals(1, $negate->length);
-		$this->assertInstanceOf(CSSUnitValue::class, $negate->inner_values[0]);
-		$this->assertEquals(5, $negate->inner_values[0]->value);
-		$this->assertEquals('px', $negate->inner_values[0]->unit);
-		$this->assertEquals($input, (string) $result);
+		$this->assertInstanceOf(CSSUnitValue::class, $result);
+		$this->assertEquals(5, $result->value);
+		$this->assertEquals('px', $result->unit);
+		$this->assertEquals('5px', (string) $result);
 	}
 
 	public function testParseSimpleMultiplication(): void
 	{
-		$input = 'calc(10px * 2)';
-		$result = CSSCalcParser::parse($input);
+		$result = CSSCalcParser::parse('calc(10px * 2)');
 
-		$this->assertInstanceOf(CSSMathProduct::class, $result);
-		/** @var CSSMathProduct $result */
-		$this->assertEquals(2, $result->length);
-		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[0]);
-		$this->assertEquals(10, $result->inner_values[0]->value);
-		$this->assertEquals('px', $result->inner_values[0]->unit);
-		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[1]);
-		$this->assertEquals(2, $result->inner_values[1]->value);
-		$this->assertEquals('number', $result->inner_values[1]->unit);
-		$this->assertEquals($input, (string) $result);
+		$this->assertInstanceOf(CSSUnitValue::class, $result);
+		$this->assertEquals(20, $result->value);
+		$this->assertEquals('px', $result->unit);
+		$this->assertEquals('20px', (string) $result);
 	}
 
 	public function testParseSimpleDivision(): void
 	{
-		$input = 'calc(10px / 2)';
-		$result = CSSCalcParser::parse($input);
+		$result = CSSCalcParser::parse('calc(10px / 2)');
 
-		$this->assertInstanceOf(CSSMathProduct::class, $result);
-		/** @var CSSMathProduct $result */
-		$this->assertEquals(2, $result->length);
-		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[0]);
-		$this->assertEquals(10, $result->inner_values[0]->value);
-		$this->assertEquals('px', $result->inner_values[0]->unit);
-		$this->assertInstanceOf(CSSMathInvert::class, $result->inner_values[1]);
-		/** @var CSSMathInvert $invert */
-		$invert = $result->inner_values[1];
-		$this->assertEquals(1, $invert->length);
-		$this->assertInstanceOf(CSSUnitValue::class, $invert->inner_values[0]);
-		$this->assertEquals(2, $invert->inner_values[0]->value);
-		$this->assertEquals('number', $invert->inner_values[0]->unit);
-		$this->assertEquals($input, (string) $result);
+		$this->assertInstanceOf(CSSUnitValue::class, $result);
+		$this->assertEquals(5, $result->value);
+		$this->assertEquals('px', $result->unit);
+		$this->assertEquals('5px', (string) $result);
 	}
 
 	public function testParseMixedOperations(): void
 	{
-		$input = 'calc(10px + 5px * 2)';
-		$result = CSSCalcParser::parse($input);
+		$result = CSSCalcParser::parse('calc(10px + 5px * 2)');
 
-		$this->assertInstanceOf(CSSMathSum::class, $result);
-		/** @var CSSMathSum $result */
-		$this->assertEquals(2, $result->length);
-		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[0]);
-		$this->assertEquals(10, $result->inner_values[0]->value);
-		$this->assertInstanceOf(CSSMathProduct::class, $result->inner_values[1]);
-		$this->assertEquals($input, (string) $result);
+		$this->assertInstanceOf(CSSUnitValue::class, $result);
+		$this->assertEquals(20, $result->value);
+		$this->assertEquals('px', $result->unit);
+		$this->assertEquals('20px', (string) $result);
 	}
 
 	public function testParseWithParentheses(): void
 	{
-		$input = 'calc((10px + 5px) * 2)';
-		$result = CSSCalcParser::parse($input);
+		$result = CSSCalcParser::parse('calc((10px + 5px) * 2)');
 
-		$this->assertInstanceOf(CSSMathProduct::class, $result);
-		/** @var CSSMathProduct $result */
-		$this->assertEquals(2, $result->length);
-		$this->assertInstanceOf(CSSMathSum::class, $result->inner_values[0]);
-		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[1]);
-		$this->assertEquals(2, $result->inner_values[1]->value);
-		$this->assertEquals($input, (string) $result);
+		$this->assertInstanceOf(CSSUnitValue::class, $result);
+		$this->assertEquals(30, $result->value);
+		$this->assertEquals('px', $result->unit);
+		$this->assertEquals('30px', (string) $result);
 	}
 
 	public function testParseDifferentUnits(): void
 	{
-		$input = 'calc(10px + 5em)';
-		$result = CSSCalcParser::parse($input);
+		$result = CSSCalcParser::parse('calc(10px + 5em)');
 
 		$this->assertInstanceOf(CSSMathSum::class, $result);
 		/** @var CSSMathSum $result */
 		$this->assertEquals(2, $result->length);
-		$this->assertEquals('px', $result->inner_values[0]->unit);
-		$this->assertEquals('em', $result->inner_values[1]->unit);
-		$this->assertEquals($input, (string) $result);
+		$this->assertEquals('em', $result->inner_values[0]->unit);
+		$this->assertEquals('px', $result->inner_values[1]->unit);
+		$this->assertEquals('calc(5em + 10px)', (string) $result);
 	}
 
 	public function testParseNegativeNumbers(): void
 	{
-		$input = 'calc(-10px + 5px)';
-		$result = CSSCalcParser::parse($input);
+		$result = CSSCalcParser::parse('calc(-10px + 5px)');
 
-		$this->assertInstanceOf(CSSMathSum::class, $result);
-		/** @var CSSMathSum $result */
-		$this->assertEquals(2, $result->length);
-		$this->assertEquals(-10, $result->inner_values[0]->value);
-		$this->assertEquals(5, $result->inner_values[1]->value);
-		$this->assertEquals($input, (string) $result);
+		$this->assertInstanceOf(CSSUnitValue::class, $result);
+		$this->assertEquals(-5, $result->value);
+		$this->assertEquals('px', $result->unit);
+		$this->assertEquals('-5px', (string) $result);
 	}
 
 	public function testParseDecimalNumbers(): void
 	{
-		$input = 'calc(1.5px * 2.5)';
-		$result = CSSCalcParser::parse($input);
+		$result = CSSCalcParser::parse('calc(1.5px * 2.5)');
 
-		$this->assertInstanceOf(CSSMathProduct::class, $result);
-		/** @var CSSMathProduct $result */
-		$this->assertEquals(2, $result->length);
-		$this->assertEquals(1.5, $result->inner_values[0]->value);
-		$this->assertEquals(2.5, $result->inner_values[1]->value);
-		$this->assertEquals($input, (string) $result);
+		$this->assertInstanceOf(CSSUnitValue::class, $result);
+		$this->assertEquals(3.75, $result->value);
+		$this->assertEquals('px', $result->unit);
+		$this->assertEquals('3.75px', (string) $result);
 	}
 
 	public function testParseComplex(): void
 	{
-		$input = 'calc(1.5 * 2.5dvw + (2px - 5%))';
-		$result = CSSCalcParser::parse($input);
+		$result = CSSCalcParser::parse('calc(1.5 * 2.5dvw + (2px - 5%))');
 
 		$this->assertInstanceOf(CSSMathSum::class, $result);
 		/** @var CSSMathSum $result */
-		$this->assertEquals(2, $result->length);
+		$this->assertEquals(3, $result->length);
 
-		// First part: 1.5 * 2.5dvw
-		$this->assertInstanceOf(CSSMathProduct::class, $result->inner_values[0]);
-		/** @var CSSMathProduct $product */
-		$product = $result->inner_values[0];
-		$this->assertEquals(2, $product->length);
-		$this->assertInstanceOf(CSSUnitValue::class, $product->inner_values[0]);
-		$this->assertEquals(1.5, $product->inner_values[0]->value);
-		$this->assertEquals('number', $product->inner_values[0]->unit);
-		$this->assertInstanceOf(CSSUnitValue::class, $product->inner_values[1]);
-		$this->assertEquals(2.5, $product->inner_values[1]->value);
-		$this->assertEquals('dvw', $product->inner_values[1]->unit);
+		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[0]);
+		$this->assertEquals(-5, $result->inner_values[0]->value);
+		$this->assertEquals('percent', $result->inner_values[0]->unit);
 
-		// Second part: (2px - 5%)
-		$this->assertInstanceOf(CSSMathSum::class, $result->inner_values[1]);
-		/** @var CSSMathSum $sum */
-		$sum = $result->inner_values[1];
-		$this->assertEquals(2, $sum->length);
-		$this->assertInstanceOf(CSSUnitValue::class, $sum->inner_values[0]);
-		$this->assertEquals(2, $sum->inner_values[0]->value);
-		$this->assertEquals('px', $sum->inner_values[0]->unit);
-		$this->assertInstanceOf(CSSMathNegate::class, $sum->inner_values[1]);
-		/** @var CSSMathNegate $negate */
-		$negate = $sum->inner_values[1];
-		$this->assertEquals(1, $negate->length);
-		$this->assertInstanceOf(CSSUnitValue::class, $negate->inner_values[0]);
-		$this->assertEquals(5, $negate->inner_values[0]->value);
-		$this->assertEquals('percent', $negate->inner_values[0]->unit);
-		$this->assertEquals($input, (string) $result);
+		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[1]);
+		$this->assertEquals(3.75, $result->inner_values[1]->value);
+		$this->assertEquals('dvw', $result->inner_values[1]->unit);
+
+		$this->assertInstanceOf(CSSUnitValue::class, $result->inner_values[2]);
+		$this->assertEquals(2, $result->inner_values[2]->value);
+		$this->assertEquals('px', $result->inner_values[2]->unit);
+
+		$this->assertEquals('calc(-5% + 3.75dvw + 2px)', (string) $result);
 	}
 
 	public function testParseSingleValue(): void
@@ -252,15 +183,16 @@ class CSSCalcParserTest extends TestCase
 
 	public function testParseComplexExpression(): void
 	{
-		$input = 'calc((10px + 5em) * 2 - 3px)';
-		$result = CSSCalcParser::parse($input);
+		$result = CSSCalcParser::parse('calc((10px + 5em) * 2 - 3px)');
 
 		$this->assertInstanceOf(CSSMathSum::class, $result);
 		/** @var CSSMathSum $result */
 		$this->assertEquals(2, $result->length);
-		$this->assertInstanceOf(CSSMathProduct::class, $result->inner_values[0]);
-		$this->assertInstanceOf(CSSMathNegate::class, $result->inner_values[1]);
-		$this->assertEquals($input, (string) $result);
+		$this->assertEquals(10, $result->inner_values[0]->value);
+		$this->assertEquals('em', $result->inner_values[0]->unit);
+		$this->assertEquals(17, $result->inner_values[1]->value);
+		$this->assertEquals('px', $result->inner_values[1]->unit);
+		$this->assertEquals('calc(10em + 17px)', (string) $result);
 	}
 
 	/**
@@ -268,17 +200,12 @@ class CSSCalcParserTest extends TestCase
 	 */
 	public function testParseWithExtraWhitespace(): void
 	{
-		$input = 'calc( 10px  +  5px )';
-		$result = CSSCalcParser::parse($input);
+		$result = CSSCalcParser::parse('calc( 10px  +  5px )');
 
-		$this->assertInstanceOf(CSSMathSum::class, $result);
-		/** @var CSSMathSum $result */
-		$this->assertEquals(2, $result->length);
-		$this->assertEquals(10, $result->inner_values[0]->value);
-		$this->assertEquals('px', $result->inner_values[0]->unit);
-		$this->assertEquals(5, $result->inner_values[1]->value);
-		$this->assertEquals('px', $result->inner_values[1]->unit);
-		$this->assertEquals('calc(10px + 5px)', (string) $result);
+		$this->assertInstanceOf(CSSUnitValue::class, $result);
+		$this->assertEquals(15, $result->value);
+		$this->assertEquals('px', $result->unit);
+		$this->assertEquals('15px', (string) $result);
 	}
 
 	/**
@@ -286,17 +213,12 @@ class CSSCalcParserTest extends TestCase
 	 */
 	public function testParseNegativeDecimal(): void
 	{
-		$input = 'calc(-1.5px * 2)';
-		$result = CSSCalcParser::parse($input);
+		$result = CSSCalcParser::parse('calc(-1.5px * 2)');
 
-		$this->assertInstanceOf(CSSMathProduct::class, $result);
-		/** @var CSSMathProduct $result */
-		$this->assertEquals(2, $result->length);
-		$this->assertEquals(-1.5, $result->inner_values[0]->value);
-		$this->assertEquals('px', $result->inner_values[0]->unit);
-		$this->assertEquals(2, $result->inner_values[1]->value);
-		$this->assertEquals('number', $result->inner_values[1]->unit);
-		$this->assertEquals($input, (string) $result);
+		$this->assertInstanceOf(CSSUnitValue::class, $result);
+		$this->assertEquals(-3, $result->value);
+		$this->assertEquals('px', $result->unit);
+		$this->assertEquals('-3px', (string) $result);
 	}
 
 	/**
@@ -304,15 +226,12 @@ class CSSCalcParserTest extends TestCase
 	 */
 	public function testParseComplexWithWhitespace(): void
 	{
-		$input = 'calc( ( 10px + 5em ) * 2 - 3px )';
-		$result = CSSCalcParser::parse($input);
+		$result = CSSCalcParser::parse('calc( ( 10px + 5em ) * 2 - 3px )');
 
 		$this->assertInstanceOf(CSSMathSum::class, $result);
 		/** @var CSSMathSum $result */
 		$this->assertEquals(2, $result->length);
-		$this->assertInstanceOf(CSSMathProduct::class, $result->inner_values[0]);
-		$this->assertInstanceOf(CSSMathNegate::class, $result->inner_values[1]);
-		$this->assertEquals('calc((10px + 5em) * 2 - 3px)', (string) $result);
+		$this->assertEquals('calc(10em + 17px)', (string) $result);
 	}
 	public function testParseEmptyCalc(): void
 	{
@@ -330,20 +249,18 @@ class CSSCalcParserTest extends TestCase
 
 	public function testParseWithMultipleSpaces(): void
 	{
-		$input = 'calc(10px  +  5px)';
-		$result = CSSCalcParser::parse($input);
-		$this->assertInstanceOf(CSSMathSum::class, $result);
-		$this->assertEquals('calc(10px + 5px)', (string) $result);
+		$result = CSSCalcParser::parse('calc(10px  +  5px)');
+		$this->assertInstanceOf(CSSUnitValue::class, $result);
+		$this->assertEquals('15px', (string) $result);
 	}
 
 	public function testParseUnaryOperatorsAndScientificNotation(): void
 	{
 		$result = CSSCalcParser::parse('calc(-(10px + 2e1px) + .5px)');
 
-		$this->assertInstanceOf(CSSMathSum::class, $result);
-		$this->assertInstanceOf(CSSMathNegate::class, $result->inner_values[0]);
-		$this->assertEquals(0.5, $result->inner_values[1]->value);
-		$this->assertEquals('calc(-(10px + 20px) + 0.5px)', (string) $result);
+		$this->assertInstanceOf(CSSUnitValue::class, $result);
+		$this->assertEquals(-29.5, $result->value);
+		$this->assertEquals('-29.5px', (string) $result);
 	}
 
 	public function testRejectsTrailingGarbageAfterCalc(): void
@@ -354,6 +271,15 @@ class CSSCalcParserTest extends TestCase
 
 	public function testMathInvertParenthesizesInnerExpressionInProductAndHandlesLongSumChain(): void
 	{
+		// Irreducible parser-produced CSSMathProduct and CSSMathInvert
+		$irreducibleProduct = CSSCalcParser::parse('calc(2px * 5em)');
+		$this->assertInstanceOf(CSSMathProduct::class, $irreducibleProduct);
+		$this->assertSame('calc(10 * 1em * 1px)', (string) $irreducibleProduct);
+
+		$irreducibleInvert = CSSCalcParser::parse('calc(1 / (1em + 2px))');
+		$this->assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathInvert::class, $irreducibleInvert);
+		$this->assertSame('calc(1 / (1em + 2px))', (string) $irreducibleInvert);
+
 		$invertSum = new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathInvert(
 			new CSSMathSum([new CSSUnitValue(10, 'px'), new CSSUnitValue(5, 'px')]),
 		);
@@ -369,12 +295,22 @@ class CSSCalcParserTest extends TestCase
 		}
 		$longCalc = 'calc(' . implode(' + ', $terms) . ')';
 		$parsed = CSSCalcParser::parse($longCalc);
-		$this->assertInstanceOf(CSSMathSum::class, $parsed);
-		$this->assertCount(200, $parsed->inner_values);
+		$this->assertInstanceOf(CSSUnitValue::class, $parsed);
+		$this->assertSame(20100.0, $parsed->value);
+
+		// Uncollapsed 200-term CSSMathSum
+		$uncollapsedTerms = [];
+		for ($i = 1; $i <= 200; $i++) {
+			$uncollapsedTerms[] = 'abs(' . $i . 'em - ' . $i . 'px)';
+		}
+		$longUncollapsed = CSSCalcParser::parse('calc(' . implode(' + ', $uncollapsedTerms) . ')');
+		$this->assertInstanceOf(CSSMathSum::class, $longUncollapsed);
+		$this->assertSame(200, $longUncollapsed->length);
 
 		$multiPercent = CSSCalcParser::parse('calc(10px + 50% + 20%)');
 		$this->assertInstanceOf(CSSMathSum::class, $multiPercent);
 		$this->assertSame('length', $multiPercent->type()->percentHint);
+		$this->assertSame('calc(70% + 10px)', (string) $multiPercent);
 
 		$clamped = \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue::parse('clamp(10px, 50%, 80%)');
 		$this->assertSame('length', $clamped->type()->percentHint);
@@ -396,11 +332,11 @@ class CSSCalcParserTest extends TestCase
 		}
 
 		$minWithComment = \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue::parse('min(10px /*c*/, 20px)');
-		$this->assertSame('min(10px, 20px)', (string) $minWithComment);
+		$this->assertSame('10px', (string) $minWithComment);
 
 		$deepCalc = 'calc(' . str_repeat('(', 254) . '10px + 5px' . str_repeat(')', 254) . ')';
 		$parsedDeep = CSSCalcParser::parse($deepCalc);
-		$this->assertInstanceOf(CSSMathSum::class, $parsedDeep);
-		$this->assertSame('calc(10px + 5px)', (string) $parsedDeep);
+		$this->assertInstanceOf(CSSUnitValue::class, $parsedDeep);
+		$this->assertSame('15px', (string) $parsedDeep);
 	}
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\Tests\TypedOM\Values\Color;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\CSS;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColor;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSHSL;
@@ -156,7 +157,7 @@ final class CSSColorValueTest extends TestCase
 		}
 
 		// Unresolved math channel rejects conversion
-		$mathRgb = new CSSRGB(CSSNumericValue::parse('calc(50% + 10%)'), 0, 0);
+		$mathRgb = new CSSRGB(new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum([CSS::percent(50), CSS::percent(10)]), 0, 0);
 		$this->expectException(InvalidArgumentException::class);
 		$mathRgb->toLab();
 	}
@@ -239,8 +240,20 @@ final class CSSColorValueTest extends TestCase
 		$scaledRgb = new CSSRGB($numMath, 0, 0, $numMath);
 		self::assertSame('percent', $scaledRgb->r->getNumericCategory());
 		self::assertSame('percent', $scaledRgb->alpha->getNumericCategory());
-		$parsedOklabMath = CSSColorValue::parse('oklab(calc(0.2 + 0.3) 0 0 / calc(0.2 + 0.3))');
+
+		// Also exercise irreducible CSSMathValue objects directly in CSSRGB and oklab()
+		$irreducibleNum = new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum([
+			CSSNumericValue::parse('0.2'),
+			CSSNumericValue::parse('0.3'),
+		]);
+		$irrRgb = new CSSRGB($irreducibleNum, 0, 0, $irreducibleNum);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathValue::class, $irrRgb->r);
+		self::assertSame('percent', $irrRgb->r->getNumericCategory());
+		self::assertSame('percent', $irrRgb->alpha->getNumericCategory());
+
+		$parsedOklabMath = CSSColorValue::parse('oklab(calc(0.2 + sin(1em / 1px) * 0.1) 0 0 / calc(0.5 + cos(1em / 1px) * 0.1))');
 		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSOKLab::class, $parsedOklabMath);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathValue::class, $parsedOklabMath->l);
 		self::assertSame('percent', $parsedOklabMath->l->getNumericCategory());
 		self::assertSame('percent', $parsedOklabMath->alpha->getNumericCategory());
 

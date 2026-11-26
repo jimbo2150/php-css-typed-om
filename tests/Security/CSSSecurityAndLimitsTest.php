@@ -1134,7 +1134,7 @@ final class CSSSecurityAndLimitsTest extends TestCase
 			self::assertStringContainsString('depth', strtolower($e->getMessage()));
 		}
 
-		self::assertSame('calc(10px + 20px)', (string) CSSCalcParser::parse('calc(10px +/*c*/ 20px)'));
+		self::assertSame('30px', (string) CSSCalcParser::parse('calc(10px +/*c*/ 20px)'));
 		foreach (['calc(--10px)', 'calc(10px + - 5px)', 'calc(+)'] as $badCalc) {
 			try {
 				CSSCalcParser::parse($badCalc);
@@ -1449,8 +1449,8 @@ final class CSSSecurityAndLimitsTest extends TestCase
 
 		// 8. CSSCalcParser unary comments & escaped math functions; CSSCounterStyleRule dashed/escaped names
 		self::assertSame('-10px', (string) CSSCalcParser::parse('calc(/*c*/-10px)'));
-		self::assertSame('calc(10px + 5em)', (string) CSSCalcParser::parse('c\\61lc(10px + 5em)'));
-		self::assertSame('min(10px, 20px)', (string) CSSNumericValue::parse('m\\69n(10px, 20px)'));
+		self::assertSame('calc(5em + 10px)', (string) CSSCalcParser::parse('c\\61lc(10px + 5em)'));
+		self::assertSame('10px', (string) CSSNumericValue::parse('m\\69n(10px, 20px)'));
 		try {
 			CSSCalcParser::parse('calc(-/*c*/10px)');
 			self::fail('Expected unary operator separated from number by comment to throw.');
@@ -1620,7 +1620,7 @@ final class CSSSecurityAndLimitsTest extends TestCase
 
 		// 2. CSSCalcParser: buildMathIndex depth vs rootMode === 0 + MAX_MATH_NODES on comments
 		self::assertSame('1px', (string) CSSNumericValue::parse('calc((1px))', null, new CSSParserOptions(maxMathDepth: 1)));
-		self::assertSame('calc(1px + 2px)', (string) CSSNumericValue::parse('calc(1px + 2px)', null, new CSSParserOptions(maxMathDepth: 256), 256));
+		self::assertSame('3px', (string) CSSNumericValue::parse('calc(1px + 2px)', null, new CSSParserOptions(maxMathDepth: 256), 256));
 		try {
 			CSSCalcParser::parse('calc(1px ' . str_repeat('/**/', 100_005) . ')');
 			self::fail('Expected CSSParserLimitException for comment node explosion.');
@@ -1849,7 +1849,7 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		$propRule->style->setCssText('syntax: "*"; inherits: false; initial-value: ;');
 		self::assertSame('', $propRule->initialValue);
 
-		$symHwb = new CSSHWB(CSSNumericValue::parse('calc(10deg + 20deg)'), 60, 60);
+		$symHwb = new CSSHWB(new CSSMathSum([CSS::deg(10), CSS::deg(20)]), 60, 60);
 		try {
 			$symHwb->toRGB();
 			self::fail('Expected symbolic hue in CSSHWB with w+b>=1 to throw.');
@@ -2179,7 +2179,7 @@ final class CSSSecurityAndLimitsTest extends TestCase
 			self::assertNull($detachedMargin->getParentRule());
 		}
 		try {
-			(new CSSHWB(CSSNumericValue::parse('calc(10deg + 20deg)'), 60, 60))->toOKLCH();
+			(new CSSHWB(new CSSMathSum([CSS::deg(10), CSS::deg(20)]), 60, 60))->toOKLCH();
 			self::fail('Expected symbolic hue in CSSHWB::toOKLCH() with w+b>=1 to throw.');
 		} catch (InvalidArgumentException $e) {
 			self::assertNotSame('', $e->getMessage());
@@ -2915,7 +2915,7 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		}
 
 		$deepVar = new CSSUnparsedValue('var(--a, var(--b, 1px))');
-		$deepMath = CSSNumericValue::parse('min(calc(min(1px, 2px) + 3px), 10px)');
+		$deepMath = CSSNumericValue::parse('min(calc(min(1em, 2px) + 3vw), 10vh)');
 		$tightTypedSheet = CSSStyleSheet::parse('a {}', new CSSParserOptions(maxBytes: 24, maxDepth: 1, maxMathDepth: 1));
 		$tightTypedRule = $tightTypedSheet->cssRules[0];
 		self::assertInstanceOf(CSSStyleRule::class, $tightTypedRule);
@@ -3007,7 +3007,7 @@ final class CSSSecurityAndLimitsTest extends TestCase
 			static fn () => CSSCalcParser::parseExpression('1px', $unlimitedCalc, PHP_INT_MAX),
 			static fn () => CSSCalcParser::parseUnitOrMathSlice('1px', 0, 3, $unlimitedCalc, PHP_INT_MAX, false),
 			static fn () => CSSCalcParser::parse('calc(calc(calc(1px)))', $unlimitedCalc, PHP_INT_MAX - 1),
-			static fn () => CSSCalcParser::parse('calc(min(1px, 2px))', $unlimitedCalc, PHP_INT_MAX - 1),
+			static fn () => CSSCalcParser::parse('calc(min(min(1px, 2px), 3px))', $unlimitedCalc, PHP_INT_MAX - 1),
 			static fn () => CSSCalcParser::parseExpression('((1px))', $unlimitedCalc, PHP_INT_MAX - 1),
 		] as $boundFailCall) {
 			try {
@@ -3190,7 +3190,7 @@ final class CSSSecurityAndLimitsTest extends TestCase
 
 		// F3: CSSCalcParser comments + maxMathDepth scaling overflow safety
 		$commentedCalc = CSSCalcParser::parse('/* lead */ calc(10px + 20px) /* tail */', new CSSParserOptions(maxMathDepth: PHP_INT_MAX));
-		self::assertSame('calc(10px + 20px)', (string) $commentedCalc);
+		self::assertSame('30px', (string) $commentedCalc);
 
 		// F4 & F10: CSSParser rethrows CSSParserLimitException when $throwOnLimit=true & rejects PHP_INT_MAX depth/counters
 		foreach ([
@@ -3439,6 +3439,141 @@ final class CSSSecurityAndLimitsTest extends TestCase
 			} catch (CSSParserLimitException $e) {
 				self::assertNotSame('', $e->getMessage());
 			}
+		}
+	}
+
+	public function testEnforcesCssValues4MathSecurityAndDagLimits(): void
+	{
+		// 1. Repeated-squaring DAG exponent explosion (length^(2^30)) multiplied by infinity must hit MAX_MATH_NODES
+		$powDag = CSS::px(2);
+		for ($i = 0; $i < 30; $i++) {
+			$powDag = new CSSMathProduct([$powDag, $powDag]);
+		}
+		$bomb = new CSSMathProduct([\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathConstant::infinity(), $powDag]);
+		try {
+			$bomb->simplify();
+			self::fail('Expected repeated-squaring DAG exponent explosion to throw CSSParserLimitException.');
+		} catch (CSSParserLimitException $e) {
+			self::assertStringContainsString('node count', strtolower($e->getMessage()));
+		}
+
+		// 2. CSSImageValue embedded math depth enforces maxMathDepth on new CSS Values 4 functions
+		try {
+			new CSSImageValue('linear-gradient(sin(cos(1deg)), red, blue)', new CSSParserOptions(maxMathDepth: 1));
+			self::fail('Expected CSSImageValue embedded CSS Values 4 math scan to enforce maxMathDepth.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		// 3. CSSCalcParser enforces maxMathDepth on nested CSS Values 4 math functions & round()
+		try {
+			CSSNumericValue::parse('round(up, abs(1em), 2px)', null, new CSSParserOptions(maxMathDepth: 1));
+			self::fail('Expected nested round(up, abs(...)) to exceed maxMathDepth=1.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+
+		// 4. Unified maxMathDepth consistency: calc(sin(...)) has depth 1 (passes maxMathDepth=1) and calc(sin(cos(...))) has depth 2 (fails maxMathDepth=1) across parser, image & math AST
+		$calcSin = CSSNumericValue::parse('calc(sin(1em / 1px))', null, new CSSParserOptions(maxMathDepth: 1));
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction::class, $calcSin);
+		self::assertSame('sin(1em / 1px)', (string) $calcSin);
+		$calcSin->assertMathDepthWithinInternal(1);
+		$imgSin = new CSSImageValue('linear-gradient(calc(sin(1deg)), red, blue)', new CSSParserOptions(maxMathDepth: 1));
+		self::assertSame('linear-gradient(calc(sin(1deg)), red, blue)', (string) $imgSin);
+		$calcSinCos = new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction(
+			'sin',
+			new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction('cos', new CSSMathProduct([CSS::em(1), new CSSMathInvert(CSS::px(1))])),
+		);
+		foreach ([
+			static fn () => CSSNumericValue::parse('calc(sin(cos(1em / 1px)))', null, new CSSParserOptions(maxMathDepth: 1)),
+			static fn () => new CSSImageValue('linear-gradient(calc(sin(cos(1deg))), red, blue)', new CSSParserOptions(maxMathDepth: 1)),
+			static fn () => $calcSinCos->assertMathDepthWithinInternal(1),
+		] as $depthTwoCheck) {
+			try {
+				$depthTwoCheck();
+				self::fail('Expected maxMathDepth=1 to reject calc(sin(cos(...))).');
+			} catch (CSSParserLimitException $e) {
+				self::assertNotSame('', $e->getMessage());
+			}
+		}
+
+		// 5. O(N) product unit cancellation avoids quadratic scan on disjoint direct/inverted units
+		$disjointFactors = array_merge(
+			array_fill(0, 15_000, CSS::em(1)),
+			array_fill(0, 15_000, new CSSMathInvert(CSS::vw(1))),
+		);
+		$disjointProduct = new CSSMathProduct($disjointFactors);
+		$simplifiedDisjoint = $disjointProduct->simplify();
+		self::assertInstanceOf(CSSMathProduct::class, $simplifiedDisjoint);
+		self::assertSame(30_000, $simplifiedDisjoint->length);
+
+		// 6. Shared equals() / treeContainsNaNInternal() memoization + depth & stack limits on wide/deep DAGs
+		$sharedSubTerms = [];
+		for ($i = 0; $i < 1_000; $i++) {
+			$sharedSubTerms[] = new CSSMathNegate(CSS::px(1));
+		}
+		$sharedSub = new CSSMathSum($sharedSubTerms);
+		$wideLeft = new CSSMathSum(array_fill(0, 500, $sharedSub));
+		$wideRight = new CSSMathSum(array_fill(0, 500, $sharedSub));
+		self::assertTrue($wideLeft->equals($wideRight));
+
+		// Wide DAG exceeding MAX_MATH_NODES edges across shared nodes throws deterministically without stack blowup
+		$wideDag = CSS::px(1);
+		for ($i = 0; $i < 200; $i++) {
+			$wideDag = new CSSMathSum(array_fill(0, 1_000, $wideDag));
+		}
+		try {
+			$wideDag->equals($wideDag);
+			self::fail('Expected treeContainsNaNInternal() to enforce MAX_MATH_NODES across edges.');
+		} catch (CSSParserLimitException $e) {
+			self::assertStringContainsString('node count', strtolower($e->getMessage()));
+		}
+
+		// Deep chain (> MAX_MATH_TREE_DEPTH=512) throws on self-equality instead of bypassing depth limit
+		$deepNeg = CSS::px(1);
+		for ($i = 0; $i < 600; $i++) {
+			$deepNeg = new CSSMathNegate($deepNeg);
+		}
+		try {
+			$deepNeg->equals($deepNeg);
+			self::fail('Expected self-equality on >512-deep tree to enforce MAX_MATH_TREE_DEPTH.');
+		} catch (CSSParserLimitException $e) {
+			self::assertStringContainsString('depth', strtolower($e->getMessage()));
+		}
+
+		// 7. Shared MAX_MATH_NODES budget when convertNumericValue() / toSum() simplify repeated angle functions
+		$bigNumSum = new CSSMathSum(array_fill(0, 10_000, CSS::number(1)));
+		$atanNode = new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction('atan', [$bigNumSum]);
+		$repeatedAtanSum = new CSSMathSum(array_fill(0, 12, $atanNode));
+		try {
+			$repeatedAtanSum->toSum('rad');
+			self::fail('Expected repeated atan() simplification inside toSum() to enforce shared MAX_MATH_NODES budget.');
+		} catch (CSSParserLimitException $e) {
+			self::assertStringContainsString('node count', strtolower($e->getMessage()));
+		}
+
+		// 8. Visit accounting in simplifySum() / simplifyProduct() blocks nested flattening amplification
+		$absTerm = new \Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction('abs', CSS::percent(1));
+		$nestedAbsSum = new CSSMathSum(array_fill(0, 5_000, $absTerm));
+		for ($i = 0; $i < 25; $i++) {
+			$nestedAbsSum = new CSSMathSum([$nestedAbsSum, $absTerm]);
+		}
+		try {
+			$nestedAbsSum->simplify();
+			self::fail('Expected nested sum flattening amplification to hit MAX_MATH_NODES.');
+		} catch (CSSParserLimitException $e) {
+			self::assertStringContainsString('node count', strtolower($e->getMessage()));
+		}
+
+		$nestedAbsProd = new CSSMathProduct(array_fill(0, 5_000, $absTerm));
+		for ($i = 0; $i < 25; $i++) {
+			$nestedAbsProd = new CSSMathProduct([$nestedAbsProd, $absTerm]);
+		}
+		try {
+			$nestedAbsProd->simplify();
+			self::fail('Expected nested product flattening amplification to hit MAX_MATH_NODES.');
+		} catch (CSSParserLimitException $e) {
+			self::assertStringContainsString('node count', strtolower($e->getMessage()));
 		}
 	}
 }

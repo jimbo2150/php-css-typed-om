@@ -133,6 +133,11 @@ The documented names and signatures follow the PHP source. Trait pages describe 
 - [`CSSMathClamp`](interfaces/TypedOM/CSSMathClamp.md) — `clamp()` expression.
 - [`CSSMathNegate`](interfaces/TypedOM/CSSMathNegate.md) — negated numeric expression.
 - [`CSSMathInvert`](interfaces/TypedOM/CSSMathInvert.md) — reciprocal numeric expression.
+- [`CSSMathFunction`](interfaces/TypedOM/CSSMathFunction.md) — CSS Values Level 4 math function (`round`, `mod`, `rem`, trigonometric, exponential, sign).
+- [`CSSMathFunctionEnum`](interfaces/TypedOM/CSSMathFunctionEnum.md) — CSS Values Level 4 math function identifier enum.
+- [`CSSRoundingStrategy`](interfaces/TypedOM/CSSRoundingStrategy.md) — `round()` rounding strategy enum.
+- [`CSSMathConstant`](interfaces/TypedOM/CSSMathConstant.md) — CSS math constant (`e`, `pi`, `infinity`, `-infinity`, `NaN`).
+- [`CSSMathConstantEnum`](interfaces/TypedOM/CSSMathConstantEnum.md) — CSS math constant identifier enum.
 
 ### Public traits
 

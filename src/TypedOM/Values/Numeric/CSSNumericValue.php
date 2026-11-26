@@ -17,11 +17,16 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\SimpleValueTrait;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Traits\TypeableUnitTrait;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathClamp;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathConstant;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathConstantEnum;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunction;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathFunctionEnum;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathInvert;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMax;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathMin;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathNegate;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathProduct;
+use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSimplifier;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathSum;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\Math\CSSMathValue;
 use ReflectionClass;
@@ -213,7 +218,11 @@ abstract class CSSNumericValue extends CSSStyleValue
 			}
 
 			$children = $node->values->values;
-			if ($node instanceof CSSMathNegate) {
+			if ($node instanceof CSSMathConstant) {
+				$node->cachedNumericType = self::baseTypeForUnitCategory(null);
+			} elseif ($node instanceof CSSMathFunction) {
+				$node->cachedNumericType = CSSMathFunction::computeAndValidateTypeInternal($node->function, $children);
+			} elseif ($node instanceof CSSMathNegate) {
 				$node->cachedNumericType = $children[0]->getNumericTypeInternal();
 			} elseif ($node instanceof CSSMathInvert) {
 				$node->cachedNumericType = $children[0]->getNumericTypeInternal()->invert();
@@ -261,6 +270,24 @@ abstract class CSSNumericValue extends CSSStyleValue
 	}
 
 	/**
+	 * Simplifies this numeric expression per CSS Values and Units Level 4 §10.10.
+	 */
+	public function simplify(?CSSContext $context = null): self
+	{
+		return CSSMathSimplifier::simplify($this, $context);
+	}
+
+	/**
+	 * Simplifies and clamps this numeric expression to `[min, max]` per CSS Values Level 4 §10.8.
+	 *
+	 * @throws InvalidArgumentException When bounds are non-finite or $min > $max
+	 */
+	public function clampToRange(?float $min = null, ?float $max = null, ?CSSContext $context = null): self
+	{
+		return CSSMathSimplifier::clampToRange($this, $min, $max, $context);
+	}
+
+	/**
 	 * Converts this numeric value to the specified compatible unit.
 	 *
 	 * @throws InvalidArgumentException When converting across incompatible dimensions or unsupported units
@@ -268,7 +295,9 @@ abstract class CSSNumericValue extends CSSStyleValue
 	public function to(string $unit, ?CSSContext $context = null): self
 	{
 		$visits = 0;
-		return $this->toWithVisits($this, self::resolveUnit($unit), $context, $visits);
+		$allocated = 0;
+
+		return $this->toWithVisits($this, self::resolveUnit($unit), $context, $visits, $allocated);
 	}
 
 	/**
@@ -299,6 +328,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 		}
 
 		$visits = 0;
+		$allocated = 0;
 		$terms = [];
 		self::collectAdditiveTerms($this, 1.0, $terms, $visits);
 		$context = null;
@@ -326,7 +356,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 
 			if ($targetIdx === null) {
 				// Force standard incompatible conversion error
-				$this->toWithVisits($term, $buckets[0]['unit'], $context, $visits);
+				$this->toWithVisits($term, $buckets[0]['unit'], $context, $visits, $allocated);
 				throw new InvalidArgumentException('Cannot convert numeric value into requested toSum() units.');
 			}
 
@@ -335,11 +365,11 @@ abstract class CSSNumericValue extends CSSStyleValue
 				$context = new CSSContext();
 			}
 
-			$converted = $this->toWithVisits($term, $targetUnit, $context, $visits);
+			$converted = $this->toWithVisits($term, $targetUnit, $context, $visits, $allocated);
 			if ($converted instanceof CSSUnitValue) {
 				$termValue = $converted->value;
 			} else {
-				$evaluated = self::evaluateConcreteTerm($converted, $visits);
+				$evaluated = self::evaluateConcreteTerm($converted, $visits, $targetUnit, $context, $allocated);
 				if ($evaluated === null) {
 					throw new InvalidArgumentException('Cannot sum non-unit expression in toSum().');
 				}
@@ -422,6 +452,12 @@ abstract class CSSNumericValue extends CSSStyleValue
 			}
 			return new CSSUnitValue($root->value, $root->unitObj);
 		}
+		if ($root instanceof CSSMathConstant) {
+			if (++$visits > self::MAX_MATH_NODES) {
+				throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
+			}
+			return new CSSMathConstant($root->constant);
+		}
 		if (!$root instanceof CSSMathValue) {
 			return clone $root;
 		}
@@ -439,6 +475,15 @@ abstract class CSSNumericValue extends CSSStyleValue
 				foreach ($childSlots as $cs) {
 					$newChildren[] = $slots[$cs];
 					unset($slots[$cs]);
+				}
+				if ($orig instanceof CSSMathFunction) {
+					$slots[$targetSlot] = CSSMathFunction::fromValidatedInternal(
+						$orig->function,
+						$newChildren,
+						$orig->cachedNumericType !== null ? clone $orig->cachedNumericType : null,
+						$orig->strategy,
+					);
+					continue;
 				}
 				$cls = $orig::class;
 				$refl = $reflections[$cls] ??= new ReflectionClass($cls);
@@ -469,6 +514,10 @@ abstract class CSSNumericValue extends CSSStyleValue
 			}
 			if ($node instanceof CSSUnitValue) {
 				$slots[$targetSlot] = new CSSUnitValue($node->value, $node->unitObj);
+				continue;
+			}
+			if ($node instanceof CSSMathConstant) {
+				$slots[$targetSlot] = new CSSMathConstant($node->constant);
 				continue;
 			}
 			if (!$node instanceof CSSMathValue) {
@@ -742,11 +791,13 @@ abstract class CSSNumericValue extends CSSStyleValue
 
 	private function equalsOne(self $numericValue): bool
 	{
+		$visits = 0;
+		/** @var array<int, bool> $nanMemo */
+		$nanMemo = [];
 		if ($this === $numericValue) {
-			return true;
+			return !self::treeContainsNaNInternal($this, $visits, $nanMemo, 0);
 		}
 
-		$visits = 0;
 		$stack = [[$this, $numericValue, 0]];
 		while ($stack !== []) {
 			[$left, $right, $depth] = array_pop($stack);
@@ -757,6 +808,9 @@ abstract class CSSNumericValue extends CSSStyleValue
 				throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
 			}
 			if ($left === $right) {
+				if (self::treeContainsNaNInternal($left, $visits, $nanMemo, $depth)) {
+					return false;
+				}
 				continue;
 			}
 			if ($left instanceof CSSUnitValue && $right instanceof CSSUnitValue) {
@@ -780,8 +834,23 @@ abstract class CSSNumericValue extends CSSStyleValue
 				return false;
 			}
 
+			if ($left instanceof CSSMathConstant && $right instanceof CSSMathConstant) {
+				if ($left->constant === CSSMathConstantEnum::NAN || $right->constant === CSSMathConstantEnum::NAN) {
+					return false;
+				}
+				if ($left->constant !== $right->constant) {
+					return false;
+				}
+				continue;
+			}
+
 			if ($left::class !== $right::class) {
 				return false;
+			}
+			if ($left instanceof CSSMathFunction && $right instanceof CSSMathFunction) {
+				if ($left->function !== $right->function || $left->strategy !== $right->strategy) {
+					return false;
+				}
 			}
 			$leftValues = $left->_getCurrentValues();
 			$rightValues = $right->_getCurrentValues();
@@ -794,6 +863,81 @@ abstract class CSSNumericValue extends CSSStyleValue
 		}
 
 		return true;
+	}
+
+	/**
+	 * @param array<int, bool> $nanMemo
+	 */
+	private static function treeContainsNaNInternal(
+		self $root,
+		int &$visits,
+		array &$nanMemo,
+		int $startDepth = 0,
+	): bool {
+		if ($root instanceof CSSUnitValue) {
+			return false;
+		}
+		if ($root instanceof CSSMathConstant) {
+			return $root->isNaN();
+		}
+		if (!$root instanceof CSSMathValue) {
+			return false;
+		}
+		if ($startDepth > self::MAX_MATH_TREE_DEPTH) {
+			throw new CSSParserLimitException(sprintf('Maximum CSS math expression tree depth of %d exceeded.', self::MAX_MATH_TREE_DEPTH));
+		}
+
+		$rootId = spl_object_id($root);
+		if (array_key_exists($rootId, $nanMemo)) {
+			return $nanMemo[$rootId];
+		}
+
+		/** @var array<int, true> $visitedIds */
+		$visitedIds = [$rootId => true];
+		$stack = [[$root, $startDepth]];
+		while ($stack !== []) {
+			[$node, $depth] = array_pop($stack);
+			foreach ($node->values->values as $child) {
+				if (++$visits > self::MAX_MATH_NODES) {
+					throw new CSSParserLimitException(sprintf('Maximum CSS math expression node count of %d exceeded.', self::MAX_MATH_NODES));
+				}
+				$childDepth = $depth + 1;
+				if ($childDepth > self::MAX_MATH_TREE_DEPTH) {
+					throw new CSSParserLimitException(sprintf('Maximum CSS math expression tree depth of %d exceeded.', self::MAX_MATH_TREE_DEPTH));
+				}
+				if ($child instanceof CSSUnitValue) {
+					continue;
+				}
+				if ($child instanceof CSSMathConstant) {
+					if ($child->isNaN()) {
+						return true;
+					}
+					continue;
+				}
+				if (!$child instanceof CSSMathValue) {
+					continue;
+				}
+				$childId = spl_object_id($child);
+				if (array_key_exists($childId, $nanMemo)) {
+					if ($nanMemo[$childId]) {
+						return true;
+					}
+					continue;
+				}
+				// Deduplicate before pushing so wide DAGs never blow up the traversal stack.
+				if (isset($visitedIds[$childId])) {
+					continue;
+				}
+				$visitedIds[$childId] = true;
+				$stack[] = [$child, $childDepth];
+			}
+		}
+
+		foreach ($visitedIds as $id => $_) {
+			$nanMemo[$id] = false;
+		}
+
+		return false;
 	}
 
 	private static function floatsNearlyEqual(float $left, float $right): bool
@@ -815,7 +959,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 		return $resolved;
 	}
 
-	private function toWithVisits(self $term, CSSUnitEnum $targetUnit, ?CSSContext $context, int &$visits): self
+	private function toWithVisits(self $term, CSSUnitEnum $targetUnit, ?CSSContext $context, int &$visits, int &$allocated = 0): self
 	{
 		$currentType = $term->getNumericTypeInternal();
 		$targetDimension = $targetUnit->type()?->value;
@@ -836,10 +980,10 @@ abstract class CSSNumericValue extends CSSStyleValue
 			$context ??= new CSSContext();
 		}
 
-		return self::convertNumericValue($term, $targetUnit, $context, $visits);
+		return self::convertNumericValue($term, $targetUnit, $context, $visits, $allocated);
 	}
 
-	private static function convertNumericValue(self $root, CSSUnitEnum $targetUnit, ?CSSContext $context, int &$visits = 0): self
+	private static function convertNumericValue(self $root, CSSUnitEnum $targetUnit, ?CSSContext $context, int &$visits = 0, int &$allocated = 0): self
 	{
 		$slots = [];
 		$nextSlot = 1;
@@ -860,6 +1004,7 @@ abstract class CSSNumericValue extends CSSStyleValue
 					$orig instanceof CSSMathMin => new CSSMathMin($converted),
 					$orig instanceof CSSMathMax => new CSSMathMax($converted),
 					$orig instanceof CSSMathClamp => new CSSMathClamp($converted[0], $converted[1], $converted[2]),
+					$orig instanceof CSSMathFunction => new CSSMathFunction($orig->function, $converted, $orig->strategy),
 					default => throw new InvalidArgumentException('Unsupported numeric expression conversion.'),
 				};
 				continue;
@@ -933,6 +1078,39 @@ abstract class CSSNumericValue extends CSSStyleValue
 				continue;
 			}
 
+			if ($value instanceof CSSMathConstant) {
+				$slots[$targetSlot] = new CSSMathConstant($value->constant);
+				continue;
+			}
+
+			if ($value instanceof CSSMathFunction) {
+				$fn = $value->function;
+				if ($fn === CSSMathFunctionEnum::SIN
+					|| $fn === CSSMathFunctionEnum::COS
+					|| $fn === CSSMathFunctionEnum::TAN
+					|| $fn === CSSMathFunctionEnum::POW
+					|| $fn === CSSMathFunctionEnum::SQRT
+					|| $fn === CSSMathFunctionEnum::LOG
+					|| $fn === CSSMathFunctionEnum::EXP
+					|| $fn === CSSMathFunctionEnum::SIGN
+				) {
+					$slots[$targetSlot] = self::cloneTreeIteratively($value, $visits, $depth + 1);
+					continue;
+				}
+				if ($fn === CSSMathFunctionEnum::ASIN
+					|| $fn === CSSMathFunctionEnum::ACOS
+					|| $fn === CSSMathFunctionEnum::ATAN
+					|| $fn === CSSMathFunctionEnum::ATAN2
+				) {
+					$simplified = CSSMathSimplifier::simplifyWithBudget($value, $context ?? new CSSContext(), $visits, $allocated);
+					if (!$simplified instanceof CSSUnitValue) {
+						throw new InvalidArgumentException('Cannot convert unresolved angle math function.');
+					}
+					$stack[] = [0, $simplified, $depth + 1, $targetSlot];
+					continue;
+				}
+			}
+
 			if ($value instanceof CSSMathInvert) {
 				throw new InvalidArgumentException('Cannot convert an inverted numeric value to a direct unit.');
 			}
@@ -980,8 +1158,13 @@ abstract class CSSNumericValue extends CSSStyleValue
 		return $slots[0];
 	}
 
-	private static function evaluateConcreteTerm(self $root, int &$visits = 0): ?float
-	{
+	private static function evaluateConcreteTerm(
+		self $root,
+		int &$visits = 0,
+		?CSSUnitEnum $targetUnit = null,
+		?CSSContext $context = null,
+		int &$allocated = 0,
+	): ?float {
 		$slots = [];
 		$nextSlot = 1;
 		// Phase 0 = VISIT(node, numberOnly, depth, slotIdx)
@@ -1062,6 +1245,33 @@ abstract class CSSNumericValue extends CSSStyleValue
 				}
 				$slots[$targetSlot] = $node->value;
 				continue;
+			}
+
+			if ($node instanceof CSSMathConstant || $node instanceof CSSMathFunction) {
+				$simplified = CSSMathSimplifier::simplifyWithBudget($node, $context, $visits, $allocated);
+				if ($simplified instanceof CSSUnitValue) {
+					if ($numberOnly) {
+						if ($simplified->unit !== 'number') {
+							return null;
+						}
+						$slots[$targetSlot] = $simplified->value;
+						continue;
+					}
+					if ($targetUnit !== null && $simplified->getUnitObjInternal() !== $targetUnit) {
+						$convertedUnit = self::convertNumericValue($simplified, $targetUnit, $context, $visits, $allocated);
+						if (!$convertedUnit instanceof CSSUnitValue) {
+							return null;
+						}
+						$slots[$targetSlot] = $convertedUnit->value;
+						continue;
+					}
+					$slots[$targetSlot] = $simplified->value;
+					continue;
+				}
+				if ($simplified instanceof CSSMathConstant) {
+					throw new InvalidArgumentException('Cannot evaluate non-finite CSS math constant in toSum().');
+				}
+				return null;
 			}
 
 			if ($node instanceof CSSMathNegate || $node instanceof CSSMathSum) {

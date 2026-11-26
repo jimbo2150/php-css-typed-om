@@ -13,7 +13,7 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSNumericValue;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 
 /**
- * Base class for CSS Typed OM math expressions (`calc()`, `min()`, `max()`, `clamp()`).
+ * Base class for CSS Typed OM math expressions (`calc()`, `min()`, `max()`, `clamp()`, and CSS Values 4 functions).
  *
  * @property-read ?string $operator
  *
@@ -104,7 +104,14 @@ abstract class CSSMathValue extends CSSNumericValue
 				continue;
 			}
 
-			if ($value instanceof CSSMathMin || $value instanceof CSSMathMax || $value instanceof CSSMathClamp) {
+			if ($value instanceof CSSMathConstant) {
+				if ($mathDepth > $maxMathDepth) {
+					throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
+				}
+				continue;
+			}
+
+			if ($value instanceof CSSMathMin || $value instanceof CSSMathMax || $value instanceof CSSMathClamp || $value instanceof CSSMathFunction) {
 				$childDepth = $mathDepth + 1;
 				if ($childDepth > $maxMathDepth) {
 					throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
@@ -124,7 +131,13 @@ abstract class CSSMathValue extends CSSNumericValue
 					}
 					continue;
 				}
-				$needsParens = $inner instanceof CSSMathNegate || ($inner instanceof CSSUnitValue && $inner->value < 0.0);
+				$needsParens = $inner instanceof CSSMathNegate
+					|| ($inner instanceof CSSUnitValue && $inner->value < 0.0)
+					|| $inner instanceof CSSMathConstant
+					|| $inner instanceof CSSMathFunction
+					|| $inner instanceof CSSMathMin
+					|| $inner instanceof CSSMathMax
+					|| $inner instanceof CSSMathClamp;
 				$childDepth = $needsParens ? $mathDepth + 1 : $mathDepth;
 				$stack[] = [$inner, $childDepth, $treeDepth + 1, false, 3];
 				continue;
@@ -193,7 +206,10 @@ abstract class CSSMathValue extends CSSNumericValue
 							if ($innerDepth > $maxMathDepth) {
 								throw new CSSParserLimitException(sprintf('Maximum CSS math nesting depth of %d exceeded.', $maxMathDepth));
 							}
-						} elseif ($operand instanceof CSSMathNegate || ($operand instanceof CSSUnitValue && $operand->value < 0.0)) {
+						} elseif ($operand instanceof CSSMathNegate
+							|| ($operand instanceof CSSUnitValue && $operand->value < 0.0)
+							|| $operand instanceof CSSMathConstant
+						) {
 							$stack[] = [$operand, $innerDepth + 1, $treeDepth + 2, false, 1];
 						} else {
 							$stack[] = [$operand, $innerDepth, $treeDepth + 2, false, 1];
@@ -257,6 +273,31 @@ abstract class CSSMathValue extends CSSNumericValue
 				continue;
 			}
 
+			if ($value instanceof CSSMathConstant) {
+				$kw = $value->constant->value;
+				$emit($root ? 'calc(' . $kw . ')' : $kw);
+				continue;
+			}
+
+			if ($value instanceof CSSMathFunction) {
+				$args = $value->values->values;
+				$emit($value->function->value . '(');
+				$stack[] = [0, ')'];
+				for ($i = count($args) - 1; $i >= 0; $i--) {
+					$stack[] = [1, $args[$i], 0, false, $depth + 1];
+					if ($i > 0) {
+						$stack[] = [0, ', '];
+					}
+				}
+				if ($value->function === CSSMathFunctionEnum::ROUND
+					&& $value->strategy !== null
+					&& $value->strategy !== CSSRoundingStrategy::NEAREST
+				) {
+					$stack[] = [0, $value->strategy->value . ', '];
+				}
+				continue;
+			}
+
 			if ($value instanceof CSSMathMin || $value instanceof CSSMathMax || $value instanceof CSSMathClamp) {
 				$name = $value instanceof CSSMathMin ? 'min' : ($value instanceof CSSMathMax ? 'max' : 'clamp');
 				$args = $value->values->values;
@@ -277,7 +318,13 @@ abstract class CSSMathValue extends CSSNumericValue
 					$emit('calc(0)');
 					continue;
 				}
-				$needsParens = $inner instanceof CSSMathNegate || ($inner instanceof CSSUnitValue && $inner->value < 0.0);
+				$needsParens = $inner instanceof CSSMathNegate
+					|| ($inner instanceof CSSUnitValue && $inner->value < 0.0)
+					|| $inner instanceof CSSMathConstant
+					|| $inner instanceof CSSMathFunction
+					|| $inner instanceof CSSMathMin
+					|| $inner instanceof CSSMathMax
+					|| $inner instanceof CSSMathClamp;
 				if ($root) {
 					$emit('calc(');
 					$stack[] = [0, ')'];
@@ -404,11 +451,17 @@ abstract class CSSMathValue extends CSSNumericValue
 						$stack[] = [1, $child, 1, false, $depth + 1];
 						continue;
 					}
-					if ($child instanceof CSSMathNegate) {
+					if ($child instanceof CSSUnitValue && $child->value < 0.0) {
+						$symbol = $child->unitObj?->toString() ?? '';
+						$stack[] = [0, ' - ' . (-$child->value) . $symbol];
+					} elseif ($child instanceof CSSMathNegate) {
 						$operand = $child->values->values[0] ?? null;
 						if ($operand === null) {
 							$stack[] = [0, ' - 0'];
-						} elseif ($operand instanceof CSSMathNegate || ($operand instanceof CSSUnitValue && $operand->value < 0.0)) {
+						} elseif ($operand instanceof CSSMathNegate
+							|| ($operand instanceof CSSUnitValue && $operand->value < 0.0)
+							|| $operand instanceof CSSMathConstant
+						) {
 							$stack[] = [0, ')'];
 							$stack[] = [1, $operand, 1, false, $depth + 1];
 							$stack[] = [0, ' - ('];
