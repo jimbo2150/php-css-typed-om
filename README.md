@@ -97,9 +97,9 @@ echo CSSRenderer::render($opaqueRule, new CSSRenderOptions(keepComments: false))
 
 Stylesheet parsing recovers at malformed declarations/rules and reports `message` and byte `offset` entries through `getParseErrors()`. Direct declaration replacement and rule insertion validate atomically before mutating and throw `InvalidArgumentException` on malformed or structurally unsafe input. Structured rules serialize in normalized form; unknown at-rules are retained as opaque source.
 
-`CSSParserOptions` enforces configurable resource limits by default (`maxBytes`: 16 MiB, `maxDepth`: 256 nested rule levels, `maxRules`: 100,000 rules, `maxMathDepth`: 256 nested math levels, `maxErrors`: 1,000 diagnostics, `maxDeclarations`: 500,000 declarations). Stylesheet parsing records a diagnostic and stops safely at boundaries; strict entry points (`insertRule()`, `replaceSync()`, `CSSParser::parseSingleRule()`, `CSSNumericValue::parse()`, etc.) throw `CSSParserLimitException` (a subclass of `InvalidArgumentException`) without mutating existing state. Pass a custom `CSSParserOptions` instance or `CSSParserOptions::unlimited()` to override or disable limits.
+`CSSParserOptions` enforces configurable resource limits by default (`maxBytes`: 16 MiB, `maxDepth`: 256 nested rule levels, `maxRules`: 100,000 rules, `maxMathDepth`: 256 nested math levels, `maxErrors`: 1,000 diagnostics, `maxDeclarations`: 500,000 declarations). Stylesheet parsing records a diagnostic and stops safely at boundaries; strict entry points (`insertRule()`, `replaceSync()`, `CSSParser::parseSingleRule()`, `CSSNumericValue::parse()`, etc.) throw `CSSParserLimitException` (a subclass of `InvalidArgumentException`) without mutating existing state. Pass a custom `CSSParserOptions` instance or `CSSParserOptions::unlimited()` to override or disable limits. Opt-in flags `$browserErrorRecovery` (enabling CSS Syntax Level 3 §3.3 preprocessing and §5 error recovery) and `$trackSpans` (populating `CSSSourceSpan` byte/line/column offsets on rules and declarations) are also configured via `CSSParserOptions`.
 
-The parser structures qualified and nested style rules; media, supports, container, scope, layer, keyframes, starting-style, font-feature-values, and other grouping rules; charset, import, and namespace rules; page rules with nested margin boxes; counter-style, font-face, font-palette-values, position-try, property, and view-transition rules; and CSS function rules with parameter and declaration objects. Selector and condition matching is not performed. Import rules retain their URL, layer, supports condition, and `MediaList` without fetching external sheets.
+The parser structures qualified and nested style rules; media, supports, container, scope, layer, keyframes, starting-style, font-feature-values, and other grouping rules; charset, import, namespace, and custom-media (`CSSCustomMediaRule`) rules; page rules with nested margin boxes; color-profile (`CSSColorProfileRule`), counter-style, font-face, font-palette-values, position-try, property, and view-transition rules; and CSS function rules with parameter and declaration objects. Standalone CSS Syntax Level 3 utilities (`CSSInputPreprocessor`, `CSSTokenizer`, `CSSSelectorList`, and `CSSMediaQueryParser`) are also exposed for inspecting token streams, selectors, and media queries. Selector and condition matching is not performed. Import rules retain their URL, layer, supports condition, and `MediaList` without fetching external sheets.
 
 ## Typed OM Values
 
@@ -120,7 +120,7 @@ echo $minimum; // clamp(10px, 5vw, 100px)
 $height = CSS::em(2);
 ```
 
-Numeric values expose `type()` / `$value->type` returning `CSSNumericType` dimension exponent maps (including `percentHint` when mixing percentages with a dimensional unit), variadic arithmetic, `calc()`, `min()`, `max()`, and `clamp()`, and standalone read-only `CSSNumericArray` collections (`entries()`, `keys()`, `values()`, `forEach()`). `CSSUnitValue::$unit` returns canonical Typed OM unit names (`'number'`, `'percent'`, `'px'`, `'x'`, etc.) while string serialization outputs standard CSS (`5`, `50%`, `12px`, `2x`). Same-dimension units convert using exact CSS absolute factors (`72pt == 96px`, `2.54cm == 96px`, `25.4mm == 96px`, `1x == 1dppx == 96dpi`) and a supplied `CSSContext` for relative units; cross-dimension and non-finite inputs are rejected. `CSSContext` uses its supplied font size and viewport dimensions, with estimates for font-metric-relative units and viewport fallbacks for container/dynamic units. These conversions cannot reflect a browser's actual element or font metrics. Unit factories accept finite numeric strings, integers, and floats. `CSS::escape()` implements single-backslash CSSOM identifier escaping, `CSS::registerProperty()` manages a standalone custom-property registry, and `CSS::supports()` evaluates standalone CSS declaration and `@supports` condition syntax.
+Numeric values expose `type()` / `$value->type` returning `CSSNumericType` dimension exponent maps (including `percentHint` when mixing percentages with a dimensional unit), variadic arithmetic, `calc()`, `min()`, `max()`, `clamp()`, CSS Values Level 4 math functions via `CSSMathFunction` (`round()`, `mod()`, `rem()`, `sin()`, `cos()`, `tan()`, `asin()`, `acos()`, `atan()`, `atan2()`, `pow()`, `sqrt()`, `hypot()`, `log()`, `exp()`, `abs()`, `sign()`), math constants via `CSSMathConstant` (`e`, `pi`, `infinity`, `-infinity`, `NaN`), calculation-tree `simplify()` and `clampToRange()`, and standalone read-only `CSSNumericArray` collections (`entries()`, `keys()`, `values()`, `forEach()`). `CSSUnitValue::$unit` returns canonical Typed OM unit names (`'number'`, `'percent'`, `'px'`, `'x'`, etc.) while string serialization outputs standard CSS (`5`, `50%`, `12px`, `2x`). Same-dimension units convert using exact CSS absolute factors (`72pt == 96px`, `2.54cm == 96px`, `25.4mm == 96px`, `1x == 1dppx == 96dpi`) and a supplied `CSSContext` for relative units; cross-dimension and non-finite inputs are rejected. `CSSContext` uses its supplied font size and viewport dimensions, with estimates for font-metric-relative units and viewport fallbacks for container/dynamic units. These conversions cannot reflect a browser's actual element or font metrics. Unit factories accept finite numeric strings, integers, and floats. `CSS::escape()` implements single-backslash CSSOM identifier escaping, `CSS::registerProperty()` manages a standalone custom-property registry, and `CSS::supports()` evaluates standalone CSS declaration and `@supports` condition syntax.
 
 ### Property Values and Maps
 
@@ -135,7 +135,7 @@ $rule = $sheet->cssRules[1];
 $rule->styleMap->set('width', $width);
 ```
 
-Property parsing returns typed numeric, keyword, color (`CSSColorValue`: `CSSRGB`, `CSSHSL`, `CSSHWB`, `CSSLab`, `CSSLCH`, `CSSOKLab`, `CSSOKLCH`, `CSSColor`), image, position, and transform values where recognized. Transform values/components are iterable and mutable (`entries()`, `keys()`, `values()`, `forEach()`); `CSSTransformValue::toMatrix()` and `CSSTransformComponent::toMatrix()` return a mutable `DOMMatrix` (inheriting from `DOMMatrixReadOnly`, implementing `ArrayAccess` over column-major indices `0..15` and `toFloat64Array()`). Custom properties are represented as mutable `CSSUnparsedValue` sequences, with `var()` references exposed as `CSSVariableReferenceValue`. Unsupported or property-specific grammars (including relative color syntax and `var()` inside colors) remain available as unparsed source instead of being silently discarded. `StylePropertyMap` and `StylePropertyMapReadOnly` operate on standalone declaration blocks (`entries()`, `keys()`, `values()`, `forEach()`, variadic `set()`, and `append()`).
+Property parsing returns typed numeric, keyword, color (`CSSColorValue`: `CSSRGB`, `CSSHSL`, `CSSHWB`, `CSSLab`, `CSSLCH`, `CSSOKLab`, `CSSOKLCH`, `CSSColor`), image, position, and transform values where recognized. Color support covers hex, named colors (`transparent` and 148 standard names), `currentcolor`, all CSS Color 4 functional spaces, CSS Color 5 `color-mix()`, Relative Color Syntax (`from <color>`), context-resolved `light-dark()`, `none` missing-component propagation, cross-space conversions (`toRGB()`, `toHSL()`, `toHWB()`, `toLab()`, `toLCH()`, `toOKLab()`, `toOKLCH()`, `to()`), and OKLCH binary-search gamut mapping (`inGamut()`, `toGamut()`). Custom properties are represented as mutable `CSSUnparsedValue` sequences, with `var()` references exposed as `CSSVariableReferenceValue`. `var()` references and context-deferred expressions inside colors fall back to `CSSUnparsedValue` during property parsing (or throw `CSSDeferredColorException` on direct `CSSColorValue::parse()`). Transform values/components are iterable and mutable (`entries()`, `keys()`, `values()`, `forEach()`); Geometry Interfaces Level 1 types include `DOMMatrixReadOnly`, `DOMMatrix` (implementing `ArrayAccess` over column-major indices `0..15` and `toFloat64Array()`), `DOMPointReadOnly`, `DOMPoint`, `DOMRectReadOnly`, `DOMRect`, and `DOMQuad`. `StylePropertyMap` and `StylePropertyMapReadOnly` operate on standalone declaration blocks (`entries()`, `keys()`, `values()`, `forEach()`, variadic `set()`, and `append()`).
 
 ## Scope, Security, and Limitations
 
@@ -144,25 +144,24 @@ Property parsing returns typed numeric, keyword, color (`CSSColorValue`: `CSSRGB
 - **Not an HTML sanitizer:** Serialized CSS (`cssText`, `CSSOpaqueRule`, and raw unparsed fragments) is normalized CSS source and is **not** safe to interpolate directly into HTML `<style>` elements or attributes without HTML-context escaping (for inline `<style>` tags, `CSSRenderer` offers `escapeHtmlStyleTag: true` in `CSSRenderOptions`).
 - It does not parse HTML, associate stylesheets with elements, match selectors, calculate the cascade/computed styles, or implement layout/rendering.
 - CSSOM View, viewport/screen geometry, DOM event APIs, and browser-owned objects are out of scope.
-- The parser validates CSS structure, not every property grammar. Unknown valid rules and values are retained; malformed syntax may be recovered with diagnostics.
-- CSS color parsing covers hex (`#rgb`/`#rgba`/`#rrggbb`/`#rrggbbaa`) and functional CSS Color 4 notations (`rgb()`, `hsl()`, `hwb()`, `lab()`, `lch()`, `oklab()`, `oklch()`, `color()`) using the W3C CSS Color 5 Typed OM percentage scale for `CSSRGB`; relative color syntax and `var()` inside colors fall back to `CSSUnparsedValue`.
+- Standard properties are validated against W3C Value Definition Syntax grammars and registered `@property` syntaxes (`CSSPropertyRule` / `CSS::registerProperty()`), while unrecognized at-rules (`CSSOpaqueRule`), custom properties, and `var()` substitutions are retained cleanly; malformed syntax in stylesheets is recovered with byte-offset diagnostics.
+- CSS color serialization follows W3C CSS Color 4/5 and Typed OM conventions (`CSSRGB` stores/serializes channels on the percentage scale; legacy comma syntax and out-of-gamut values convert and gamut-map deterministically); relative color expressions referencing `var()`, unconfigured `currentcolor`, or unresolved relative units fall back to `CSSUnparsedValue` in property parsing.
 - CSS serialization of structured objects is normalized and is not a byte-for-byte stylesheet formatter.
 
 ## Development
 
-Run the test suite with:
-
 ```bash
-composer test
+composer test      # Full PHPUnit suite
+composer test-wpt  # WPT compliance test suite
+composer stan      # PHPStan Level 6 static analysis
+composer cs-check  # PHP-CS-Fixer dry-run check
+composer cs-fix    # Fix coding style
+composer bench     # Standalone benchmark (XDEBUG_MODE=off + OPcache)
 ```
 
-Run the benchmark suite (with Xdebug disabled and CLI OPcache enabled) with:
+The test suite covers WPT fixtures, scanner nesting/escaping, Value Definition Syntax grammar matching, numeric/math/color/geometry Typed OM operations, declaration and rule mutation, malformed-input recovery, opaque syntax retention, and security/resource limit invariants.
 
-```bash
-XDEBUG_MODE=off php -d opcache.enable_cli=1 benchmarks/bench.php
-```
-
-The test suite covers scanner nesting/escaping, numeric and Typed OM values, declaration and rule mutation, malformed-input recovery, opaque syntax retention, and serialization round trips.
+See [CHANGELOG.md](CHANGELOG.md) and [v3.0.0 Release Notes](docs/releases/v3.0.0.md) for version history and upgrade details.
 
 ## References
 
@@ -170,3 +169,7 @@ The test suite covers scanner nesting/escaping, numeric and Typed OM values, dec
 - [CSS Object Model](https://developer.mozilla.org/en-US/docs/Web/API/CSS_Object_Model)
 - [CSSOM specification](https://drafts.csswg.org/cssom/)
 - [CSS Typed OM Level 1](https://drafts.css-houdini.org/css-typed-om/)
+- [CSS Values and Units Level 4](https://drafts.csswg.org/css-values-4/)
+- [CSS Color Module Level 4](https://drafts.csswg.org/css-color-4/) & [Level 5](https://drafts.csswg.org/css-color-5/)
+- [CSS Syntax Module Level 3](https://drafts.csswg.org/css-syntax-3/)
+- [Geometry Interfaces Module Level 1](https://drafts.fxtf.org/geometry/)
