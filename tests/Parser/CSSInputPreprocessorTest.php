@@ -75,4 +75,36 @@ final class CSSInputPreprocessorTest extends TestCase
 			self::assertNotSame('', $e->getMessage());
 		}
 	}
+
+	public function testValidUtf8FastPathsAndNeedsPreprocessingParity(): void
+	{
+		// Valid UTF-8 with BOM (no CRLF/FF/NUL)
+		$bomUtf8 = "\xEF\xBB\xBF.カード { content: \"café 😀\"; }";
+		self::assertTrue(CSSInputPreprocessor::needsPreprocessing($bomUtf8));
+		self::assertSame(".カード { content: \"café 😀\"; }", CSSInputPreprocessor::preprocess($bomUtf8));
+
+		// Valid UTF-8 with CRLF/CR/FF (no NUL)
+		$crlfUtf8 = "\xEF\xBB\xBF.café {\r\n\tcontent: \"日本語\";\r\f}";
+		self::assertTrue(CSSInputPreprocessor::needsPreprocessing($crlfUtf8));
+		self::assertSame(".café {\n\tcontent: \"日本語\";\n\n}", CSSInputPreprocessor::preprocess($crlfUtf8));
+
+		// Valid UTF-8 containing NUL + BOM + 3x maxBytes check
+		$nulUtf8 = "\xEF\xBB\xBF.café { a: \"x\x00y\"; }";
+		self::assertTrue(CSSInputPreprocessor::needsPreprocessing($nulUtf8));
+		self::assertSame(".café { a: \"x\u{FFFD}y\"; }", CSSInputPreprocessor::preprocess($nulUtf8));
+
+		// Surrogate and overlong fail C-level check and report needsPreprocessing() === true
+		self::assertTrue(CSSInputPreprocessor::needsPreprocessing("\xED\xA0\x80"));
+		self::assertTrue(CSSInputPreprocessor::needsPreprocessing("\xC0\xAF"));
+
+		$tight = new CSSParserOptions(maxBytes: 12);
+		self::assertSame("café\u{FFFD}x", CSSInputPreprocessor::preprocess("café\x00x", $tight)); // 5 + 3 + 1 = 9 <= 12
+		try {
+			CSSInputPreprocessor::preprocess("café\x00\x00x", $tight); // 5 + 6 + 1 = 12 ok; add one more char -> 13 > 12
+			CSSInputPreprocessor::preprocess("café\x00\x00xy", $tight);
+			self::fail('Expected valid UTF-8 with NUL 3x expansion to throw CSSParserLimitException.');
+		} catch (CSSParserLimitException $e) {
+			self::assertNotSame('', $e->getMessage());
+		}
+	}
 }

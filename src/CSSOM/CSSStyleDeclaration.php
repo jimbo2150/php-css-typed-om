@@ -762,23 +762,23 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	}
 
 	/**
-	 * @internal Checks whether a slice without quotes/escapes/comments/brackets/control-bytes has safe balanced parens (no url() or -->).
+	 * @internal Extracts a slice without quotes/escapes/comments/brackets/control-bytes if parens are balanced and free of `url(`/`-->`.
 	 */
-	public static function isCleanAsciiSliceSafeInternal(string $source, int $start, int $end): bool
+	public static function extractCleanAsciiSliceInternal(string $source, int $start, int $end): ?string
 	{
 		$len = $end - $start;
 		if ($len <= 0) {
-			return true;
+			return '';
 		}
 		$slice = substr($source, $start, $len);
 		if (str_contains($slice, '/*') || str_contains($slice, '-->')) {
-			return false;
+			return null;
 		}
 		if (!str_contains($slice, '(') && !str_contains($slice, ')')) {
-			return true;
+			return $slice;
 		}
 		if (stripos($slice, 'url(') !== false) {
-			return false;
+			return null;
 		}
 		$depth = 0;
 		$pos = 0;
@@ -792,23 +792,22 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			} else {
 				$depth--;
 				if ($depth < 0) {
-					return false;
+					return null;
 				}
 			}
 			$pos++;
 		}
 
-		return $depth === 0;
+		return $depth === 0 ? $slice : null;
 	}
 
 	/**
-	 * @internal Fast path for clean ASCII declaration slices [$start, $end) containing no escapes, quotes, comments, brackets, or control bytes.
+	 * @internal Fast path for an already-extracted clean ASCII declaration `$slice` starting at `$start`.
 	 * @param list<array{message: string, offset: int}> $diagnostics
 	 */
 	public function parseCleanAsciiDeclarationInternal(
-		string $source,
+		string $slice,
 		int $start,
-		int $end,
 		bool $strict,
 		array &$diagnostics,
 		?CSSParserOptions $options = null,
@@ -818,11 +817,11 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		bool $allowEmptyInitialValue = false,
 		bool &$sawEmptyInitialValue = false,
 	): bool {
-		$declaration = trim(substr($source, $start, $end - $start), " \t\n");
+		$declaration = trim($slice, " \t\n");
 		if ($declaration === '') {
 			return true;
 		}
-		$segmentOffset = $start + strspn($source, " \t\n", $start, $end - $start);
+		$segmentOffset = $start + strspn($slice, " \t\n");
 		$colon = strpos($declaration, ':');
 		if ($colon === false) {
 			self::handleInvalidDeclaration('Missing colon in declaration: ' . $declaration, $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
@@ -995,49 +994,34 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			);
 		}
 
-		// Detect trailing !important on token stream (last two non-whitespace tokens).
+		// Detect trailing !important on token stream only at top level ($unclosedBlocks === []), allowing whitespace/comments between '!' and 'important'.
 		$priority = '';
 		$valueSliceEnd = $tokens[$valEndIdx]['end'];
-		if ($valEndIdx - $valStartIdx >= 1) {
-			$lastTok = $tokens[$valEndIdx];
-			$prevTok = $tokens[$valEndIdx - 1];
-			if ($prevTok['type'] === CSSTokenType::Delim
-				&& ($prevTok['end'] - $prevTok['start']) === 1
-				&& $source[$prevTok['start']] === '!'
-				&& $lastTok['type'] === CSSTokenType::Ident
-				&& self::tokenIdentEqualsLower($source, $lastTok, 'important')
-			) {
-				if (!static::allowsImportant()) {
-					self::handleInvalidDeclaration(
-						sprintf('!important is not allowed in %s (%s).', static::class, $name),
-						$segmentOffset,
-						$strict,
-						$diagnostics,
-						$options,
-						$allowSentinelSlot,
-					);
-					return true;
-				}
-				$priority = 'important';
-				$valEndIdx -= 2;
-				while ($valEndIdx >= $valStartIdx && $tokens[$valEndIdx]['type'] === CSSTokenType::Whitespace) {
-					$valEndIdx--;
-				}
-				if ($valEndIdx - $valStartIdx >= 1) {
-					$dupLast = $tokens[$valEndIdx];
-					$dupPrev = $tokens[$valEndIdx - 1];
-					if ($dupPrev['type'] === CSSTokenType::Delim
-						&& ($dupPrev['end'] - $dupPrev['start']) === 1
-						&& $source[$dupPrev['start']] === '!'
-						&& $dupLast['type'] === CSSTokenType::Ident
-						&& self::tokenIdentEqualsLower($source, $dupLast, 'important')
-					) {
-						self::handleInvalidDeclaration('Duplicate !important in CSS declaration (' . $name . ').', $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
-						return true;
-					}
-				}
-				$valueSliceEnd = $valEndIdx >= $valStartIdx ? $tokens[$valEndIdx]['end'] : $colonEnd;
+		$bangIdx = ($unclosedBlocks === [] && $valEndIdx - $valStartIdx >= 1)
+			? self::matchTrailingImportantTokensInternal($source, $tokens, $valStartIdx, $valEndIdx)
+			: null;
+		if ($bangIdx !== null) {
+			if (!static::allowsImportant()) {
+				self::handleInvalidDeclaration(
+					sprintf('!important is not allowed in %s (%s).', static::class, $name),
+					$segmentOffset,
+					$strict,
+					$diagnostics,
+					$options,
+					$allowSentinelSlot,
+				);
+				return true;
 			}
+			$priority = 'important';
+			$valEndIdx = $bangIdx - 1;
+			while ($valEndIdx >= $valStartIdx && $tokens[$valEndIdx]['type'] === CSSTokenType::Whitespace) {
+				$valEndIdx--;
+			}
+			if (self::matchTrailingImportantTokensInternal($source, $tokens, $valStartIdx, $valEndIdx) !== null) {
+				self::handleInvalidDeclaration('Duplicate !important in CSS declaration (' . $name . ').', $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
+				return true;
+			}
+			$valueSliceEnd = $valEndIdx >= $valStartIdx ? $tokens[$valEndIdx]['end'] : $colonEnd;
 		}
 
 		if ($valStartIdx > $valEndIdx) {
@@ -1102,6 +1086,41 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	}
 
 	/**
+	 * @internal Matches trailing `!important` (allowing intervening whitespace tokens) in `$tokens[$valStartIdx..$valEndIdx]`.
+	 * @param list<array{type: CSSTokenType, start: int, end: int, hasEscapes: bool, closedAtEof: bool, closedQuote: string, trailingBsAtEof: bool}> $tokens
+	 */
+	public static function matchTrailingImportantTokensInternal(
+		string $source,
+		array $tokens,
+		int $valStartIdx,
+		int $valEndIdx,
+	): ?int {
+		if ($valEndIdx - $valStartIdx < 1) {
+			return null;
+		}
+		$lastTok = $tokens[$valEndIdx];
+		if ($lastTok['type'] !== CSSTokenType::Ident || !self::tokenIdentEqualsLower($source, $lastTok, 'important')) {
+			return null;
+		}
+		$bangIdx = $valEndIdx - 1;
+		while ($bangIdx >= $valStartIdx && $tokens[$bangIdx]['type'] === CSSTokenType::Whitespace) {
+			$bangIdx--;
+		}
+		if ($bangIdx < $valStartIdx) {
+			return null;
+		}
+		$bangTok = $tokens[$bangIdx];
+		if ($bangTok['type'] === CSSTokenType::Delim
+			&& ($bangTok['end'] - $bangTok['start']) === 1
+			&& $source[$bangTok['start']] === '!'
+		) {
+			return $bangIdx;
+		}
+
+		return null;
+	}
+
+	/**
 	 * @param array{type: CSSTokenType, start: int, end: int, hasEscapes: bool, closedAtEof: bool, closedQuote: string, trailingBsAtEof: bool} $token
 	 */
 	private static function tokenIdentEqualsLower(string $source, array $token, string $expectedLower): bool
@@ -1143,271 +1162,6 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		bool $allowEmptyInitialValue,
 		bool &$sawEmptyInitialValue,
 	): bool {
-		if ($value === '' && !str_starts_with($name, '--')) {
-			if ($allowEmptyInitialValue && $name === 'initial-value' && $priority === '') {
-				if ($options !== null && $options->maxDeclarations !== null && $declarationCount >= $options->maxDeclarations) {
-					$message = sprintf('Maximum CSS declaration limit of %d exceeded.', $options->maxDeclarations);
-					if ($strict || $throwOnLimit) {
-						throw new CSSParserLimitException($message);
-					}
-					self::recordDiagnostic($message, $segmentOffset, $diagnostics, $options, $allowSentinelSlot);
-					return false;
-				}
-				$current = $this->declarations['initial-value'] ?? null;
-				if ($current !== null && $current['priority'] === 'important') {
-					return true;
-				}
-				if ($declarationCount >= PHP_INT_MAX) {
-					throw new InvalidArgumentException('CSS declaration count overflows integer bounds.');
-				}
-				$declarationCount++;
-				if ($current !== null) {
-					$this->contentBytes -= strlen('initial-value') + strlen($current['value']);
-				}
-				unset($this->declarations['initial-value']);
-				$this->cachedKeys = null;
-				$sawEmptyInitialValue = true;
-				return true;
-			}
-			self::handleInvalidDeclaration('CSS declaration value cannot be empty: ' . $name, $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
-			return true;
-		}
-
-		if ($options !== null && $options->maxDeclarations !== null && $declarationCount >= $options->maxDeclarations) {
-			$message = sprintf('Maximum CSS declaration limit of %d exceeded.', $options->maxDeclarations);
-			if ($strict || $throwOnLimit) {
-				throw new CSSParserLimitException($message);
-			}
-			self::recordDiagnostic($message, $segmentOffset, $diagnostics, $options, $allowSentinelSlot);
-			return false;
-		}
-
-		if ($declarationCount >= PHP_INT_MAX) {
-			throw new InvalidArgumentException('CSS declaration count overflows integer bounds.');
-		}
-		$declarationCount++;
-
-		$current = $this->declarations[$name] ?? null;
-		if ($current !== null && $current['priority'] === 'important' && $priority !== 'important') {
-			return true;
-		}
-		if ($name === 'initial-value') {
-			$sawEmptyInitialValue = false;
-		}
-		$oldBytes = $current !== null ? strlen($name) + strlen($current['value']) : 0;
-		$this->contentBytes += strlen($name) + strlen($value) - $oldBytes;
-		$this->declarations[$name] = ['value' => $value, 'priority' => $priority];
-		$this->cachedKeys = null;
-
-		return true;
-	}
-
-	/**
-	 * @internal Parses a single declaration slice [$start, $end) directly into $this->declarations.
-	 * @param list<array{message: string, offset: int}> $diagnostics
-	 */
-	public function parseDeclarationSlice(
-		string $source,
-		int $start,
-		int $end,
-		bool $strict,
-		array &$diagnostics,
-		?CSSParserOptions $options = null,
-		int &$declarationCount = 0,
-		bool $throwOnLimit = false,
-		bool $allowSentinelSlot = false,
-		bool $allowEmptyInitialValue = false,
-		bool &$sawEmptyInitialValue = false,
-	): bool {
-		if ($start >= $end) {
-			return true;
-		}
-
-		$segmentOffset = self::findDeclarationStartOffset($source, $start, $end);
-		if ($segmentOffset > $start && CSSSyntaxScanner::hasControlCharactersInSlice($source, $start, $segmentOffset - $start)) {
-			self::handleInvalidDeclaration('Disallowed control characters in CSS declaration.', $start, $strict, $diagnostics, $options, $allowSentinelSlot);
-			return true;
-		}
-		if ($segmentOffset >= $end) {
-			return true;
-		}
-
-		if (strcspn($source, "\\/\"'()[]{};\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0B\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x7F", $segmentOffset, $end - $segmentOffset) === ($end - $segmentOffset)) {
-			$declaration = trim(substr($source, $segmentOffset, $end - $segmentOffset), self::CSS_WHITESPACE);
-			if ($declaration === '') {
-				return true;
-			}
-			$colon = strpos($declaration, ':');
-			if ($colon === false) {
-				self::handleInvalidDeclaration('Missing colon in declaration: ' . $declaration, $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
-				return true;
-			}
-			$property = trim(substr($declaration, 0, $colon), self::CSS_WHITESPACE);
-			$value = trim(substr($declaration, $colon + 1), self::CSS_WHITESPACE);
-
-			try {
-				$name = self::normalizePropertyName($property);
-				static::assertAllowedDescriptor($name);
-			} catch (InvalidArgumentException $exception) {
-				self::handleInvalidDeclaration($exception->getMessage(), $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
-				return true;
-			}
-
-			$priority = '';
-			if ($value !== '' && str_contains($value, '!')) {
-				$important = CSSSyntaxScanner::findLastTopLevelImportant($value);
-				if ($important !== null) {
-					if (!static::allowsImportant()) {
-						self::handleInvalidDeclaration(
-							sprintf('!important is not allowed in %s (%s).', static::class, $name),
-							$segmentOffset,
-							$strict,
-							$diagnostics,
-							$options,
-							$allowSentinelSlot,
-						);
-						return true;
-					}
-					$priority = 'important';
-					$value = rtrim(substr($value, 0, $important), self::CSS_WHITESPACE);
-					if ($value !== '' && str_contains($value, '!') && CSSSyntaxScanner::findLastTopLevelImportant($value) !== null) {
-						self::handleInvalidDeclaration('Duplicate !important in CSS declaration (' . $name . ').', $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
-						return true;
-					}
-				}
-			}
-
-			if ($value === '' && !str_starts_with($name, '--')) {
-				if ($allowEmptyInitialValue && $name === 'initial-value' && $priority === '') {
-					if ($options !== null && $options->maxDeclarations !== null && $declarationCount >= $options->maxDeclarations) {
-						$message = sprintf('Maximum CSS declaration limit of %d exceeded.', $options->maxDeclarations);
-						if ($strict || $throwOnLimit) {
-							throw new CSSParserLimitException($message);
-						}
-						self::recordDiagnostic($message, $segmentOffset, $diagnostics, $options, $allowSentinelSlot);
-						return false;
-					}
-					$current = $this->declarations['initial-value'] ?? null;
-					if ($current !== null && $current['priority'] === 'important') {
-						return true;
-					}
-					if ($declarationCount >= PHP_INT_MAX) {
-						throw new InvalidArgumentException('CSS declaration count overflows integer bounds.');
-					}
-					$declarationCount++;
-					if ($current !== null) {
-						$this->contentBytes -= strlen('initial-value') + strlen($current['value']);
-					}
-					unset($this->declarations['initial-value']);
-					$this->cachedKeys = null;
-					$sawEmptyInitialValue = true;
-					return true;
-				}
-				self::handleInvalidDeclaration('CSS declaration value cannot be empty: ' . $name, $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
-				return true;
-			}
-
-			if ($options !== null && $options->maxDeclarations !== null && $declarationCount >= $options->maxDeclarations) {
-				$message = sprintf('Maximum CSS declaration limit of %d exceeded.', $options->maxDeclarations);
-				if ($strict || $throwOnLimit) {
-					throw new CSSParserLimitException($message);
-				}
-				self::recordDiagnostic($message, $segmentOffset, $diagnostics, $options, $allowSentinelSlot);
-				return false;
-			}
-
-			if ($declarationCount >= PHP_INT_MAX) {
-				throw new InvalidArgumentException('CSS declaration count overflows integer bounds.');
-			}
-			$declarationCount++;
-			$current = $this->declarations[$name] ?? null;
-			if ($current !== null && $current['priority'] === 'important' && $priority !== 'important') {
-				return true;
-			}
-			if ($name === 'initial-value') {
-				$sawEmptyInitialValue = false;
-			}
-			$oldBytes = $current !== null ? strlen($name) + strlen($current['value']) : 0;
-			$this->contentBytes += strlen($name) + strlen($value) - $oldBytes;
-			$this->declarations[$name] = ['value' => $value, 'priority' => $priority];
-			$this->cachedKeys = null;
-
-			return true;
-		}
-
-		$slice = substr($source, $start, $end - $start);
-		if (CSSSyntaxScanner::hasControlCharacters($slice)) {
-			self::handleInvalidDeclaration('Disallowed control characters in CSS declaration.', $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
-			return true;
-		}
-		if (CSSSyntaxScanner::hasUnclosedCommentOrString($slice)) {
-			self::handleInvalidDeclaration('Unclosed comment or string in CSS declaration.', $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
-			return true;
-		}
-
-		$raw = str_contains($slice, '/*') ? CSSSyntaxScanner::removeComments($slice) : $slice;
-		$declaration = str_contains($raw, '\\')
-			? CSSSyntaxScanner::trimCssWhitespace($raw)
-			: trim($raw, self::CSS_WHITESPACE);
-		if ($declaration === '') {
-			return true;
-		}
-
-		$colon = CSSSyntaxScanner::findTopLevel($declaration, ':');
-		if ($colon === null) {
-			self::handleInvalidDeclaration('Missing colon in declaration: ' . $declaration, $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
-			return true;
-		}
-
-		$rawProp = substr($declaration, 0, $colon);
-		$property = str_contains($rawProp, '\\')
-			? CSSSyntaxScanner::trimCssWhitespace($rawProp)
-			: trim($rawProp, self::CSS_WHITESPACE);
-		$rawVal = substr($declaration, $colon + 1);
-		$value = str_contains($rawVal, '\\')
-			? CSSSyntaxScanner::trimCssWhitespace($rawVal)
-			: trim($rawVal, self::CSS_WHITESPACE);
-
-		try {
-			$name = self::normalizePropertyName($property);
-			static::assertAllowedDescriptor($name);
-		} catch (InvalidArgumentException $exception) {
-			self::handleInvalidDeclaration($exception->getMessage(), $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
-			return true;
-		}
-
-		if ($value !== '' && (!CSSSyntaxScanner::isBalanced($value) || CSSSyntaxScanner::findNextTopLevelDelimiterBytes($value, ';{}') !== null)) {
-			self::handleInvalidDeclaration('Disallowed structural delimiter or unbalanced syntax in CSS property value (' . $name . ')', $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
-			return true;
-		}
-
-		$priority = '';
-		if ($value !== '' && str_contains($value, '!')) {
-			$important = CSSSyntaxScanner::findLastTopLevelImportant($value);
-			if ($important !== null) {
-				if (!static::allowsImportant()) {
-					self::handleInvalidDeclaration(
-						sprintf('!important is not allowed in %s (%s).', static::class, $name),
-						$segmentOffset,
-						$strict,
-						$diagnostics,
-						$options,
-						$allowSentinelSlot,
-					);
-					return true;
-				}
-				$priority = 'important';
-				$beforeBang = substr($value, 0, $important);
-				$value = str_contains($beforeBang, '\\')
-					? CSSSyntaxScanner::trimCssWhitespace($beforeBang)
-					: rtrim($beforeBang, self::CSS_WHITESPACE);
-				if ($value !== '' && str_contains($value, '!') && CSSSyntaxScanner::findLastTopLevelImportant($value) !== null) {
-					self::handleInvalidDeclaration('Duplicate !important in CSS declaration (' . $name . ').', $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
-					return true;
-				}
-			}
-		}
-
 		if ($value === '' && !str_starts_with($name, '--')) {
 			if ($allowEmptyInitialValue && $name === 'initial-value' && $priority === '') {
 				if ($options !== null && $options->maxDeclarations !== null && $declarationCount >= $options->maxDeclarations) {
@@ -1533,11 +1287,12 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			$span = strcspn($source, self::FAST_PATH_UNSAFE_BYTES, $pos, $length - $pos);
 			$stop = $pos + $span;
 
-			if (($stop >= $length || $source[$stop] === ';') && self::isCleanAsciiSliceSafeInternal($source, $pos, $stop)) {
+			if (($stop >= $length || $source[$stop] === ';')
+				&& ($cleanSlice = self::extractCleanAsciiSliceInternal($source, $pos, $stop)) !== null
+			) {
 				$ok = $this->parseCleanAsciiDeclarationInternal(
-					$source,
+					$cleanSlice,
 					$pos,
-					$stop,
 					$strict,
 					$diagnostics,
 					$options,
@@ -1555,7 +1310,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				continue;
 			}
 
-			$tokenizer ??= CSSTokenizer::forParserInternal($source, $options, false, $checkControlBytes, $pos, $length);
+			$tokenizer ??= CSSTokenizer::forParserInternal($source, $options, $browserMode, $checkControlBytes, $pos, $length);
 			$tokenizer->setOffsetInternal($pos);
 
 			// Token-driven CSS Syntax L3 §5 declaration slice consumption
@@ -1715,25 +1470,6 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				];
 			}
 		}
-	}
-
-	private static function findDeclarationStartOffset(string $source, int $start, int $end): int
-	{
-		$pos = $start;
-		while ($pos < $end) {
-			$pos += strspn($source, self::CSS_WHITESPACE, $pos, $end - $pos);
-			if ($pos + 1 < $end && $source[$pos] === '/' && $source[$pos + 1] === '*') {
-				$commentEnd = strpos($source, '*/', $pos + 2);
-				if ($commentEnd === false || $commentEnd + 1 >= $end) {
-					return $pos;
-				}
-				$pos = $commentEnd + 2;
-				continue;
-			}
-			break;
-		}
-
-		return $pos;
 	}
 
 	/** @param list<array{message: string, offset: int}> $diagnostics */

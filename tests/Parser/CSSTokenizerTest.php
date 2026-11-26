@@ -205,4 +205,58 @@ final class CSSTokenizerTest extends TestCase
 		$this->expectException(InvalidArgumentException::class);
 		CSSTokenizer::tokenize('a', null, false, 0);
 	}
+
+	public function testDoesNotLeakDirtyTokenStateAcrossConsecutiveTokens(): void
+	{
+		$css = '/* c */ "str" 12px \\61 ident #deadbeef url(a.png) /* trailing */ ; ( ) ! "unclosed\\';
+		$tokens = CSSTokenizer::tokenize($css, includeEof: true);
+
+		$semicolon = null;
+		$openParen = null;
+		$bang = null;
+		$last = $tokens[count($tokens) - 1];
+		foreach ($tokens as $tok) {
+			if ($tok->type === CSSTokenType::Semicolon) {
+				$semicolon = $tok;
+			} elseif ($tok->type === CSSTokenType::LeftParenthesis) {
+				$openParen = $tok;
+			} elseif ($tok->type === CSSTokenType::Delim && $tok->value === '!') {
+				$bang = $tok;
+			}
+		}
+
+		self::assertNotNull($semicolon);
+		self::assertSame('', $semicolon->value);
+		self::assertNull($semicolon->flag);
+		self::assertNull($semicolon->numericValue);
+		self::assertNull($semicolon->unit);
+		self::assertNull($semicolon->repr);
+
+		self::assertNotNull($openParen);
+		self::assertSame('', $openParen->value);
+
+		self::assertNotNull($bang);
+		self::assertNull($bang->flag);
+
+		self::assertTrue($last->isEof());
+		self::assertSame('', $last->value);
+		self::assertNull($last->flag);
+
+		// Also verify internal cursor fields don't leak across tokens in parserMode
+		$parserTok = CSSTokenizer::forParserInternal($css, new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions(), true, false);
+		while (($type = $parserTok->advanceInternal()) !== CSSTokenType::Eof) {
+			if ($type === CSSTokenType::Semicolon || $type === CSSTokenType::LeftParenthesis) {
+				self::assertFalse($parserTok->tokenHasEscapes);
+				self::assertFalse($parserTok->tokenClosedAtEof);
+				self::assertSame('', $parserTok->tokenClosedQuote);
+				self::assertFalse($parserTok->tokenTrailingBackslashAtEof);
+				self::assertNull($parserTok->tokenControlByteOffset);
+				self::assertNull($parserTok->tokenParseErrorMessage);
+			}
+		}
+		self::assertSame(CSSTokenType::Eof, $type);
+		self::assertFalse($parserTok->tokenClosedAtEof);
+		self::assertFalse($parserTok->tokenTrailingBackslashAtEof);
+		self::assertSame('', $parserTok->tokenClosedQuote);
+	}
 }

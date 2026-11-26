@@ -261,8 +261,7 @@ $results['benchmarks']['micro.scanner_split_top_level'] = measure(
 
 $results['benchmarks']['micro.preprocess_and_tokenize'] = measure(
 	static function () use ($scannerBlob): int {
-		$preprocessed = CSSInputPreprocessor::preprocess($scannerBlob);
-		$tokenizer = new CSSTokenizer($preprocessed);
+		$tokenizer = new CSSTokenizer($scannerBlob);
 		$count = 0;
 		while (!$tokenizer->nextToken()->isEof()) {
 			$count++;
@@ -272,6 +271,18 @@ $results['benchmarks']['micro.preprocess_and_tokenize'] = measure(
 	$warmup,
 	$iterations,
 	strlen($scannerBlob),
+	1,
+	null,
+	'streams',
+	'input',
+);
+
+$utf8Blob = str_repeat(".カード { content: \"こんにちは世界 — café naïve\"; color: red; }\n", 1500);
+$results['benchmarks']['micro.preprocess_utf8'] = measure(
+	static fn (): string => CSSInputPreprocessor::preprocess($utf8Blob),
+	$warmup,
+	$iterations,
+	strlen($utf8Blob),
 	1,
 	null,
 	'streams',

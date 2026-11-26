@@ -542,5 +542,76 @@ final class CSSStyleSheetTest extends TestCase
 		} catch (InvalidArgumentException) {
 			self::assertCount(1, $sheet->cssRules);
 		}
+
+		// 5. !important inside unclosed calc() stays inside calc() and closes ')' cleanly in browser mode
+		$unclosedImportant = CSSStyleSheet::parse('div { width: calc(10px !important', $browserOpts);
+		self::assertSame('div { width: calc(10px !important); }', $unclosedImportant->getCssText());
+
+		// 6. Control byte inside prelude comment succeeds in browser mode, rejected in default mode
+		$commentCtrlDefault = CSSStyleSheet::parse("div /* \x01 */ { color: red; }");
+		self::assertCount(0, $commentCtrlDefault->cssRules);
+		self::assertNotEmpty($commentCtrlDefault->getParseErrors());
+
+		$commentCtrlBrowser = CSSStyleSheet::parse("div /* \x01 */ { color: red; }", $browserOpts);
+		self::assertCount(1, $commentCtrlBrowser->cssRules);
+		self::assertSame('div { color: red; }', $commentCtrlBrowser->getCssText());
+	}
+
+	public function testAtRuleFastPathAndTokenDrivenFontFeatureValuesParity(): void
+	{
+		// Clean ASCII @-rules with comments (including '{' inside comment)
+		$atComments = CSSStyleSheet::parse("@media screen /* c */ { div { color: red; } }\n@custom-x a /* { ; */ b { x: 1; }");
+		self::assertSame([], $atComments->getParseErrors());
+		self::assertCount(2, $atComments->cssRules);
+		self::assertSame('@media screen { div { color: red; } }', $atComments->cssRules[0]->getCssText());
+		self::assertSame('@custom-x a /* { ; */ b { x: 1; }', $atComments->cssRules[1]->getCssText());
+
+		// Nested @media inside @keyframes must still be rejected
+		$kfNestedAt = CSSStyleSheet::parse('@keyframes pulse { @media screen { from { opacity: 0; } } to { opacity: 1; } }');
+		self::assertNotEmpty($kfNestedAt->getParseErrors());
+		self::assertSame('@keyframes pulse { to { opacity: 1; } }', $kfNestedAt->getCssText());
+
+		// maxRules boundary records exactly one error (no duplicate fast-path + slow-path error)
+		$maxRulesSheet = CSSStyleSheet::parse(
+			'a { color: red; } b { color: blue; }',
+			new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions(maxRules: 1),
+		);
+		self::assertCount(1, $maxRulesSheet->cssRules);
+		self::assertCount(1, $maxRulesSheet->getParseErrors());
+
+		// Control byte or unclosed comment inside @-rule prelude falls back to tokenizer cleanly
+		$atCtrl = CSSStyleSheet::parse("@media screen /* \x01 */ { a { color: red; } }");
+		self::assertCount(0, $atCtrl->cssRules);
+		self::assertNotEmpty($atCtrl->getParseErrors());
+
+		$atUnclosed = CSSStyleSheet::parse('@media screen /* { a { color: red; }');
+		self::assertCount(0, $atUnclosed->cssRules);
+		self::assertNotEmpty($atUnclosed->getParseErrors());
+
+		// @font-feature-values token-driven category declarations
+		$ffv = CSSStyleSheet::parse(
+			'@font-feature-values Demo { @styleset { alt: 1 /* c */ 2; tight: 3/*c*/4; bad: 1 ! important; broken } @swash { ornate: 5; } }',
+		);
+		self::assertCount(1, $ffv->cssRules);
+		self::assertNotEmpty($ffv->getParseErrors());
+		$ffvText = $ffv->getCssText();
+		self::assertStringContainsString('alt: 1 2;', $ffvText);
+		self::assertStringContainsString('tight: 3 4;', $ffvText);
+		self::assertStringContainsString('ornate: 5;', $ffvText);
+		self::assertStringNotContainsString('bad', $ffvText);
+
+		// @font-feature-values non-throwing maxDeclarations stops category block without corrupting sibling category
+		$ffvMaxDecl = CSSStyleSheet::parse(
+			'@font-feature-values Demo { @styleset { a: 1; b: 2; c: 3; } @swash { d: 4; } }',
+			new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions(maxDeclarations: 1),
+		);
+		self::assertNotEmpty($ffvMaxDecl->getParseErrors());
+		$maxDeclText = $ffvMaxDecl->getCssText();
+		self::assertStringContainsString('a: 1;', $maxDeclText);
+		self::assertStringNotContainsString('b:', $maxDeclText);
+
+		// Unclosed feature block at EOF records error cleanly
+		$ffvEof = CSSStyleSheet::parse('@font-feature-values Demo { @styleset { a: 1;');
+		self::assertNotEmpty($ffvEof->getParseErrors());
 	}
 }

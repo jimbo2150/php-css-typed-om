@@ -3762,5 +3762,36 @@ final class CSSSecurityAndLimitsTest extends TestCase
 				@ini_set('xdebug.max_nesting_level', $prevNesting);
 			}
 		}
+
+		// 6. Escaped url() in parserMode matches unescaped url() (prevents comment-smuggling parser differential)
+		$unescapedUrlSheet = CSSStyleSheet::parse('div { background: url(https://example.test/*) } .injected { color: red; } */); }');
+		$escapedUrlSheet = CSSStyleSheet::parse('div { background: \75 rl(https://example.test/*) } .injected { color: red; } */); }');
+		self::assertSame(count($unescapedUrlSheet->cssRules), count($escapedUrlSheet->cssRules));
+		self::assertSame($unescapedUrlSheet->getCssText(), str_replace('\75 rl', 'url', $escapedUrlSheet->getCssText()));
+
+		// Escaped invalid unquoted url() is rejected as <bad-url-token>
+		$escapedBadUrlSheet = CSSStyleSheet::parse('div { background: \75 rl(a b); color: green; }');
+		self::assertCount(1, $escapedBadUrlSheet->cssRules);
+		self::assertInstanceOf(CSSStyleRule::class, $escapedBadUrlSheet->cssRules[0]);
+		self::assertSame('', $escapedBadUrlSheet->cssRules[0]->style->getPropertyValue('background'));
+		self::assertSame('green', $escapedBadUrlSheet->cssRules[0]->style->getPropertyValue('color'));
+		self::assertNotEmpty($escapedBadUrlSheet->getParseErrors());
+
+		$declBadDiags = [];
+		$escapedBadUrlDecl = CSSStyleDeclaration::parse('background: \75 rl(a b); color: green;', false, $declBadDiags);
+		self::assertSame('', $escapedBadUrlDecl->getPropertyValue('background'));
+		self::assertSame('green', $escapedBadUrlDecl->getPropertyValue('color'));
+		self::assertNotEmpty($declBadDiags);
+
+		try {
+			CSSStyleDeclaration::parse('background: \75 rl(a b);');
+			self::fail('Expected strict CSSStyleDeclaration::parse() to reject escaped <bad-url-token>.');
+		} catch (\InvalidArgumentException $e) {
+			self::assertStringContainsString('url()', $e->getMessage());
+		}
+
+		// 7. Double-BOM in browserErrorRecovery: true strips strictly one leading BOM (§3.3)
+		$doubleBomSheet = CSSStyleSheet::parse("\xEF\xBB\xBF\xEF\xBB\xBFdiv { color: red; }", new CSSParserOptions(browserErrorRecovery: true));
+		self::assertSame("\xEF\xBB\xBFdiv { color: red; }", $doubleBomSheet->getCssText());
 	}
 }

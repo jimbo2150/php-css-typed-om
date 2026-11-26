@@ -17,6 +17,7 @@ final class CSSInputPreprocessor
 {
 	private const string UTF8_BOM = "\xEF\xBB\xBF";
 	private const string REPLACEMENT_CHAR = "\u{FFFD}";
+	private const string PREPROCESS_ASCII_TRIGGERS = "\r\f\x00";
 
 	private const string NON_FAST_ASCII_BYTES = "\r\f\x00"
 		. "\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8A\x8B\x8C\x8D\x8E\x8F"
@@ -46,6 +47,21 @@ final class CSSInputPreprocessor
 		// Zero-copy fast path for clean ASCII inputs (excludes BOM 0xEF, CR, FF, NUL, and >= 0x80).
 		if ($length === 0 || strcspn($input, self::NON_FAST_ASCII_BYTES) === $length) {
 			return $input;
+		}
+
+		// C-level UTF-8 fast path: PCRE2 /u strictly rejects UTF-8 surrogates, overlongs, and >U+10FFFF.
+		if (preg_match('//u', $input) === 1) {
+			$baseStart = str_starts_with($input, self::UTF8_BOM) ? 3 : 0;
+			$remLen = $length - $baseStart;
+			if (strcspn($input, self::PREPROCESS_ASCII_TRIGGERS, $baseStart, $remLen) === $remLen) {
+				return $baseStart === 0 ? $input : substr($input, 3);
+			}
+			if (strcspn($input, "\x00", $baseStart, $remLen) === $remLen) {
+				$slice = $baseStart === 0 ? $input : substr($input, 3);
+				return str_replace(["\r\n", "\r", "\f"], "\n", $slice);
+			}
+
+			return self::preprocessValidUtf8WithNul($input, $baseStart, $length, $maxBytes);
 		}
 
 		$baseStart = str_starts_with($input, self::UTF8_BOM) ? 3 : 0;
@@ -142,33 +158,81 @@ final class CSSInputPreprocessor
 	public static function needsPreprocessing(string $input): bool
 	{
 		$length = strlen($input);
-		if ($length === 0) {
+		if ($length === 0 || strcspn($input, self::NON_FAST_ASCII_BYTES) === $length) {
 			return false;
 		}
 		if (str_starts_with($input, self::UTF8_BOM)) {
 			return true;
 		}
-
-		$pos = 0;
-		while ($pos < $length) {
-			$pos += strcspn($input, self::NON_FAST_ASCII_BYTES, $pos, $length - $pos);
-			if ($pos >= $length) {
-				return false;
-			}
-
-			$ord = ord($input[$pos]);
-			if ($ord < 0x80) {
-				return true;
-			}
-
-			$validLen = self::validUtf8SequenceLength($input, $pos, $length, $ord);
-			if ($validLen === 0) {
-				return true;
-			}
-			$pos += $validLen;
+		if (strcspn($input, self::PREPROCESS_ASCII_TRIGGERS) < $length) {
+			return true;
 		}
 
-		return false;
+		return preg_match('//u', $input) !== 1;
+	}
+
+	/**
+	 * Preprocesses validated UTF-8 bytes containing at least one NUL byte while skipping valid multibyte runs in C.
+	 *
+	 * @throws CSSParserLimitException When preprocessed byte size exceeds `$maxBytes`
+	 */
+	private static function preprocessValidUtf8WithNul(string $input, int $baseStart, int $length, ?int $maxBytes): string
+	{
+		$pos = $baseStart;
+		$copyStart = $baseStart;
+		$chunks = [];
+		$outBytes = 0;
+
+		while ($pos < $length) {
+			$span = strcspn($input, self::PREPROCESS_ASCII_TRIGGERS, $pos, $length - $pos);
+			if ($span > 0) {
+				$outBytes += $span;
+				if ($maxBytes !== null && $outBytes > $maxBytes) {
+					throw new CSSParserLimitException(sprintf('Preprocessed CSS input exceeds maximum size of %d bytes.', $maxBytes));
+				}
+				$pos += $span;
+				if ($pos >= $length) {
+					break;
+				}
+			}
+
+			if ($pos > $copyStart) {
+				$chunks[] = substr($input, $copyStart, $pos - $copyStart);
+			}
+
+			$byte = $input[$pos];
+			if ($byte === "\x00") {
+				$outBytes += 3;
+				if ($maxBytes !== null && $outBytes > $maxBytes) {
+					throw new CSSParserLimitException(sprintf('Preprocessed CSS input exceeds maximum size of %d bytes.', $maxBytes));
+				}
+				$chunks[] = self::REPLACEMENT_CHAR;
+				$pos++;
+			} elseif ($byte === "\r") {
+				$outBytes++;
+				if ($maxBytes !== null && $outBytes > $maxBytes) {
+					throw new CSSParserLimitException(sprintf('Preprocessed CSS input exceeds maximum size of %d bytes.', $maxBytes));
+				}
+				$chunks[] = "\n";
+				$pos += ($pos + 1 < $length && $input[$pos + 1] === "\n") ? 2 : 1;
+			} else {
+				// $byte === "\f"
+				$outBytes++;
+				if ($maxBytes !== null && $outBytes > $maxBytes) {
+					throw new CSSParserLimitException(sprintf('Preprocessed CSS input exceeds maximum size of %d bytes.', $maxBytes));
+				}
+				$chunks[] = "\n";
+				$pos++;
+			}
+
+			$copyStart = $pos;
+		}
+
+		if ($copyStart < $length) {
+			$chunks[] = substr($input, $copyStart, $length - $copyStart);
+		}
+
+		return implode('', $chunks);
 	}
 
 	private static function validUtf8SequenceLength(string $input, int $pos, int $length, int $b0): int

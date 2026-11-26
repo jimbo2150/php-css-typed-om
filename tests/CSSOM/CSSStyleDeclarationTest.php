@@ -169,5 +169,29 @@ final class CSSStyleDeclarationTest extends TestCase
 		);
 		self::assertSame('calc(10px + 20px)', $unclosedCalc->getPropertyValue('width'));
 		self::assertSame('width: calc(10px + 20px);', $unclosedCalc->getCssText());
+
+		// Token-path !important with whitespace/comments, duplicate detection, and escaped url()
+		$tokenImportant = CSSStyleDeclaration::parse("content: \"a\" ! important; background: \\75 rl(a.png) !\timportant; color: red /* c */ ! /* c */ important; mask: \\75 rl(\"https://example.test\");");
+		self::assertSame('"a"', $tokenImportant->getPropertyValue('content'));
+		self::assertSame('important', $tokenImportant->getPropertyPriority('content'));
+		self::assertSame('important', $tokenImportant->getPropertyPriority('background'));
+		self::assertSame('important', $tokenImportant->getPropertyPriority('color'));
+		self::assertSame('\75 rl("https://example.test")', $tokenImportant->getPropertyValue('mask'));
+
+		$dupDiags = [];
+		$dupImportant = CSSStyleDeclaration::parse('content: "a" !important ! important; color: blue ! important ! important;', false, $dupDiags);
+		self::assertSame('', $dupImportant->getPropertyValue('content'));
+		self::assertSame('', $dupImportant->getPropertyValue('color'));
+		self::assertCount(2, $dupDiags);
+
+		$unclosedImportant = CSSStyleDeclaration::parse(
+			'width: calc(10px !important',
+			false,
+			$diags,
+			new \Jimbo2150\PhpCssTypedOm\CSSOM\CSSParserOptions(browserErrorRecovery: true),
+		);
+		self::assertSame('calc(10px !important)', $unclosedImportant->getPropertyValue('width'));
+		self::assertSame('', $unclosedImportant->getPropertyPriority('width'));
+		self::assertSame('width: calc(10px !important);', $unclosedImportant->getCssText());
 	}
 }
