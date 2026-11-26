@@ -185,7 +185,8 @@ final class CSSColor5Evaluator
 				$named = CSSColorValue::tryParseNamedColorIdentInternal($lowerIdent);
 				if ($named === null) {
 					if (CSSDataTypeMatcher::isSystemOrDeprecatedColor($lowerIdent)) {
-						throw new CSSDeferredColorException('CSS system color requires runtime context to resolve.');
+						$slots[$targetSlot] = ['deferred' => true];
+						continue;
 					}
 					throw new InvalidArgumentException('Unsupported CSS color value: ' . substr($source, $start, $end - $start));
 				}

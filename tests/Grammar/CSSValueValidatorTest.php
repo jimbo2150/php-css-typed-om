@@ -288,24 +288,58 @@ final class CSSValueValidatorTest extends TestCase
 
 	public function testSpecPrecisionAndReviewHardeningCases(): void
 	{
-		// Angles reject unitless 0 while <hue> allows unitless numbers
+		// Angles reject unitless 0 while <hue> (and Filter Effects L1 hue-rotate(0)) allow unitless numbers
 		self::assertFalse(CSS::supports('transform', 'rotate(0)'));
 		self::assertFalse(CSS::supports('background-image', 'linear-gradient(0, red, blue)'));
-		self::assertFalse(CSS::supports('filter', 'hue-rotate(0)'));
+		self::assertTrue(CSS::supports('filter', 'hue-rotate(0)'));
+		self::assertFalse(CSS::supports('font-style', 'oblique 0'));
 		self::assertFalse(CSS::supports('offset-rotate', '0'));
 		self::assertTrue(CSS::supports('color', 'hsl(0 100% 50%)'));
 
 		// device-cmyk rejected in CSSColorValue-aligned <color>; light-dark(systemColor, color) accepted
 		self::assertFalse(CSS::supports('color', 'device-cmyk(0 0 0 0)'));
 		self::assertTrue(CSS::supports('color', 'light-dark(CanvasText, white)'));
+		// Deferred system colors still validate sibling branches & relative channels
+		self::assertFalse(CSS::supports('color', 'light-dark(CanvasText, INVALID_COLOR)'));
+		self::assertFalse(CSS::supports('color', 'color-mix(in srgb, Canvas, INVALID_COLOR)'));
+		self::assertFalse(CSS::supports('color', 'rgb(from CanvasText INVALID_KW 0 0)'));
 
-		// transition & animation duration-before-delay ordering
+		// Trailing-dot tokens must not pass numeric fast paths (CSS Syntax L3 §4.3.3)
+		foreach ([
+			['width', '10.px'],
+			['width', '1.%'],
+			['width', '0.'],
+			['margin-top', '-5.px'],
+			['opacity', '1.'],
+			['opacity', '50.%'],
+			['font-weight', '400.'],
+		] as [$dotProp, $dotVal]) {
+			self::assertFalse(CSS::supports($dotProp, $dotVal), "Expected trailing-dot value {$dotProp}: {$dotVal} to be rejected.");
+		}
+
+		// Non-pure color properties preserve keyword branches (auto/invert/none) while rejecting unknown idents
+		foreach ([
+			['outline-color', 'auto'],
+			['outline-color', 'invert'],
+			['caret-color', 'auto'],
+			['accent-color', 'auto'],
+			['fill', 'none'],
+			['stroke', 'none'],
+		] as [$kwColorProp, $kwColorVal]) {
+			self::assertTrue(CSS::supports($kwColorProp, $kwColorVal), "Expected {$kwColorProp}: {$kwColorVal} to be accepted.");
+		}
+		self::assertFalse(CSS::supports('fill', 'banana'));
+
+		// transition & animation duration-before-delay ordering & Values 4 calc() / auto support
 		self::assertFalse(CSS::supports('transition', '-1s'));
 		self::assertFalse(CSS::supports('animation', '-1s fade'));
 		self::assertFalse(CSS::supports('transition', 'opacity -0.5s'));
 		self::assertTrue(CSS::supports('transition', 'opacity 0s -0.5s'));
 		self::assertTrue(CSS::supports('animation', 'auto fade'));
 		self::assertTrue(CSS::supports('animation', '2s -1s fade'));
+		self::assertTrue(CSS::supports('transition', 'calc(-1s)'));
+		self::assertTrue(CSS::supports('animation', 'calc(-1s) fade'));
+		self::assertTrue(CSS::supports('animation', 'auto -1s fade'));
 
 		// <grid-line> rejects 0, drop-shadow rejects negative blur
 		self::assertFalse(CSS::supports('grid-column', '0'));
@@ -318,6 +352,7 @@ final class CSSValueValidatorTest extends TestCase
 		foreach ([
 			'linear-gradient(to banana, red, blue)',
 			'linear-gradient(red 45deg, blue)',
+			'linear-gradient(red, 20%, 40%, blue)',
 			'conic-gradient(red 10px, blue)',
 			'radial-gradient(circle 10px 20px, red, blue)',
 			'image-set(banana)',
@@ -327,9 +362,11 @@ final class CSSValueValidatorTest extends TestCase
 		}
 		foreach ([
 			'linear-gradient(in oklch, red, blue)',
+			'linear-gradient(red, 50%, blue)',
 			'conic-gradient(from 45deg at center, red 0deg, blue 180deg)',
 			'image-set(url(a.png) 1x, url(b.png) 2x)',
 			'cross-fade(50% red, blue)',
+			'cross-fade(url(a.png) 50%, url(b.png))',
 			'image(rtl "a.png", red)',
 		] as $goodImage) {
 			self::assertTrue(CSS::supports('background-image', $goodImage), "Expected valid image '{$goodImage}' to be accepted.");
@@ -391,6 +428,22 @@ final class CSSValueValidatorTest extends TestCase
 			CSSValueValidator::validateStandardProperty('width', 'calc(calc(calc(1px)))', new CSSParserOptions(maxMathDepth: 1));
 			self::fail('Expected maxMathDepth=1 to throw CSSParserLimitException.');
 		} catch (CSSParserLimitException) {
+		}
+
+		// StylePropertyMap::append() rejects non-list properties and set() enforces dimensional types
+		$typedDecl = new CSSStyleDeclaration();
+		$typedMap = new StylePropertyMap($typedDecl);
+		foreach (['width', 'color'] as $nonListProp) {
+			try {
+				$typedMap->append($nonListProp, '10px');
+				self::fail("Expected StylePropertyMap::append() on non-list '{$nonListProp}' to throw InvalidArgumentException.");
+			} catch (InvalidArgumentException) {
+			}
+		}
+		try {
+			$typedMap->set('width', CSS::deg(45));
+			self::fail('Expected StylePropertyMap::set("width", CSS::deg(45)) to throw InvalidArgumentException.');
+		} catch (InvalidArgumentException) {
 		}
 	}
 }

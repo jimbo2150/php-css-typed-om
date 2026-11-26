@@ -18,6 +18,7 @@
 		<testsuite name="Unit">
 			<directory>tests/CSSOM</directory>
 			<directory>tests/Geometry</directory>
+			<directory>tests/Grammar</directory>
 			<directory>tests/Parser</directory>
 			<directory>tests/Support</directory>
 			<directory>tests/TypedOM</directory>

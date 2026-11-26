@@ -49,6 +49,10 @@ final class CSSGrammarParserTest extends TestCase
 			['a#?', ['', 'a', 'a, a'], ['a,', ',a']],
 			['a#{1,2}', ['a', 'a, a'], ['a, a, a', 'a,']],
 			['[ a? b? ]!', ['a', 'b', 'a b'], ['', 'c']],
+			['x [ a? b? ]! y', ['x a y', 'x b y', 'x a b y'], ['x y', 'x c y']],
+			['x a? y', ['x y', 'x a y'], ['x a a y']],
+			['x a* y', ['x y', 'x a a y'], ['x b y']],
+			['x a#? y', ['x y', 'x a, a y'], ['x a a y', 'x a, y']],
 			["'[' <custom-ident>* ']'", ['[]', '[header-start]', '[a b]'], ['a', '[10px]']],
 		] as [$grammar, $validCases, $invalidCases]) {
 			$node = CSSGrammarParser::parse($grammar);

@@ -1525,7 +1525,6 @@ final class CSSParser
 						throw new CSSParserLimitException($collected['limitMessage']);
 					}
 					$sheet->recordParseError($collected['limitMessage'], $collected['limitOffset'] ?? $stmtStart);
-					$declLimitRecorded = true;
 				} elseif (!$declLimitRecorded) {
 					$declLimitRecorded = !$currentStyle->parseDeclarationFromTokensInternal(
 						$source,

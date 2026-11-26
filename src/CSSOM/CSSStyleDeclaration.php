@@ -1278,6 +1278,16 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				);
 				return true;
 			}
+		} elseif ($validatePropertyGrammar && $options !== null && $options->maxMathDepth !== null && str_contains($value, '(')) {
+			try {
+				CSSValueComponentParser::parse($value, $options, str_starts_with($name, '--'));
+			} catch (CSSParserLimitException $exception) {
+				if ($strict || $throwOnLimit) {
+					throw $exception;
+				}
+				self::recordDiagnostic($exception->getMessage(), $segmentOffset, $diagnostics, $options, $allowSentinelSlot);
+				return true;
+			}
 		}
 
 		if ($options !== null && $options->maxDeclarations !== null && $declarationCount >= $options->maxDeclarations) {

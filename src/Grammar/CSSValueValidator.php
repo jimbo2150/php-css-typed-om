@@ -12,7 +12,6 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\CSSStandardProperties;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSCalcParser;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSTokenType;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Color\CSSColorValue;
-use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
 
 /**
  * Unified `@internal` facade for CSS property value grammar validation across
@@ -29,7 +28,7 @@ final class CSSValueValidator
 	private const int MAX_CACHED_SYNTAX_BYTES = 512;
 	private const string ASCII_KEYWORD_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-';
 
-	/** @var array<string, true> */
+	/** @var array<string, bool> `true` = pure `<color>`, `false` = color plus additional keywords */
 	private const array FAST_COLOR_PROPERTIES = [
 		'color' => true,
 		'background-color' => true,
@@ -37,13 +36,13 @@ final class CSSValueValidator
 		'border-right-color' => true,
 		'border-bottom-color' => true,
 		'border-left-color' => true,
-		'outline-color' => true,
 		'text-decoration-color' => true,
 		'column-rule-color' => true,
-		'caret-color' => true,
-		'accent-color' => true,
-		'fill' => true,
-		'stroke' => true,
+		'outline-color' => false,
+		'caret-color' => false,
+		'accent-color' => false,
+		'fill' => false,
+		'stroke' => false,
 	];
 
 	/** @var array<string, bool> `true` = allow negative values, `false` = non-negative `[0, ∞]` */
@@ -105,7 +104,7 @@ final class CSSValueValidator
 		$options ??= CSSParserOptions::default();
 		$valLen = strlen($trimmedValue);
 		if ($options->maxBytes !== null && $valLen > $options->maxBytes) {
-			return false;
+			throw new CSSParserLimitException(sprintf('CSS property value exceeds maximum size of %d bytes.', $options->maxBytes));
 		}
 
 		// O(1) fast path for simple single ASCII keyword values (including CSS-wide keywords)
@@ -162,7 +161,7 @@ final class CSSValueValidator
 		);
 
 		if ($valid && ($normalizedProperty === 'transition' || $normalizedProperty === 'animation')) {
-			$valid = self::validateTimeOrdering($parsed['source'], $parsed['components'], $options);
+			$valid = self::validateTimeOrdering($normalizedProperty, $parsed['source'], $parsed['components'], $options);
 		}
 
 		self::storeCache($cacheKey, $valid);
@@ -184,7 +183,7 @@ final class CSSValueValidator
 	): bool {
 		if (str_starts_with($normalizedProperty, '--')) {
 			if ($trimmedValue !== '' && $options !== null && $options->maxBytes !== null && strlen($trimmedValue) > $options->maxBytes) {
-				return false;
+				throw new CSSParserLimitException(sprintf('CSS property value exceeds maximum size of %d bytes.', $options->maxBytes));
 			}
 			if (!$validateRegisteredCustom) {
 				if ($trimmedValue === '') {
@@ -247,7 +246,7 @@ final class CSSValueValidator
 			return false;
 		}
 		if ($options->maxBytes !== null && strlen($trimmedValue) > $options->maxBytes) {
-			return false;
+			throw new CSSParserLimitException(sprintf('CSS property value exceeds maximum size of %d bytes.', $options->maxBytes));
 		}
 
 		$parsed = CSSValueComponentParser::parse($trimmedValue, $options);
@@ -323,14 +322,19 @@ final class CSSValueValidator
 		}
 
 		if (isset(self::FAST_COLOR_PROPERTIES[$normalizedProperty])) {
+			$pureColor = self::FAST_COLOR_PROPERTIES[$normalizedProperty];
 			if ($value[0] === '#') {
 				return CSSColorValue::isValidHexInternal(substr($value, 1));
 			}
 			if (strspn($value, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ') === $valLen) {
 				$lower = strtolower($value);
-				return CSSColorValue::isNamedColorIdentInternal($lower)
+				if (CSSColorValue::isNamedColorIdentInternal($lower)
 					|| $lower === 'currentcolor'
-					|| CSSDataTypeMatcher::isSystemOrDeprecatedColor($lower);
+					|| CSSDataTypeMatcher::isSystemOrDeprecatedColor($lower)
+				) {
+					return true;
+				}
+				return $pureColor ? false : null;
 			}
 			return null;
 		}
@@ -372,7 +376,7 @@ final class CSSValueValidator
 			return null;
 		}
 		$numStr = substr($value, 0, $numLen);
-		if (!is_numeric($numStr)) {
+		if ($numStr[$numLen - 1] === '.' || !is_numeric($numStr)) {
 			return null;
 		}
 		$val = (float) $numStr;
@@ -407,7 +411,7 @@ final class CSSValueValidator
 			return null;
 		}
 		$numStr = substr($value, 0, $numLen);
-		if (!is_numeric($numStr)) {
+		if ($numStr[$numLen - 1] === '.' || !is_numeric($numStr)) {
 			return null;
 		}
 		if ($numLen === $valLen) {
@@ -422,34 +426,50 @@ final class CSSValueValidator
 
 	/**
 	 * Enforces CSS Transitions/Animations duration-before-delay ordering rule:
-	 * in each comma-separated item, the first `<time>` component IS the duration and MUST be `>= 0`.
+	 * in each comma-separated item, the first `<time>` (or `auto` on `animation`) is duration (`>= 0`).
+	 * Negative simplified `calc()` results remain parse-valid per CSS Values 4 §10.9.
 	 *
 	 * @param list<mixed> $components
 	 */
-	private static function validateTimeOrdering(string $source, array $components, CSSParserOptions $options): bool
-	{
+	private static function validateTimeOrdering(
+		string $normalizedProperty,
+		string $source,
+		array $components,
+		CSSParserOptions $options,
+	): bool {
 		$checkingFirstTime = true;
+		$allowAutoDuration = $normalizedProperty === 'animation';
 		foreach ($components as $comp) {
 			if (!is_array($comp)) {
 				continue;
 			}
 			$kind = $comp['kind'] ?? '';
-			if ($kind === 'token' && ($comp['tokenType'] ?? null) === CSSTokenType::Comma) {
-				$checkingFirstTime = true;
+			if ($kind === 'token') {
+				$tokType = $comp['tokenType'] ?? null;
+				if ($tokType === CSSTokenType::Comma) {
+					$checkingFirstTime = true;
+					continue;
+				}
+				if (!$checkingFirstTime) {
+					continue;
+				}
+				if ($allowAutoDuration && $tokType === CSSTokenType::Ident && strcasecmp((string) ($comp['name'] ?? ''), 'auto') === 0) {
+					$checkingFirstTime = false;
+					continue;
+				}
+				if ($tokType === CSSTokenType::Dimension) {
+					$info = CSSValueComponentParser::decodeNumericToken($source, $comp);
+					$u = strtolower($info['unit']);
+					if ($u === 's' || $u === 'ms') {
+						if ($info['value'] < 0.0) {
+							return false;
+						}
+						$checkingFirstTime = false;
+					}
+				}
 				continue;
 			}
 			if (!$checkingFirstTime) {
-				continue;
-			}
-			if ($kind === 'token' && ($comp['tokenType'] ?? null) === CSSTokenType::Dimension) {
-				$info = CSSValueComponentParser::decodeNumericToken($source, $comp);
-				$u = strtolower($info['unit']);
-				if ($u === 's' || $u === 'ms') {
-					if ($info['value'] < 0.0) {
-						return false;
-					}
-					$checkingFirstTime = false;
-				}
 				continue;
 			}
 			if ($kind === 'function' && CSSCalcParser::isMathFunctionName((string) ($comp['name'] ?? ''))) {
@@ -459,9 +479,6 @@ final class CSSValueValidator
 					if ($mathVal !== null) {
 						$dims = $mathVal->getNumericTypeInternal()->toArray();
 						if ((int) ($dims['time'] ?? 0) === 1 && ($mathVal->getNumericTypeInternal()->percentHint === null)) {
-							if ($mathVal instanceof CSSUnitValue && $mathVal->value < 0.0) {
-								return false;
-							}
 							$checkingFirstTime = false;
 						}
 					}
@@ -486,7 +503,13 @@ final class CSSValueValidator
 		$unique = [];
 		foreach ($parts as $part) {
 			$trimmed = trim($part);
-			if ($trimmed !== '' && !isset($seen[$trimmed])) {
+			if ($trimmed === '') {
+				continue;
+			}
+			if (str_starts_with($trimmed, '<')) {
+				$trimmed = strtolower($trimmed);
+			}
+			if (!isset($seen[$trimmed])) {
 				$seen[$trimmed] = true;
 				$unique[] = $trimmed;
 			}

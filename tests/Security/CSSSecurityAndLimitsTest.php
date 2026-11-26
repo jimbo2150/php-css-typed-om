@@ -3913,18 +3913,49 @@ final class CSSSecurityAndLimitsTest extends TestCase
 			}
 		}
 
-		// 12. maxMathDepth enforced in component parser & maxBytes enforced on validator fast paths + duplicate @property caps
+		// 12. maxMathDepth enforced in component parser & clean-ASCII paths + maxBytes throws consistently + non-strict maxDepth + recursive image & animation ReDoS bounds
+		foreach ([
+			static fn () => \Jimbo2150\PhpCssTypedOm\Grammar\CSSValueComponentParser::parse('calc(calc(calc(1px)))', new CSSParserOptions(maxMathDepth: 1)),
+			static fn () => (new CSSStyleDeclaration('', new CSSParserOptions(maxMathDepth: 1)))->setProperty('--x', 'calc(calc(calc(1px)))'),
+			static fn () => CSSStyleDeclaration::parse('--x: calc(calc(calc(1px)))', strict: true, options: new CSSParserOptions(maxMathDepth: 1)),
+			static fn () => CSSParser::parseSingleRule('.a { --x: calc(calc(calc(1px))); }', new CSSParserOptions(maxMathDepth: 1)),
+		] as $mathLimitCall) {
+			try {
+				$mathLimitCall();
+				self::fail('Expected maxMathDepth=1 to throw CSSParserLimitException.');
+			} catch (CSSParserLimitException) {
+			}
+		}
+
 		try {
-			\Jimbo2150\PhpCssTypedOm\Grammar\CSSValueComponentParser::parse('calc(calc(calc(1px)))', new CSSParserOptions(maxMathDepth: 1));
-			self::fail('Expected maxMathDepth=1 in CSSValueComponentParser::parse() to throw CSSParserLimitException.');
+			\Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator::validateStandardProperty('width', 'auto', new CSSParserOptions(maxBytes: 2));
+			self::fail('Expected maxBytes=2 in CSSValueValidator::validateStandardProperty() to throw CSSParserLimitException.');
 		} catch (CSSParserLimitException) {
 		}
-		try {
-			(new CSSStyleDeclaration('', new CSSParserOptions(maxMathDepth: 1)))->setProperty('--x', 'calc(calc(calc(1px)))');
-			self::fail('Expected maxMathDepth=1 on --x setProperty() to throw CSSParserLimitException.');
-		} catch (CSSParserLimitException) {
-		}
-		self::assertFalse(\Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator::validateStandardProperty('width', 'auto', new CSSParserOptions(maxBytes: 2)));
+		self::assertFalse(CSS::supports('width', 'auto', new CSSParserOptions(maxBytes: 2)));
+
+		$nonStrictDepthSheet = CSSStyleSheet::parse(
+			'.a { --deep: (((1px))); color: red; } .b { color: blue; }',
+			new CSSParserOptions(maxDepth: 2),
+		);
+		self::assertNotEmpty($nonStrictDepthSheet->getParseErrors());
+		self::assertCount(2, $nonStrictDepthSheet->cssRules);
+		$ruleA = $nonStrictDepthSheet->cssRules[0];
+		$ruleB = $nonStrictDepthSheet->cssRules[1];
+		self::assertInstanceOf(CSSStyleRule::class, $ruleA);
+		self::assertInstanceOf(CSSStyleRule::class, $ruleB);
+		self::assertSame('', $ruleA->style->getPropertyValue('--deep'));
+		self::assertSame('red', $ruleA->style->getPropertyValue('color'));
+		self::assertSame('blue', $ruleB->style->getPropertyValue('color'));
+
+		$deepCrossFadeDefault = str_repeat('cross-fade(', 200) . 'red' . str_repeat(')', 200);
+		self::assertFalse(\Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator::validateStandardProperty('background-image', $deepCrossFadeDefault));
+		$deepCrossFadeUnlimited = str_repeat('cross-fade(', 500) . 'red' . str_repeat(')', 500);
+		self::assertFalse(\Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator::validateStandardProperty('background-image', $deepCrossFadeUnlimited, CSSParserOptions::unlimited()));
+
+		$tAnim = hrtime(true);
+		self::assertFalse(\Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator::validateStandardProperty('animation', str_repeat('1s ', 40) . 'bogustoken'));
+		self::assertLessThan(50.0, (hrtime(true) - $tAnim) / 1_000_000);
 
 		$dupSyntax = implode(' | ', array_fill(0, 200, '<length>'));
 		$tDup = hrtime(true);

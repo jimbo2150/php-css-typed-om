@@ -24,9 +24,6 @@ use Jimbo2150\PhpCssTypedOm\TypedOM\Values\Numeric\CSSUnitValue;
  */
 final class CSSDataTypeMatcher
 {
-	/** @var array<string, CSSGrammarNode> */
-	private static array $cachedSimpleNodes = [];
-
 	private static ?CSSGrammarNode $cachedPositiveNumberNode = null;
 
 	/** @var array<string, true> */
@@ -54,9 +51,7 @@ final class CSSDataTypeMatcher
 		'system-color' => true,
 		'deprecated-color' => true,
 		'url' => true,
-		'image' => true,
-		'transform-function' => true,
-		'transform-list' => true,
+		'image-misc-fn' => true,
 		'string' => true,
 		'ident' => true,
 		'custom-ident' => true,
@@ -152,49 +147,11 @@ final class CSSDataTypeMatcher
 	/** @var array<string, true> */
 	private const array FREQUENCY_UNITS = ['hz' => true, 'khz' => true];
 
-	/** @var array<string, string> */
-	private const array TRANSFORM_FUNCTIONS = [
-		'matrix' => '<number>#{6}',
-		'matrix3d' => '<number>#{16}',
-		'translate' => '<length-percentage> [ , <length-percentage> ]?',
-		'translatex' => '<length-percentage>',
-		'translatey' => '<length-percentage>',
-		'translatez' => '<length>',
-		'translate3d' => '<length-percentage> , <length-percentage> , <length>',
-		'scale' => '[ <number> | <percentage> ] [ , [ <number> | <percentage> ] ]?',
-		'scalex' => '<number> | <percentage>',
-		'scaley' => '<number> | <percentage>',
-		'scalez' => '<number> | <percentage>',
-		'scale3d' => '[ <number> | <percentage> ]#{3}',
-		'rotate' => '<angle>',
-		'rotatex' => '<angle>',
-		'rotatey' => '<angle>',
-		'rotatez' => '<angle>',
-		'rotate3d' => '<number> , <number> , <number> , <angle>',
-		'skew' => '<angle> [ , <angle> ]?',
-		'skewx' => '<angle>',
-		'skewy' => '<angle>',
-		'perspective' => 'none | <length [0,∞]>',
-	];
-
-	/** @var array<string, CSSGrammarNode> */
-	private static array $compiledTransformGrammars = [];
-
 	/** @var array<string, true> */
 	private const array COLOR_FUNCTIONS = [
 		'rgb' => true, 'rgba' => true, 'hsl' => true, 'hsla' => true, 'hwb' => true,
 		'lab' => true, 'lch' => true, 'oklab' => true, 'oklch' => true,
 		'color' => true, 'color-mix' => true, 'light-dark' => true,
-	];
-
-	/** @var array<string, true> */
-	private const array GRADIENT_FUNCTIONS = [
-		'linear-gradient' => true,
-		'repeating-linear-gradient' => true,
-		'radial-gradient' => true,
-		'repeating-radial-gradient' => true,
-		'conic-gradient' => true,
-		'repeating-conic-gradient' => true,
 	];
 
 	/** @var array<string, true> */
@@ -265,10 +222,7 @@ final class CSSDataTypeMatcher
 			'deprecated-color' => self::matchSystemColor($components[$pos], $pos, true),
 
 			'url' => self::matchUrl($components[$pos], $pos),
-			'image' => self::matchImage($source, $hasComments, $components[$pos], $pos, $options, $evalCache, $mathBudget),
-
-			'transform-function' => self::matchTransformFunction($source, $hasComments, $components[$pos], $pos, $options),
-			'transform-list' => self::matchTransformList($source, $hasComments, $components, $pos, $options),
+			'image-misc-fn' => self::matchImageMiscFn($components[$pos], $pos),
 
 			'string' => ($components[$pos]['kind'] === 'token' && ($components[$pos]['tokenType'] ?? null) === CSSTokenType::String) ? [$pos + 1] : [],
 			'ident' => ($components[$pos]['kind'] === 'token' && ($components[$pos]['tokenType'] ?? null) === CSSTokenType::Ident) ? [$pos + 1] : [],
@@ -647,24 +601,13 @@ final class CSSDataTypeMatcher
 	}
 
 	/**
-	 * Matches `<image>`: `<url>` | `<gradient>` | `image-set(...)` | `cross-fade(...)` | `image(...)` | `element(...)` | `paint(...)`.
+	 * Matches miscellaneous functional image notations (`element(...)` and `paint(...)`).
 	 *
 	 * @param ParsedComponent $comp
-	 * @param array<string, mixed> $evalCache
 	 * @return list<int>
 	 */
-	private static function matchImage(
-		string $source,
-		bool $hasComments,
-		array $comp,
-		int $pos,
-		CSSParserOptions $options,
-		array &$evalCache = [],
-		int &$mathBudget = 0,
-	): array {
-		if (self::matchUrl($comp, $pos) !== []) {
-			return [$pos + 1];
-		}
+	private static function matchImageMiscFn(array $comp, int $pos): array
+	{
 		if ($comp['kind'] !== 'function') {
 			return [];
 		}
@@ -672,10 +615,6 @@ final class CSSDataTypeMatcher
 		$fn = (string) ($comp['name'] ?? '');
 		/** @var list<ParsedComponent> $args */
 		$args = $comp['components'] ?? [];
-
-		if (isset(self::GRADIENT_FUNCTIONS[$fn])) {
-			return self::validateGradientArgs($fn, $source, $hasComments, $args, $options, $evalCache, $mathBudget) ? [$pos + 1] : [];
-		}
 
 		if ($fn === 'element') {
 			// element( <id-selector> [ , [ first | start | last | first-except ] ]? )
@@ -697,44 +636,6 @@ final class CSSDataTypeMatcher
 			return [];
 		}
 
-		if ($fn === 'image-set' || $fn === 'cross-fade') {
-			$segments = self::splitComponentArgsByComma($args);
-			if ($segments === null) {
-				return [];
-			}
-			$argGrammar = CSSPropertyGrammarRegistry::resolveNonTerminal($fn === 'image-set' ? 'image-set-arg' : 'cross-fade-arg');
-			if ($argGrammar === null) {
-				return [];
-			}
-			foreach ($segments as $seg) {
-				if (!CSSGrammarMatcher::matches($argGrammar, $source, $hasComments, $seg, $options)) {
-					return [];
-				}
-			}
-			return [$pos + 1];
-		}
-
-		if ($fn === 'image') {
-			$segments = self::splitComponentArgsByComma($args);
-			if ($segments === null) {
-				return [];
-			}
-			$segCount = count($segments);
-			foreach ($segments as $idx => $seg) {
-				if (self::isValidImageFunctionArg($seg)) {
-					continue;
-				}
-				// Optional final <color> fallback
-				if ($idx === $segCount - 1 && count($seg) === 1
-					&& self::matchColor($source, $hasComments, $seg[0], 0, $options, $evalCache, $mathBudget) !== []
-				) {
-					continue;
-				}
-				return [];
-			}
-			return [$pos + 1];
-		}
-
 		if ($fn === 'paint') {
 			if ($args === [] || ($args[0]['kind'] ?? '') !== 'token' || ($args[0]['tokenType'] ?? null) !== CSSTokenType::Ident) {
 				return [];
@@ -743,153 +644,6 @@ final class CSSDataTypeMatcher
 		}
 
 		return [];
-	}
-
-	/**
-	 * @param list<ParsedComponent> $seg
-	 */
-	private static function isValidImageFunctionArg(array $seg): bool
-	{
-		$idx = 0;
-		$count = count($seg);
-		if ($count === 0) {
-			return false;
-		}
-		if (($seg[0]['kind'] ?? '') === 'token' && ($seg[0]['tokenType'] ?? null) === CSSTokenType::Ident) {
-			$tag = strtolower((string) ($seg[0]['name'] ?? ''));
-			if ($tag === 'ltr' || $tag === 'rtl') {
-				$idx = 1;
-			}
-		}
-		if ($idx !== $count - 1) {
-			return false;
-		}
-		$item = $seg[$idx];
-
-		return self::matchUrl($item, 0) !== []
-			|| (($item['kind'] ?? '') === 'token' && ($item['tokenType'] ?? null) === CSSTokenType::String);
-	}
-
-	/**
-	 * Validates structured CSS gradient arguments (`linear-gradient`, `radial-gradient`, `conic-gradient`, repeating-*).
-	 *
-	 * @param list<ParsedComponent> $args
-	 * @param array<string, mixed> $evalCache
-	 */
-	private static function validateGradientArgs(
-		string $fn,
-		string $source,
-		bool $hasComments,
-		array $args,
-		CSSParserOptions $options,
-		array &$evalCache,
-		int &$mathBudget,
-	): bool {
-		$segments = self::splitComponentArgsByComma($args);
-		if ($segments === null || count($segments) < 2) {
-			return false;
-		}
-
-		$isConic = str_contains($fn, 'conic');
-		$stopStartIndex = 0;
-		$first = $segments[0];
-
-		// Detect whether first segment is a color stop or a structured gradient prelude
-		$firstIsColorStop = self::isValidColorStop($isConic, $source, $hasComments, $first, $options, $evalCache, $mathBudget);
-		if (!$firstIsColorStop) {
-			if (!self::isValidGradientPrelude($fn, $source, $hasComments, $first, $options)) {
-				return false;
-			}
-			$stopStartIndex = 1;
-			if (count($segments) - $stopStartIndex < 2) {
-				// Gradients require at least 2 color stops when prelude is present
-				return false;
-			}
-		}
-
-		$stopCount = count($segments);
-		$hintType = $isConic ? 'angle-percentage' : 'length-percentage';
-		for ($idx = $stopStartIndex; $idx < $stopCount; $idx++) {
-			$seg = $segments[$idx];
-			if (self::isValidColorStop($isConic, $source, $hasComments, $seg, $options, $evalCache, $mathBudget)) {
-				continue;
-			}
-			// Intermediate color hint (<length-percentage> or <angle-percentage> for conic) allowed strictly between two stops
-			if ($idx > $stopStartIndex && $idx < $stopCount - 1 && count($seg) === 1
-				&& self::matchesSingleNumericKind($hintType, $source, $hasComments, $seg[0], $options, $evalCache, $mathBudget)
-			) {
-				continue;
-			}
-
-			return false;
-		}
-
-		return true;
-	}
-
-	/**
-	 * @param list<ParsedComponent> $seg
-	 * @param array<string, mixed> $evalCache
-	 */
-	private static function isValidColorStop(
-		bool $isConic,
-		string $source,
-		bool $hasComments,
-		array $seg,
-		CSSParserOptions $options,
-		array &$evalCache,
-		int &$mathBudget,
-	): bool {
-		$count = count($seg);
-		if ($count < 1 || $count > 3) {
-			return false;
-		}
-
-		$posType = $isConic ? 'angle-percentage' : 'length-percentage';
-
-		// Color stop: `<color> <pos>{0,2}` OR `<pos>{1,2} <color>`
-		if (self::matchColor($source, $hasComments, $seg[0], 0, $options, $evalCache, $mathBudget) !== []) {
-			for ($k = 1; $k < $count; $k++) {
-				if (!self::matchesSingleNumericKind($posType, $source, $hasComments, $seg[$k], $options, $evalCache, $mathBudget)) {
-					return false;
-				}
-			}
-			return true;
-		}
-
-		if ($count >= 2 && self::matchColor($source, $hasComments, $seg[$count - 1], 0, $options, $evalCache, $mathBudget) !== []) {
-			for ($k = 0; $k < $count - 1; $k++) {
-				if (!self::matchesSingleNumericKind($posType, $source, $hasComments, $seg[$k], $options, $evalCache, $mathBudget)) {
-					return false;
-				}
-			}
-			return true;
-		}
-
-		return false;
-	}
-
-	/**
-	 * @param list<ParsedComponent> $seg
-	 */
-	private static function isValidGradientPrelude(
-		string $fn,
-		string $source,
-		bool $hasComments,
-		array $seg,
-		CSSParserOptions $options,
-	): bool {
-		if ($seg === []) {
-			return false;
-		}
-		$nonTerminal = match (true) {
-			str_contains($fn, 'linear') => 'linear-gradient-prelude',
-			str_contains($fn, 'radial') => 'radial-gradient-prelude',
-			default => 'conic-gradient-prelude',
-		};
-		$grammar = CSSPropertyGrammarRegistry::resolveNonTerminal($nonTerminal);
-
-		return $grammar !== null && CSSGrammarMatcher::matches($grammar, $source, $hasComments, $seg, $options);
 	}
 
 	/**
@@ -917,75 +671,6 @@ final class CSSDataTypeMatcher
 		$segments[] = $current;
 
 		return $segments;
-	}
-
-	/**
-	 * @param ParsedComponent $comp
-	 * @param array<string, mixed> $evalCache
-	 */
-	private static function matchesSingleNumericKind(
-		string $numericTypeName,
-		string $source,
-		bool $hasComments,
-		array $comp,
-		CSSParserOptions $options,
-		array &$evalCache,
-		int &$mathBudget,
-	): bool {
-		$dummyNode = self::$cachedSimpleNodes[$numericTypeName] ??= new CSSGrammarNode(0, CSSGrammarNodeType::DataType, $numericTypeName);
-
-		return self::matchNumericType($dummyNode, $source, $hasComments, $comp, 0, $options, $evalCache, $mathBudget) !== [];
-	}
-
-	/**
-	 * @param ParsedComponent $comp
-	 * @return list<int>
-	 */
-	private static function matchTransformFunction(
-		string $source,
-		bool $hasComments,
-		array $comp,
-		int $pos,
-		CSSParserOptions $options,
-	): array {
-		if ($comp['kind'] !== 'function') {
-			return [];
-		}
-		$fn = (string) ($comp['name'] ?? '');
-		if (!isset(self::TRANSFORM_FUNCTIONS[$fn])) {
-			return [];
-		}
-		/** @var list<ParsedComponent> $args */
-		$args = $comp['components'] ?? [];
-		if ($args === []) {
-			return [];
-		}
-
-		$grammar = self::$compiledTransformGrammars[$fn] ??= CSSGrammarParser::parse(self::TRANSFORM_FUNCTIONS[$fn]);
-
-		return CSSGrammarMatcher::matches($grammar, $source, $hasComments, $args, $options) ? [$pos + 1] : [];
-	}
-
-	/**
-	 * @param list<ParsedComponent> $components
-	 * @return list<int>
-	 */
-	private static function matchTransformList(
-		string $source,
-		bool $hasComments,
-		array $components,
-		int $pos,
-		CSSParserOptions $options,
-	): array {
-		$count = count($components);
-		$ends = [];
-		$cur = $pos;
-		while ($cur < $count && self::matchTransformFunction($source, $hasComments, $components[$cur], $cur, $options) !== []) {
-			$cur++;
-			$ends[] = $cur;
-		}
-
-		return $ends;
 	}
 
 	/**
