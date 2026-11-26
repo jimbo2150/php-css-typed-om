@@ -11,6 +11,7 @@ use Countable;
 use Error;
 use InvalidArgumentException;
 use IteratorAggregate;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSMediaQueryParser;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\Values\CSSStyleValue;
 use Traversable;
@@ -49,11 +50,12 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 		string $mediaText = '',
 		?Closure $onChange = null,
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+		bool $browserErrorRecovery = false,
 	) {
 		CSSRule::assertValidMaxBytesInternal($maxBytes);
 		$this->onChange = $onChange;
 		$this->maxBytes = $maxBytes;
-		$this->setMediaText($mediaText);
+		$this->applyMediaText($mediaText, $browserErrorRecovery);
 	}
 
 	/** @internal */
@@ -105,6 +107,27 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 		return $this->maxBytes;
 	}
 
+	private function resolveMaxDepth(): ?int
+	{
+		$owner = $this->owner?->get();
+		if ($owner instanceof CSSStyleSheet) {
+			return $owner->getMaxDepthInternal();
+		}
+		if ($owner instanceof CSSRule) {
+			return $owner->getParentStyleSheet()?->getMaxDepthInternal() ?? CSSParserOptions::DEFAULT_MAX_DEPTH;
+		}
+
+		return CSSParserOptions::DEFAULT_MAX_DEPTH;
+	}
+
+	private function buildParserOptions(?int $maxBytes): CSSParserOptions
+	{
+		return new CSSParserOptions(
+			maxBytes: $maxBytes,
+			maxDepth: $this->resolveMaxDepth(),
+		);
+	}
+
 	public function getMediaText(): string
 	{
 		return implode(', ', $this->media);
@@ -117,32 +140,30 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 	 */
 	public function setMediaText(string $mediaText): void
 	{
+		$this->applyMediaText($mediaText, false);
+	}
+
+	private function applyMediaText(string $mediaText, bool $browserErrorRecovery): void
+	{
 		$maxBytes = $this->resolveMaxBytes();
 		if ($maxBytes !== null && strlen($mediaText) > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('Media query list exceeds maximum size of %d bytes.', $maxBytes));
 		}
-		if ($mediaText !== '') {
+		if (!$browserErrorRecovery && $mediaText !== '') {
 			CSSSyntaxScanner::assertValidFragment($mediaText, 'Media query list', [';', '{', '}'], ['{', '}']);
 		}
 
+		$parsed = CSSMediaQueryParser::parseList($mediaText, $this->buildParserOptions($maxBytes), $browserErrorRecovery);
+
 		$media = [];
 		$seen = [];
-		foreach (CSSSyntaxScanner::splitTopLevel($mediaText, ',', 0, null, CSSStyleValue::MAX_LIST_ITEMS) as $medium) {
-			$medium = CSSSyntaxScanner::trimCssWhitespace($medium);
-			if ($medium === '') {
-				continue;
-			}
-			CSSSyntaxScanner::assertValidFragment($medium, 'Media query', [';', '{', '}'], ['{', '}']);
-			if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($medium)) === '') {
-				continue;
-			}
-			$lower = strtolower($medium);
-			if (!isset($seen[$lower])) {
+		foreach ($parsed as $canonical) {
+			if (!isset($seen[$canonical])) {
 				if (count($media) >= CSSStyleValue::MAX_LIST_ITEMS) {
 					throw new CSSParserLimitException(sprintf('Media query list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
 				}
-				$seen[$lower] = true;
-				$media[] = $medium;
+				$seen[$canonical] = true;
+				$media[] = $canonical;
 			}
 		}
 
@@ -168,34 +189,31 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 		if ($maxBytes !== null && strlen($medium) > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('Media query exceeds maximum size of %d bytes.', $maxBytes));
 		}
-		$medium = CSSSyntaxScanner::trimCssWhitespace($medium);
-		if ($medium === '') {
+		$trimmed = CSSSyntaxScanner::trimCssWhitespace($medium);
+		if ($trimmed === '') {
 			throw new InvalidArgumentException('A single non-empty media query is required.');
 		}
-		CSSSyntaxScanner::assertValidFragment($medium, 'Media query', [',', ';', '{', '}'], ['{', '}']);
-		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($medium)) === '') {
-			throw new InvalidArgumentException('A single non-empty media query is required.');
-		}
-		$lower = strtolower($medium);
-		if (isset($this->mediaIndex[$lower])) {
+		CSSSyntaxScanner::assertValidFragment($trimmed, 'Media query', [',', ';', '{', '}'], ['{', '}']);
+		$canonical = CSSMediaQueryParser::parseSingle($trimmed, $this->buildParserOptions($maxBytes), false);
+		if (isset($this->mediaIndex[$canonical])) {
 			return;
 		}
 		if (count($this->media) >= CSSStyleValue::MAX_LIST_ITEMS) {
 			throw new CSSParserLimitException(sprintf('Media query list exceeds maximum limit of %d items.', CSSStyleValue::MAX_LIST_ITEMS));
 		}
 
-		$nextBytes = $this->media === [] ? strlen($medium) : ($this->serializedBytes + 2 + strlen($medium));
+		$nextBytes = $this->media === [] ? strlen($canonical) : ($this->serializedBytes + 2 + strlen($canonical));
 		if ($maxBytes !== null && $nextBytes > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('Media query list exceeds maximum size of %d bytes.', $maxBytes));
 		}
 		if ($this->onChange !== null) {
-			$nextMedia = [...$this->media, $medium];
+			$nextMedia = [...$this->media, $canonical];
 			($this->onChange)(implode(', ', $nextMedia));
 			$this->media = $nextMedia;
 		} else {
-			$this->media[] = $medium;
+			$this->media[] = $canonical;
 		}
-		$this->mediaIndex[$lower] = true;
+		$this->mediaIndex[$canonical] = true;
 		$this->serializedBytes = $nextBytes;
 	}
 
@@ -210,30 +228,48 @@ final class MediaList implements ArrayAccess, Countable, IteratorAggregate
 		if ($maxBytes !== null && strlen($medium) > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('Media query exceeds maximum size of %d bytes.', $maxBytes));
 		}
-		$medium = CSSSyntaxScanner::trimCssWhitespace($medium);
-		$lower = strtolower($medium);
-		if (!isset($this->mediaIndex[$lower])) {
-			throw new InvalidArgumentException('Media query not found: ' . $medium);
+		$trimmed = CSSSyntaxScanner::trimCssWhitespace($medium);
+		if ($trimmed === '') {
+			throw new InvalidArgumentException('Media query not found: ' . $trimmed);
+		}
+		$canonical = CSSMediaQueryParser::parseSingle($trimmed, $this->buildParserOptions($maxBytes), false);
+		if (!isset($this->mediaIndex[$canonical])) {
+			throw new InvalidArgumentException('Media query not found: ' . $trimmed);
 		}
 		foreach ($this->media as $index => $existing) {
-			if (strcasecmp($existing, $medium) === 0) {
+			if ($existing === $canonical) {
 				$nextMedia = $this->media;
 				array_splice($nextMedia, $index, 1);
 				$nextText = implode(', ', $nextMedia);
 				$this->onChange?->__invoke($nextText);
 				$this->media = $nextMedia;
-				unset($this->mediaIndex[$lower]);
+				unset($this->mediaIndex[$canonical]);
 				$this->serializedBytes = strlen($nextText);
 				return;
 			}
 		}
-		throw new InvalidArgumentException('Media query not found: ' . $medium);
+		throw new InvalidArgumentException('Media query not found: ' . $trimmed);
 	}
 
 	public function contains(string $medium): bool
 	{
-		$needle = strtolower(CSSSyntaxScanner::trimCssWhitespace($medium));
-		return $needle !== '' && isset($this->mediaIndex[$needle]);
+		$maxBytes = $this->resolveMaxBytes();
+		if ($maxBytes !== null && strlen($medium) > $maxBytes) {
+			return false;
+		}
+		$trimmed = CSSSyntaxScanner::trimCssWhitespace($medium);
+		if ($trimmed === '') {
+			return false;
+		}
+		try {
+			$canonical = CSSMediaQueryParser::parseSingle($trimmed, $this->buildParserOptions($maxBytes), false);
+		} catch (CSSParserLimitException) {
+			return false;
+		} catch (InvalidArgumentException) {
+			return false;
+		}
+
+		return isset($this->mediaIndex[$canonical]);
 	}
 
 	public function item(int $index): string

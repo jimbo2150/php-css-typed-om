@@ -34,10 +34,12 @@
 | `CONTAINER_RULE` | `25` | `@container`. |
 | `VIEW_TRANSITION_RULE` | `26` | `@view-transition`. |
 | `NESTED_DECLARATIONS_RULE` | `27` | Declarations among nested rules. |
+| `COLOR_PROFILE_RULE` | `28` | `@color-profile`. |
+| `CUSTOM_MEDIA_RULE` | `29` | `@custom-media`. |
 
 ## Properties
 
-Private `parentStyleSheet` and `parentRule` fields are exposed by getters and magic read-only virtual properties `parentStyleSheet` and `parentRule` (and detached rule instances retain their configured `$maxBytes` budget across parent-link queries). `type` and `cssText` are virtual read-only properties. No public instance fields are declared.
+Private `parentStyleSheet`, `parentRule`, and `sourceSpan` fields are exposed by getters and magic read-only virtual properties `parentStyleSheet`, `parentRule`, and `sourceSpan` (and detached rule instances retain their configured `$maxBytes` budget across parent-link queries). `type` and `cssText` are virtual read-only properties. No public instance fields are declared.
 
 ## Public Methods
 
@@ -47,6 +49,7 @@ Private `parentStyleSheet` and `parentRule` fields are exposed by getters and ma
 | `getCssText(): string` (abstract) | Returns CSS serialization for the node. | `$rule->getCssText();` |
 | `getParentStyleSheet(): ?CSSStyleSheet` | Returns attached stylesheet, or `null` when detached. | `$rule->getParentStyleSheet();` |
 | `getParentRule(): ?CSSGroupingRule` | Returns owning grouping rule, or `null` when not nested/attached. | `$rule->getParentRule();` |
+| `getSourceSpan(): ?CSSSourceSpan` | Returns originating source span when parsed with `trackSpans: true`, or `null`. | `$rule->getSourceSpan();` |
 | `setParentLinks(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void` | Updates direct parent stylesheet and rule references without reparenting child lists, applying monotonic Policy C2 limit synchronization (tighter limits are never widened across attach or detach). | `$rule->setParentLinks($sheet, $parent);` |
 | `attach(?CSSStyleSheet $sheet, ?CSSGroupingRule $parentRule): void` | Updates both parent references and syncs/clamps child limits; grouping subclasses also reparent child lists. | `$rule->attach($sheet, null);` |
 | `__clone(): void` | Deeply detaches/clones rule state iteratively (including owned style declarations and grouping child lists without recursion). | `$copy = clone $rule;` |

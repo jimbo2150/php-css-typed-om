@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "spec": "css/geometry",
+  "wptCommit": "1dcf57d2b9a6eb07162eef4daa32d0754de38650",
+  "upstreamFiles": [
+    "css/geometry/DOMPoint-001.html",
+    "css/geometry/DOMRect-001.html",
+    "css/geometry/DOMQuad-001.html"
+  ],
+  "cases": [
+    {
+      "id": "geometry/point/defaults-and-transform",
+      "upstream": "css/geometry/DOMPoint-001.html",
+      "category": "parsing",
+      "operation": "geometry.point.ops",
+      "input": { "x": 2, "y": 3, "z": 0, "w": 1, "matrix": { "a": 2, "d": 3, "e": 10, "f": -4 } },
+      "expected": { "x": 14, "y": 5, "z": 0, "w": 1 },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/point/from-point-defaults",
+      "upstream": "css/geometry/DOMPoint-001.html",
+      "category": "canonicalization",
+      "operation": "geometry.point.ops",
+      "input": { "fromPoint": { "x": 5 } },
+      "expected": { "x": 5, "y": 0, "z": 0, "w": 1 },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/rect/negative-dimensions-edges",
+      "upstream": "css/geometry/DOMRect-001.html",
+      "category": "canonicalization",
+      "operation": "geometry.rect.ops",
+      "input": { "x": 100, "y": 80, "width": -30, "height": -20 },
+      "expected": { "top": 60, "right": 100, "bottom": 80, "left": 70 },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/quad/from-rect-and-bounds",
+      "upstream": "css/geometry/DOMQuad-001.html",
+      "category": "serialization",
+      "operation": "geometry.quad.ops",
+      "input": { "fromRect": { "x": 10, "y": 20, "width": 30, "height": 40 } },
+      "expected": {
+        "p1": { "x": 10, "y": 20 },
+        "p2": { "x": 40, "y": 20 },
+        "p3": { "x": 40, "y": 60 },
+        "p4": { "x": 10, "y": 60 },
+        "bounds": { "x": 10, "y": 20, "width": 30, "height": 40 }
+      },
+      "status": "pass"
+    },
+    {
+      "id": "geometry/quad/non-finite-point-rejected",
+      "upstream": "css/geometry/DOMQuad-001.html",
+      "category": "error-recovery",
+      "operation": "geometry.quad.ops",
+      "input": { "p1": { "x": "not-a-number" } },
+      "expected": { "throws": "InvalidArgumentException" },
+      "status": "pass"
+    }
+  ]
+}

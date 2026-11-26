@@ -87,6 +87,9 @@ final class DOMMatrixTest extends TestCase
 		$rot = (new DOMMatrix())->rotateSelf(90.0);
 		self::assertTrue($rot->is2D);
 		$pt = $rot->transformPoint(['x' => 1, 'y' => 0]);
+		self::assertInstanceOf(\Jimbo2150\PhpCssTypedOm\Geometry\DOMPoint::class, $pt);
+		self::assertEqualsWithDelta(0.0, $pt->x, 1e-9);
+		self::assertEqualsWithDelta(1.0, $pt->y, 1e-9);
 		self::assertEqualsWithDelta(0.0, $pt['x'], 1e-9);
 		self::assertEqualsWithDelta(1.0, $pt['y'], 1e-9);
 

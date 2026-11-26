@@ -28,6 +28,7 @@ final readonly class CSSParserOptions
 		public ?int $maxErrors = self::DEFAULT_MAX_ERRORS,
 		public ?int $maxDeclarations = self::DEFAULT_MAX_DECLARATIONS,
 		public bool $browserErrorRecovery = false,
+		public bool $trackSpans = false,
 	) {
 		foreach ([
 			'maxBytes' => $maxBytes,
@@ -52,8 +53,8 @@ final readonly class CSSParserOptions
 	/**
 	 * Creates options with all parser size/depth/rule/error/declaration-count limits disabled.
 	 */
-	public static function unlimited(bool $browserErrorRecovery = false): self
+	public static function unlimited(bool $browserErrorRecovery = false, bool $trackSpans = false): self
 	{
-		return new self(null, null, null, null, null, null, $browserErrorRecovery);
+		return new self(null, null, null, null, null, null, $browserErrorRecovery, $trackSpans);
 	}
 }

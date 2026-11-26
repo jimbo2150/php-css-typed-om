@@ -11,7 +11,8 @@
     "css/cssom/insertRule-namespace-after-import.html",
     "css/cssom/CSSStyleSheet-constructable-replace-cssRules.html",
     "css/cssom/CSSStyleSheet-replace-detach-old-rules.html",
-    "css/cssom/CSSStyleSheet-replace-parse-errors.html"
+    "css/cssom/CSSStyleSheet-replace-parse-errors.html",
+    "css/cssom/deleteRule-namespace.html"
   ],
   "cases": [
     {
@@ -160,6 +161,26 @@
       "input": { "initialCss": "a { color: red; }", "index": 1 },
       "expected": { "throws": "OutOfBoundsException" },
       "status": "pass"
+    },
+    {
+      "id": "cssom/stylesheet/delete-namespace-while-style-rule-exists",
+      "upstream": "css/cssom/deleteRule-namespace.html",
+      "category": "error-recovery",
+      "operation": "cssom.stylesheet.deleteRule",
+      "input": { "initialCss": "@namespace svg url(\"http://www.w3.org/2000/svg\"); svg|rect { fill: red; }", "index": 0 },
+      "expected": { "throws": "LogicException" },
+      "status": "pass",
+      "specRef": "https://drafts.csswg.org/cssom/#dom-cssstylesheet-deleterule"
+    },
+    {
+      "id": "cssom/stylesheet/delete-namespace-when-only-prelude-rules-exist",
+      "upstream": "css/cssom/deleteRule-namespace.html",
+      "category": "canonicalization",
+      "operation": "cssom.stylesheet.deleteRule",
+      "input": { "initialCss": "@import url(\"a.css\"); @namespace svg url(\"http://www.w3.org/2000/svg\");", "index": 1 },
+      "expected": { "ruleCount": 1, "cssText": "@import url(\"a.css\");" },
+      "status": "pass",
+      "specRef": "https://drafts.csswg.org/cssom/#dom-cssstylesheet-deleterule"
     },
     {
       "id": "cssom/stylesheet/replace-sync-replaces-and-detaches",

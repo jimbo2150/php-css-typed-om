@@ -49,6 +49,8 @@ final class CSSStyleSheet extends StyleSheet
 
 	private bool $browserErrorRecovery = false;
 
+	private bool $trackSpans = false;
+
 	private bool $errorsTruncated = false;
 
 	private ?CSSParserOptions $cachedParserOptions = null;
@@ -121,6 +123,7 @@ final class CSSStyleSheet extends StyleSheet
 		$this->maxDeclarations = $options->maxDeclarations;
 		$this->maxErrors = $options->maxErrors;
 		$this->browserErrorRecovery = $options->browserErrorRecovery;
+		$this->trackSpans = $options->trackSpans;
 		$this->cachedParserOptions = null;
 		$this->getMedia()->setMaxBytesInternal($options->maxBytes);
 	}
@@ -138,6 +141,7 @@ final class CSSStyleSheet extends StyleSheet
 			maxDeclarations: $this->maxDeclarations,
 			maxErrors: $this->maxErrors,
 			browserErrorRecovery: $this->browserErrorRecovery,
+			trackSpans: $this->trackSpans,
 		));
 	}
 
@@ -266,16 +270,24 @@ final class CSSStyleSheet extends StyleSheet
 			$this->totalRuleCount,
 			$this->totalDeclarationCount,
 		);
-		$this->assertValidInsertHierarchy($rule, $index);
+		$this->assertValidInsertHierarchyInternal($rule, $index);
 		$this->cssRulesList->insertWithOptionsInternal($index, $rule, $effectiveOptions);
 
 		return $index;
 	}
 
-	private function assertValidInsertHierarchy(CSSRule $rule, int $index): void
+	/**
+	 * @internal Validates CSSOM §6.4.1 top-level rule insertion hierarchy before mutating the stylesheet.
+	 *
+	 * @throws InvalidArgumentException When the rule type or position violates CSSOM rule ordering
+	 */
+	public function assertValidInsertHierarchyInternal(CSSRule $rule, int $index): void
 	{
 		if ($rule instanceof CSSCharsetRule) {
 			throw new InvalidArgumentException('@charset rules cannot be inserted via insertRule().');
+		}
+		if ($rule instanceof CSSStyleRule && $rule->hasLeadingCombinatorInternal()) {
+			throw new InvalidArgumentException('Top-level style rules cannot start with a relative combinator.');
 		}
 
 		$rules = $this->cssRulesList->getRulesRaw();
@@ -339,15 +351,40 @@ final class CSSStyleSheet extends StyleSheet
 	}
 
 	/**
+	 * @internal Validates CSSOM §6.4.2 rule deletion constraints before removing from the stylesheet.
+	 *
+	 * @throws OutOfBoundsException When $index is out of bounds
+	 * @throws LogicException When deleting an @namespace rule while non-prelude rules exist
+	 */
+	public function assertValidDeleteHierarchyInternal(int $index): void
+	{
+		$rules = $this->cssRulesList->getRulesRaw();
+		if (!isset($rules[$index])) {
+			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
+		}
+		if (!$rules[$index] instanceof CSSNamespaceRule) {
+			return;
+		}
+		foreach ($rules as $existing) {
+			if (!$existing instanceof CSSCharsetRule
+				&& !$existing instanceof CSSImportRule
+				&& !$existing instanceof CSSNamespaceRule
+				&& !$existing instanceof CSSLayerStatementRule
+			) {
+				throw new LogicException('@namespace rule cannot be deleted when stylesheet contains non-prelude rules.');
+			}
+		}
+	}
+
+	/**
 	 * Deletes the rule at $index.
 	 *
 	 * @throws OutOfBoundsException When $index is out of bounds
+	 * @throws LogicException When deleting an @namespace rule while non-prelude rules exist
 	 */
 	public function deleteRule(int $index = 0): void
 	{
-		if ($index < 0 || $index >= count($this->cssRulesList)) {
-			throw new OutOfBoundsException('Rule index is outside the CSSRuleList.');
-		}
+		$this->assertValidDeleteHierarchyInternal($index);
 		$this->cssRulesList->remove($index);
 	}
 

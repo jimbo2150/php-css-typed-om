@@ -89,6 +89,8 @@ class CSSAtRule extends CSSRule
 			'font-palette-values' => self::FONT_PALETTE_VALUES_RULE,
 			'position-try' => self::POSITION_TRY_RULE,
 			'view-transition' => self::VIEW_TRANSITION_RULE,
+			'color-profile' => self::COLOR_PROFILE_RULE,
+			'custom-media' => self::CUSTOM_MEDIA_RULE,
 			default => self::UNKNOWN_RULE,
 		};
 	}

@@ -304,23 +304,29 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 	/**
 	 * Transforms a 3D homogeneous point (`x`, `y`, `z`, `w`).
 	 *
-	 * @param array{x?: int|float, y?: int|float, z?: int|float, w?: int|float} $point
-	 * @return array{x: float, y: float, z: float, w: float}
+	 * @param DOMPointReadOnly|array{x?: int|float, y?: int|float, z?: int|float, w?: int|float} $point
 	 */
-	public function transformPoint(array $point = []): array
+	public function transformPoint(DOMPointReadOnly|array $point = []): DOMPoint
 	{
-		$x = self::assertFinite($point['x'] ?? 0.0, 'point.x');
-		$y = self::assertFinite($point['y'] ?? 0.0, 'point.y');
-		$z = self::assertFinite($point['z'] ?? 0.0, 'point.z');
-		$w = self::assertFinite($point['w'] ?? 1.0, 'point.w');
+		if ($point instanceof DOMPointReadOnly) {
+			$x = self::assertFinite($point->getX(), 'point.x');
+			$y = self::assertFinite($point->getY(), 'point.y');
+			$z = self::assertFinite($point->getZ(), 'point.z');
+			$w = self::assertFinite($point->getW(), 'point.w');
+		} else {
+			$x = self::assertFinite($point['x'] ?? 0.0, 'point.x');
+			$y = self::assertFinite($point['y'] ?? 0.0, 'point.y');
+			$z = self::assertFinite($point['z'] ?? 0.0, 'point.z');
+			$w = self::assertFinite($point['w'] ?? 1.0, 'point.w');
+		}
 		$m = $this->elements;
 
-		return [
-			'x' => self::assertFinite($m[0] * $x + $m[4] * $y + $m[8] * $z + $m[12] * $w, 'transformedPoint.x'),
-			'y' => self::assertFinite($m[1] * $x + $m[5] * $y + $m[9] * $z + $m[13] * $w, 'transformedPoint.y'),
-			'z' => self::assertFinite($m[2] * $x + $m[6] * $y + $m[10] * $z + $m[14] * $w, 'transformedPoint.z'),
-			'w' => self::assertFinite($m[3] * $x + $m[7] * $y + $m[11] * $z + $m[15] * $w, 'transformedPoint.w'),
-		];
+		return new DOMPoint(
+			self::assertFinite($m[0] * $x + $m[4] * $y + $m[8] * $z + $m[12] * $w, 'transformedPoint.x'),
+			self::assertFinite($m[1] * $x + $m[5] * $y + $m[9] * $z + $m[13] * $w, 'transformedPoint.y'),
+			self::assertFinite($m[2] * $x + $m[6] * $y + $m[10] * $z + $m[14] * $w, 'transformedPoint.z'),
+			self::assertFinite($m[3] * $x + $m[7] * $y + $m[11] * $z + $m[15] * $w, 'transformedPoint.w'),
+		);
 	}
 
 	/** @return list<float> */
@@ -504,6 +510,12 @@ class DOMMatrixReadOnly implements ArrayAccess, Countable, Stringable
 			&& $elements[11] === 0.0
 			&& $elements[14] === 0.0
 			&& $elements[15] === 1.0;
+	}
+
+	/** @internal */
+	public static function assertFiniteInternal(mixed $value, string $label): float
+	{
+		return self::assertFinite($value, $label);
 	}
 
 	protected static function assertFinite(mixed $value, string $label): float

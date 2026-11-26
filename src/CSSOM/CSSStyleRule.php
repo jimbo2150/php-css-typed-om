@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSelectorList;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\TypedOM\StylePropertyMap;
 use LogicException;
@@ -24,6 +25,9 @@ class CSSStyleRule extends CSSGroupingRule
 	private string $selectorTextValue;
 	private CSSStyleProperties $styleDeclaration;
 	private ?StylePropertyMap $cachedStyleMap = null;
+	private ?int $maxDepth = CSSParserOptions::DEFAULT_MAX_DEPTH;
+	private bool $allowRelativeContext;
+	private bool $hasLeadingCombinator;
 
 	/**
 	 * @throws InvalidArgumentException When $selectorText is empty or invalid
@@ -32,15 +36,26 @@ class CSSStyleRule extends CSSGroupingRule
 		string $selectorText,
 		?CSSStyleDeclaration $style = null,
 		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+		bool $allowRelative = false,
 	) {
 		self::assertValidMaxBytesInternal($maxBytes);
-		$selectorText = self::validateSelector($selectorText, $maxBytes, 'A CSS style rule requires a selector.');
+		$parsedSelector = self::validateSelector(
+			$selectorText,
+			$maxBytes,
+			CSSParserOptions::DEFAULT_MAX_DEPTH,
+			$allowRelative,
+			false,
+			'A CSS style rule requires a selector.',
+		);
 		if ($style !== null && $maxBytes !== null) {
 			$style->assertContentBytesWithinInternal($maxBytes);
 		}
 		parent::__construct('style', '', $maxBytes);
-		$this->prelude = $selectorText;
-		$this->selectorTextValue = $selectorText;
+		$canonical = $parsedSelector->getCssText();
+		$this->prelude = $canonical;
+		$this->selectorTextValue = $canonical;
+		$this->allowRelativeContext = $allowRelative;
+		$this->hasLeadingCombinator = $parsedSelector->hasLeadingCombinator();
 		if ($style === null) {
 			$this->styleDeclaration = new CSSStyleProperties();
 			$this->styleDeclaration->setMaxBytesInternal($maxBytes);
@@ -51,6 +66,45 @@ class CSSStyleRule extends CSSGroupingRule
 		$this->styleDeclaration->setParentRule($this);
 	}
 
+	/**
+	 * @internal Fast parser constructor enforcing stylesheet depth and browser comment-control-byte policy.
+	 */
+	public static function createParsedInternal(
+		string $selectorText,
+		?CSSStyleDeclaration $style,
+		CSSParserOptions $options,
+		bool $allowRelative,
+		bool $allowCommentControlBytes,
+	): self {
+		self::assertValidMaxBytesInternal($options->maxBytes);
+		$parsedSelector = self::validateSelector(
+			$selectorText,
+			$options->maxBytes,
+			$options->maxDepth,
+			$allowRelative,
+			$allowCommentControlBytes,
+			'A CSS style rule requires a selector.',
+		);
+		if ($style !== null && $options->maxBytes !== null) {
+			$style->assertContentBytesWithinInternal($options->maxBytes);
+		}
+		$canonical = $parsedSelector->getCssText();
+		$rule = new self('a', $style, $options->maxBytes, false);
+		$rule->prelude = $canonical;
+		$rule->selectorTextValue = $canonical;
+		$rule->maxDepth = $options->maxDepth;
+		$rule->allowRelativeContext = $allowRelative;
+		$rule->hasLeadingCombinator = $parsedSelector->hasLeadingCombinator();
+
+		return $rule;
+	}
+
+	/** @internal */
+	public function hasLeadingCombinatorInternal(): bool
+	{
+		return $this->hasLeadingCombinator;
+	}
+
 	protected function syncChildLimitsInternal(
 		?int $maxBytes,
 		?int $maxDeclarations,
@@ -59,6 +113,9 @@ class CSSStyleRule extends CSSGroupingRule
 		?int $maxMathDepth = CSSParserOptions::DEFAULT_MAX_MATH_DEPTH,
 		bool $syncDepths = false,
 	): void {
+		if ($syncDepths) {
+			$this->maxDepth = $maxDepth;
+		}
 		$this->styleDeclaration->clampLimitsInternal(
 			$maxBytes,
 			$syncDeclarations ? $maxDeclarations : null,
@@ -79,32 +136,83 @@ class CSSStyleRule extends CSSGroupingRule
 	}
 
 	/**
-	 * @throws InvalidArgumentException When $selectorText is empty or structurally invalid
+	 * @throws InvalidArgumentException When $selectorText is empty or invalid per Selectors Level 4
 	 */
 	public function setSelectorText(string $selectorText): void
 	{
-		$selectorText = self::validateSelector($selectorText, $this->resolveMaxBytesInternal(), 'Invalid CSS selector text.');
+		$parsedSelector = self::validateSelector(
+			$selectorText,
+			$this->resolveMaxBytesInternal(),
+			$this->resolveMaxDepthInternal(),
+			$this->shouldAllowRelativeSelectors(),
+			false,
+			'Invalid CSS selector text.',
+		);
+		$canonical = $parsedSelector->getCssText();
 
-		$this->selectorTextValue = $selectorText;
-		$this->prelude = $selectorText;
+		$this->selectorTextValue = $canonical;
+		$this->prelude = $canonical;
+		$this->hasLeadingCombinator = $parsedSelector->hasLeadingCombinator();
 	}
 
-	private static function validateSelector(string $selectorText, ?int $maxBytes, string $emptyMessage): string
+	private function resolveMaxDepthInternal(): ?int
 	{
+		$sheetDepth = $this->getParentStyleSheet()?->getMaxDepthInternal();
+		return self::minLimitInternal($this->maxDepth, $sheetDepth);
+	}
+
+	private function shouldAllowRelativeSelectors(): bool
+	{
+		$parent = $this->getParentRule();
+		if ($parent === null) {
+			return $this->getParentStyleSheet() === null && $this->allowRelativeContext;
+		}
+
+		$visited = [];
+		while ($parent !== null) {
+			if ($parent instanceof self || $parent instanceof CSSScopeRule) {
+				return true;
+			}
+			$id = spl_object_id($parent);
+			if (isset($visited[$id])) {
+				return false;
+			}
+			$visited[$id] = true;
+			$parent = $parent->getParentRule();
+		}
+
+		return false;
+	}
+
+	private static function validateSelector(
+		string $selectorText,
+		?int $maxBytes,
+		?int $maxDepth,
+		bool $allowRelative,
+		bool $allowCommentControlBytes,
+		string $emptyMessage,
+	): CSSSelectorList {
 		if ($maxBytes !== null && strlen($selectorText) > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS selector exceeds maximum size of %d bytes.', $maxBytes));
 		}
-		$selectorText = CSSSyntaxScanner::trimCssWhitespace($selectorText);
-		if ($selectorText === '') {
+		$trimmed = CSSSyntaxScanner::trimCssWhitespace($selectorText);
+		if ($trimmed === '') {
 			throw new InvalidArgumentException($emptyMessage);
 		}
-		CSSSyntaxScanner::assertValidFragment($selectorText, 'CSS selector', [';', '{', '}']);
-		$withoutComments = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($selectorText));
+		if (!$allowCommentControlBytes) {
+			CSSSyntaxScanner::assertValidFragment($trimmed, 'CSS selector', [';', '{', '}']);
+		}
+		$withoutComments = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed));
 		if ($withoutComments === '' || str_starts_with($withoutComments, '@')) {
 			throw new InvalidArgumentException($emptyMessage);
 		}
 
-		return $selectorText;
+		return CSSSelectorList::parseForStyleRuleInternal(
+			$trimmed,
+			new CSSParserOptions(maxBytes: $maxBytes, maxDepth: $maxDepth),
+			$allowRelative,
+			$allowCommentControlBytes,
+		);
 	}
 
 	public function getStyle(): CSSStyleProperties
@@ -157,6 +265,7 @@ class CSSStyleRule extends CSSGroupingRule
 
 	public function __clone(): void
 	{
+		$this->maxDepth = $this->resolveMaxDepthInternal();
 		parent::__clone();
 		$this->styleDeclaration = clone $this->styleDeclaration;
 		$this->styleDeclaration->setParentRule($this);

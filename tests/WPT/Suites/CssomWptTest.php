@@ -198,9 +198,11 @@ final class CssomWptTest extends WptContractTestCase
 
 		$sheet = CSSStyleSheet::parse($initialCss);
 		$expected = $case->expected;
-		if (($expected['throws'] ?? null) === 'OutOfBoundsException') {
+		$throws = $expected['throws'] ?? null;
+		if ($throws === 'OutOfBoundsException' || $throws === 'LogicException') {
+			$exceptionClass = $throws === 'LogicException' ? LogicException::class : OutOfBoundsException::class;
 			WptAssertions::assertThrowsException(
-				OutOfBoundsException::class,
+				$exceptionClass,
 				static function () use ($sheet, $index): void {
 					$sheet->deleteRule($index);
 				},

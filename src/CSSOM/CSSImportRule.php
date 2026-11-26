@@ -29,8 +29,11 @@ final class CSSImportRule extends CSSAtRule
 	private ?string $supportsTextValue;
 	private bool $initializing = true;
 
-	public function __construct(string $prelude, ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
-	{
+	public function __construct(
+		string $prelude,
+		?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES,
+		bool $browserErrorRecovery = false,
+	) {
 		self::assertValidMaxBytesInternal($maxBytes);
 		if ($maxBytes !== null && strlen($prelude) > $maxBytes) {
 			throw new CSSParserLimitException(sprintf('CSS @import rule exceeds maximum size of %d bytes.', $maxBytes));
@@ -39,13 +42,34 @@ final class CSSImportRule extends CSSAtRule
 		if ($trimmed === '') {
 			throw new InvalidArgumentException('@import requires a URL.');
 		}
-		CSSSyntaxScanner::assertValidFragment($trimmed, '@import prelude', [';', '{', '}']);
-		if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
-			throw new InvalidArgumentException('@import requires a URL.');
+		if ($browserErrorRecovery) {
+			$clean = str_contains($trimmed, '/*')
+				? CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed))
+				: $trimmed;
+			if ($clean === '') {
+				throw new InvalidArgumentException('@import requires a URL.');
+			}
+			if (CSSSyntaxScanner::hasControlCharacters($clean)) {
+				throw new InvalidArgumentException('@import prelude contains disallowed control characters.');
+			}
+			$parts = self::parseTailParts($clean);
+			$prefixParts = [$parts['urlToken']];
+			if ($parts['layerName'] !== null) {
+				$prefixParts[] = $parts['layerName'] === '' ? 'layer' : 'layer(' . $parts['layerName'] . ')';
+			}
+			if ($parts['supportsText'] !== null) {
+				$prefixParts[] = 'supports(' . $parts['supportsText'] . ')';
+			}
+			CSSSyntaxScanner::assertValidFragment(implode(' ', $prefixParts), '@import prelude', [';', '{', '}']);
+		} else {
+			CSSSyntaxScanner::assertValidFragment($trimmed, '@import prelude', [';', '{', '}']);
+			if (CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($trimmed)) === '') {
+				throw new InvalidArgumentException('@import requires a URL.');
+			}
+			$parts = self::parseTailParts($trimmed);
 		}
-		parent::__construct('import', $trimmed, null, false, $maxBytes);
+		parent::__construct('import', '', null, false, $maxBytes);
 
-		$parts = self::parseTailParts($this->prelude);
 		$this->urlToken = $parts['urlToken'];
 		$this->hrefValue = $parts['href'];
 		$this->layerNameValue = $parts['layerName'];
@@ -54,9 +78,10 @@ final class CSSImportRule extends CSSAtRule
 			if (!$this->initializing) {
 				$this->rebuildPrelude($mediaText);
 			}
-		}, $maxBytes);
+		}, $maxBytes, $browserErrorRecovery);
 		$this->mediaList->setOwnerInternal($this);
 		$this->initializing = false;
+		$this->rebuildPrelude($this->mediaList->getMediaText());
 	}
 
 	public function getHref(): string

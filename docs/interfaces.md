@@ -12,6 +12,11 @@ The documented names and signatures follow the PHP source. Trait pages describe 
 
 - [`DOMMatrixReadOnly`](interfaces/Geometry/DOMMatrixReadOnly.md) — read-only 4x4 column-major transformation matrix.
 - [`DOMMatrix`](interfaces/Geometry/DOMMatrix.md) — mutable 4x4 transformation matrix.
+- [`DOMPointReadOnly`](interfaces/Geometry/DOMPointReadOnly.md) — read-only 2D/3D/4D homogeneous point.
+- [`DOMPoint`](interfaces/Geometry/DOMPoint.md) — mutable point companion.
+- [`DOMRectReadOnly`](interfaces/Geometry/DOMRectReadOnly.md) — read-only axis-aligned rectangle with computed edges.
+- [`DOMRect`](interfaces/Geometry/DOMRect.md) — mutable rectangle companion.
+- [`DOMQuad`](interfaces/Geometry/DOMQuad.md) — quadrilateral composed of four live `DOMPoint` vertices and `getBounds()`.
 
 ## CSS Object Model (CSSOM)
 
@@ -20,6 +25,7 @@ The documented names and signatures follow the PHP source. Trait pages describe 
 - [`CSSParser`](interfaces/CSSOM/CSSParser.md) — stylesheet and single-rule parsing entry points.
 - [`CSSParserLimitException`](interfaces/CSSOM/CSSParserLimitException.md) — exception thrown when parser or renderer resource limits are exceeded.
 - [`CSSParserOptions`](interfaces/CSSOM/CSSParserOptions.md) — parser resource-limit configuration.
+- [`CSSSourceSpan`](interfaces/CSSOM/CSSSourceSpan.md) — immutable source line/column/offset span value object.
 - [`CSSRenderer`](interfaces/CSSOM/CSSRenderer.md) — pretty and compact CSS rendering.
 - [`CSSRenderMode`](interfaces/CSSOM/CSSRenderMode.md) — renderer output mode enum.
 - [`CSSRenderOptions`](interfaces/CSSOM/CSSRenderOptions.md) — renderer callbacks and formatting options.
@@ -59,6 +65,8 @@ The documented names and signatures follow the PHP source. Trait pages describe 
 - [`CSSPropertyRule`](interfaces/CSSOM/CSSPropertyRule.md) — registered `@property` rule.
 - [`CSSPositionTryRule`](interfaces/CSSOM/CSSPositionTryRule.md) — `@position-try` rule.
 - [`CSSViewTransitionRule`](interfaces/CSSOM/CSSViewTransitionRule.md) — `@view-transition` rule.
+- [`CSSColorProfileRule`](interfaces/CSSOM/CSSColorProfileRule.md) — `@color-profile` rule.
+- [`CSSCustomMediaRule`](interfaces/CSSOM/CSSCustomMediaRule.md) — `@custom-media` rule.
 - [`CSSFunctionRule`](interfaces/CSSOM/CSSFunctionRule.md) — CSS function rule.
 - [`CSSFunctionDeclarations`](interfaces/CSSOM/CSSFunctionDeclarations.md) — function rule declaration data.
 
@@ -77,6 +85,8 @@ The documented names and signatures follow the PHP source. Trait pages describe 
 
 - [`CSSCalcParser`](interfaces/Parser/CSSCalcParser.md) — parser for CSS `calc()` arithmetic.
 - [`CSSInputPreprocessor`](interfaces/Parser/CSSInputPreprocessor.md) — CSS Syntax Level 3 §3.3 input stream preprocessor and UTF-8 sanitizer.
+- [`CSSMediaQueryParser`](interfaces/Parser/CSSMediaQueryParser.md) — iterative Media Queries Level 4/5 parser and CSSOM §6.7.1 canonical serializer.
+- [`CSSSelectorList`](interfaces/Parser/CSSSelectorList.md) — iterative Selectors Level 4 parser, canonical serializer, and `(A, B, C)` specificity calculator.
 - [`CSSSyntaxScanner`](interfaces/Parser/CSSSyntaxScanner.md) — top-level splitting, delimiter matching, and CSS-fragment validation.
 - [`CSSToken`](interfaces/Parser/CSSToken.md) — immutable CSS Syntax Level 3 token value object.
 - [`CSSTokenizer`](interfaces/Parser/CSSTokenizer.md) — iterative CSS Syntax Level 3 §4.3 streaming tokenizer.

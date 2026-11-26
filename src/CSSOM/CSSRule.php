@@ -14,6 +14,7 @@ use InvalidArgumentException;
  * @property-read string $cssText
  * @property-read ?CSSStyleSheet $parentStyleSheet
  * @property-read ?CSSGroupingRule $parentRule
+ * @property-read ?CSSSourceSpan $sourceSpan
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CSSRule
  */
 abstract class CSSRule
@@ -44,9 +45,12 @@ abstract class CSSRule
 	public const int CONTAINER_RULE = 25;
 	public const int VIEW_TRANSITION_RULE = 26;
 	public const int NESTED_DECLARATIONS_RULE = 27;
+	public const int COLOR_PROFILE_RULE = 28;
+	public const int CUSTOM_MEDIA_RULE = 29;
 
 	private ?CSSStyleSheet $parentSheetRef = null;
 	private ?CSSGroupingRule $parentRuleRef = null;
+	private ?CSSSourceSpan $sourceSpanValue = null;
 	protected ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES;
 
 	abstract public function getType(): int;
@@ -56,6 +60,19 @@ abstract class CSSRule
 	public function getParentStyleSheet(): ?CSSStyleSheet
 	{
 		return $this->parentSheetRef;
+	}
+
+	public function getSourceSpan(): ?CSSSourceSpan
+	{
+		return $this->sourceSpanValue;
+	}
+
+	/**
+	 * @internal Sets the originating CSS source span when `CSSParserOptions::$trackSpans` is enabled.
+	 */
+	public function setSourceSpanInternal(?CSSSourceSpan $span): void
+	{
+		$this->sourceSpanValue = $span;
 	}
 
 	public function getParentRule(): ?CSSGroupingRule
@@ -169,6 +186,7 @@ abstract class CSSRule
 			'cssText' => $this->getCssText(),
 			'parentStyleSheet' => $this->getParentStyleSheet(),
 			'parentRule' => $this->getParentRule(),
+			'sourceSpan' => $this->getSourceSpan(),
 			default => throw new Error('Undefined property: ' . static::class . '::$' . $name),
 		};
 	}
@@ -179,6 +197,7 @@ abstract class CSSRule
 			'type', 'cssText' => true,
 			'parentStyleSheet' => $this->getParentStyleSheet() !== null,
 			'parentRule' => $this->getParentRule() !== null,
+			'sourceSpan' => $this->sourceSpanValue !== null,
 			default => false,
 		};
 	}

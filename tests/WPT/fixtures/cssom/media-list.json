@@ -15,7 +15,7 @@
       "category": "canonicalization",
       "operation": "cssom.mediaList",
       "input": { "initial": "screen, PRINT, screen", "steps": [] },
-      "expected": { "mediaText": "screen, PRINT", "length": 2, "items": ["screen", "PRINT"] },
+      "expected": { "mediaText": "screen, print", "length": 2, "items": ["screen", "print"] },
       "status": "pass"
     },
     {
@@ -134,6 +134,18 @@
         ]
       },
       "expected": { "mediaText": "", "length": 0 },
+      "status": "pass"
+    },
+    {
+      "id": "cssom/medialist/range-and-boolean-canonicalization",
+      "upstream": "css/cssom/MediaList-parsing.html",
+      "category": "canonicalization",
+      "operation": "cssom.mediaList",
+      "input": { "initial": "(400px<=width<=800px), SCREEN and ((color) or (hover:hover))", "steps": [] },
+      "expected": {
+        "mediaText": "(400px <= width <= 800px), screen and ((color) or (hover: hover))",
+        "length": 2
+      },
       "status": "pass"
     }
   ]

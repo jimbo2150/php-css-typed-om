@@ -242,21 +242,25 @@ CSS);
 		$filtered = CSSRenderer::render($sheet, new CSSRenderOptions(
 			ruleCallback: static fn ($rule, string $text): string => $rule instanceof CSSOpaqueRule ? '' : $text,
 		));
-		self::assertSame("a {}\ndiv\nspan {\n  color: red;\n}\n@media screen {}", $filtered);
+		self::assertSame("a {}\ndiv span {\n  color: red;\n}\n@media screen {}", $filtered);
 	}
 
 	public function testMinifiedPreservesHexEscapeTerminatingWhitespaceAndEscapesStyleCloseTag(): void
 	{
-		$sheet = CSSStyleSheet::parse(".a\\2f  b { content: \"</style>\"; }");
+		$sheet = CSSStyleSheet::parse(".\\31  b { content: \"</style>\"; }");
 		self::assertSame([], $sheet->getParseErrors());
 
 		$minified = CSSRenderer::render($sheet, new CSSRenderOptions(CSSRenderMode::Minified, escapeHtmlStyleTag: true));
-		self::assertSame('.a\2f  b{content:"<\/style>";}', $minified);
+		self::assertSame('.\\31  b{content:"<\/style>";}', $minified);
 
-		$edgeSheet = CSSStyleSheet::parse(".a\\2f\r\nb[title=\u{00E9}url(a   b)] { color: red; }");
+		$slashSheet = CSSStyleSheet::parse(".a\\2f  b { color: green; }");
+		self::assertSame([], $slashSheet->getParseErrors());
+		self::assertSame('.a\/ b{color:green;}', CSSRenderer::render($slashSheet, new CSSRenderOptions(CSSRenderMode::Minified)));
+
+		$edgeSheet = CSSStyleSheet::parse(".a\\2f\r\nb[title=\"\u{00E9}url(a   b)\"] { color: red; }");
 		self::assertSame([], $edgeSheet->getParseErrors());
 		$edgeMinified = CSSRenderer::render($edgeSheet, new CSSRenderOptions(CSSRenderMode::Minified));
-		self::assertSame('.a\2f b[title=éurl(a b)]{color:red;}', $edgeMinified);
+		self::assertSame('.a\/b[title="éurl(a   b)"]{color:red;}', $edgeMinified);
 	}
 
 	public function testHandlesDepth256AndPreservesSelectorCommentBoundariesInMinify(): void
@@ -272,7 +276,16 @@ CSS);
 		self::assertSame([], $deepStyleSheet->getParseErrors());
 		self::assertStringContainsString('color: red;', $deepStyleSheet->getCssText());
 
-		$commentSel = CSSStyleSheet::parse('div/*c*/span { color: red; }');
-		self::assertSame('div span{color:red;}', CSSRenderer::render($commentSel, new CSSRenderOptions(CSSRenderMode::Minified, keepComments: false)));
+		$invalidCommentSel = CSSStyleSheet::parse('div/*c*/span { color: red; }');
+		self::assertCount(0, $invalidCommentSel->cssRules);
+		self::assertNotEmpty($invalidCommentSel->getParseErrors());
+
+		$adjacentClassSel = CSSStyleSheet::parse('div/*c*/.foo { color: red; }');
+		self::assertSame([], $adjacentClassSel->getParseErrors());
+		self::assertSame('div.foo{color:red;}', CSSRenderer::render($adjacentClassSel, new CSSRenderOptions(CSSRenderMode::Minified, keepComments: false)));
+
+		$spacedCommentSel = CSSStyleSheet::parse('div /*c*/ span { color: red; }');
+		self::assertSame([], $spacedCommentSel->getParseErrors());
+		self::assertSame('div span{color:red;}', CSSRenderer::render($spacedCommentSel, new CSSRenderOptions(CSSRenderMode::Minified, keepComments: false)));
 	}
 }

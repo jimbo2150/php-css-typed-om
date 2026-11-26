@@ -105,6 +105,9 @@ final class WptSchema
 			'geometry.matrix.serialize',
 			'geometry.matrix.transformPoint',
 			'geometry.matrix.invalid',
+			'geometry.point.ops',
+			'geometry.rect.ops',
+			'geometry.quad.ops',
 		],
 	];
 

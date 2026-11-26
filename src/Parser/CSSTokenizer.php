@@ -40,6 +40,7 @@ final class CSSTokenizer implements IteratorAggregate
 	private bool $preprocessed;
 	private bool $checkControlBytes;
 	private bool $parserMode;
+	private bool $decodePayload = true;
 	private ?int $maxErrors;
 	private bool $errorsTruncated = false;
 
@@ -119,6 +120,7 @@ final class CSSTokenizer implements IteratorAggregate
 		bool $checkControlBytes,
 		int $startOffset = 0,
 		?int $endOffset = null,
+		bool $decodeMetadata = false,
 	): self {
 		static $template = null;
 		$template ??= (new \ReflectionClass(self::class))->newInstanceWithoutConstructor();
@@ -130,6 +132,7 @@ final class CSSTokenizer implements IteratorAggregate
 		$instance->preprocessed = $alreadyPreprocessed;
 		$instance->checkControlBytes = $checkControlBytes;
 		$instance->parserMode = true;
+		$instance->decodePayload = $decodeMetadata;
 		$instance->maxErrors = $options->maxErrors;
 
 		return $instance;
@@ -371,13 +374,13 @@ final class CSSTokenizer implements IteratorAggregate
 			$dummyLen = 0;
 			if ($nextPos < $end && ($this->isIdentCodePointAt($src, $nextPos, $end, $dummyLen) || $this->isValidEscapeAt($src, $nextPos, $end))) {
 				$pos = $nextPos;
-				if (!$this->parserMode) {
+				if ($this->decodePayload) {
 					$this->hasDirtyTokenState = true;
 					$this->tokenFlag = $this->startsIdentSequenceAt($src, $pos, $end)
 						? CSSToken::HASH_ID
 						: CSSToken::HASH_UNRESTRICTED;
 				}
-				$val = $this->consumeIdentSequence($src, $pos, $end, !$this->parserMode);
+				$val = $this->consumeIdentSequence($src, $pos, $end, $this->decodePayload);
 				if ($val !== '') {
 					$this->tokenValue = $val;
 					$this->hasDirtyTokenState = true;
@@ -466,7 +469,7 @@ final class CSSTokenizer implements IteratorAggregate
 		if ($ch === '@') {
 			if ($this->startsIdentSequenceAt($src, $pos + 1, $end)) {
 				$pos++;
-				$val = $this->consumeIdentSequence($src, $pos, $end, !$this->parserMode);
+				$val = $this->consumeIdentSequence($src, $pos, $end, $this->decodePayload);
 				if ($val !== '') {
 					$this->tokenValue = $val;
 					$this->hasDirtyTokenState = true;
@@ -624,7 +627,7 @@ final class CSSTokenizer implements IteratorAggregate
 		$this->hasDirtyTokenState = true;
 		$this->tokenClosedQuote = $quote;
 		$pos++;
-		$decode = !$this->parserMode;
+		$decode = $this->decodePayload;
 		$chunks = $decode ? [] : null;
 		$chunkStart = $pos;
 		$mask = $quote . "\\\n\r\f" . ($this->checkControlBytes ? self::CONTROL_BYTES : '');
@@ -716,14 +719,14 @@ final class CSSTokenizer implements IteratorAggregate
 	private function consumeIdentLikeToken(string $src, int &$pos, int $end): void
 	{
 		$identStart = $pos;
-		$decoded = $this->consumeIdentSequence($src, $pos, $end, !$this->parserMode);
+		$decoded = $this->consumeIdentSequence($src, $pos, $end, $this->decodePayload);
 
 		if ($pos < $end && $src[$pos] === '(') {
 			$pos++;
 			$funcEnd = $pos;
 
 			if ($this->tokenHasEscapes) {
-				$decodedForUrl = $this->parserMode
+				$decodedForUrl = !$this->decodePayload
 					? $this->decodeEscapedIdentSlice(substr($src, $identStart, $funcEnd - 1 - $identStart))
 					: $decoded;
 				$isUrl = strtolower($decodedForUrl) === 'url';
@@ -747,7 +750,7 @@ final class CSSTokenizer implements IteratorAggregate
 
 				if ($this->isQuotedUrlNext($src, $pos, $end)) {
 					$this->tokenEnd = $funcEnd;
-					if (!$this->parserMode) {
+					if ($this->decodePayload) {
 						$this->tokenValue = $decoded;
 						$this->hasDirtyTokenState = true;
 					}
@@ -761,7 +764,7 @@ final class CSSTokenizer implements IteratorAggregate
 			}
 
 			$this->tokenEnd = $funcEnd;
-			if (!$this->parserMode) {
+			if ($this->decodePayload) {
 				$this->tokenValue = $decoded;
 				$this->hasDirtyTokenState = true;
 			}
@@ -770,7 +773,7 @@ final class CSSTokenizer implements IteratorAggregate
 		}
 
 		$this->tokenEnd = $pos;
-		if (!$this->parserMode) {
+		if ($this->decodePayload) {
 			$this->tokenValue = $decoded;
 			$this->hasDirtyTokenState = true;
 		}
@@ -805,7 +808,7 @@ final class CSSTokenizer implements IteratorAggregate
 		$wsMask = $this->preprocessed ? " \t\n" : self::ASCII_WHITESPACE;
 		$pos += strspn($src, $wsMask, $pos, $end - $pos);
 
-		$decode = !$this->parserMode;
+		$decode = $this->decodePayload;
 		$chunks = $decode ? [] : null;
 		$chunkStart = $pos;
 
@@ -940,7 +943,7 @@ final class CSSTokenizer implements IteratorAggregate
 			}
 		}
 
-		if (!$this->parserMode) {
+		if ($this->decodePayload) {
 			$repr = substr($src, $numStart, $pos - $numStart);
 			$this->tokenRepr = $repr;
 			$this->tokenNumericValue = (float) $repr;
@@ -948,7 +951,7 @@ final class CSSTokenizer implements IteratorAggregate
 		}
 
 		if ($this->startsIdentSequenceAt($src, $pos, $end)) {
-			if (!$this->parserMode) {
+			if ($this->decodePayload) {
 				$this->tokenUnitStart = $pos;
 				$unit = $this->consumeIdentSequence($src, $pos, $end, true);
 				$this->tokenUnitEnd = $pos;
@@ -969,7 +972,7 @@ final class CSSTokenizer implements IteratorAggregate
 			return;
 		}
 
-		if (!$this->parserMode) {
+		if ($this->decodePayload) {
 			$this->tokenFlag = $typeFlag;
 			$this->hasDirtyTokenState = true;
 		}

@@ -7,6 +7,10 @@ namespace Jimbo2150\PhpCssTypedOm\Tests\WPT\Suites;
 use InvalidArgumentException;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrix;
 use Jimbo2150\PhpCssTypedOm\Geometry\DOMMatrixReadOnly;
+use Jimbo2150\PhpCssTypedOm\Geometry\DOMPoint;
+use Jimbo2150\PhpCssTypedOm\Geometry\DOMPointReadOnly;
+use Jimbo2150\PhpCssTypedOm\Geometry\DOMQuad;
+use Jimbo2150\PhpCssTypedOm\Geometry\DOMRectReadOnly;
 use Jimbo2150\PhpCssTypedOm\Tests\WPT\Harness\WptAssertions;
 use Jimbo2150\PhpCssTypedOm\Tests\WPT\Harness\WptContractTestCase;
 use Jimbo2150\PhpCssTypedOm\Tests\WPT\Harness\WptFixtureCase;
@@ -43,6 +47,9 @@ final class GeometryWptTest extends WptContractTestCase
 			'geometry.matrix.serialize' => $this->runSerialize($case),
 			'geometry.matrix.transformPoint' => $this->runTransformPoint($case),
 			'geometry.matrix.invalid' => $this->runInvalid($case),
+			'geometry.point.ops' => $this->runPointOps($case),
+			'geometry.rect.ops' => $this->runRectOps($case),
+			'geometry.quad.ops' => $this->runQuadOps($case),
 			default => throw new LogicException(sprintf('Unsupported css/geometry operation "%s" in case "%s".', $case->operation, $case->id)),
 		};
 	}
@@ -338,6 +345,96 @@ final class GeometryWptTest extends WptContractTestCase
 		if (isset($expected['fields']) && is_array($expected['fields'])) {
 			foreach ($expected['fields'] as $field => $val) {
 				WptAssertions::assertFloatEquals((float) $val, (float) $matrix->{$field}, $delta, $case->id . ".$field");
+			}
+		}
+	}
+
+	private function runPointOps(WptFixtureCase $case): void
+	{
+		$input = $case->input;
+		$delta = $case->tolerance ?? 1e-6;
+		if (isset($input['fromPoint'])) {
+			/** @var array{x?: int|float, y?: int|float, z?: int|float, w?: int|float} $init */
+			$init = $input['fromPoint'];
+			$point = DOMPointReadOnly::fromPoint($init);
+		} else {
+			$point = new DOMPoint(
+				(float) ($input['x'] ?? 0.0),
+				(float) ($input['y'] ?? 0.0),
+				(float) ($input['z'] ?? 0.0),
+				(float) ($input['w'] ?? 1.0),
+			);
+		}
+
+		if (isset($input['matrix'])) {
+			/** @var list<int|float>|array<string, mixed> $matrixInit */
+			$matrixInit = $input['matrix'];
+			$point = $point->matrixTransform($matrixInit);
+		}
+
+		foreach (['x', 'y', 'z', 'w'] as $coord) {
+			if (array_key_exists($coord, $case->expected)) {
+				WptAssertions::assertFloatEquals((float) $case->expected[$coord], (float) $point->{$coord}, $delta, $case->id . ".$coord");
+			}
+		}
+	}
+
+	private function runRectOps(WptFixtureCase $case): void
+	{
+		$input = $case->input;
+		$delta = $case->tolerance ?? 1e-6;
+		$rect = new DOMRectReadOnly(
+			(float) ($input['x'] ?? 0.0),
+			(float) ($input['y'] ?? 0.0),
+			(float) ($input['width'] ?? 0.0),
+			(float) ($input['height'] ?? 0.0),
+		);
+
+		foreach (['x', 'y', 'width', 'height', 'top', 'right', 'bottom', 'left'] as $prop) {
+			if (array_key_exists($prop, $case->expected)) {
+				WptAssertions::assertFloatEquals((float) $case->expected[$prop], (float) $rect->{$prop}, $delta, $case->id . ".$prop");
+			}
+		}
+	}
+
+	private function runQuadOps(WptFixtureCase $case): void
+	{
+		$input = $case->input;
+		$delta = $case->tolerance ?? 1e-6;
+		if (($case->expected['throws'] ?? null) === 'InvalidArgumentException') {
+			WptAssertions::assertThrowsException(
+				InvalidArgumentException::class,
+				static function () use ($input): void {
+					/** @var array{x?: int|float, y?: int|float, z?: int|float, w?: int|float} $p1 */
+					$p1 = $input['p1'] ?? [];
+					new DOMQuad($p1);
+				},
+				$case->id,
+			);
+			return;
+		}
+
+		if (isset($input['fromRect'])) {
+			/** @var array{x?: int|float, y?: int|float, width?: int|float, height?: int|float} $rectInit */
+			$rectInit = $input['fromRect'];
+			$quad = DOMQuad::fromRect($rectInit);
+		} else {
+			$quad = DOMQuad::fromQuad($input);
+		}
+
+		foreach (['p1', 'p2', 'p3', 'p4'] as $corner) {
+			if (isset($case->expected[$corner]) && is_array($case->expected[$corner])) {
+				$pt = $quad->{$corner};
+				foreach ($case->expected[$corner] as $k => $v) {
+					WptAssertions::assertFloatEquals((float) $v, (float) $pt->{$k}, $delta, $case->id . ".$corner.$k");
+				}
+			}
+		}
+
+		if (isset($case->expected['bounds']) && is_array($case->expected['bounds'])) {
+			$bounds = $quad->getBounds();
+			foreach ($case->expected['bounds'] as $k => $v) {
+				WptAssertions::assertFloatEquals((float) $v, (float) $bounds->{$k}, $delta, $case->id . ".bounds.$k");
 			}
 		}
 	}

@@ -17,6 +17,7 @@ use Jimbo2150\PhpCssTypedOm\CSSOM\Shorthand\CSSShorthandSerializer;
 use Jimbo2150\PhpCssTypedOm\Grammar\CSSValueComponentParser;
 use Jimbo2150\PhpCssTypedOm\Grammar\CSSValueValidator;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSInputPreprocessor;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSourceLocationIndex;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSTokenizer;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSTokenType;
@@ -46,6 +47,11 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 
 	/** @var array<string, array{value: string, priority: string}> */
 	private array $declarations = [];
+
+	/** @var array<string, CSSSourceSpan> */
+	private array $sourceSpans = [];
+
+	private ?CSSSourceSpan $parsedBlockSpan = null;
 
 	/** @var array<string, array{shorthand: string, value: string, id: int, kind: 'substitution'|'system-font'}> */
 	private array $pendingShorthands = [];
@@ -318,6 +324,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			|| $owner instanceof CSSFontPaletteValuesRule
 			|| $owner instanceof CSSViewTransitionRule
 			|| $owner instanceof CSSFontFaceRule
+			|| $owner instanceof CSSColorProfileRule
 		) {
 			return false;
 		}
@@ -388,12 +395,19 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 					'kind' => $pending['kind'],
 					'priority' => $declaration['priority'],
 					'longhands' => [],
+					'spans' => [],
 				];
 				$pendingCommit[$newId]['longhands'][] = $property;
+				if (isset($source->sourceSpans[$property])) {
+					$pendingCommit[$newId]['spans'][$property] = $source->sourceSpans[$property];
+				}
 				continue;
 			}
 
 			$this->setValidatedProperty($property, $declaration['value'], $declaration['priority']);
+			if (isset($source->sourceSpans[$property], $this->declarations[$property])) {
+				$this->sourceSpans[$property] = $source->sourceSpans[$property];
+			}
 		}
 
 		foreach ($pendingCommit as $group) {
@@ -410,7 +424,97 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				true,
 				null,
 			);
+			foreach ($group['spans'] as $lh => $span) {
+				if (isset($this->declarations[$lh])) {
+					$this->sourceSpans[$lh] = $span;
+				}
+			}
 		}
+	}
+
+	/**
+	 * Returns the source span for a parsed declaration (or shared shorthand span), or `null` if unavailable.
+	 *
+	 * @throws InvalidArgumentException When $property is malformed
+	 */
+	public function getPropertySourceSpan(string $property): ?CSSSourceSpan
+	{
+		$name = self::normalizePropertyName($property);
+		if ($this->shouldExpandShorthandsInternal() && CSSShorthandRegistry::isShorthand($name)) {
+			$longhands = CSSShorthandRegistry::getLonghands($name);
+			if ($longhands !== null && $longhands !== []) {
+				$sharedSpan = null;
+				foreach ($longhands as $lh) {
+					if (!isset($this->declarations[$lh], $this->sourceSpans[$lh])) {
+						return null;
+					}
+					$lhSpan = $this->sourceSpans[$lh];
+					if ($sharedSpan === null) {
+						$sharedSpan = $lhSpan;
+					} elseif ($lhSpan !== $sharedSpan) {
+						return null;
+					}
+				}
+
+				return $sharedSpan;
+			}
+		}
+
+		return $this->sourceSpans[$name] ?? null;
+	}
+
+	/**
+	 * @internal Returns the cumulative source span of parsed declarations (including overridden declarations).
+	 */
+	public function getParsedBlockSpanInternal(): ?CSSSourceSpan
+	{
+		return $this->parsedBlockSpan;
+	}
+
+	private function recordParsedSpanExtent(CSSSourceSpan $span): void
+	{
+		if ($this->parsedBlockSpan === null) {
+			$this->parsedBlockSpan = $span;
+			return;
+		}
+
+		$cur = $this->parsedBlockSpan;
+		$startOffset = $cur->startOffset;
+		$startLine = $cur->startLine;
+		$startColumn = $cur->startColumn;
+		if ($span->startOffset < $startOffset) {
+			$startOffset = $span->startOffset;
+			$startLine = $span->startLine;
+			$startColumn = $span->startColumn;
+		}
+		$endOffset = $cur->endOffset;
+		$endLine = $cur->endLine;
+		$endColumn = $cur->endColumn;
+		if ($span->endOffset > $endOffset) {
+			$endOffset = $span->endOffset;
+			$endLine = $span->endLine;
+			$endColumn = $span->endColumn;
+		}
+		if ($startOffset !== $cur->startOffset || $endOffset !== $cur->endOffset) {
+			$this->parsedBlockSpan = new CSSSourceSpan(
+				$startOffset,
+				$endOffset,
+				$startLine,
+				$startColumn,
+				$endLine,
+				$endColumn,
+			);
+		}
+	}
+
+	/**
+	 * Returns tracked source spans keyed by canonical longhand/custom property name.
+	 *
+	 * @return array<string, CSSSourceSpan>
+	 */
+	public function getSourceSpans(): array
+	{
+		return $this->sourceSpans;
 	}
 
 	private function resolveValidationOptionsInternal(): ?CSSParserOptions
@@ -601,6 +705,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		if ($oldEntry !== null && $this->shouldReappendSingleLonghand($name)) {
 			unset($this->declarations[$name]);
 		}
+		unset($this->sourceSpans[$name]);
 		$this->declarations[$name] = ['value' => $value, 'priority' => $priority];
 		if (CSSShorthandRegistry::isShorthandLonghand($name)) {
 			$this->hasShorthandLonghand = true;
@@ -663,6 +768,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		if ($current !== null && $this->shouldReappendSingleLonghand($normalizedName)) {
 			unset($this->declarations[$normalizedName]);
 		}
+		unset($this->sourceSpans[$normalizedName]);
 		$this->declarations[$normalizedName] = ['value' => $trimmedValue, 'priority' => $priority];
 		if (CSSShorthandRegistry::isShorthandLonghand($normalizedName)) {
 			$this->hasShorthandLonghand = true;
@@ -691,6 +797,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 	{
 		$delta = -count($this->declarations);
 		$this->declarations = [];
+		$this->sourceSpans = [];
+		$this->parsedBlockSpan = null;
 		$this->pendingShorthands = [];
 		$this->pendingPayloadAccounting = [];
 		$this->hasShorthandLonghand = false;
@@ -741,7 +849,19 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				&& $resolvedMaxDepth === $sheet->getMaxDepthInternal()
 				&& $resolvedMaxMathDepth === $sheet->getMaxMathDepthInternal()
 			) {
-				$effectiveOptions = $sheet->resolveParserOptionsInternal(null);
+				$resolved = $sheet->resolveParserOptionsInternal(null);
+				$effectiveOptions = $resolved->trackSpans
+					? new CSSParserOptions(
+						maxBytes: $resolved->maxBytes,
+						maxDepth: $resolved->maxDepth,
+						maxRules: $resolved->maxRules,
+						maxMathDepth: $resolved->maxMathDepth,
+						maxErrors: $resolved->maxErrors,
+						maxDeclarations: $resolved->maxDeclarations,
+						browserErrorRecovery: $resolved->browserErrorRecovery,
+						trackSpans: false,
+					)
+					: $resolved;
 			} elseif ($sheet !== null
 				|| $resolvedMaxBytes !== CSSParserOptions::DEFAULT_MAX_BYTES
 				|| $resolvedMaxDecls !== CSSParserOptions::DEFAULT_MAX_DECLARATIONS
@@ -769,6 +889,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		$delta = count($replacement->declarations) - count($this->declarations);
 		$this->assertSheetDeclarationGrowth($delta, $effectiveOptions);
 		$this->declarations = $replacement->declarations;
+		$this->sourceSpans = $replacement->sourceSpans;
+		$this->parsedBlockSpan = $replacement->parsedBlockSpan;
 		$this->pendingShorthands = $replacement->pendingShorthands;
 		$this->pendingPayloadAccounting = $replacement->pendingPayloadAccounting;
 		$this->hasShorthandLonghand = $replacement->hasShorthandLonghand;
@@ -1060,12 +1182,14 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		bool $allowEmptyInitialValue = false,
 		bool &$sawEmptyInitialValue = false,
 		bool $validatePropertyGrammar = true,
+		?CSSSourceLocationIndex $locationIndex = null,
 	): bool {
 		$declaration = trim($slice, " \t\n");
 		if ($declaration === '') {
 			return true;
 		}
 		$segmentOffset = $start + strspn($slice, " \t\n");
+		$segmentEndOffset = $locationIndex !== null ? ($segmentOffset + strlen($declaration)) : 0;
 		$colon = strpos($declaration, ':');
 		if ($colon === false) {
 			self::handleInvalidDeclaration('Missing colon in declaration: ' . $declaration, $segmentOffset, $strict, $diagnostics, $options, $allowSentinelSlot);
@@ -1120,6 +1244,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			$allowEmptyInitialValue,
 			$sawEmptyInitialValue,
 			$validatePropertyGrammar,
+			$segmentEndOffset,
+			$locationIndex,
 		);
 	}
 
@@ -1151,6 +1277,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		bool &$sawEmptyInitialValue = false,
 		bool $browserMode = false,
 		bool $validatePropertyGrammar = true,
+		?CSSSourceLocationIndex $locationIndex = null,
 	): bool {
 		$segmentOffset = $tokens !== [] ? $tokens[0]['start'] : $start;
 
@@ -1213,6 +1340,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			return true;
 		}
 
+		$segmentOffset = $nameTok['start'];
 		$colonEnd = $tokens[$idx]['end'];
 		$valStartIdx = $idx + 1;
 		while ($valStartIdx < $tokenCount && $tokens[$valStartIdx]['type'] === CSSTokenType::Whitespace) {
@@ -1222,6 +1350,10 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		while ($valEndIdx >= $valStartIdx && $tokens[$valEndIdx]['type'] === CSSTokenType::Whitespace) {
 			$valEndIdx--;
 		}
+
+		$segmentEndOffset = $locationIndex !== null
+			? ($valStartIdx > $valEndIdx ? $colonEnd : max($segmentOffset, $tokens[$valEndIdx]['end']))
+			: 0;
 
 		if ($valStartIdx > $valEndIdx) {
 			return $this->commitParsedDeclaration(
@@ -1238,6 +1370,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				$allowEmptyInitialValue,
 				$sawEmptyInitialValue,
 				$validatePropertyGrammar,
+				$segmentEndOffset,
+				$locationIndex,
 			);
 		}
 
@@ -1332,6 +1466,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			$allowEmptyInitialValue,
 			$sawEmptyInitialValue,
 			$validatePropertyGrammar,
+			$segmentEndOffset,
+			$locationIndex,
 		);
 	}
 
@@ -1412,6 +1548,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		bool $allowEmptyInitialValue,
 		bool &$sawEmptyInitialValue,
 		bool $validatePropertyGrammar = true,
+		int $segmentEndOffset = 0,
+		?CSSSourceLocationIndex $locationIndex = null,
 	): bool {
 		if ($value === '' && !str_starts_with($name, '--')) {
 			if ($allowEmptyInitialValue && $name === 'initial-value' && $priority === '') {
@@ -1435,6 +1573,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 					$this->contentBytes -= strlen('initial-value') + strlen($current['value']);
 				}
 				unset($this->declarations['initial-value']);
+				unset($this->sourceSpans['initial-value']);
 				$this->cachedKeys = null;
 				$sawEmptyInitialValue = true;
 				return true;
@@ -1500,6 +1639,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				$declarationCount,
 				$throwOnLimit,
 				$allowSentinelSlot,
+				$segmentEndOffset,
+				$locationIndex,
 			);
 		}
 
@@ -1519,6 +1660,9 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 
 		$current = $this->declarations[$name] ?? null;
 		if ($current !== null && $current['priority'] === 'important' && $priority !== 'important') {
+			if ($locationIndex !== null) {
+				$this->recordParsedSpanExtent($locationIndex->span($segmentOffset, $segmentEndOffset));
+			}
 			return true;
 		}
 		if ($name === 'initial-value') {
@@ -1531,6 +1675,13 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		}
 		$this->contentBytes += strlen($name) + strlen($value) - $oldBytes;
 		$this->declarations[$name] = ['value' => $value, 'priority' => $priority];
+		if ($locationIndex !== null) {
+			$declSpan = $locationIndex->span($segmentOffset, $segmentEndOffset);
+			$this->sourceSpans[$name] = $declSpan;
+			$this->recordParsedSpanExtent($declSpan);
+		} else {
+			unset($this->sourceSpans[$name]);
+		}
 		if (CSSShorthandRegistry::isShorthandLonghand($name)) {
 			$this->hasShorthandLonghand = true;
 		}
@@ -1553,6 +1704,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		int &$declarationCount,
 		bool $throwOnLimit,
 		bool $allowSentinelSlot,
+		int $segmentEndOffset = 0,
+		?CSSSourceLocationIndex $locationIndex = null,
 	): bool {
 		$isPending = $expanded['kind'] === 'pending';
 		$longhandMap = $isPending
@@ -1594,10 +1747,17 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		$declarationCount += $expandedCount;
 
 		if ($planned['toCommit'] === []) {
+			if ($locationIndex !== null) {
+				$this->recordParsedSpanExtent($locationIndex->span($segmentOffset, $segmentEndOffset));
+			}
 			return true;
 		}
 
-		$this->applyPlannedCommit($expanded, $planned['toCommit'], $priority, $planned['nextContentBytes'], true);
+		$sourceSpan = $locationIndex?->span($segmentOffset, $segmentEndOffset);
+		if ($sourceSpan !== null) {
+			$this->recordParsedSpanExtent($sourceSpan);
+		}
+		$this->applyPlannedCommit($expanded, $planned['toCommit'], $priority, $planned['nextContentBytes'], true, $sourceSpan);
 
 		return true;
 	}
@@ -1702,6 +1862,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		string $priority,
 		int $nextContentBytes,
 		bool $reappendAll,
+		?CSSSourceSpan $sourceSpan = null,
 	): void {
 		$isPending = $expanded['kind'] === 'pending';
 		$newPendingId = null;
@@ -1725,6 +1886,11 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				$this->clearPendingEntryInternal($lh);
 			}
 			$this->declarations[$lh] = ['value' => $val, 'priority' => $priority];
+			if ($sourceSpan !== null) {
+				$this->sourceSpans[$lh] = $sourceSpan;
+			} else {
+				unset($this->sourceSpans[$lh]);
+			}
 			if ($isPending && $newPendingId !== null) {
 				$this->pendingShorthands[$lh] = [
 					'shorthand' => $expanded['shorthand'],
@@ -1750,6 +1916,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			$this->contentBytes -= $this->computeRemovedEntryBytes($name);
 			$this->clearPendingEntryInternal($name);
 			unset($this->declarations[$name]);
+			unset($this->sourceSpans[$name]);
 		}
 		$this->cachedKeys = null;
 		$this->notifySheetMutation($delta, $name === 'initial-value');
@@ -1771,6 +1938,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 			$this->contentBytes -= $this->computeRemovedEntryBytes($lh);
 			$this->clearPendingEntryInternal($lh);
 			unset($this->declarations[$lh]);
+			unset($this->sourceSpans[$lh]);
 		}
 		if ($delta === 0) {
 			return;
@@ -1934,6 +2102,8 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		}
 
 		$this->declarations = [];
+		$this->sourceSpans = [];
+		$this->parsedBlockSpan = null;
 		$this->pendingShorthands = [];
 		$this->pendingPayloadAccounting = [];
 		$this->hasShorthandLonghand = false;
@@ -1944,6 +2114,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 		$declarationCount = 0;
 		$initialDiagCount = count($diagnostics);
 		$sawEmptyInitialValue = false;
+		$locationIndex = $options->trackSpans ? new CSSSourceLocationIndex($source, $startOffset) : null;
 
 		$tokenizer = null;
 		$pos = $startOffset;
@@ -1967,6 +2138,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 					$allowEmptyInitialValue,
 					$sawEmptyInitialValue,
 					$validatePropertyGrammar,
+					$locationIndex,
 				);
 				if (!$ok) {
 					break;
@@ -2152,6 +2324,7 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 				$sawEmptyInitialValue,
 				$browserMode,
 				$validatePropertyGrammar,
+				$locationIndex,
 			);
 			if (!$ok) {
 				break;
@@ -2170,6 +2343,45 @@ class CSSStyleDeclaration implements ArrayAccess, Countable, IteratorAggregate
 					'offset' => $baseOffset + $diagnostics[$i]['offset'],
 				];
 			}
+			if ($locationIndex !== null) {
+				$this->shiftTrackedSpansForBaseOffset($baseOffset);
+			}
+		}
+	}
+
+	private function shiftTrackedSpansForBaseOffset(int $baseOffset): void
+	{
+		$shiftedCache = [];
+		foreach ($this->sourceSpans as $prop => $span) {
+			$id = spl_object_id($span);
+			if (!isset($shiftedCache[$id])) {
+				if ($span->endOffset > PHP_INT_MAX - $baseOffset) {
+					throw new InvalidArgumentException('Source span offset overflows integer bounds.');
+				}
+				$shiftedCache[$id] = new CSSSourceSpan(
+					$baseOffset + $span->startOffset,
+					$baseOffset + $span->endOffset,
+					$span->startLine,
+					$span->startColumn,
+					$span->endLine,
+					$span->endColumn,
+				);
+			}
+			$this->sourceSpans[$prop] = $shiftedCache[$id];
+		}
+		if ($this->parsedBlockSpan !== null) {
+			$curSpan = $this->parsedBlockSpan;
+			if ($curSpan->endOffset > PHP_INT_MAX - $baseOffset) {
+				throw new InvalidArgumentException('Source span offset overflows integer bounds.');
+			}
+			$this->parsedBlockSpan = new CSSSourceSpan(
+				$baseOffset + $curSpan->startOffset,
+				$baseOffset + $curSpan->endOffset,
+				$curSpan->startLine,
+				$curSpan->startColumn,
+				$curSpan->endLine,
+				$curSpan->endColumn,
+			);
 		}
 	}
 

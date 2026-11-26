@@ -2079,7 +2079,7 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		// 4. Policy B3: Detached CSSRule & MediaList $maxBytes persistence + unlimited propagation + clone GC
 		$detachedTightImport = new CSSImportRule('"a.css" screen', 20);
 		try {
-			$detachedTightImport->media->appendMedium('1234567890');
+			$detachedTightImport->media->appendMedium('projection');
 			self::fail('Expected detached CSSImportRule to retain 20-byte prelude cap.');
 		} catch (CSSParserLimitException) {
 			self::assertSame('screen', $detachedTightImport->mediaText);
@@ -2264,9 +2264,9 @@ final class CSSSecurityAndLimitsTest extends TestCase
 			}
 		}
 
-		// Valid escaped control-byte function & long ident remain linear-time (no O(N^2) rescan)
-		$escCtlMedia = new CSSImportRule('"a.css" a\\7 layer(ok)');
-		self::assertSame('a\\7 layer(ok)', $escCtlMedia->mediaText);
+		// Valid escaped control-byte ident & long ident remain linear-time (no O(N^2) rescan)
+		$escCtlMedia = new CSSImportRule('"a.css" a\\7  and (min-width: 10px)');
+		self::assertSame('a\\7  and (min-width: 10px)', $escCtlMedia->mediaText);
 		$longCtlIdent = new CSSImportRule('"a.css" ' . str_repeat('a', 10_000) . '\\7 ');
 		self::assertGreaterThan(10_000, strlen($longCtlIdent->mediaText));
 
@@ -3827,10 +3827,10 @@ final class CSSSecurityAndLimitsTest extends TestCase
 		self::assertSame("\xEF\xBB\xBFdiv { color: red; }", $doubleBomSheet->getCssText());
 
 		// 8. Linear O(N) @-rule prelude scan with large comment-free tail + '/' Edge Cases
-		$slashEdgeCases = CSSStyleSheet::parse("@media (aspect-ratio: 16/9) /* c */ { a { color: red; } }\n@media all//* c */ { b { color: blue; } }");
+		$slashEdgeCases = CSSStyleSheet::parse("@media (aspect-ratio: 16/9) /* c */ { a { color: red; } }\n@media (min-aspect-ratio: 16//* c */9) { b { color: blue; } }");
 		self::assertSame([], $slashEdgeCases->getParseErrors());
 		self::assertCount(2, $slashEdgeCases->cssRules);
-		self::assertSame("@media (aspect-ratio: 16/9) { a { color: red; } }\n@media all/ { b { color: blue; } }", $slashEdgeCases->getCssText());
+		self::assertSame("@media (aspect-ratio: 16/9) { a { color: red; } }\n@media (min-aspect-ratio: 16/9) { b { color: blue; } }", $slashEdgeCases->getCssText());
 
 		$atTailPayload = str_repeat("@media all { }\n", 5000) . str_repeat(' ', 4 * 1024 * 1024);
 		$tStart = hrtime(true);

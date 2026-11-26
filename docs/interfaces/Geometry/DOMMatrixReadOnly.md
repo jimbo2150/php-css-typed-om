@@ -15,6 +15,6 @@ Public declared property `public protected(set) bool $is2D`; read-only magic pro
 - `fromMatrix(DOMMatrixReadOnly|array $other = []): static`
 - `fromFloat32Array(array $values): static`, `fromFloat64Array(array $values): static`, `fromElements(array $elements, bool $is2D): static`, `multiplyElements(array $left, array $right, bool $leftIs2D = false, bool $rightIs2D = false): array` (static; array factories reject control characters and non-finite inputs)
 - Immutable operations returning [`DOMMatrix`](DOMMatrix.md): `translate()`, `scale()`, `scaleNonUniform()`, `scale3d()`, `rotate()`, `rotateFromVector()`, `rotateAxisAngle()` (magnitude pre-scaled to avoid overflow/underflow), `skewX()`, `skewY()`, `multiply()`, `flipX()`, `flipY()`, `inverse()` (throws `InvalidArgumentException` on singular matrix).
-- `transformPoint(array $point = []): array` — returns `['x' => float, 'y' => float, 'z' => float, 'w' => float]`.
+- `transformPoint(DOMPointReadOnly|array $point = []): DOMPoint` — transforms a point or `DOMPointInit` dictionary and returns a [`DOMPoint`](DOMPoint.md) implementing `ArrayAccess<string, float>`.
 - `toFloat32Array(): array`, `toFloat64Array(): array`, `toJSON(): array`, `__toString(): string` (`matrix(...)` or `matrix3d(...)`).
 - `ArrayAccess` allows reading indices `0..15`; writes throw `InvalidArgumentException`.

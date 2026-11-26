@@ -41,9 +41,9 @@ final class DifferentialGoldenTest extends TestCase
 {
 	private const string REPRESENTATIVE_CSS = <<<'CSS'
 @charset "UTF-8";
-@namespace svg url("http://www.w3.org/2000/svg");
 @layer base, components;
 @import url("tokens.css") layer(base) supports(display: grid) screen and (min-width: 480px);
+@namespace svg url("http://www.w3.org/2000/svg");
 
 @property --brand-hue {
   syntax: "<number>";
@@ -125,9 +125,9 @@ CSS;
 		$rules = $sheet->cssRules;
 		self::assertCount(16, $rules);
 		self::assertInstanceOf(CSSCharsetRule::class, $rules[0]);
-		self::assertInstanceOf(CSSNamespaceRule::class, $rules[1]);
-		self::assertInstanceOf(CSSLayerStatementRule::class, $rules[2]);
-		self::assertInstanceOf(CSSImportRule::class, $rules[3]);
+		self::assertInstanceOf(CSSLayerStatementRule::class, $rules[1]);
+		self::assertInstanceOf(CSSImportRule::class, $rules[2]);
+		self::assertInstanceOf(CSSNamespaceRule::class, $rules[3]);
 		self::assertInstanceOf(CSSPropertyRule::class, $rules[4]);
 		self::assertInstanceOf(CSSFontFaceRule::class, $rules[5]);
 		self::assertInstanceOf(CSSFontFeatureValuesRule::class, $rules[6]);

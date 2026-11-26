@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jimbo2150\PhpCssTypedOm\CSSOM;
 
 use InvalidArgumentException;
+use Jimbo2150\PhpCssTypedOm\Parser\CSSSelectorList;
 use Jimbo2150\PhpCssTypedOm\Parser\CSSSyntaxScanner;
 
 /**
@@ -23,7 +24,8 @@ final class CSSScopeRule extends CSSGroupingRule
 	public function __construct(string $prelude = '', ?int $maxBytes = CSSParserOptions::DEFAULT_MAX_BYTES)
 	{
 		parent::__construct('scope', $prelude, $maxBytes);
-		[$this->startSelector, $this->endSelector] = self::parseBounds($this->prelude);
+		[$this->startSelector, $this->endSelector, $canonicalPrelude] = self::parseBounds($this->prelude, $maxBytes);
+		$this->prelude = $canonicalPrelude;
 	}
 
 	public function getType(): int
@@ -59,30 +61,32 @@ final class CSSScopeRule extends CSSGroupingRule
 		};
 	}
 
-	/** @return array{?string, ?string} */
-	private static function parseBounds(string $prelude): array
+	/** @return array{?string, ?string, string} */
+	private static function parseBounds(string $prelude, ?int $maxBytes): array
 	{
 		$prelude = CSSSyntaxScanner::trimCssWhitespace($prelude);
 		if (str_contains($prelude, '/*')) {
 			$prelude = CSSSyntaxScanner::trimCssWhitespace(CSSSyntaxScanner::removeComments($prelude));
 		}
 		if ($prelude === '') {
-			return [null, null];
+			return [null, null, ''];
 		}
 
 		$offset = 0;
 		$start = null;
 		$end = null;
+		$opts = new CSSParserOptions(maxBytes: $maxBytes);
 
 		if ($prelude[0] === '(') {
 			$close = CSSSyntaxScanner::findMatchingDelimiter($prelude, 0);
 			if ($close === null) {
 				throw new InvalidArgumentException('Unclosed @scope start selector.');
 			}
-			$start = CSSSyntaxScanner::trimCssWhitespace(substr($prelude, 1, $close - 1));
-			if ($start === '') {
+			$rawStart = CSSSyntaxScanner::trimCssWhitespace(substr($prelude, 1, $close - 1));
+			if ($rawStart === '') {
 				throw new InvalidArgumentException('Empty @scope start selector is not allowed.');
 			}
+			$start = CSSSelectorList::parseForgiving($rawStart, $opts)->getCssText();
 			$offset = $close + 1;
 		}
 
@@ -106,12 +110,20 @@ final class CSSScopeRule extends CSSGroupingRule
 			if ($close !== $restLen - 1) {
 				throw new InvalidArgumentException('Malformed @scope end selector.');
 			}
-			$end = CSSSyntaxScanner::trimCssWhitespace(substr($rest, $open + 1, $close - $open - 1));
-			if ($end === '') {
+			$rawEnd = CSSSyntaxScanner::trimCssWhitespace(substr($rest, $open + 1, $close - $open - 1));
+			if ($rawEnd === '') {
 				throw new InvalidArgumentException('Empty @scope end selector is not allowed.');
 			}
+			$end = CSSSelectorList::parseRelative($rawEnd, $opts, true)->getCssText();
 		}
 
-		return [$start, $end];
+		$canonical = match (true) {
+			$start !== null && $end !== null => '(' . $start . ') to (' . $end . ')',
+			$start !== null => '(' . $start . ')',
+			$end !== null => 'to (' . $end . ')',
+			default => '',
+		};
+
+		return [$start, $end, $canonical];
 	}
 }

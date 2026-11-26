@@ -40,7 +40,8 @@
     "css/geometry": [
       "fixtures/geometry/dommatrix-constructor-and-parsing.json",
       "fixtures/geometry/dommatrix-operations-and-invert.json",
-      "fixtures/geometry/dommatrix-serialization-and-errors.json"
+      "fixtures/geometry/dommatrix-serialization-and-errors.json",
+      "fixtures/geometry/dompoint-rect-quad.json"
     ]
   }
 }
